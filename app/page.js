@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState } from 'react';
@@ -7,7 +5,7 @@ import { useState } from 'react';
 export default function Home() {
   const [vrm, setVrm] = useState('');
   const [mileage, setMileage] = useState('');
-  const [market, setMarket] = useState('GB');
+  const [market, setMarket] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -43,7 +41,7 @@ export default function Home() {
 
   const markets = [
     { id: 'GB', label: 'GB', sub: 'Standard value', icon: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-    { id: 'NI', label: 'GB', sub: 'N. Ireland', detail: '+8–12% premium', icon: '🏴' },
+    { id: 'NI', label: 'NI', sub: 'N. Ireland', detail: '+8–12% premium', icon: '🏴' },
     { id: 'IE', label: 'IE', sub: 'Rep. Ireland', detail: '+ VRT calculated', icon: '🇮🇪' },
   ];
 
@@ -300,7 +298,12 @@ export default function Home() {
 
         .market-card.active {
           border-color: var(--yellow);
-          background: rgba(245,200,66,0.08);
+          background: rgba(245,200,66,0.12);
+        }
+
+        .market-card.active .market-label,
+        .market-card.active .market-sub {
+          color: var(--yellow);
         }
 
         .market-card .flag {
@@ -371,6 +374,12 @@ export default function Home() {
           color: var(--text);
         }
 
+        .btn-basic.selected {
+          border-color: var(--yellow);
+          color: var(--yellow);
+          background: rgba(245,200,66,0.08);
+        }
+
         .btn-free {
           background: var(--bg3);
           border: 1.5px solid var(--orange);
@@ -380,6 +389,18 @@ export default function Home() {
         .btn-free:hover:not(:disabled) {
           background: var(--orange-dim);
           color: var(--orange);
+        }
+
+        .btn-free.selected {
+          border-color: var(--yellow);
+          color: var(--yellow);
+          background: rgba(245,200,66,0.08);
+        }
+
+        .btn-pro.selected {
+          background: var(--yellow);
+          color: var(--bg);
+          box-shadow: 0 4px 20px rgba(245,200,66,0.4);
         }
 
         .btn-pro {
@@ -558,10 +579,10 @@ export default function Home() {
             <input
               className="vrm-input"
               type="text"
-              placeholder="AB12 CDE"
+              placeholder="AB12CDE"
               value={vrm}
               onChange={e => setVrm(e.target.value.toUpperCase())}
-              maxLength={8}
+              maxLength={12}
             />
           </div>
 
@@ -573,10 +594,15 @@ export default function Home() {
             <div className="mileage-wrap">
               <input
                 className="mileage-input"
-                type="number"
-                placeholder="e.g. 61309"
+                type="text"
+                inputMode="numeric"
+                placeholder="e.g. 61,309"
                 value={mileage}
-                onChange={e => setMileage(e.target.value)}
+                onChange={e => {
+                  const raw = e.target.value.replace(/,/g, '');
+                  if (!/^\d*$/.test(raw)) return;
+                  setMileage(raw ? Number(raw).toLocaleString('en-GB') : '');
+                }}
               />
               <span className="mileage-unit">miles</span>
             </div>
@@ -606,7 +632,7 @@ export default function Home() {
           {/* BUTTONS */}
           <div className="btn-row">
             <button
-              className="btn-check btn-basic"
+              className={`btn-check btn-basic ${tier === 'free' ? 'selected' : ''}`}
               onClick={() => handleCheck('free')}
               disabled={loading || !vrm.trim()}
             >
@@ -614,7 +640,7 @@ export default function Home() {
               <span className="btn-price">DVLA only</span>
             </button>
             <button
-              className="btn-check btn-free"
+              className={`btn-check btn-free ${tier === 'standard' ? 'selected' : ''}`}
               onClick={() => handleCheck('standard')}
               disabled={loading || !vrm.trim()}
             >
@@ -622,7 +648,7 @@ export default function Home() {
               <span className="btn-price">£1.99 per check</span>
             </button>
             <button
-              className="btn-check btn-pro"
+              className={`btn-check btn-pro ${tier === 'pro' ? 'selected' : ''}`}
               onClick={() => handleCheck('pro')}
               disabled={loading || !vrm.trim()}
             >
