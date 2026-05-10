@@ -49,7 +49,10 @@ export async function POST(request) {
     const reg = data.content?.[0]?.text?.trim().toUpperCase().replace(/\s/g, '');
 
     if (!reg || reg === 'NONE' || reg.length < 2) {
-      return NextResponse.json({ error: 'No plate found' });
+      const reg = data.content?.[0]?.text?.trim().toUpperCase().replace(/\s/g, '');
+
+// DEBUG - remove later
+return NextResponse.json({ reg, raw: data.content?.[0]?.text, error: data.error });
     }
 
     return NextResponse.json({ reg });
