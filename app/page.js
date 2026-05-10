@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import { useState } from 'react';
@@ -332,8 +334,8 @@ export default function Home() {
         /* BUTTONS */
         .btn-row {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 10px;
           margin-top: 4px;
         }
 
@@ -357,14 +359,26 @@ export default function Home() {
           cursor: not-allowed;
         }
 
-        .btn-free {
+        .btn-basic {
           background: var(--bg3);
           border: 1.5px solid var(--border-dim);
+          color: var(--text-dim);
+          font-size: 14px;
+        }
+
+        .btn-basic:hover:not(:disabled) {
+          border-color: var(--text-dim);
           color: var(--text);
         }
 
+        .btn-free {
+          background: var(--bg3);
+          border: 1.5px solid var(--orange);
+          color: var(--orange);
+        }
+
         .btn-free:hover:not(:disabled) {
-          border-color: var(--orange);
+          background: var(--orange-dim);
           color: var(--orange);
         }
 
@@ -591,6 +605,14 @@ export default function Home() {
 
           {/* BUTTONS */}
           <div className="btn-row">
+            <button
+              className="btn-check btn-basic"
+              onClick={() => handleCheck('free')}
+              disabled={loading || !vrm.trim()}
+            >
+              Free
+              <span className="btn-price">DVLA only</span>
+            </button>
             <button
               className="btn-check btn-free"
               onClick={() => handleCheck('standard')}
