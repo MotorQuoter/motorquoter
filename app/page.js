@@ -563,6 +563,19 @@ export default function Home() {
 
         {/* HERO */}
         <div className="hero">
+          <img
+            src="/Wheel.jpeg"
+            alt="MotorQuoter"
+            style={{
+              width: '160px',
+              height: '160px',
+              objectFit: 'cover',
+              borderRadius: '50%',
+              border: '3px solid var(--orange)',
+              marginBottom: '20px',
+              boxShadow: '0 0 30px rgba(240,90,26,0.3)',
+            }}
+          />
           <p className="hero-eyebrow">UK Vehicle Intelligence</p>
           <h1 className="hero-title">
             KNOW YOUR<span>NUMBERS</span>
