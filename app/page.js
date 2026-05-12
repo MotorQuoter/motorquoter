@@ -789,7 +789,7 @@ export default function Home() {
             <div className="result-header">
               <div className="result-reg">{vrm.toUpperCase()}</div>
               <div className="result-vehicle">
-                {result.make} {result.model} {result.year}
+                {result.make} {result.yearOfManufacture}
               </div>
             </div>
             <div className="result-body">
@@ -819,12 +819,14 @@ export default function Home() {
                   </span>
                 </div>
               )}
-              {result.motExpiry && (
-                <div className="result-row">
-                  <span className="result-key">MOT Expiry</span>
-                  <span className="result-val">{result.motExpiry}</span>
-                </div>
-              )}
+              {result.motStatus && (
+  <div className="result-row">
+    <span className="result-key">MOT</span>
+    <span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>
+      {result.motStatus}
+    </span>
+  </div>
+)}
               {result.raw && (
                 <div className="result-row">
                   <span className="result-key">Raw Data</span>
