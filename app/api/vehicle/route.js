@@ -3,44 +3,51 @@ import { NextResponse } from 'next/server';
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
+  const tier = searchParams.get('tier') || 'free';
 
   if (!vrm) {
-    return NextResponse.json({ error: 'Registration number required' }, { status: 400 });
+    return NextResponse.json({ error: 'No registration provided' }, { status: 400 });
   }
 
   try {
-    const url = `https://api.oneautoapi.com/ukvehicledata/vehicledatafromvrm/v2?vehicle_registration_mark=${vrm.replace(/\s/g, '').toUpperCase()}`;
+    const response = await fetch(
+      'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
+      {
+        method: 'POST',
+        headers: {
+          'x-api-key': process.env.DVLA_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          registrationNumber: vrm.toUpperCase().replace(/\s/g, '')
+        })
+      }
+    );
 
-    const response = await fetch(url, {
-      headers: {
-        'x-api-key': process.env.ONE_AUTO_API_KEY,
-      },
-    });
+    const dvla = await response.json();
 
-    const data = await response.json();
-
-    if (!data.success) {
-      return NextResponse.json({ error: 'Vehicle not found', detail: data }, { status: 404 });
+    if (!response.ok) {
+      return NextResponse.json({ error: dvla.message || 'DVLA lookup failed' }, { status: response.status });
     }
 
-    const v = data.result;
-
+    // Map DVLA response to our result format
     return NextResponse.json({
-      success: true,
-      registration: v.vehicle_registration_mark,
-      make: v.make,
-      model: v.model,
-      colour: v.colour,
-      fuelType: v.fuel_type,
-      engineSize: v.engine_capacity,
-      yearOfManufacture: v.year_of_manufacture,
-      taxStatus: v.tax_status,
-      taxDueDate: v.tax_due_date,
-      motStatus: v.mot_status,
-      motExpiryDate: v.mot_expiry_date,
+      make: dvla.make,
+      colour: dvla.colour,
+      fuelType: dvla.fuelType,
+      engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
+      yearOfManufacture: dvla.yearOfManufacture,
+      taxStatus: dvla.taxStatus,
+      taxDueDate: dvla.taxDueDate,
+      motStatus: dvla.motStatus,
+      co2Emissions: dvla.co2Emissions,
+      dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
+      monthOfFirstRegistration: dvla.monthOfFirstRegistration,
+      tier
     });
 
-  } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (err) {
+    console.error('DVLA error:', err);
+    return NextResponse.json({ error: err.message || 'Lookup failed' }, { status: 500 });
   }
 }
