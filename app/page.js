@@ -838,6 +838,59 @@ export default function Home() {
     <span className="result-key">Mileage at Last MOT</span>
     <span className="result-val">{result.motMileage.toLocaleString('en-GB')} miles</span>
   </div>
+)}{result.valuation && (
+  <>
+    <div className="result-row">
+      <span className="result-key">Retail Value</span>
+      <span className="result-val good">
+        £{result.valuation.retail_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.retail_high_valuation?.toLocaleString('en-GB')}
+      </span>
+    </div>
+    <div className="result-row">
+      <span className="result-key">Trade Value</span>
+      <span className="result-val">
+        £{result.valuation.trade_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.trade_high_valuation?.toLocaleString('en-GB')}
+      </span>
+    </div>
+  </>
+)}
+{result.autocheck?.finance_data_qty > 0 && (
+  <div className="result-row">
+    <span className="result-key">Finance</span>
+    <span className="result-val bad">⚠️ Outstanding finance recorded</span>
+  </div>
+)}
+{result.autocheck?.finance_data_qty === 0 && (
+  <div className="result-row">
+    <span className="result-key">Finance</span>
+    <span className="result-val good">✓ No finance recorded</span>
+  </div>
+)}
+{result.autocheck?.stolen_vehicle_data_qty > 0 && (
+  <div className="result-row">
+    <span className="result-key">Stolen</span>
+    <span className="result-val bad">⚠️ Recorded as stolen</span>
+  </div>
+)}
+{result.autocheck?.stolen_vehicle_data_qty === 0 && (
+  <div className="result-row">
+    <span className="result-key">Stolen</span>
+    <span className="result-val good">✓ Not recorded stolen</span>
+  </div>
+)}
+{result.autocheck?.condition_data_qty > 0 && (
+  <div className="result-row">
+    <span className="result-key">Write-off</span>
+    <span className="result-val bad">
+      ⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}
+    </span>
+  </div>
+)}
+{result.autocheck?.condition_data_qty === 0 && (
+  <div className="result-row">
+    <span className="result-key">Write-off</span>
+    <span className="result-val good">✓ No write-off recorded</span>
+  </div>
 )}
               {result.raw && (
                 <div className="result-row">
