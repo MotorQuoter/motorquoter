@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const ONE_AUTO_BASE = 'https://sandbox.oneautoapi.com';
+const ONE_AUTO_BASE = const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
