@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const ONE_AUTO_BASE = const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
+const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -16,7 +16,6 @@ export async function GET(request) {
   const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
 
   try {
-    // Always call DVLA and MOT history
     const [dvlaRes, motRes] = await Promise.all([
       fetch(
         'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
@@ -49,7 +48,6 @@ export async function GET(request) {
     const motTests = mot?.result?.dvsa_data?.mot_tests || [];
     const latestMot = motTests[0] || null;
 
-    // Standard and Pro — AutoCheck + Brego valuation
     let autocheck = null;
     let valuation = null;
 
