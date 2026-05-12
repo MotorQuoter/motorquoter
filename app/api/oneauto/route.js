@@ -1,17 +1,28 @@
 import { NextResponse } from 'next/server';
 
+const BASE_URL = 'https://sandbox.oneautoapi.com';
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
-  const endpoint = searchParams.get('endpoint') || 'vehicle-and-mot';
+  const endpoint = searchParams.get('endpoint');
 
-  if (!vrm) {
-    return NextResponse.json({ error: 'No registration provided' }, { status: 400 });
+  if (!vrm || !endpoint) {
+    return NextResponse.json({ error: 'vrm and endpoint required' }, { status: 400 });
   }
+
+  // Build query params — pass through all except vrm and endpoint
+  const params = new URLSearchParams();
+  params.set('vehicle_registration_mark', vrm.toUpperCase().replace(/\s/g, ''));
+  searchParams.forEach((value, key) => {
+    if (key !== 'vrm' && key !== 'endpoint') {
+      params.set(key, value);
+    }
+  });
 
   try {
     const response = await fetch(
-      `https://api.oneautoapi.com/v1/${endpoint}?vrm=${vrm.toUpperCase().replace(/\s/g, '')}`,
+      `${BASE_URL}/${endpoint}?${params.toString()}`,
       {
         method: 'GET',
         headers: {
