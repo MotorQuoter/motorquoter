@@ -819,12 +819,24 @@ export default function Home() {
                   </span>
                 </div>
               )}
-              {result.motStatus && (
+          {result.motStatus && (
   <div className="result-row">
     <span className="result-key">MOT</span>
     <span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>
       {result.motStatus}
     </span>
+  </div>
+)}
+{result.motExpiryDate && (
+  <div className="result-row">
+    <span className="result-key">MOT Expiry</span>
+    <span className="result-val">{result.motExpiryDate}</span>
+  </div>
+)}
+{result.motMileage && (
+  <div className="result-row">
+    <span className="result-key">Mileage at Last MOT</span>
+    <span className="result-val">{result.motMileage.toLocaleString('en-GB')} miles</span>
   </div>
 )}
               {result.raw && (
