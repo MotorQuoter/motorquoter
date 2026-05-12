@@ -5,8 +5,29 @@ const ONE_AUTO_BASE = 'https://sandbox.oneautoapi.com';
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
+const tier = searchParams.get('tier') || 'free';
+  if (!vrm) {// Standard and Pro tier — AutoCheck + Brego valuation
+let autocheck = null;
+let valuation = null;
 
-  if (!vrm) {
+if (tier === 'standard' || tier === 'pro') {
+  const mileage = searchParams.get('mileage') || '50000';
+  const cleanMileage = mileage.replace(/,/g, '');
+
+  const [autocheckRes, bregoRes] = await Promise.all([
+    fetch(
+      `${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`,
+      { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
+    ),
+    fetch(
+      `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
+      { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
+    )
+  ]);
+
+  autocheck = await autocheckRes.json();
+  valuation = await bregoRes.json();
+}
     return NextResponse.json({ error: 'No registration provided' }, { status: 400 });
   }
 
