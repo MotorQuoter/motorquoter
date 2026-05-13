@@ -1,12 +1,13 @@
-'use client';
 /* eslint-disable react-hooks/exhaustive-deps */
-import { useEffect, useState, Suspense } from 'react';
+'use client';
+
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [status, setStatus] = useState('verifying'); // verifying | loading | done | error
+  const [status, setStatus] = useState('verifying');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
@@ -16,19 +17,15 @@ function PaymentSuccessContent() {
   const market = searchParams.get('market');
   const sessionId = searchParams.get('session_id');
 
-  useEffect(() => {
+  const runLookup = useCallback(async () => {
     if (!vrm || !tier || !sessionId) {
       router.push('/');
       return;
     }
-    runLookup();
-  }, []);
 
-  async function runLookup() {
     try {
       setStatus('verifying');
 
-      // Verify the Stripe session is actually paid before running the lookup
       const verifyRes = await fetch(`/api/stripe/verify?session_id=${sessionId}`);
       const verifyData = await verifyRes.json();
 
@@ -40,7 +37,6 @@ function PaymentSuccessContent() {
 
       setStatus('loading');
 
-      // Run the vehicle lookup — tier is verified server-side via session
       const params = new URLSearchParams({ vrm, tier, session_id: sessionId });
       if (mileage) params.append('mileage', mileage);
       if (market) params.append('market', market);
@@ -60,9 +56,12 @@ function PaymentSuccessContent() {
       setError('Something went wrong. Please contact support — you have not been charged twice.');
       setStatus('error');
     }
-  }
+  }, [vrm, tier, sessionId, mileage, market, router]);
 
-  // ── STYLES (matching main page design) ───────────────────────────────────
+  useEffect(() => {
+    runLookup();
+  }, [runLookup]);
+
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -114,7 +113,6 @@ function PaymentSuccessContent() {
           </div>
         </header>
 
-        {/* VERIFYING / LOADING */}
         {(status === 'verifying' || status === 'loading') && (
           <div className="status-box">
             <div className="spinner" />
@@ -122,14 +120,11 @@ function PaymentSuccessContent() {
               {status === 'verifying' ? 'Confirming payment...' : `Looking up ${vrm}...`}
             </div>
             <p className="status-text">
-              {status === 'verifying'
-                ? 'Verifying your payment with Stripe'
-                : 'Running your vehicle check now'}
+              {status === 'verifying' ? 'Verifying your payment with Stripe' : 'Running your vehicle check now'}
             </p>
           </div>
         )}
 
-        {/* ERROR */}
         {status === 'error' && (
           <>
             <div className="error-box">⚠️ {error}</div>
@@ -137,7 +132,6 @@ function PaymentSuccessContent() {
           </>
         )}
 
-        {/* RESULT */}
         {status === 'done' && result && (
           <>
             <div style={{textAlign:'center', padding: '20px 20px 0'}}>
@@ -166,7 +160,7 @@ function PaymentSuccessContent() {
                 {result.autocheck?.condition_data_qty === 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val good">✓ No write-off recorded</span></div>}
                 {result.autocheck?.condition_data_qty > 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val bad">⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}</span></div>}
                 {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
-                {result.motMileage && <div className="result-row"><span className="result-key">Mileage at Last MOT</span><span className="result-val">{result.motMileage.toLocaleString('en-GB')} miles</span></div>}
+                {result.motMileage && <div className="result-row"><span className="result-key">Mileage at Last MOT</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
               </div>
             </div>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
