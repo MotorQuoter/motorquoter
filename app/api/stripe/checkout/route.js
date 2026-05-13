@@ -10,11 +10,11 @@ const TIER_PRICES = {
 };
 
 export async function POST(request) {
-  try {export async function POST(request) {
+  
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const { vrm, tier, mileage, market } = await request.json();
-    const { vrm, tier, mileage, market } = await request.json();
+    
 
     if (!vrm || !tier || !TIER_PRICES[tier]) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
