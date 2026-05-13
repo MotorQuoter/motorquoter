@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
-// Server-side Supabase client using service role key (never exposed to client)
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -13,70 +13,68 @@ function getSupabase() {
 }
 
 // ─── TIER RESOLUTION ─────────────────────────────────────────────────────────
-// Tier is NEVER trusted from the client. It is resolved server-side only.
-// For now: reads from Supabase session cookie. If no session = free.
-// When Stripe subscriptions go live, this reads from the subscriptions table.
+// Two paths:
+// 1. Paid lookup — session_id from Stripe is verified, tier taken from metadata
+// 2. Free lookup — no session, defaults to free
 async function resolveUserTier(request) {
-  try {
-    const supabase = getSupabase();
+  const { searchParams } = new URL(request.url);
+  const sessionId = searchParams.get('session_id');
 
-    // Extract session token from cookie
-    const cookieHeader = request.headers.get('cookie') || '';
-    const match = cookieHeader.match(/sb-access-token=([^;]+)/);
-    const accessToken = match?.[1];
+  // If a Stripe session ID is provided, verify it and use its tier
+  if (sessionId && sessionId !== '{CHECKOUT_SESSION_ID}') {
+    try {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    if (!accessToken) return 'free';
-
-    // Verify the token and get the user
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-    if (error || !user) return 'free';
-
-    // Look up their subscription tier
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('tier')
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-      .single();
-
-    return subscription?.tier || 'free';
-
-  } catch {
-    // On any auth error, fail safe to free tier — never grant upward
-    return 'free';
+      if (session.payment_status === 'paid') {
+        return session.metadata?.tier || 'free';
+      }
+    } catch (err) {
+      console.error('Stripe session verify error:', err);
+    }
   }
+
+  // No valid session — free tier
+  return 'free';
 }
 
 // ─── CACHE HELPERS ───────────────────────────────────────────────────────────
 async function getCachedResult(supabase, cleanVrm, tier) {
   const cutoff = new Date(Date.now() - CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
-  const { data } = await supabase
-    .from('reg_lookup_cache')
-    .select('*')
-    .eq('reg_plate', cleanVrm)
-    .eq('tier', tier)
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+  try {
+    const { data } = await supabase
+      .from('reg_lookup_cache')
+      .select('*')
+      .eq('reg_plate', cleanVrm)
+      .eq('tier', tier)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-  return data || null;
+    return data || null;
+  } catch {
+    return null;
+  }
 }
 
 async function storeCachedResult(supabase, cleanVrm, tier, payload) {
-  // Upsert — if same reg+tier already cached, replace it
-  await supabase
-    .from('reg_lookup_cache')
-    .upsert(
-      {
-        reg_plate: cleanVrm,
-        tier: tier,
-        payload: payload,
-        created_at: new Date().toISOString()
-      },
-      { onConflict: 'reg_plate,tier' }
-    );
+  try {
+    await supabase
+      .from('reg_lookup_cache')
+      .upsert(
+        {
+          reg_plate: cleanVrm,
+          tier: tier,
+          payload: payload,
+          created_at: new Date().toISOString()
+        },
+        { onConflict: 'reg_plate,tier' }
+      );
+  } catch (err) {
+    console.error('Cache write error:', err);
+  }
 }
 
 // ─── MAIN HANDLER ────────────────────────────────────────────────────────────
@@ -92,7 +90,7 @@ export async function GET(request) {
 
   const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
 
-  // Resolve tier server-side — client-supplied tier param is ignored entirely
+  // Resolve tier — from Stripe session if paid, otherwise free
   const tier = await resolveUserTier(request);
 
   const supabase = getSupabase();
@@ -109,11 +107,7 @@ export async function GET(request) {
 
   // ── LIVE API CALLS ───────────────────────────────────────────────────────
   try {
-    // FREE TIER: DVLA gov API only — zero One Auto cost
-    // STANDARD/PRO: DVLA + One Auto calls appropriate to tier
-    let dvla, mot, autocheck, valuation;
-
-    // DVLA is always free — call it for every tier
+    // DVLA — always free
     const dvlaRes = await fetch(
       'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
       {
@@ -126,7 +120,7 @@ export async function GET(request) {
       }
     );
 
-    dvla = await dvlaRes.json();
+    const dvla = await dvlaRes.json();
 
     if (!dvlaRes.ok) {
       return NextResponse.json(
@@ -135,7 +129,11 @@ export async function GET(request) {
       );
     }
 
-    // STANDARD: DVLA + AutoCheck + Valuation
+    let autocheck = null;
+    let valuation = null;
+    let mot = null;
+
+    // STANDARD: AutoCheck + Valuation
     if (tier === 'standard') {
       const [autocheckRes, bregoRes] = await Promise.all([
         fetch(
@@ -151,7 +149,7 @@ export async function GET(request) {
       valuation = await bregoRes.json();
     }
 
-    // PRO: DVLA + AutoCheck + Valuation + MOT History
+    // PRO: AutoCheck + Valuation + MOT History
     if (tier === 'pro') {
       const [autocheckRes, bregoRes, motRes] = await Promise.all([
         fetch(
@@ -173,11 +171,9 @@ export async function GET(request) {
       mot = motData?.result?.dvsa_data?.mot_tests || [];
     }
 
-    // Build the response payload
     const latestMot = mot?.[0] || null;
 
     const payload = {
-      // ── Always returned (free + all tiers) ──
       make: dvla.make,
       colour: dvla.colour,
       fuelType: dvla.fuelType,
@@ -189,22 +185,15 @@ export async function GET(request) {
       co2Emissions: dvla.co2Emissions,
       dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
       monthOfFirstRegistration: dvla.monthOfFirstRegistration,
-
-      // ── Standard + Pro only ──
       autocheck: autocheck?.result || null,
       valuation: valuation?.result || null,
-
-      // ── Pro only ──
       motExpiryDate: tier === 'pro' ? (latestMot?.mot_expiry_date || null) : null,
       motMileage: tier === 'pro' ? (latestMot?.observation_mileage || null) : null,
       motResult: tier === 'pro' ? (latestMot?.mot_test_result || null) : null,
       motHistory: tier === 'pro' ? (mot || []) : null,
-
-      // Tier returned so the frontend knows what it received
       tier: tier
     };
 
-    // ── STORE IN CACHE ───────────────────────────────────────────────────
     await storeCachedResult(supabase, cleanVrm, tier, payload);
 
     return NextResponse.json(payload);
