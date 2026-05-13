@@ -48,10 +48,11 @@ export default function Home() {
     }
   };
 
-  
+  const handleCheck = async (selectedTier) => {
+    if (!vrm.trim()) return;
+    setTier(selectedTier);
+    setError(null);
 
-    
- 
     // Free tier — call API directly, no payment needed
     if (selectedTier === 'free') {
       setLoading(true);
@@ -63,10 +64,10 @@ export default function Home() {
         });
         if (mileage) params.append('mileage', mileage);
         if (market) params.append('market', market);
- 
+
         const res = await fetch(`/api/vehicle?${params}`);
         const data = await res.json();
- 
+
         if (data.error) {
           setError(data.error);
         } else {
@@ -79,7 +80,7 @@ export default function Home() {
       }
       return;
     }
- 
+
     // Standard or Pro — redirect to Stripe Checkout
     setLoading(true);
     try {
@@ -93,24 +94,23 @@ export default function Home() {
           market: market || 'GB',
         }),
       });
- 
+
       const data = await res.json();
- 
+
       if (data.error) {
         setError(data.error);
         setLoading(false);
         return;
       }
- 
+
       // Redirect to Stripe hosted checkout page
       window.location.href = data.url;
- 
+
     } catch (err) {
       setError('Could not start checkout. Please try again.');
       setLoading(false);
     }
   };
- 
 
   const markets = [
     { id: 'GB', label: 'GB', sub: 'Standard value', icon: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
@@ -152,7 +152,6 @@ export default function Home() {
           padding: 0 0 60px;
         }
 
-        /* HEADER */
         .header {
           display: flex;
           align-items: center;
@@ -213,7 +212,6 @@ export default function Home() {
           font-size: 20px;
         }
 
-        /* HERO */
         .hero {
           padding: 36px 20px 28px;
           text-align: center;
@@ -254,7 +252,6 @@ export default function Home() {
           margin-right: auto;
         }
 
-        /* FORM */
         .form {
           padding: 0 20px;
           display: flex;
@@ -321,7 +318,7 @@ export default function Home() {
           text-align: center;
         }
 
-        
+        .vrm-input {
           width: 100%;
           background: var(--bg2);
           border: 1.5px solid var(--border-dim);
@@ -387,7 +384,6 @@ export default function Home() {
           pointer-events: none;
         }
 
-        /* MARKET CARDS */
         .market-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
@@ -447,7 +443,6 @@ export default function Home() {
           font-weight: 500;
         }
 
-        /* BUTTONS */
         .btn-row {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
@@ -538,14 +533,12 @@ export default function Home() {
           text-transform: none;
         }
 
-        /* DIVIDER */
         .divider {
           height: 1px;
           background: var(--border-dim);
           margin: 4px 0;
         }
 
-        /* LOADING */
         .loading {
           text-align: center;
           padding: 32px 20px;
@@ -570,7 +563,6 @@ export default function Home() {
           font-size: 15px;
         }
 
-        /* RESULT */
         .result {
           margin: 0 20px;
           background: var(--bg2);
@@ -639,7 +631,6 @@ export default function Home() {
         .result-val.warn { color: var(--yellow); }
         .result-val.bad { color: #f87171; }
 
-        /* ERROR */
         .error-box {
           margin: 0 20px;
           background: rgba(248,113,113,0.1);
@@ -651,7 +642,6 @@ export default function Home() {
           line-height: 1.5;
         }
 
-        /* FOOTER NOTE */
         .footer-note {
           text-align: center;
           padding: 24px 20px 0;
@@ -662,7 +652,6 @@ export default function Home() {
       `}</style>
 
       <div className="app">
-        {/* HEADER */}
         <header className="header">
           <div className="logo">
             <div className="logo-icon">M</div>
@@ -674,7 +663,6 @@ export default function Home() {
           </div>
         </header>
 
-        {/* HERO */}
         <div className="hero">
           <img
             src="/Wheel.jpeg"
@@ -696,10 +684,7 @@ export default function Home() {
           <p className="hero-sub">Accurate vehicle valuations. Cheaper and faster than CAP or HPI.</p>
         </div>
 
-        {/* FORM */}
         <div className="form">
-
-          {/* REG INPUT */}
           <div>
             <div className="field-label">Registration Number</div>
             <div className="vrm-wrap">
@@ -731,7 +716,6 @@ export default function Home() {
             {scanning && <p className="scan-status">Reading plate...</p>}
           </div>
 
-          {/* MILEAGE */}
           <div>
             <div className="field-label">
               Current Mileage <span>(optional — improves valuation accuracy)</span>
@@ -753,7 +737,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* MARKET */}
           <div>
             <div className="field-label">Target Market</div>
             <div className="market-grid">
@@ -774,7 +757,6 @@ export default function Home() {
 
           <div className="divider" />
 
-          {/* BUTTONS */}
           <div className="btn-row">
             <button
               className={`btn-check btn-basic ${tier === 'free' ? 'selected' : ''}`}
@@ -801,25 +783,23 @@ export default function Home() {
               <span className="btn-price">£6.99 per check</span>
             </button>
           </div>
-
         </div>
 
-        {/* LOADING */}
         {loading && (
           <div className="loading">
             <div className="spinner" />
-            <p className="loading-text">Looking up {vrm}...</p>
+            <p className="loading-text">
+              {tier === 'free' ? `Looking up ${vrm}...` : 'Redirecting to payment...'}
+            </p>
           </div>
         )}
 
-        {/* ERROR */}
         {error && !loading && (
           <div className="error-box">
             ⚠️ {error}
           </div>
         )}
 
-        {/* RESULT */}
         {result && !loading && (
           <div className="result">
             <div className="result-header">
@@ -829,113 +809,23 @@ export default function Home() {
               </div>
             </div>
             <div className="result-body">
-              {result.colour && (
-                <div className="result-row">
-                  <span className="result-key">Colour</span>
-                  <span className="result-val">{result.colour}</span>
-                </div>
-              )}
-              {result.engineSize && (
-                <div className="result-row">
-                  <span className="result-key">Engine</span>
-                  <span className="result-val">{result.engineSize}</span>
-                </div>
-              )}
-              {result.fuelType && (
-                <div className="result-row">
-                  <span className="result-key">Fuel</span>
-                  <span className="result-val">{result.fuelType}</span>
-                </div>
-              )}
-              {result.taxStatus && (
-                <div className="result-row">
-                  <span className="result-key">Tax</span>
-                  <span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>
-                    {result.taxStatus}
-                  </span>
-                </div>
-              )}
-          {result.motStatus && (
-  <div className="result-row">
-    <span className="result-key">MOT</span>
-    <span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>
-      {result.motStatus}
-    </span>
-  </div>
-)}
-{result.motExpiryDate && (
-  <div className="result-row">
-    <span className="result-key">MOT Expiry</span>
-    <span className="result-val">{result.motExpiryDate}</span>
-  </div>
-)}
-{result.motMileage && (
-  <div className="result-row">
-    <span className="result-key">Mileage at Last MOT</span>
-    <span className="result-val">{result.motMileage.toLocaleString('en-GB')} miles</span>
-  </div>
-)}{result.valuation && (
-  <>
-    <div className="result-row">
-      <span className="result-key">Retail Value</span>
-      <span className="result-val good">
-        £{result.valuation.retail_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.retail_high_valuation?.toLocaleString('en-GB')}
-      </span>
-    </div>
-    <div className="result-row">
-      <span className="result-key">Trade Value</span>
-      <span className="result-val">
-        £{result.valuation.trade_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.trade_high_valuation?.toLocaleString('en-GB')}
-      </span>
-    </div>
-  </>
-)}
-{result.autocheck?.finance_data_qty > 0 && (
-  <div className="result-row">
-    <span className="result-key">Finance</span>
-    <span className="result-val bad">⚠️ Outstanding finance recorded</span>
-  </div>
-)}
-{result.autocheck?.finance_data_qty === 0 && (
-  <div className="result-row">
-    <span className="result-key">Finance</span>
-    <span className="result-val good">✓ No finance recorded</span>
-  </div>
-)}
-{result.autocheck?.stolen_vehicle_data_qty > 0 && (
-  <div className="result-row">
-    <span className="result-key">Stolen</span>
-    <span className="result-val bad">⚠️ Recorded as stolen</span>
-  </div>
-)}
-{result.autocheck?.stolen_vehicle_data_qty === 0 && (
-  <div className="result-row">
-    <span className="result-key">Stolen</span>
-    <span className="result-val good">✓ Not recorded stolen</span>
-  </div>
-)}
-{result.autocheck?.condition_data_qty > 0 && (
-  <div className="result-row">
-    <span className="result-key">Write-off</span>
-    <span className="result-val bad">
-      ⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}
-    </span>
-  </div>
-)}
-{result.autocheck?.condition_data_qty === 0 && (
-  <div className="result-row">
-    <span className="result-key">Write-off</span>
-    <span className="result-val good">✓ No write-off recorded</span>
-  </div>
-)}
-              {result.raw && (
-                <div className="result-row">
-                  <span className="result-key">Raw Data</span>
-                  <span className="result-val" style={{fontSize:'11px', wordBreak:'break-all', textAlign:'right', maxWidth:'200px'}}>
-                    {JSON.stringify(result.raw).substring(0, 120)}...
-                  </span>
-                </div>
-              )}
+              {result.colour && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
+              {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
+              {result.fuelType && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
+              {result.taxStatus && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
+              {result.motStatus && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+              {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
+              {result.motMileage && <div className="result-row"><span className="result-key">Mileage at Last MOT</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
+              {result.valuation && <>
+                <div className="result-row"><span className="result-key">Retail Value</span><span className="result-val good">£{result.valuation.retail_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.retail_high_valuation?.toLocaleString('en-GB')}</span></div>
+                <div className="result-row"><span className="result-key">Trade Value</span><span className="result-val">£{result.valuation.trade_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.trade_high_valuation?.toLocaleString('en-GB')}</span></div>
+              </>}
+              {result.autocheck?.finance_data_qty === 0 && <div className="result-row"><span className="result-key">Finance</span><span className="result-val good">✓ No finance recorded</span></div>}
+              {result.autocheck?.finance_data_qty > 0 && <div className="result-row"><span className="result-key">Finance</span><span className="result-val bad">⚠️ Outstanding finance recorded</span></div>}
+              {result.autocheck?.stolen_vehicle_data_qty === 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val good">✓ Not recorded stolen</span></div>}
+              {result.autocheck?.stolen_vehicle_data_qty > 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val bad">⚠️ Recorded as stolen</span></div>}
+              {result.autocheck?.condition_data_qty === 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val good">✓ No write-off recorded</span></div>}
+              {result.autocheck?.condition_data_qty > 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val bad">⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}</span></div>}
             </div>
           </div>
         )}
