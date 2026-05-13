@@ -9,8 +9,11 @@ const TIER_PRICES = {
   pro: { amount: 699, label: 'Pro Check — Full Vehicle Intelligence' },
 };
 
-export async function POST(request) {const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+export async function POST(request) {
+  try {export async function POST(request) {
   try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const { vrm, tier, mileage, market } = await request.json();
     const { vrm, tier, mileage, market } = await request.json();
 
     if (!vrm || !tier || !TIER_PRICES[tier]) {
