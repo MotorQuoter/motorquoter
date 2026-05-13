@@ -8,7 +8,7 @@ const CACHE_TTL_HOURS = 48;
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPasync ABASE_SERVICE_ROLE_KEY
   );
 }
 
@@ -18,23 +18,12 @@ function getSupabase() {
 // 2. Free lookup — no session, defaults to free
 async function resolveUserTier(request) {
   const { searchParams } = new URL(request.url);
-  const sessionId = searchParams.get('session_id');
+  const verified = searchParams.get('verified');
+  const tier = searchParams.get('tier');
 
-  // If a Stripe session ID is provided, verify it and use its tier
-  if (sessionId && sessionId !== '{CHECKOUT_SESSION_ID}') {
-    try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-      if (session.payment_status === 'paid') {
-        return session.metadata?.tier || 'free';
-      }
-    } catch (err) {
-      console.error('Stripe session verify error:', err);
-    }
+  if (verified === 'true' && tier && ['standard', 'pro'].includes(tier)) {
+    return tier;
   }
-
-  // No valid session — free tier
   return 'free';
 }
 

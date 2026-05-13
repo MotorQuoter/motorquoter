@@ -37,7 +37,7 @@ function PaymentSuccessContent() {
 
       setStatus('loading');
 
-      const params = new URLSearchParams({ vrm, tier, session_id: sessionId });
+      const params = new URLSearchParams({ vrm, tier: verifyData.tier || tier, session_id: sessionId, verified: 'true' });
       if (mileage) params.append('mileage', mileage);
       if (market) params.append('market', market);
 
