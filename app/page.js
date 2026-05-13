@@ -41,10 +41,9 @@ export default function Home() {
         setVrm(data.reg);
       }
     } catch (err) {
-      setError('Photo scan failed. Please type the registration manually.');
-    } finally {
-      setScanning(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      console.error('Checkout error:', err);
+      setError('Could not start checkout: ' + err.message);
+      setLoading(false);
     }
   };
 
