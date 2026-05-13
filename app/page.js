@@ -48,33 +48,69 @@ export default function Home() {
     }
   };
 
-  const handleCheck = async (selectedTier) => {
-    if (!vrm.trim()) return;
-    setTier(selectedTier);
+  
+
+    
+ 
+    // Free tier — call API directly, no payment needed
+    if (selectedTier === 'free') {
+      setLoading(true);
+      setResult(null);
+      try {
+        const params = new URLSearchParams({
+          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          tier: 'free'
+        });
+        if (mileage) params.append('mileage', mileage);
+        if (market) params.append('market', market);
+ 
+        const res = await fetch(`/api/vehicle?${params}`);
+        const data = await res.json();
+ 
+        if (data.error) {
+          setError(data.error);
+        } else {
+          setResult(data);
+        }
+      } catch (err) {
+        setError('Something went wrong. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+ 
+    // Standard or Pro — redirect to Stripe Checkout
     setLoading(true);
-    setResult(null);
-    setError(null);
-
     try {
-      const params = new URLSearchParams({ vrm: vrm.trim().replace(/\s/g, '').toUpperCase() });
-      if (mileage) params.append('mileage', mileage);
-      params.append('market', market);
-      params.append('tier', selectedTier);
-
-      const res = await fetch(`/api/vehicle?${params}`);
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          tier: selectedTier,
+          mileage: mileage || '',
+          market: market || 'GB',
+        }),
+      });
+ 
       const data = await res.json();
-
+ 
       if (data.error) {
         setError(data.error);
-      } else {
-        setResult(data);
+        setLoading(false);
+        return;
       }
+ 
+      // Redirect to Stripe hosted checkout page
+      window.location.href = data.url;
+ 
     } catch (err) {
-      setError('Something went wrong. Please try again.');
-    } finally {
+      setError('Could not start checkout. Please try again.');
       setLoading(false);
     }
   };
+ 
 
   const markets = [
     { id: 'GB', label: 'GB', sub: 'Standard value', icon: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
