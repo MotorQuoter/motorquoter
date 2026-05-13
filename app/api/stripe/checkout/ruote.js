@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
 
 // Prices in pence
 const TIER_PRICES = {
@@ -9,7 +9,7 @@ const TIER_PRICES = {
   pro: { amount: 699, label: 'Pro Check — Full Vehicle Intelligence' },
 };
 
-export async function POST(request) {
+export async function POST(request) {const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   try {
     const { vrm, tier, mileage, market } = await request.json();
 
