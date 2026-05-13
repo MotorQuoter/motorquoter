@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import Stripe from 'stripe';
 
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
@@ -8,14 +7,12 @@ const CACHE_TTL_HOURS = 48;
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPasync ABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 }
 
-// ─── TIER RESOLUTION ─────────────────────────────────────────────────────────
-// Two paths:
-// 1. Paid lookup — session_id from Stripe is verified, tier taken from metadata
-// 2. Free lookup — no session, defaults to free
+// Tier is passed from payment-success page after Stripe verification
+// Never trusted from client directly — only accepted when verified=true
 async function resolveUserTier(request) {
   const { searchParams } = new URL(request.url);
   const verified = searchParams.get('verified');
@@ -27,10 +24,8 @@ async function resolveUserTier(request) {
   return 'free';
 }
 
-// ─── CACHE HELPERS ───────────────────────────────────────────────────────────
 async function getCachedResult(supabase, cleanVrm, tier) {
   const cutoff = new Date(Date.now() - CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString();
-
   try {
     const { data } = await supabase
       .from('reg_lookup_cache')
@@ -41,7 +36,6 @@ async function getCachedResult(supabase, cleanVrm, tier) {
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
-
     return data || null;
   } catch {
     return null;
@@ -66,7 +60,6 @@ async function storeCachedResult(supabase, cleanVrm, tier, payload) {
   }
 }
 
-// ─── MAIN HANDLER ────────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
@@ -78,13 +71,10 @@ export async function GET(request) {
   }
 
   const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
-
-  // Resolve tier — from Stripe session if paid, otherwise free
   const tier = await resolveUserTier(request);
-
   const supabase = getSupabase();
 
-  // ── CACHE CHECK ──────────────────────────────────────────────────────────
+  // Cache check
   const cached = await getCachedResult(supabase, cleanVrm, tier);
   if (cached) {
     return NextResponse.json({
@@ -94,9 +84,8 @@ export async function GET(request) {
     });
   }
 
-  // ── LIVE API CALLS ───────────────────────────────────────────────────────
+  // Live API calls
   try {
-    // DVLA — always free
     const dvlaRes = await fetch(
       'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
       {
@@ -122,7 +111,6 @@ export async function GET(request) {
     let valuation = null;
     let mot = null;
 
-    // STANDARD: AutoCheck + Valuation
     if (tier === 'standard') {
       const [autocheckRes, bregoRes] = await Promise.all([
         fetch(
@@ -138,7 +126,6 @@ export async function GET(request) {
       valuation = await bregoRes.json();
     }
 
-    // PRO: AutoCheck + Valuation + MOT History
     if (tier === 'pro') {
       const [autocheckRes, bregoRes, motRes] = await Promise.all([
         fetch(
