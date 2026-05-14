@@ -79,7 +79,7 @@ function ProResult({ vrm, result }) {
   const writeOffCat = ac.condition_data_items?.[0]?.recovered_category_desc || (hasWriteOff ? 'Write-off recorded' : null);
 
   // Keeper count — field name may vary by AutoCheck version
-  const keeperCount = ac.number_of_previous_keepers ?? ac.keeper_changes ?? ac.previous_keepers ?? null;
+  const keeperCount = ac.keeper_data_items?.[0]?.number_previous_keepers ?? ac.keeper_changes_qty ?? null;
   const vehicleAgeYears = result.yearOfManufacture ? (new Date().getFullYear() - result.yearOfManufacture) : null;
   const keeperHigh = keeperCount != null && vehicleAgeYears != null && keeperCount > vehicleAgeYears;
 
@@ -87,7 +87,7 @@ function ProResult({ vrm, result }) {
   const mileageAnomaly = ac.mileage_anomaly ?? ac.mileage_discrepancy ?? null;
 
   // Exported / reimported
-  const exported = ac.exported ?? ac.exported_vehicle ?? null;
+  const exported = (ac.is_exported != null || ac.was_exported != null) ? (ac.is_exported || ac.was_exported) : null;
 
   // Finance / stolen
   const hasFinance = ac.finance_data_qty > 0;
@@ -98,7 +98,7 @@ function ProResult({ vrm, result }) {
   const advertCount = cazAdv.total_adverts ?? cazAdv.adverts?.length ?? null;
 
   // Cazana — market demand
-  const demandRating = cazDem.demand ?? cazDem.demand_rating ?? cazDem.demand_level ?? null;
+  const demandRating = cazDem.market_demand_score != null ? `${cazDem.market_demand_score} / 100` : null;
   const daysToSell = cazDem.average_days_to_sell ?? cazDem.days_to_sell ?? null;
   const similarCount = cazDem.similar_adverts_count ?? cazDem.total_similar ?? null;
 

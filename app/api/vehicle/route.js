@@ -5,6 +5,13 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
+// Handles both result-wrapped ({ result: {...} }) and unwrapped responses.
+// Returns null for error responses so callers don't need to check.
+function extractApiResult(data) {
+  if (!data || data.error) return null;
+  return data.result ?? data;
+}
+
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(url, options);
@@ -216,10 +223,10 @@ export async function GET(request) {
       motMileage: tier === 'pro' ? (latestMot?.odometerValue || null) : null,
       motResult: tier === 'pro' ? (latestMot?.testResult || null) : null,
       motHistory: tier === 'pro' ? (mot || []) : null,
-      cazanaAdverts: tier === 'pro' ? (cazanaAdverts?.result || null) : null,
-      cazanaDemand: tier === 'pro' ? (cazanaDemand?.result || null) : null,
-      salvage: tier === 'pro' ? (salvageData?.result || null) : null,
-      serviceHistory: tier === 'pro' ? (serviceHistory?.result || null) : null,
+      cazanaAdverts: tier === 'pro' ? extractApiResult(cazanaAdverts) : null,
+      cazanaDemand: tier === 'pro' ? extractApiResult(cazanaDemand) : null,
+      salvage: tier === 'pro' ? extractApiResult(salvageData) : null,
+      serviceHistory: tier === 'pro' ? extractApiResult(serviceHistory) : null,
       serviceHistoryCoverage: tier === 'pro' ? (svcCoverage || null) : null,
       tier: tier
     };
