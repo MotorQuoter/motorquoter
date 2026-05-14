@@ -6,10 +6,12 @@ const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
 // Handles both result-wrapped ({ result: {...} }) and unwrapped responses.
-// Returns null for error responses so callers don't need to check.
+// Returns null for error responses (top-level or nested inside result).
 function extractApiResult(data) {
   if (!data || data.error) return null;
-  return data.result ?? data;
+  const result = data.result ?? data;
+  if (result?.error) return null;
+  return result;
 }
 
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
