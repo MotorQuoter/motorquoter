@@ -5,6 +5,15 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
+async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await fetch(url, options);
+    if (res.status !== 202) return res;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
 // Maps uppercase DVLA make → service history coverage tier
 const SERVICE_HISTORY_COVERAGE = new Map([
   // Full coverage
@@ -156,28 +165,35 @@ export async function GET(request) {
       svcCoverage = SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null;
       const includeServiceHistory = svcCoverage !== null;
 
-      const proFetches = [
+      // Kick off service history first — it may return 202 and need polling,
+      // so starting it before the other calls gives it a head start.
+      const svcHistoryPromise = includeServiceHistory
+        ? fetchWithPolling(
+            `${ONE_AUTO_BASE}/oneauto/servicehistory/?vehicle_registration_mark=${cleanVrm}`,
+            { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
+          )
+        : Promise.resolve(null);
+
+      // Run all other Pro calls in parallel while service history polls.
+      const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, salvageRes, dvsaData] = await Promise.all([
         fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
         fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
         fetch(`${ONE_AUTO_BASE}/percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
         fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
         fetch(`${ONE_AUTO_BASE}/salvageguide/salvagevehiclecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
         getDvsaMotHistory(cleanVrm),
-      ];
+      ]);
 
-      if (includeServiceHistory) {
-        proFetches.push(fetch(`${ONE_AUTO_BASE}/oneauto/servicehistory/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }));
-      }
-
-      const results = await Promise.all(proFetches);
-      autocheck = await results[0].json();
-      valuation = await results[1].json();
-      cazanaAdverts = await results[2].json();
-      cazanaDemand = await results[3].json();
-      salvageData = await results[4].json();
-      const dvsaData = results[5];
+      autocheck = await autocheckRes.json();
+      valuation = await bregoRes.json();
+      cazanaAdverts = await cazAdvRes.json();
+      cazanaDemand = await cazDemRes.json();
+      salvageData = await salvageRes.json();
       mot = dvsaData?.motTests || [];
-      serviceHistory = includeServiceHistory ? await results[6].json() : null;
+
+      // Collect service history — null means polling timed out.
+      const svcRes = await svcHistoryPromise;
+      serviceHistory = svcRes ? await svcRes.json() : null;
     }
 
     const latestMot = mot?.[0] || null;

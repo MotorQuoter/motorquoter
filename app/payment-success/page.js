@@ -213,7 +213,9 @@ function ProResult({ vrm, result }) {
             </span>
           )}
         </div>
-        {svcHistory?.service_records?.length > 0 ? (
+        {svcHistory === null && svcCoverage ? (
+          <div className="history-empty" style={{color:'var(--yellow)'}}>Service history unavailable — please try again</div>
+        ) : svcHistory?.service_records?.length > 0 ? (
           <div className="history-list">
             {svcHistory.service_records.map((rec, i) => (
               <div className="history-record" key={i}>
