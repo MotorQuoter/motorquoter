@@ -5,10 +5,23 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
-const SERVICE_HISTORY_MAKES = new Set([
-  'BMW', 'MERCEDES-BENZ', 'AUDI', 'VOLKSWAGEN', 'TOYOTA', 'FORD',
-  'VAUXHALL', 'PEUGEOT', 'CITROEN', 'RENAULT', 'NISSAN', 'HYUNDAI',
-  'KIA', 'VOLVO', 'LAND ROVER', 'JAGUAR', 'MINI', 'SKODA', 'SEAT', 'HONDA',
+// Maps uppercase DVLA make → service history coverage tier
+const SERVICE_HISTORY_COVERAGE = new Map([
+  // Full coverage
+  ['AUDI', 'full'], ['BMW', 'full'], ['CUPRA', 'full'], ['FORD', 'full'],
+  ['HONDA', 'full'], ['INFINITI', 'full'], ['JAGUAR', 'full'], ['LAND ROVER', 'full'],
+  ['LEXUS', 'full'], ['MAZDA', 'full'], ['MERCEDES-BENZ', 'full'], ['MINI', 'full'],
+  ['NISSAN', 'full'], ['OPEL', 'full'], ['PORSCHE', 'full'], ['SEAT', 'full'],
+  ['SKODA', 'full'], ['TOYOTA', 'full'], ['VAUXHALL', 'full'], ['VOLKSWAGEN', 'full'],
+  // Limited coverage
+  ['AIXAM', 'limited'], ['ALPINE', 'limited'], ['BENTLEY', 'limited'], ['DAF', 'limited'],
+  ['DS', 'limited'], ['FERRARI', 'limited'], ['IVECO', 'limited'], ['MASERATI', 'limited'],
+  ['PIAGGIO', 'limited'], ['SUBARU', 'limited'], ['SUZUKI', 'limited'], ['YAMAHA', 'limited'],
+  // Workshop remarks only
+  ['ALFA ROMEO', 'workshop'], ['CHRYSLER', 'workshop'], ['CITROEN', 'workshop'],
+  ['DACIA', 'workshop'], ['DODGE', 'workshop'], ['FIAT', 'workshop'], ['JEEP', 'workshop'],
+  ['KIA', 'workshop'], ['PEUGEOT', 'workshop'], ['POLESTAR', 'workshop'],
+  ['RENAULT', 'workshop'], ['VOLVO', 'workshop'],
 ]);
 
 function getSupabase() {
@@ -121,6 +134,7 @@ export async function GET(request) {
     let cazanaDemand = null;
     let salvageData = null;
     let serviceHistory = null;
+    let svcCoverage = null;
 
     if (tier === 'standard') {
       const [autocheckRes, bregoRes] = await Promise.all([
@@ -139,7 +153,8 @@ export async function GET(request) {
 
     if (tier === 'pro') {
       const dvlaMake = dvla.make?.toUpperCase() || '';
-      const includeServiceHistory = SERVICE_HISTORY_MAKES.has(dvlaMake);
+      svcCoverage = SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null;
+      const includeServiceHistory = svcCoverage !== null;
 
       const proFetches = [
         fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
@@ -189,6 +204,7 @@ export async function GET(request) {
       cazanaDemand: tier === 'pro' ? (cazanaDemand?.result || null) : null,
       salvage: tier === 'pro' ? (salvageData?.result || null) : null,
       serviceHistory: tier === 'pro' ? (serviceHistory?.result || null) : null,
+      serviceHistoryCoverage: tier === 'pro' ? (svcCoverage || null) : null,
       tier: tier
     };
 

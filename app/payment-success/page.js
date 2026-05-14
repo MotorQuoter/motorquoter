@@ -71,6 +71,8 @@ function ProResult({ vrm, result }) {
   const cazDem = result.cazanaDemand || {};
   const motHistory = result.motHistory || [];
   const svcHistory = result.serviceHistory;
+  const svcCoverage = result.serviceHistoryCoverage;
+  const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
 
   // Write-off
   const hasWriteOff = ac.condition_data_qty > 0;
@@ -201,7 +203,16 @@ function ProResult({ vrm, result }) {
 
       {/* ── Service History ── */}
       <div className="pro-section">
-        <SectionTitle>Service History</SectionTitle>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',paddingTop:18,paddingBottom:10,borderBottom:'1px solid var(--border-dim)',marginBottom:12}}>
+          <span style={{fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:700,letterSpacing:'0.18em',color:'var(--orange)',textTransform:'uppercase'}}>Service History</span>
+          {svcCoverageLabel && (
+            <span style={{fontSize:11,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',
+              color: svcCoverage === 'full' ? '#4ade80' : svcCoverage === 'limited' ? 'var(--yellow)' : 'var(--text-dim)',
+              fontFamily:"'Barlow Condensed',sans-serif"}}>
+              {svcCoverageLabel}
+            </span>
+          )}
+        </div>
         {svcHistory?.service_records?.length > 0 ? (
           <div className="history-list">
             {svcHistory.service_records.map((rec, i) => (
