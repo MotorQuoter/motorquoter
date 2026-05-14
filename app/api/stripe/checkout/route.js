@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 const TIER_PRICES = {
-  standard: { amount: 199, label: 'Standard Check — Valuation & AutoCheck' },
-  pro: { amount: 699, label: 'Pro Check — Full Vehicle Intelligence' },
+  standard: { amount: 499, label: 'Standard Check — Valuation & AutoCheck' },
+  pro: { amount: 1299, label: 'Pro Check — Full Vehicle Intelligence' },
 };
 
 export async function POST(request) {

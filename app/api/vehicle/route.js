@@ -5,6 +5,12 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
+const SERVICE_HISTORY_MAKES = new Set([
+  'BMW', 'MERCEDES-BENZ', 'AUDI', 'VOLKSWAGEN', 'TOYOTA', 'FORD',
+  'VAUXHALL', 'PEUGEOT', 'CITROEN', 'RENAULT', 'NISSAN', 'HYUNDAI',
+  'KIA', 'VOLVO', 'LAND ROVER', 'JAGUAR', 'MINI', 'SKODA', 'SEAT', 'HONDA',
+]);
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -111,6 +117,10 @@ export async function GET(request) {
     let autocheck = null;
     let valuation = null;
     let mot = null;
+    let cazanaAdverts = null;
+    let cazanaDemand = null;
+    let salvageData = null;
+    let serviceHistory = null;
 
     if (tier === 'standard') {
       const [autocheckRes, bregoRes] = await Promise.all([
@@ -128,20 +138,31 @@ export async function GET(request) {
     }
 
     if (tier === 'pro') {
-      const [autocheckRes, bregoRes, dvsaData] = await Promise.all([
-        fetch(
-          `${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`,
-          { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
-        ),
-        fetch(
-          `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
-          { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
-        ),
-        getDvsaMotHistory(cleanVrm)
-      ]);
-      autocheck = await autocheckRes.json();
-      valuation = await bregoRes.json();
+      const dvlaMake = dvla.make?.toUpperCase() || '';
+      const includeServiceHistory = SERVICE_HISTORY_MAKES.has(dvlaMake);
+
+      const proFetches = [
+        fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
+        fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
+        fetch(`${ONE_AUTO_BASE}/percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
+        fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
+        fetch(`${ONE_AUTO_BASE}/salvageguide/salvagevehiclecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }),
+        getDvsaMotHistory(cleanVrm),
+      ];
+
+      if (includeServiceHistory) {
+        proFetches.push(fetch(`${ONE_AUTO_BASE}/oneauto/servicehistory/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }));
+      }
+
+      const results = await Promise.all(proFetches);
+      autocheck = await results[0].json();
+      valuation = await results[1].json();
+      cazanaAdverts = await results[2].json();
+      cazanaDemand = await results[3].json();
+      salvageData = await results[4].json();
+      const dvsaData = results[5];
       mot = dvsaData?.motTests || [];
+      serviceHistory = includeServiceHistory ? await results[6].json() : null;
     }
 
     const latestMot = mot?.[0] || null;
@@ -164,6 +185,10 @@ export async function GET(request) {
       motMileage: tier === 'pro' ? (latestMot?.odometerValue || null) : null,
       motResult: tier === 'pro' ? (latestMot?.testResult || null) : null,
       motHistory: tier === 'pro' ? (mot || []) : null,
+      cazanaAdverts: tier === 'pro' ? (cazanaAdverts?.result || null) : null,
+      cazanaDemand: tier === 'pro' ? (cazanaDemand?.result || null) : null,
+      salvage: tier === 'pro' ? (salvageData?.result || null) : null,
+      serviceHistory: tier === 'pro' ? (serviceHistory?.result || null) : null,
       tier: tier
     };
 

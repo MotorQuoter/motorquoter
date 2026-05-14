@@ -771,7 +771,7 @@ export default function Home() {
               disabled={loading || !vrm.trim()}
             >
               Standard
-              <span className="btn-price">£1.99 per check</span>
+              <span className="btn-price">£4.99 per check</span>
             </button>
             <button
               className={`btn-check btn-pro ${tier === 'pro' ? 'selected' : ''}`}
@@ -779,7 +779,7 @@ export default function Home() {
               disabled={loading || !vrm.trim()}
             >
               Pro ⚡
-              <span className="btn-price">£6.99 per check</span>
+              <span className="btn-price">£12.99 per check</span>
             </button>
           </div>
         </div>
