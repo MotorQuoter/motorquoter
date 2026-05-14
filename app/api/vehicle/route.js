@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getDvsaMotHistory } from '@/lib/dvsa';
 
 const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
@@ -127,7 +128,7 @@ export async function GET(request) {
     }
 
     if (tier === 'pro') {
-      const [autocheckRes, bregoRes, motRes] = await Promise.all([
+      const [autocheckRes, bregoRes, dvsaData] = await Promise.all([
         fetch(
           `${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`,
           { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
@@ -136,15 +137,11 @@ export async function GET(request) {
           `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
           { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
         ),
-        fetch(
-          `${ONE_AUTO_BASE}/oneauto/mothistoryandtaxstatus/v2?vehicle_registration_mark=${cleanVrm}`,
-          { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
-        )
+        getDvsaMotHistory(cleanVrm)
       ]);
       autocheck = await autocheckRes.json();
       valuation = await bregoRes.json();
-      const motData = await motRes.json();
-      mot = motData?.result?.dvsa_data?.mot_tests || [];
+      mot = dvsaData?.motTests || [];
     }
 
     const latestMot = mot?.[0] || null;
@@ -163,9 +160,9 @@ export async function GET(request) {
       monthOfFirstRegistration: dvla.monthOfFirstRegistration,
       autocheck: autocheck?.result || null,
       valuation: valuation?.result || null,
-      motExpiryDate: tier === 'pro' ? (latestMot?.mot_expiry_date || null) : null,
-      motMileage: tier === 'pro' ? (latestMot?.observation_mileage || null) : null,
-      motResult: tier === 'pro' ? (latestMot?.mot_test_result || null) : null,
+      motExpiryDate: tier === 'pro' ? (latestMot?.expiryDate || null) : null,
+      motMileage: tier === 'pro' ? (latestMot?.odometerValue || null) : null,
+      motResult: tier === 'pro' ? (latestMot?.testResult || null) : null,
       motHistory: tier === 'pro' ? (mot || []) : null,
       tier: tier
     };
