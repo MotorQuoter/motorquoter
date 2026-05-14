@@ -461,7 +461,8 @@ function PaymentSuccessContent() {
       .print-make { font-size: 12px; color: #555; margin-top: 3px; text-align: right; }
       .print-meta { font-size: 11px; color: #777; margin-top: 2px; text-align: right; }
 
-      .header, .pdf-btn, .back-btn, .success-badge, .status-box, .error-box { display: none !important; }
+      .header, .pdf-btn, .back-btn, .success-badge, .status-box, .error-box, .pro-header { display: none !important; }
+      .pro-badge { background: none; color: #555; border: 1px solid #bbb; }
 
       /* Layout */
       .pro-section { margin: 0 0 6px; page-break-inside: avoid; break-inside: avoid; }
