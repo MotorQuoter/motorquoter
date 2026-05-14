@@ -15,6 +15,190 @@ function fmtCurrency(val) {
   return `£${Number(val).toLocaleString('en-GB')}`;
 }
 
+// ─── PDF generation ───────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildPdfHtml(result, vrm, tierLabel, checkDate) {
+  const ac = result.autocheck || {};
+  const val = result.valuation || {};
+  const motHistory = result.motHistory || [];
+  const cazAdv = result.cazanaAdverts || {};
+  const cazAdverts = cazAdv.result || [];
+  const cazDem = result.cazanaDemand || {};
+  const svcHistory = result.serviceHistory;
+  const svcCoverage = result.serviceHistoryCoverage;
+
+  const money = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+  const num = (v) => v != null ? Number(v).toLocaleString('en-GB') : '—';
+  const dt = (s) => {
+    if (!s) return '—';
+    const [y, m, d] = s.split(/[ T]/)[0].split(/[-./]/);
+    return d ? `${d}/${m}/${y}` : s;
+  };
+
+  const row = (label, value, bad = false) => `
+    <tr>
+      <td style="padding:7px 10px;font-size:12px;color:#555;width:44%;border-bottom:1px solid #eee;">${esc(label)}</td>
+      <td style="padding:7px 10px;font-size:13px;font-weight:600;border-bottom:1px solid #eee;${bad ? 'color:#cc0000;' : ''}">${value}</td>
+    </tr>`;
+
+  const section = (title, body) => `
+    <div style="margin-bottom:20px;page-break-inside:avoid;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:#555;padding:7px 0 6px;border-bottom:1.5px solid #000;margin-bottom:10px;">${esc(title)}</div>
+      ${body}
+    </div>`;
+
+  const table = (rows) => `<table style="width:100%;border-collapse:collapse;">${rows}</table>`;
+
+  // Write-off label
+  const writeOffItem = ac.condition_data_items?.[0];
+  const wSrc = writeOffItem?.recovered_category_desc || writeOffItem?.vehicle_status || '';
+  const wMatch = wSrc.match(/\bCAT\s*([A-Z])\b/i);
+  const hasWriteOff = ac.condition_data_qty > 0;
+  const writeOffLabel = hasWriteOff ? (wMatch ? `Cat ${wMatch[1]}` : (wSrc || 'Write-off recorded')) : null;
+
+  const vehicleSection = section('Vehicle Details', table([
+    result.make            ? row('Make', esc(result.make)) : '',
+    result.yearOfManufacture ? row('Year', esc(result.yearOfManufacture)) : '',
+    result.colour          ? row('Colour', esc(result.colour)) : '',
+    result.engineSize      ? row('Engine', esc(result.engineSize)) : '',
+    result.fuelType        ? row('Fuel Type', esc(result.fuelType)) : '',
+    result.co2Emissions    ? row('CO₂ Emissions', `${esc(result.co2Emissions)} g/km`) : '',
+    result.taxStatus       ? row('Tax Status', esc(result.taxStatus), result.taxStatus !== 'Taxed') : '',
+    result.motStatus       ? row('MOT Status', esc(result.motStatus), result.motStatus !== 'Valid') : '',
+    result.monthOfFirstRegistration ? row('First Registered', esc(result.monthOfFirstRegistration)) : '',
+    result.dateOfLastV5CIssued ? row('Last V5C Issued', dt(result.dateOfLastV5CIssued)) : '',
+  ].join('')));
+
+  const valuationSection = val.retail_low_valuation != null ? section('Valuation', table([
+    row('Retail Value', `${money(val.retail_low_valuation)} – ${money(val.retail_high_valuation)}`),
+    row('Trade Value', `${money(val.trade_low_valuation)} – ${money(val.trade_high_valuation)}`),
+  ].join(''))) : '';
+
+  const standardRiskSection = section('Risk Checks', table([
+    row('Finance',  ac.finance_data_qty === 0 ? '✓ No finance recorded' : '⚠ Outstanding finance recorded', ac.finance_data_qty > 0),
+    row('Stolen',   ac.stolen_vehicle_data_qty === 0 ? '✓ Not recorded stolen' : '⚠ Recorded as stolen', ac.stolen_vehicle_data_qty > 0),
+    row('Write-off', hasWriteOff ? `⚠ ${esc(writeOffLabel)}` : '✓ No write-off recorded', hasWriteOff),
+    result.motExpiryDate ? row('MOT Expiry', esc(result.motExpiryDate)) : '',
+    result.motMileage    ? row('Mileage at Last MOT', `${num(result.motMileage)} miles`) : '',
+  ].join('')));
+
+  let proContent = '';
+  if (result.tier === 'pro') {
+    const keeperCount = ac.keeper_data_items?.[0]?.number_previous_keepers ?? ac.keeper_changes_qty ?? null;
+    const vehicleAge = result.yearOfManufacture ? (new Date().getFullYear() - result.yearOfManufacture) : null;
+    const keeperHigh = keeperCount != null && vehicleAge != null && keeperCount > vehicleAge;
+    const exported = (ac.is_exported != null || ac.was_exported != null) ? (ac.is_exported || ac.was_exported) : null;
+
+    const proRiskSection = section('Risk Flags', table([
+      row('Write-off',  hasWriteOff ? `⚠ ${esc(writeOffLabel)}` : '✓ Clean', hasWriteOff),
+      row('Finance',    ac.finance_data_qty === 0 ? '✓ No finance' : '⚠ Outstanding finance', ac.finance_data_qty > 0),
+      row('Stolen',     ac.stolen_vehicle_data_qty === 0 ? '✓ Not stolen' : '⚠ Recorded stolen', ac.stolen_vehicle_data_qty > 0),
+      keeperCount != null ? row(`Keepers (${keeperCount})`, keeperHigh ? '⚠ High for age' : '✓ Normal', keeperHigh) : '',
+      exported != null    ? row('Exported / Reimported', exported ? '⚠ Yes' : '✓ No', !!exported) : '',
+    ].join('')));
+
+    const lastAskingPrice = cazAdverts[0]?.advertised_price_gbp ?? null;
+    const advertCount = cazAdverts.length || null;
+    const demandScore = cazDem.market_demand_score;
+
+    const bidSection = (val.retail_low_valuation != null || lastAskingPrice != null || demandScore != null)
+      ? section('Bid Intelligence', table([
+          val.retail_low_valuation != null ? row('Retail Value (Repaired)', `${money(val.retail_low_valuation)} – ${money(val.retail_high_valuation)}`) : '',
+          val.trade_low_valuation  != null ? row('Trade Value', `${money(val.trade_low_valuation)} – ${money(val.trade_high_valuation)}`) : '',
+          lastAskingPrice != null ? row(`Last Asking Price${advertCount ? ` (${advertCount} ad${advertCount > 1 ? 's' : ''})` : ''}`, money(lastAskingPrice)) : '',
+          demandScore != null ? row('Market Demand Score', `${demandScore} / 100`) : '',
+        ].join('')))
+      : '';
+
+    const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
+    const svcTitle = `Service History${svcCoverageLabel ? ` — ${svcCoverageLabel}` : ''}`;
+    const svcBody = svcHistory === null && svcCoverage
+      ? '<p style="font-size:13px;color:#555;margin:0;">Service history unavailable — please try again</p>'
+      : svcHistory?.service_records?.length > 0
+        ? table(svcHistory.service_records.map(rec => `
+            <tr>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;width:22%;">${dt(rec.date)}</td>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;width:20%;">${rec.mileage != null ? num(rec.mileage) + ' mi' : '—'}</td>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${esc(rec.service_type || '—')}</td>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;color:#555;">${esc(rec.dealer || '')}</td>
+            </tr>`).join(''))
+        : '<p style="font-size:13px;color:#555;margin:0;">No digital service history on record</p>';
+    const svcSection = svcCoverage ? section(svcTitle, svcBody) : '';
+
+    const motHead = `<thead><tr style="background:#f5f5f5;">
+      <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Date</th>
+      <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Result</th>
+      <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Mileage</th>
+      <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Expiry</th>
+    </tr></thead>`;
+    const motRows = motHistory.slice(0, 15).map(t => {
+      const fails = t.rfrAndComments?.filter(r => r.type === 'FAIL') || [];
+      const advs  = t.rfrAndComments?.filter(r => r.type === 'ADVISORY') || [];
+      return `
+        <tr>
+          <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${esc(t.completedDate || '—')}</td>
+          <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;font-weight:700;color:${t.testResult === 'PASSED' ? '#006600' : '#cc0000'};">${esc(t.testResult || '—')}</td>
+          <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${t.odometerValue ? num(t.odometerValue) + ' mi' : '—'}</td>
+          <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${esc(t.expiryDate || '—')}</td>
+        </tr>
+        ${fails.map(f => `<tr><td colspan="4" style="padding:2px 10px 2px 22px;font-size:11px;color:#cc0000;border-bottom:1px solid #fafafa;">✗ ${esc(f.text)}</td></tr>`).join('')}
+        ${advs.map(a  => `<tr><td colspan="4" style="padding:2px 10px 2px 22px;font-size:11px;color:#885500;border-bottom:1px solid #fafafa;">⚠ ${esc(a.text)}</td></tr>`).join('')}`;
+    }).join('');
+    const motSection = section('MOT History', motHistory.length > 0
+      ? `<table style="width:100%;border-collapse:collapse;">${motHead}<tbody>${motRows}</tbody></table>`
+      : '<p style="font-size:13px;color:#555;margin:0;">No MOT history on record</p>');
+
+    const listingsSection = cazAdverts.length > 0 ? section('Previous Listings', `
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="background:#f5f5f5;">
+          <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Last Seen</th>
+          <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Price</th>
+          <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Mileage</th>
+          <th style="padding:7px 10px;font-size:11px;text-align:left;border-bottom:1px solid #ddd;">Seller</th>
+        </tr></thead>
+        <tbody>
+          ${cazAdverts.slice(0, 10).map(ad => `
+            <tr>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${dt(ad.last_seen_date)}</td>
+              <td style="padding:6px 10px;font-size:12px;font-weight:600;border-bottom:1px solid #eee;">${ad.advertised_price_gbp != null ? money(ad.advertised_price_gbp) : '—'}</td>
+              <td style="padding:6px 10px;font-size:12px;border-bottom:1px solid #eee;">${ad.mileage_observed != null ? num(ad.mileage_observed) + ' mi' : '—'}</td>
+              <td style="padding:6px 10px;font-size:12px;color:#555;border-bottom:1px solid #eee;">${esc(ad.seller_name || ad.dealer_type || '—')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`) : '';
+
+    proContent = proRiskSection + bidSection + svcSection + motSection + listingsSection;
+  }
+
+  const header = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:22px;">
+      <div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:0.04em;font-family:Arial Black,Arial,sans-serif;">MOTORQUOTER</div>
+        <div style="font-size:11px;color:#666;margin-top:3px;letter-spacing:0.04em;">Vehicle Intelligence Report</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:20px;font-weight:700;letter-spacing:0.08em;">${esc(vrm)}</div>
+        <div style="font-size:12px;color:#555;margin-top:3px;">${esc(result.make || '')} ${esc(result.yearOfManufacture || '')}</div>
+        <div style="font-size:11px;color:#777;margin-top:2px;">${esc(tierLabel)} Check &bull; ${esc(checkDate)}</div>
+      </div>
+    </div>`;
+
+  const footer = `
+    <div style="margin-top:28px;padding-top:10px;border-top:1px solid #ccc;font-size:10px;color:#888;text-align:center;">
+      Generated by MotorQuoter &bull; motorquoter.vercel.app &bull; ${esc(checkDate)} &bull; Data sourced from DVLA, Experian AutoCheck, DVSA and Cazana
+    </div>`;
+
+  const body = result.tier === 'pro'
+    ? vehicleSection + proContent
+    : vehicleSection + valuationSection + standardRiskSection;
+
+  return `<div style="font-family:Arial,sans-serif;color:#111;background:#fff;padding:28px 32px;max-width:760px;margin:0 auto;">${header}${body}${footer}</div>`;
+}
+
 // ─── Standard tier result (existing layout) ───────────────────────────────────
 
 function StandardResult({ vrm, tier, result }) {
@@ -340,6 +524,7 @@ function PaymentSuccessContent() {
   const [status, setStatus] = useState('verifying');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const vrm = searchParams.get('vrm');
   const tier = searchParams.get('tier');
@@ -392,6 +577,30 @@ function PaymentSuccessContent() {
     runLookup();
   }, [runLookup]);
 
+  async function generatePdf() {
+    if (!result) return;
+    setPdfLoading(true);
+    try {
+      const { default: html2pdf } = await import('html2pdf.js');
+      const today = new Date().toLocaleDateString('en-GB');
+      const tierLabel = tier === 'pro' ? 'Pro' : 'Standard';
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:white;';
+      el.innerHTML = buildPdfHtml(result, vrm, tierLabel, today);
+      document.body.appendChild(el);
+      await html2pdf().set({
+        margin: [12, 12, 12, 12],
+        filename: `MotorQuoter_${vrm}_${new Date().toISOString().slice(0, 10)}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      }).from(el).save();
+      document.body.removeChild(el);
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -414,7 +623,10 @@ function PaymentSuccessContent() {
     .status-text { color: var(--text-dim); font-size: 15px; margin-top: 12px; }
     .status-title { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 800; color: var(--orange); margin-bottom: 8px; }
     .error-box { margin: 20px; background: rgba(248,113,113,0.1); border: 1.5px solid rgba(248,113,113,0.3); border-radius: 10px; padding: 16px 20px; color: #f87171; font-size: 14px; line-height: 1.5; }
-    .back-btn { display: block; margin: 20px auto; padding: 14px 28px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
+    .pdf-btn { display: block; margin: 20px auto 6px; padding: 14px 28px; background: var(--orange); border: none; border-radius: 10px; color: white; font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
+    .pdf-btn:hover { background: var(--orange-light); }
+    .pdf-btn:disabled { opacity: 0.6; cursor: wait; }
+    .back-btn { display: block; margin: 0 auto 20px; padding: 14px 28px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
     .back-btn:hover { border-color: var(--orange); color: var(--orange); }
     .success-badge { display: inline-block; background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #4ade80; font-weight: 600; margin-bottom: 12px; }
 
@@ -533,6 +745,9 @@ function PaymentSuccessContent() {
               <StandardResult vrm={vrm} tier={tier} result={result} />
             )}
 
+            <button className="pdf-btn" onClick={generatePdf} disabled={pdfLoading}>
+              {pdfLoading ? 'Generating PDF...' : '↓ Download PDF'}
+            </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
           </>
         )}
