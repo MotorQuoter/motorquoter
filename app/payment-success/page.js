@@ -584,17 +584,31 @@ function PaymentSuccessContent() {
       const { default: html2pdf } = await import('html2pdf.js');
       const today = new Date().toLocaleDateString('en-GB');
       const tierLabel = tier === 'pro' ? 'Pro' : 'Standard';
+
+      // html2canvas only captures elements within the viewport bounds.
+      // Positioning at left:-10000px produces a blank canvas. Instead we
+      // place the element at (0,0) with pointer-events:none so it doesn't
+      // interfere with the page during the brief capture window.
       const el = document.createElement('div');
-      el.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:white;';
+      el.style.cssText = 'position:fixed;top:0;left:0;width:794px;background:white;z-index:9999;pointer-events:none;';
       el.innerHTML = buildPdfHtml(result, vrm, tierLabel, today);
       document.body.appendChild(el);
+
       await html2pdf().set({
         margin: [12, 12, 12, 12],
         filename: `MotorQuoter_${vrm}_${new Date().toISOString().slice(0, 10)}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          windowWidth: 794,
+          scrollX: 0,
+          scrollY: 0,
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       }).from(el).save();
+
       document.body.removeChild(el);
     } finally {
       setPdfLoading(false);
