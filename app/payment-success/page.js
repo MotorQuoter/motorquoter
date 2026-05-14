@@ -40,7 +40,13 @@ function StandardResult({ vrm, tier, result }) {
         {result.autocheck?.stolen_vehicle_data_qty === 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val good">✓ Not recorded stolen</span></div>}
         {result.autocheck?.stolen_vehicle_data_qty > 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val bad">⚠️ Recorded as stolen</span></div>}
         {result.autocheck?.condition_data_qty === 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val good">✓ No write-off recorded</span></div>}
-        {result.autocheck?.condition_data_qty > 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val bad">⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}</span></div>}
+        {result.autocheck?.condition_data_qty > 0 && (() => {
+          const wItem = result.autocheck.condition_data_items?.[0];
+          const wSrc = wItem?.recovered_category_desc || wItem?.vehicle_status || '';
+          const wMatch = wSrc.match(/\bCAT\s*([A-Z])\b/i);
+          const wLabel = wMatch ? `Cat ${wMatch[1]}` : (wSrc || 'Write-off recorded');
+          return <div className="result-row"><span className="result-key">Write-off</span><span className="result-val bad">⚠️ {wLabel}</span></div>;
+        })()}
         {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
         {result.motMileage && <div className="result-row"><span className="result-key">Mileage at Last MOT</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
       </div>
@@ -75,9 +81,14 @@ function ProResult({ vrm, result }) {
   const svcCoverage = result.serviceHistoryCoverage;
   const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
 
-  // Write-off
+  // Write-off — recovered_category_desc is often null; fall back to vehicle_status which contains e.g. "CAT S STRUCTURAL DAMAGE"
   const hasWriteOff = ac.condition_data_qty > 0;
-  const writeOffCat = ac.condition_data_items?.[0]?.recovered_category_desc || (hasWriteOff ? 'Write-off recorded' : null);
+  const writeOffItem = ac.condition_data_items?.[0];
+  const writeOffSrc = writeOffItem?.recovered_category_desc || writeOffItem?.vehicle_status || '';
+  const writeOffCatMatch = writeOffSrc.match(/\bCAT\s*([A-Z])\b/i);
+  const writeOffCat = hasWriteOff
+    ? (writeOffCatMatch ? `Cat ${writeOffCatMatch[1]}` : (writeOffSrc || 'Write-off recorded'))
+    : null;
 
   // Keeper count — field name may vary by AutoCheck version
   const keeperCount = ac.keeper_data_items?.[0]?.number_previous_keepers ?? ac.keeper_changes_qty ?? null;
