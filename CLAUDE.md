@@ -101,7 +101,6 @@ DVSA_TOKEN_URL
 
 ## Known Issues & TODOs
 
-- `/api/platescan/route.js` lines 55-56: Debug code returns raw Claude response; remove after verifying plate scanning reliability
 - Styling: Tailwind CSS configured but mostly unused; inline CSS could be migrated to utilities for maintainability
 - Database schema for `reg_lookup_cache` not tracked in repo (created manually in Supabase)
 
