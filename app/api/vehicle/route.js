@@ -223,7 +223,7 @@ export async function GET(request) {
       motMileage: tier === 'pro' ? (latestMot?.odometerValue || null) : null,
       motResult: tier === 'pro' ? (latestMot?.testResult || null) : null,
       motHistory: tier === 'pro' ? (mot || []) : null,
-      cazanaAdverts: tier === 'pro' ? extractApiResult(cazanaAdverts) : null,
+      cazanaAdverts: tier === 'pro' ? (!cazanaAdverts || cazanaAdverts.error ? null : cazanaAdverts) : null,
       cazanaDemand: tier === 'pro' ? extractApiResult(cazanaDemand) : null,
       salvage: tier === 'pro' ? extractApiResult(salvageData) : null,
       serviceHistory: tier === 'pro' ? extractApiResult(serviceHistory) : null,

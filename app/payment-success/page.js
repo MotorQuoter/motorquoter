@@ -68,6 +68,7 @@ function ProResult({ vrm, result }) {
   const val = result.valuation || {};
   const salvage = result.salvage || {};
   const cazAdv = result.cazanaAdverts || {};
+  const cazAdverts = cazAdv.result || [];
   const cazDem = result.cazanaDemand || {};
   const motHistory = result.motHistory || [];
   const svcHistory = result.serviceHistory;
@@ -93,9 +94,9 @@ function ProResult({ vrm, result }) {
   const hasFinance = ac.finance_data_qty > 0;
   const hasStolen = ac.stolen_vehicle_data_qty > 0;
 
-  // Cazana — previous asking price
-  const lastAskingPrice = cazAdv.last_advert_price ?? cazAdv.asking_price ?? cazAdv.adverts?.[0]?.advertised_price ?? null;
-  const advertCount = cazAdv.total_adverts ?? cazAdv.adverts?.length ?? null;
+  // Cazana — previous asking price (array sorted newest-first)
+  const lastAskingPrice = cazAdverts[0]?.advertised_price_gbp ?? null;
+  const advertCount = cazAdverts.length || null;
 
   // Cazana — market demand
   const demandRating = cazDem.market_demand_score != null ? `${cazDem.market_demand_score} / 100` : null;
@@ -267,7 +268,7 @@ function ProResult({ vrm, result }) {
       </div>
 
       {/* ── Market Intelligence ── */}
-      {(daysToSell != null || similarCount != null || cazAdv.adverts?.length > 0) && (
+      {(daysToSell != null || similarCount != null || cazAdverts.length > 0) && (
         <div className="pro-section">
           <SectionTitle>Market Intelligence</SectionTitle>
           <div className="info-grid">
@@ -297,18 +298,18 @@ function ProResult({ vrm, result }) {
             )}
           </div>
 
-          {cazAdv.adverts?.length > 0 && (
+          {cazAdverts.length > 0 && (
             <>
               <div style={{fontSize:12,color:'var(--text-dim)',marginTop:14,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.1em',fontFamily:"'Barlow Condensed',sans-serif"}}>Previous Listings</div>
               <div className="history-list">
-                {cazAdv.adverts.slice(0, 5).map((ad, i) => (
+                {cazAdverts.slice(0, 5).map((ad, i) => (
                   <div className="history-record" key={i}>
                     <div className="history-row">
-                      <span className="history-date">{fmtDate(ad.advertised_date) || ad.advertised_date}</span>
-                      {ad.advertised_price != null && <span style={{fontWeight:700,color:'var(--text)'}}>{fmtCurrency(ad.advertised_price)}</span>}
+                      <span className="history-date">{fmtDate(ad.last_seen_date) || ad.last_seen_date}</span>
+                      {ad.advertised_price_gbp != null && <span style={{fontWeight:700,color:'var(--text)'}}>{fmtCurrency(ad.advertised_price_gbp)}</span>}
                     </div>
-                    {ad.advertised_mileage != null && <div className="history-detail">{Number(ad.advertised_mileage).toLocaleString('en-GB')} mi</div>}
-                    {ad.advertised_by && <div className="history-detail" style={{color:'var(--text-dim)'}}>{ad.advertised_by}</div>}
+                    {ad.mileage_observed != null && <div className="history-detail">{Number(ad.mileage_observed).toLocaleString('en-GB')} mi</div>}
+                    {(ad.seller_name || ad.dealer_type) && <div className="history-detail" style={{color:'var(--text-dim)'}}>{ad.seller_name || ad.dealer_type}</div>}
                   </div>
                 ))}
               </div>
