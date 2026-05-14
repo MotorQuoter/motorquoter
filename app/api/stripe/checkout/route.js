@@ -18,7 +18,8 @@ export async function POST(request) {
 
     const price = TIER_PRICES[tier];
     const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://motorquoter.vercel.app';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.vercel.app');
 
     // Build success URL — {CHECKOUT_SESSION_ID} is replaced by Stripe automatically
     // Must NOT be URL-encoded, so we build it as a plain string
