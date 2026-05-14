@@ -14,6 +14,14 @@ function extractApiResult(data) {
   return result;
 }
 
+// Reads a response body as text first to guard against empty-body 200s,
+// which would cause res.json() to throw "Unexpected end of JSON input".
+async function safeJson(res) {
+  const text = await res.text();
+  if (!text || !text.trim()) return null;
+  return JSON.parse(text);
+}
+
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(url, options);
@@ -136,12 +144,12 @@ export async function GET(request) {
       }
     );
 
-    const dvla = await dvlaRes.json();
+    const dvla = await safeJson(dvlaRes);
 
-    if (!dvlaRes.ok) {
+    if (!dvlaRes.ok || !dvla) {
       return NextResponse.json(
-        { error: dvla.message || 'DVLA lookup failed' },
-        { status: dvlaRes.status }
+        { error: dvla?.message || 'DVLA lookup failed' },
+        { status: dvlaRes.ok ? 500 : dvlaRes.status }
       );
     }
 
@@ -165,8 +173,8 @@ export async function GET(request) {
           { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
         )
       ]);
-      autocheck = await autocheckRes.json();
-      valuation = await bregoRes.json();
+      autocheck = await safeJson(autocheckRes);
+      valuation = await safeJson(bregoRes);
     }
 
     if (tier === 'pro') {
@@ -193,16 +201,16 @@ export async function GET(request) {
         getDvsaMotHistory(cleanVrm),
       ]);
 
-      autocheck = await autocheckRes.json();
-      valuation = await bregoRes.json();
-      cazanaAdverts = await cazAdvRes.json();
-      cazanaDemand = await cazDemRes.json();
-      salvageData = await salvageRes.json();
+      autocheck = await safeJson(autocheckRes);
+      valuation = await safeJson(bregoRes);
+      cazanaAdverts = await safeJson(cazAdvRes);
+      cazanaDemand = await safeJson(cazDemRes);
+      salvageData = await safeJson(salvageRes);
       mot = dvsaData?.motTests || [];
 
       // Collect service history — null means polling timed out.
       const svcRes = await svcHistoryPromise;
-      serviceHistory = svcRes ? await svcRes.json() : null;
+      serviceHistory = svcRes ? await safeJson(svcRes) : null;
     }
 
     const latestMot = mot?.[0] || null;
