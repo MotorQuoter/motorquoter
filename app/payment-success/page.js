@@ -298,6 +298,7 @@ function PaymentSuccessContent() {
   const [status, setStatus] = useState('verifying');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const vrm = searchParams.get('vrm');
   const tier = searchParams.get('tier');
@@ -340,6 +341,40 @@ function PaymentSuccessContent() {
 
   useEffect(() => { runLookup(); }, [runLookup]);
 
+  async function generatePdf() {
+    if (!result) return;
+    setPdfLoading(true);
+    try {
+      const now = new Date();
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const datePart = `${now.getDate()}${months[now.getMonth()]}${now.getFullYear()}`;
+      const filename = `${vrm}_${datePart}.pdf`;
+
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result, vrm, tier }),
+      });
+      if (!response.ok) throw new Error('PDF generation failed');
+
+      const arrayBuffer = await response.arrayBuffer();
+      // Use octet-stream so Chrome does not intercept as a PDF and open its viewer
+      const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF download failed:', err);
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -364,6 +399,7 @@ function PaymentSuccessContent() {
     .error-box { margin: 20px; background: rgba(248,113,113,0.1); border: 1.5px solid rgba(248,113,113,0.3); border-radius: 10px; padding: 16px 20px; color: #f87171; font-size: 14px; line-height: 1.5; }
     .pdf-btn { display: block; margin: 20px auto 6px; padding: 14px 28px; background: var(--orange); border: none; border-radius: 10px; color: white; font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
     .pdf-btn:hover { background: var(--orange-light); }
+    .pdf-btn:disabled { opacity: 0.6; cursor: wait; }
     .back-btn { display: block; margin: 0 auto 20px; padding: 14px 28px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
     .back-btn:hover { border-color: var(--orange); color: var(--orange); }
     .success-badge { display: inline-block; background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #4ade80; font-weight: 600; margin-bottom: 12px; }
@@ -427,67 +463,6 @@ function PaymentSuccessContent() {
     .badge-fail { font-size: 12px; font-weight: 700; color: #f87171; background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.25); border-radius: 4px; padding: 2px 8px; }
     .mot-advisory { font-size: 12px; color: var(--yellow); padding: 2px 0; }
     .mot-failure { font-size: 12px; color: #f87171; padding: 2px 0; }
-
-    /* ── Print header (hidden on screen) ── */
-    .print-header { display: none; }
-
-    /* ── Print stylesheet ── */
-    @media print {
-      @page { size: A4; margin: 15mm; }
-
-      /* Override CSS variables — covers all var() usage including inline styles */
-      :root {
-        --bg: #fff;
-        --bg2: #fff;
-        --bg3: #f5f5f5;
-        --orange: #111;
-        --orange-light: #111;
-        --orange-dim: #f0f0f0;
-        --text: #111;
-        --text-dim: #555;
-        --border: #bbb;
-        --border-dim: #ddd;
-        --yellow: #7a5c00;
-      }
-
-      body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .app { max-width: 100%; padding: 0; }
-
-      /* Show print header, hide screen chrome */
-      .print-header { display: flex !important; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 14px; margin-bottom: 20px; font-family: Arial, sans-serif; }
-      .print-logo { font-size: 22px; font-weight: 900; letter-spacing: 0.04em; font-family: Arial Black, Arial, sans-serif; color: #111; }
-      .print-subtitle { font-size: 11px; color: #555; margin-top: 3px; }
-      .print-vrm { font-size: 20px; font-weight: 700; letter-spacing: 0.08em; color: #111; text-align: right; }
-      .print-make { font-size: 12px; color: #555; margin-top: 3px; text-align: right; }
-      .print-meta { font-size: 11px; color: #777; margin-top: 2px; text-align: right; }
-
-      .header, .pdf-btn, .back-btn, .success-badge, .status-box, .error-box, .pro-header { display: none !important; }
-      .pro-badge { background: none; color: #555; border: 1px solid #bbb; }
-
-      /* Layout */
-      .pro-section { margin: 0 0 6px; page-break-inside: avoid; break-inside: avoid; }
-      .pro-header { margin: 0 0 4px; border-radius: 0; }
-      .result { margin: 0 0 16px; border-radius: 0; }
-      .history-record { page-break-inside: avoid; break-inside: avoid; }
-
-      /* Colours */
-      .result-val.good { color: #006600; }
-      .result-val.warn { color: #7a5c00; }
-      .result-val.bad { color: #cc0000; }
-      .flag-val-green { color: #006600; }
-      .flag-val-red { color: #cc0000; }
-      .flag-val-amber { color: #7a5c00; }
-      .flag-row.flag-green { background: #f0fff0; border-color: #aaddaa; }
-      .flag-row.flag-red { background: #fff0f0; border-color: #ddaaaa; }
-      .flag-row.flag-amber { background: #fffbf0; border-color: #ddcc88; }
-      .badge-pass { color: #006600; background: #f0fff0; border-color: #aaddaa; }
-      .badge-fail { color: #cc0000; background: #fff0f0; border-color: #ddaaaa; }
-      .mot-advisory { color: #7a5c00; }
-      .mot-failure { color: #cc0000; }
-      .bid-value.bid-green { color: #111; }
-      .bid-value.bid-orange { color: #111; font-size: 22px; }
-      .section-title { color: #111; border-color: #333; }
-    }
   `;
 
   return (
@@ -522,19 +497,6 @@ function PaymentSuccessContent() {
 
         {status === 'done' && result && (
           <>
-            {/* Print header — hidden on screen, shown when printing */}
-            <div className="print-header">
-              <div>
-                <div className="print-logo">MOTORQUOTER</div>
-                <div className="print-subtitle">Vehicle Intelligence Report</div>
-              </div>
-              <div>
-                <div className="print-vrm">{vrm}</div>
-                <div className="print-make">{result.make} {result.yearOfManufacture}</div>
-                <div className="print-meta">{result.tier === 'pro' ? 'Pro' : 'Standard'} Check · {new Date().toLocaleDateString('en-GB')}</div>
-              </div>
-            </div>
-
             <div style={{textAlign:'center', padding: '20px 20px 0'}}>
               <span className="success-badge">✓ Payment confirmed</span>
             </div>
@@ -552,7 +514,9 @@ function PaymentSuccessContent() {
               <StandardResult vrm={vrm} tier={tier} result={result} />
             )}
 
-            <button className="pdf-btn" onClick={() => window.print()}>↓ Save as PDF</button>
+            <button className="pdf-btn" onClick={generatePdf} disabled={pdfLoading}>
+              {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}
+            </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
           </>
         )}
