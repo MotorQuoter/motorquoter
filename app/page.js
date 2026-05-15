@@ -1,18 +1,21 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { PRICING } from '@/config/pricing';
 
 export default function Home() {
+  const router = useRouter();
   const [vrm, setVrm] = useState('');
   const [mileage, setMileage] = useState('');
-  const [market, setMarket] = useState(null);
+  const [market, setMarket] = useState('GB');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [tier, setTier] = useState(null);
   const [scanning, setScanning] = useState(false);
   const fileInputRef = useRef(null);
 
+  // ── Plate scan — preserved exactly ──────────────────────────────────────────
   const handlePhotoScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -30,7 +33,7 @@ export default function Home() {
       const response = await fetch('/api/platescan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: base64, mediaType: file.type })
+        body: JSON.stringify({ imageData: base64, mediaType: file.type }),
       });
 
       const data = await response.json();
@@ -40,82 +43,43 @@ export default function Home() {
       } else {
         setVrm(data.reg);
       }
-    } catch (err) {
-      console.error('Checkout error:', err);
-      setError('Could not start checkout: ' + err.message);
-      setLoading(false);
+    } catch {
+      setError('Plate scan failed. Please type the registration manually.');
+    } finally {
+      setScanning(false);
     }
   };
 
-  const handleCheck = async (selectedTier) => {
+  // ── Free DVLA check — functional until à la carte checkout wired in Step 4+ ─
+  const handleCheck = async () => {
     if (!vrm.trim()) return;
-    setTier(selectedTier);
-    setError(null);
-
-    // Free tier — call API directly, no payment needed
-    if (selectedTier === 'free') {
-      setLoading(true);
-      setResult(null);
-      try {
-        const params = new URLSearchParams({
-          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
-          tier: 'free'
-        });
-        if (mileage) params.append('mileage', mileage);
-        if (market) params.append('market', market);
-
-        const res = await fetch(`/api/vehicle?${params}`);
-        const data = await res.json();
-
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setResult(data);
-        }
-      } catch (err) {
-        setError('Something went wrong. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Standard or Pro — redirect to Stripe Checkout
     setLoading(true);
+    setResult(null);
+    setError(null);
     try {
-      const res = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
-          tier: selectedTier,
-          mileage: mileage || '',
-          market: market || 'GB',
-        }),
+      const params = new URLSearchParams({
+        vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+        tier: 'free',
       });
+      if (mileage) params.append('mileage', mileage);
+      if (market)  params.append('market', market);
 
+      const res = await fetch(`/api/vehicle?${params}`);
       const data = await res.json();
 
       if (data.error) {
         setError(data.error);
-        setLoading(false);
-        return;
+      } else {
+        setResult(data);
       }
-
-      // Redirect to Stripe hosted checkout page
-      window.location.href = data.url;
-
-    } catch (err) {
-      setError('Could not start checkout. Please try again.');
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
 
-  const markets = [
-    { id: 'GB', label: 'GB', sub: 'Standard value', icon: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-    { id: 'NI', label: 'NI', sub: 'N. Ireland', detail: '+8–12% premium', icon: '🏴' },
-    { id: 'IE', label: 'IE', sub: 'Rep. Ireland', detail: '+ VRT calculated', icon: '🇮🇪' },
-  ];
+  const salvage = PRICING.salvageAssessment;
 
   return (
     <>
@@ -187,34 +151,9 @@ export default function Home() {
           color: var(--text);
         }
 
-        .header-actions {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .btn-standard {
-          background: var(--orange);
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 6px;
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 700;
-          font-size: 14px;
-          letter-spacing: 0.05em;
-          cursor: pointer;
-        }
-
-        .bolt {
-          color: var(--orange);
-          font-size: 20px;
-        }
-
         .hero {
           padding: 36px 20px 28px;
           text-align: center;
-          position: relative;
         }
 
         .hero-eyebrow {
@@ -383,161 +322,138 @@ export default function Home() {
           pointer-events: none;
         }
 
-        .market-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-        }
-
-        .market-card {
+        /* ── Market toggle ── */
+        .market-toggle {
+          display: flex;
           background: var(--bg2);
           border: 1.5px solid var(--border-dim);
           border-radius: 10px;
-          padding: 14px 8px;
-          text-align: center;
-          cursor: pointer;
-          transition: all 0.2s;
+          padding: 4px;
+          gap: 4px;
         }
 
-        .market-card:hover {
-          border-color: var(--orange);
-          background: var(--bg3);
-        }
-
-        .market-card.active {
-          border-color: var(--yellow);
-          background: rgba(245,200,66,0.12);
-        }
-
-        .market-card.active .market-label,
-        .market-card.active .market-sub {
-          color: var(--yellow);
-        }
-
-        .market-card .flag {
-          font-size: 22px;
-          margin-bottom: 6px;
-          display: block;
-        }
-
-        .market-card .market-label {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 18px;
-          font-weight: 800;
-          color: var(--text);
-          letter-spacing: 0.05em;
-        }
-
-        .market-card .market-sub {
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--text-dim);
-          margin-top: 2px;
-        }
-
-        .market-card .market-detail {
-          font-size: 11px;
-          color: var(--orange);
-          margin-top: 3px;
-          font-weight: 500;
-        }
-
-        .btn-row {
-          display: grid;
-          grid-template-columns: 1fr 1fr 1fr;
-          gap: 10px;
-          margin-top: 4px;
-        }
-
-        .btn-check {
-          padding: 16px;
-          border-radius: 10px;
-          border: none;
+        .market-toggle-btn {
+          flex: 1;
+          padding: 11px 16px;
+          background: none;
+          border: 1.5px solid transparent;
+          border-radius: 7px;
           cursor: pointer;
           font-family: 'Barlow Condensed', sans-serif;
           font-weight: 800;
           font-size: 16px;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          transition: all 0.2s;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .btn-check:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .btn-basic {
-          background: var(--bg3);
-          border: 1.5px solid var(--border-dim);
+          letter-spacing: 0.06em;
           color: var(--text-dim);
-          font-size: 14px;
+          transition: all 0.18s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
         }
 
-        .btn-basic:hover:not(:disabled) {
-          border-color: var(--text-dim);
+        .market-toggle-btn:hover {
           color: var(--text);
-        }
-
-        .btn-basic.selected {
-          border-color: var(--yellow);
-          color: var(--yellow);
-          background: rgba(245,200,66,0.08);
-        }
-
-        .btn-free {
           background: var(--bg3);
-          border: 1.5px solid var(--orange);
-          color: var(--orange);
         }
 
-        .btn-free:hover:not(:disabled) {
+        .market-toggle-btn.active {
           background: var(--orange-dim);
+          border-color: var(--border);
           color: var(--orange);
         }
 
-        .btn-free.selected {
-          border-color: var(--yellow);
-          color: var(--yellow);
-          background: rgba(245,200,66,0.08);
+        .market-toggle-btn .market-flag {
+          font-size: 20px;
+          line-height: 1;
         }
 
-        .btn-pro.selected {
-          background: var(--yellow);
-          color: var(--bg);
-          box-shadow: 0 4px 20px rgba(245,200,66,0.4);
-        }
-
-        .btn-pro {
+        /* ── Submit button ── */
+        .btn-submit {
+          width: 100%;
+          padding: 18px;
           background: var(--orange);
+          border: none;
+          border-radius: 10px;
           color: white;
+          font-family: 'Barlow Condensed', sans-serif;
+          font-weight: 800;
+          font-size: 18px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.2s;
+          margin-top: 4px;
         }
 
-        .btn-pro:hover:not(:disabled) {
+        .btn-submit:hover:not(:disabled) {
           background: var(--orange-light);
           transform: translateY(-1px);
           box-shadow: 0 4px 20px rgba(240,90,26,0.4);
         }
 
-        .btn-check .btn-price {
-          display: block;
-          font-size: 11px;
-          font-weight: 500;
-          opacity: 0.8;
-          margin-top: 2px;
-          font-family: 'Barlow', sans-serif;
-          letter-spacing: 0.02em;
-          text-transform: none;
+        .btn-submit:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
         }
 
-        .divider {
-          height: 1px;
-          background: var(--border-dim);
-          margin: 4px 0;
+        /* ── Salvage assessment card ── */
+        .salvage-card {
+          margin: 28px 20px 0;
+          background: var(--bg2);
+          border: 1.5px solid var(--border-dim);
+          border-radius: 12px;
+          padding: 20px;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
         }
 
+        .salvage-card:hover {
+          border-color: var(--orange);
+          background: var(--orange-dim);
+        }
+
+        .salvage-card-left {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+
+        .salvage-icon {
+          font-size: 28px;
+          flex-shrink: 0;
+        }
+
+        .salvage-title {
+          font-family: 'Barlow Condensed', sans-serif;
+          font-size: 17px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+          color: var(--text);
+          margin-bottom: 3px;
+        }
+
+        .salvage-desc {
+          font-size: 13px;
+          color: var(--text-dim);
+          line-height: 1.4;
+        }
+
+        .salvage-price {
+          font-family: 'Barlow Condensed', sans-serif;
+          font-size: 20px;
+          font-weight: 900;
+          color: var(--orange);
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+
+        /* ── Loading ── */
         .loading {
           text-align: center;
           padding: 32px 20px;
@@ -562,8 +478,9 @@ export default function Home() {
           font-size: 15px;
         }
 
+        /* ── Result ── */
         .result {
-          margin: 0 20px;
+          margin: 24px 20px 0;
           background: var(--bg2);
           border: 1.5px solid var(--border);
           border-radius: 12px;
@@ -628,10 +545,11 @@ export default function Home() {
 
         .result-val.good { color: #4ade80; }
         .result-val.warn { color: var(--yellow); }
-        .result-val.bad { color: #f87171; }
+        .result-val.bad  { color: #f87171; }
 
+        /* ── Error ── */
         .error-box {
-          margin: 0 20px;
+          margin: 24px 20px 0;
           background: rgba(248,113,113,0.1);
           border: 1.5px solid rgba(248,113,113,0.3);
           border-radius: 10px;
@@ -643,7 +561,7 @@ export default function Home() {
 
         .footer-note {
           text-align: center;
-          padding: 24px 20px 0;
+          padding: 28px 20px 0;
           font-size: 12px;
           color: var(--text-dim);
           line-height: 1.6;
@@ -655,10 +573,6 @@ export default function Home() {
           <div className="logo">
             <div className="logo-icon">M</div>
             <span className="logo-text">MOTORQUOTER</span>
-          </div>
-          <div className="header-actions">
-            <button className="btn-standard">Standard</button>
-            <span className="bolt">⚡</span>
           </div>
         </header>
 
@@ -684,6 +598,7 @@ export default function Home() {
         </div>
 
         <div className="form">
+          {/* Registration number */}
           <div>
             <div className="field-label">Registration Number</div>
             <div className="vrm-wrap">
@@ -715,6 +630,7 @@ export default function Home() {
             {scanning && <p className="scan-status">Reading plate...</p>}
           </div>
 
+          {/* Mileage */}
           <div>
             <div className="field-label">
               Current Mileage <span>(optional — improves valuation accuracy)</span>
@@ -736,101 +652,80 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Market toggle */}
           <div>
             <div className="field-label">Target Market</div>
-            <div className="market-grid">
-              {markets.map(m => (
-                <div
-                  key={m.id}
-                  className={`market-card ${market === m.id ? 'active' : ''}`}
-                  onClick={() => setMarket(m.id)}
-                >
-                  <span className="flag">{m.icon}</span>
-                  <div className="market-label">{m.label}</div>
-                  <div className="market-sub">{m.sub}</div>
-                  {m.detail && <div className="market-detail">{m.detail}</div>}
-                </div>
-              ))}
+            <div className="market-toggle">
+              <button
+                className={`market-toggle-btn ${market === 'GB' ? 'active' : ''}`}
+                onClick={() => setMarket('GB')}
+              >
+                <span className="market-flag">🇬🇧</span> GB
+              </button>
+              <button
+                className={`market-toggle-btn ${market === 'IE' ? 'active' : ''}`}
+                onClick={() => setMarket('IE')}
+              >
+                <span className="market-flag">🇮🇪</span> IE
+              </button>
             </div>
           </div>
 
-          <div className="divider" />
-
-          <div className="btn-row">
-            <button
-              className={`btn-check btn-basic ${tier === 'free' ? 'selected' : ''}`}
-              onClick={() => handleCheck('free')}
-              disabled={loading || !vrm.trim()}
-            >
-              Free
-              <span className="btn-price">DVLA only</span>
-            </button>
-            <button
-              className={`btn-check btn-free ${tier === 'standard' ? 'selected' : ''}`}
-              onClick={() => handleCheck('standard')}
-              disabled={loading || !vrm.trim()}
-            >
-              Standard
-              <span className="btn-price">£4.99 per check</span>
-            </button>
-            <button
-              className={`btn-check btn-pro ${tier === 'pro' ? 'selected' : ''}`}
-              onClick={() => handleCheck('pro')}
-              disabled={loading || !vrm.trim()}
-            >
-              Pro ⚡
-              <span className="btn-price">£12.99 per check</span>
-            </button>
-          </div>
+          {/* Check button — temporary free DVLA lookup; replaced by à la carte in Step 4+ */}
+          <button
+            className="btn-submit"
+            onClick={handleCheck}
+            disabled={loading || !vrm.trim()}
+          >
+            {loading ? 'Looking up...' : 'Check →'}
+          </button>
         </div>
+
+        {/* Salvage Assessment Tool entry point */}
+        {salvage.enabled && (
+          <div className="salvage-card" onClick={() => router.push('/salvage')}>
+            <div className="salvage-card-left">
+              <span className="salvage-icon">🔨</span>
+              <div>
+                <div className="salvage-title">Salvage Assessment Tool</div>
+                <div className="salvage-desc">Full assessment for salvage and damaged vehicles — predicted hammer price included</div>
+              </div>
+            </div>
+            <div className="salvage-price">£{salvage.price.toFixed(2)}</div>
+          </div>
+        )}
 
         {loading && (
           <div className="loading">
             <div className="spinner" />
-            <p className="loading-text">
-              {tier === 'free' ? `Looking up ${vrm}...` : 'Redirecting to payment...'}
-            </p>
+            <p className="loading-text">Looking up {vrm}...</p>
           </div>
         )}
 
         {error && !loading && (
-          <div className="error-box">
-            ⚠️ {error}
-          </div>
+          <div className="error-box">⚠️ {error}</div>
         )}
 
         {result && !loading && (
           <div className="result">
             <div className="result-header">
               <div className="result-reg">{vrm.toUpperCase()}</div>
-              <div className="result-vehicle">
-                {result.make} {result.yearOfManufacture}
-              </div>
+              <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
             </div>
             <div className="result-body">
-              {result.colour && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
+              {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
               {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
-              {result.fuelType && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
-              {result.taxStatus && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
-              {result.motStatus && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+              {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
+              {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
+              {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
               {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
-              {result.motMileage && <div className="result-row"><span className="result-key">Mileage at Last MOT</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
-              {result.valuation && <>
-                <div className="result-row"><span className="result-key">Retail Value</span><span className="result-val good">£{result.valuation.retail_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.retail_high_valuation?.toLocaleString('en-GB')}</span></div>
-                <div className="result-row"><span className="result-key">Trade Value</span><span className="result-val">£{result.valuation.trade_low_valuation?.toLocaleString('en-GB')} – £{result.valuation.trade_high_valuation?.toLocaleString('en-GB')}</span></div>
-              </>}
-              {result.autocheck?.finance_data_qty === 0 && <div className="result-row"><span className="result-key">Finance</span><span className="result-val good">✓ No finance recorded</span></div>}
-              {result.autocheck?.finance_data_qty > 0 && <div className="result-row"><span className="result-key">Finance</span><span className="result-val bad">⚠️ Outstanding finance recorded</span></div>}
-              {result.autocheck?.stolen_vehicle_data_qty === 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val good">✓ Not recorded stolen</span></div>}
-              {result.autocheck?.stolen_vehicle_data_qty > 0 && <div className="result-row"><span className="result-key">Stolen</span><span className="result-val bad">⚠️ Recorded as stolen</span></div>}
-              {result.autocheck?.condition_data_qty === 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val good">✓ No write-off recorded</span></div>}
-              {result.autocheck?.condition_data_qty > 0 && <div className="result-row"><span className="result-key">Write-off</span><span className="result-val bad">⚠️ {result.autocheck.condition_data_items?.[0]?.recovered_category_desc || 'Category recorded'}</span></div>}
+              {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
             </div>
           </div>
         )}
 
         <p className="footer-note">
-          Free DVLA lookup. Standard and Pro checks require payment.<br />
+          Free DVLA lookup included. Paid checks selected at checkout.<br />
           Not affiliated with Copart, CAP or HPI.
         </p>
       </div>
