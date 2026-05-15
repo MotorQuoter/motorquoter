@@ -55,9 +55,17 @@ export default function Home() {
     }
   };
 
-  // ── Free DVLA check ──────────────────────────────────────────────────────────
+  // ── Free DVLA check (GB) / IE menu reveal ────────────────────────────────────
   const handleCheck = async () => {
     if (!vrm.trim()) return;
+
+    // IE: no free lookup — show checklist directly with a holding message
+    if (market === 'IE') {
+      setResult({ _ieMarket: true });
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setResult(null);
     setError(null);
@@ -258,6 +266,12 @@ export default function Home() {
 
         .error-box { margin: 24px 20px 0; background: rgba(248,113,113,0.1); border: 1.5px solid rgba(248,113,113,0.3); border-radius: 10px; padding: 16px 20px; color: #f87171; font-size: 14px; line-height: 1.5; }
 
+        /* ── IE holding message ── */
+        .ie-holding { margin: 24px 20px 0; background: var(--bg2); border: 1.5px solid var(--border); border-radius: 12px; padding: 24px 20px; text-align: center; }
+        .ie-holding-icon { font-size: 32px; margin-bottom: 10px; }
+        .ie-holding-title { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 900; letter-spacing: 0.1em; color: var(--orange); margin-bottom: 8px; }
+        .ie-holding-text { font-size: 14px; color: var(--text-dim); line-height: 1.6; max-width: 300px; margin: 0 auto; }
+
         .footer-note { text-align: center; padding: 28px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
       `}</style>
 
@@ -387,22 +401,33 @@ export default function Home() {
 
         {result && !loading && (
           <>
-            {/* Free DVLA result */}
-            <div className="result">
-              <div className="result-header">
-                <div className="result-reg">{vrm.toUpperCase()}</div>
-                <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
+            {/* Free DVLA result — GB only */}
+            {!result._ieMarket && (
+              <div className="result">
+                <div className="result-header">
+                  <div className="result-reg">{vrm.toUpperCase()}</div>
+                  <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
+                </div>
+                <div className="result-body">
+                  {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
+                  {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
+                  {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
+                  {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
+                  {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+                  {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
+                  {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
+                </div>
               </div>
-              <div className="result-body">
-                {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
-                {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
-                {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
-                {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
-                {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
-                {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
-                {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
+            )}
+
+            {/* IE holding message */}
+            {result._ieMarket && (
+              <div className="ie-holding">
+                <div className="ie-holding-icon">🇮🇪</div>
+                <div className="ie-holding-title">{vrm.trim().replace(/\s/g, '').toUpperCase()}</div>
+                <p className="ie-holding-text">Vehicle identity and full data will be returned with your paid report. Select your checks below and proceed.</p>
               </div>
-            </div>
+            )}
 
             {/* Build Your Report checklist */}
             <div className="report-builder">
@@ -462,7 +487,7 @@ export default function Home() {
         )}
 
         <p className="footer-note">
-          Free DVLA lookup included. Paid checks selected at checkout.<br />
+          {market === 'IE' ? 'Vehicle identity returned with your paid report.' : 'Free DVLA lookup included.'} Paid checks selected at checkout.<br />
           Not affiliated with Copart, CAP or HPI.
         </p>
       </div>
