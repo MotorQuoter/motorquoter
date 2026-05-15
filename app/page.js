@@ -4,15 +4,20 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
 
+const enabledItems = PRICING.menu.filter(i => i.enabled);
+const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
+
 export default function Home() {
   const router = useRouter();
   const [vrm, setVrm] = useState('');
   const [mileage, setMileage] = useState('');
   const [market, setMarket] = useState('GB');
   const [loading, setLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState(defaultSelected);
   const fileInputRef = useRef(null);
 
   // ── Plate scan — preserved exactly ──────────────────────────────────────────
@@ -50,7 +55,7 @@ export default function Home() {
     }
   };
 
-  // ── Free DVLA check — functional until à la carte checkout wired in Step 4+ ─
+  // ── Free DVLA check ──────────────────────────────────────────────────────────
   const handleCheck = async () => {
     if (!vrm.trim()) return;
     setLoading(true);
@@ -79,6 +84,48 @@ export default function Home() {
     }
   };
 
+  // ── Checklist toggle ─────────────────────────────────────────────────────────
+  const toggleItem = (key) => {
+    const item = enabledItems.find(i => i.key === key);
+    if (!item || item.locked) return;
+    setSelectedKeys(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+
+  const total = enabledItems
+    .filter(i => selectedKeys.includes(i.key))
+    .reduce((sum, i) => sum + i.price, 0);
+
+  // ── Stripe checkout ──────────────────────────────────────────────────────────
+  const handleGetReport = async () => {
+    if (!vrm.trim() || selectedKeys.length === 0) return;
+    setCheckoutLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          checks: selectedKeys,
+          mileage: mileage || '',
+          market: market || 'GB',
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setCheckoutLoading(false);
+      } else {
+        window.location.href = data.url;
+      }
+    } catch {
+      setError('Could not start checkout. Please try again.');
+      setCheckoutLoading(false);
+    }
+  };
+
   const salvage = PRICING.salvageAssessment;
 
   return (
@@ -102,470 +149,116 @@ export default function Home() {
           --yellow: #f5c842;
         }
 
-        body {
-          background: var(--bg);
-          color: var(--text);
-          font-family: 'Barlow', sans-serif;
-          min-height: 100vh;
-        }
+        body { background: var(--bg); color: var(--text); font-family: 'Barlow', sans-serif; min-height: 100vh; }
+        .app { max-width: 480px; margin: 0 auto; padding: 0 0 60px; }
 
-        .app {
-          max-width: 480px;
-          margin: 0 auto;
-          padding: 0 0 60px;
-        }
+        .header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-dim); }
+        .logo { display: flex; align-items: center; gap: 10px; }
+        .logo-icon { width: 36px; height: 36px; background: var(--orange); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 18px; color: white; }
+        .logo-text { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: 0.05em; color: var(--text); }
 
-        .header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 16px 20px;
-          border-bottom: 1px solid var(--border-dim);
-        }
+        .hero { padding: 36px 20px 28px; text-align: center; }
+        .hero-eyebrow { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.2em; color: var(--orange); margin-bottom: 12px; text-transform: uppercase; }
+        .hero-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 64px; line-height: 0.95; letter-spacing: -0.01em; text-transform: uppercase; }
+        .hero-title span { color: var(--orange); display: block; }
+        .hero-sub { margin-top: 16px; font-size: 16px; color: var(--text-dim); line-height: 1.5; max-width: 320px; margin-left: auto; margin-right: auto; }
 
-        .logo {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
+        .form { padding: 0 20px; display: flex; flex-direction: column; gap: 20px; }
 
-        .logo-icon {
-          width: 36px;
-          height: 36px;
-          background: var(--orange);
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 900;
-          font-size: 18px;
-          color: white;
-        }
+        .field-label { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.15em; color: var(--orange); text-transform: uppercase; margin-bottom: 8px; }
+        .field-label span { color: var(--text-dim); font-weight: 400; font-size: 12px; letter-spacing: 0.05em; text-transform: none; font-family: 'Barlow', sans-serif; }
 
-        .logo-text {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 800;
-          font-size: 20px;
-          letter-spacing: 0.05em;
-          color: var(--text);
-        }
+        .vrm-wrap { position: relative; display: flex; gap: 10px; align-items: center; }
+        .vrm-wrap .vrm-input { flex: 1; }
 
-        .hero {
-          padding: 36px 20px 28px;
-          text-align: center;
-        }
+        .camera-btn { background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 0 16px; height: 64px; font-size: 24px; cursor: pointer; transition: all 0.2s; flex-shrink: 0; }
+        .camera-btn:hover:not(:disabled) { border-color: var(--orange); background: var(--orange-dim); }
+        .camera-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .scan-status { margin-top: 8px; font-size: 13px; color: var(--orange); text-align: center; }
 
-        .hero-eyebrow {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 13px;
-          font-weight: 700;
-          letter-spacing: 0.2em;
-          color: var(--orange);
-          margin-bottom: 12px;
-          text-transform: uppercase;
-        }
+        .vrm-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 18px 20px; font-family: 'Barlow Condensed', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-dim); text-align: center; text-transform: uppercase; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        .vrm-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); color: var(--text); }
+        .vrm-input::placeholder { color: rgba(154,143,135,0.5); letter-spacing: 0.1em; }
 
-        .hero-title {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 900;
-          font-size: 64px;
-          line-height: 0.95;
-          letter-spacing: -0.01em;
-          text-transform: uppercase;
-        }
+        .mileage-wrap { position: relative; }
+        .mileage-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 16px 70px 16px 20px; font-family: 'Barlow', sans-serif; font-size: 18px; color: var(--text-dim); outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        .mileage-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); color: var(--text); }
+        .mileage-input::placeholder { color: rgba(154,143,135,0.4); }
+        .mileage-unit { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 14px; font-weight: 500; pointer-events: none; }
 
-        .hero-title span {
-          color: var(--orange);
-          display: block;
-        }
+        .market-toggle { display: flex; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 4px; gap: 4px; }
+        .market-toggle-btn { flex: 1; padding: 11px 16px; background: none; border: 1.5px solid transparent; border-radius: 7px; cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.06em; color: var(--text-dim); transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 7px; }
+        .market-toggle-btn:hover { color: var(--text); background: var(--bg3); }
+        .market-toggle-btn.active { background: var(--orange-dim); border-color: var(--border); color: var(--orange); }
+        .market-toggle-btn .market-flag { font-size: 20px; line-height: 1; }
 
-        .hero-sub {
-          margin-top: 16px;
-          font-size: 16px;
-          color: var(--text-dim);
-          line-height: 1.5;
-          max-width: 320px;
-          margin-left: auto;
-          margin-right: auto;
-        }
+        .btn-submit { width: 100%; padding: 18px; background: var(--orange); border: none; border-radius: 10px; color: white; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 18px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; margin-top: 4px; }
+        .btn-submit:hover:not(:disabled) { background: var(--orange-light); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(240,90,26,0.4); }
+        .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
 
-        .form {
-          padding: 0 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        .field-label {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 13px;
-          font-weight: 700;
-          letter-spacing: 0.15em;
-          color: var(--orange);
-          text-transform: uppercase;
-          margin-bottom: 8px;
-        }
-
-        .field-label span {
-          color: var(--text-dim);
-          font-weight: 400;
-          font-size: 12px;
-          letter-spacing: 0.05em;
-          text-transform: none;
-          font-family: 'Barlow', sans-serif;
-        }
-
-        .vrm-wrap {
-          position: relative;
-          display: flex;
-          gap: 10px;
-          align-items: center;
-        }
-
-        .vrm-wrap .vrm-input {
-          flex: 1;
-        }
-
-        .camera-btn {
-          background: var(--bg3);
-          border: 1.5px solid var(--border-dim);
-          border-radius: 10px;
-          padding: 0 16px;
-          height: 64px;
-          font-size: 24px;
-          cursor: pointer;
-          transition: all 0.2s;
-          flex-shrink: 0;
-        }
-
-        .camera-btn:hover:not(:disabled) {
-          border-color: var(--orange);
-          background: var(--orange-dim);
-        }
-
-        .camera-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .scan-status {
-          margin-top: 8px;
-          font-size: 13px;
-          color: var(--orange);
-          text-align: center;
-        }
-
-        .vrm-input {
-          width: 100%;
-          background: var(--bg2);
-          border: 1.5px solid var(--border-dim);
-          border-radius: 10px;
-          padding: 18px 20px;
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 28px;
-          font-weight: 700;
-          letter-spacing: 0.15em;
-          color: var(--text-dim);
-          text-align: center;
-          text-transform: uppercase;
-          outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .vrm-input:focus {
-          border-color: var(--orange);
-          box-shadow: 0 0 0 3px var(--orange-dim);
-          color: var(--text);
-        }
-
-        .vrm-input::placeholder {
-          color: rgba(154,143,135,0.5);
-          letter-spacing: 0.1em;
-        }
-
-        .mileage-wrap {
-          position: relative;
-        }
-
-        .mileage-input {
-          width: 100%;
-          background: var(--bg2);
-          border: 1.5px solid var(--border-dim);
-          border-radius: 10px;
-          padding: 16px 70px 16px 20px;
-          font-family: 'Barlow', sans-serif;
-          font-size: 18px;
-          color: var(--text-dim);
-          outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .mileage-input:focus {
-          border-color: var(--orange);
-          box-shadow: 0 0 0 3px var(--orange-dim);
-          color: var(--text);
-        }
-
-        .mileage-input::placeholder {
-          color: rgba(154,143,135,0.4);
-        }
-
-        .mileage-unit {
-          position: absolute;
-          right: 16px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: var(--text-dim);
-          font-size: 14px;
-          font-weight: 500;
-          pointer-events: none;
-        }
-
-        /* ── Market toggle ── */
-        .market-toggle {
-          display: flex;
-          background: var(--bg2);
-          border: 1.5px solid var(--border-dim);
-          border-radius: 10px;
-          padding: 4px;
-          gap: 4px;
-        }
-
-        .market-toggle-btn {
-          flex: 1;
-          padding: 11px 16px;
-          background: none;
-          border: 1.5px solid transparent;
-          border-radius: 7px;
-          cursor: pointer;
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 800;
-          font-size: 16px;
-          letter-spacing: 0.06em;
-          color: var(--text-dim);
-          transition: all 0.18s;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 7px;
-        }
-
-        .market-toggle-btn:hover {
-          color: var(--text);
-          background: var(--bg3);
-        }
-
-        .market-toggle-btn.active {
-          background: var(--orange-dim);
-          border-color: var(--border);
-          color: var(--orange);
-        }
-
-        .market-toggle-btn .market-flag {
-          font-size: 20px;
-          line-height: 1;
-        }
-
-        /* ── Submit button ── */
-        .btn-submit {
-          width: 100%;
-          padding: 18px;
-          background: var(--orange);
-          border: none;
-          border-radius: 10px;
-          color: white;
-          font-family: 'Barlow Condensed', sans-serif;
-          font-weight: 800;
-          font-size: 18px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          cursor: pointer;
-          transition: all 0.2s;
-          margin-top: 4px;
-        }
-
-        .btn-submit:hover:not(:disabled) {
-          background: var(--orange-light);
-          transform: translateY(-1px);
-          box-shadow: 0 4px 20px rgba(240,90,26,0.4);
-        }
-
-        .btn-submit:disabled {
-          opacity: 0.45;
-          cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
-        }
-
-        /* ── Salvage assessment card ── */
-        .salvage-card {
-          margin: 28px 20px 0;
-          background: var(--bg2);
-          border: 1.5px solid var(--border-dim);
-          border-radius: 12px;
-          padding: 20px;
-          cursor: pointer;
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-        }
-
-        .salvage-card:hover {
-          border-color: var(--orange);
-          background: var(--orange-dim);
-        }
-
-        .salvage-card-left {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-        }
-
-        .salvage-icon {
-          font-size: 28px;
-          flex-shrink: 0;
-        }
-
-        .salvage-title {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 17px;
-          font-weight: 800;
-          letter-spacing: 0.04em;
-          color: var(--text);
-          margin-bottom: 3px;
-        }
-
-        .salvage-desc {
-          font-size: 13px;
-          color: var(--text-dim);
-          line-height: 1.4;
-        }
-
-        .salvage-price {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 20px;
-          font-weight: 900;
-          color: var(--orange);
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-
-        /* ── Loading ── */
-        .loading {
-          text-align: center;
-          padding: 32px 20px;
-        }
-
-        .spinner {
-          width: 40px;
-          height: 40px;
-          border: 3px solid var(--border-dim);
-          border-top-color: var(--orange);
-          border-radius: 50%;
-          animation: spin 0.8s linear infinite;
-          margin: 0 auto 16px;
-        }
-
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .loading-text {
-          color: var(--text-dim);
-          font-size: 15px;
-        }
-
-        /* ── Result ── */
-        .result {
-          margin: 24px 20px 0;
-          background: var(--bg2);
-          border: 1.5px solid var(--border);
-          border-radius: 12px;
-          overflow: hidden;
-        }
-
-        .result-header {
-          background: var(--orange-dim);
-          border-bottom: 1px solid var(--border);
-          padding: 16px 20px;
-        }
-
-        .result-reg {
-          font-family: 'Barlow Condensed', sans-serif;
-          font-size: 22px;
-          font-weight: 900;
-          letter-spacing: 0.1em;
-          color: var(--orange);
-        }
-
-        .result-vehicle {
-          font-size: 15px;
-          color: var(--text);
-          font-weight: 600;
-          margin-top: 4px;
-        }
-
-        .result-body {
-          padding: 16px 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .result-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 10px 0;
-          border-bottom: 1px solid var(--border-dim);
-        }
-
-        .result-row:last-child {
-          border-bottom: none;
-        }
-
-        .result-key {
-          font-size: 13px;
-          color: var(--text-dim);
-          font-weight: 500;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-family: 'Barlow Condensed', sans-serif;
-        }
-
-        .result-val {
-          font-size: 15px;
-          color: var(--text);
-          font-weight: 600;
-          text-align: right;
-        }
-
+        /* ── DVLA result ── */
+        .result { margin: 24px 20px 0; background: var(--bg2); border: 1.5px solid var(--border); border-radius: 12px; overflow: hidden; }
+        .result-header { background: var(--orange-dim); border-bottom: 1px solid var(--border); padding: 16px 20px; }
+        .result-reg { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 900; letter-spacing: 0.1em; color: var(--orange); }
+        .result-vehicle { font-size: 15px; color: var(--text); font-weight: 600; margin-top: 4px; }
+        .result-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+        .result-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-dim); }
+        .result-row:last-child { border-bottom: none; }
+        .result-key { font-size: 13px; color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'Barlow Condensed', sans-serif; }
+        .result-val { font-size: 15px; color: var(--text); font-weight: 600; text-align: right; }
         .result-val.good { color: #4ade80; }
         .result-val.warn { color: var(--yellow); }
         .result-val.bad  { color: #f87171; }
 
-        /* ── Error ── */
-        .error-box {
-          margin: 24px 20px 0;
-          background: rgba(248,113,113,0.1);
-          border: 1.5px solid rgba(248,113,113,0.3);
-          border-radius: 10px;
-          padding: 16px 20px;
-          color: #f87171;
-          font-size: 14px;
-          line-height: 1.5;
-        }
+        /* ── Build Your Report checklist ── */
+        .report-builder { margin: 16px 20px 0; }
+        .report-builder-label { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.2em; color: var(--orange); text-transform: uppercase; margin-bottom: 10px; }
 
-        .footer-note {
-          text-align: center;
-          padding: 28px 20px 0;
-          font-size: 12px;
-          color: var(--text-dim);
-          line-height: 1.6;
-        }
+        .check-list { background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 12px; overflow: hidden; }
+
+        .check-item { display: flex; align-items: center; gap: 13px; padding: 13px 16px; border-bottom: 1px solid var(--border-dim); cursor: pointer; transition: background 0.15s; user-select: none; }
+        .check-item:last-child { border-bottom: none; }
+        .check-item.locked { cursor: default; }
+        .check-item:not(.locked):hover { background: var(--bg3); }
+        .check-item.selected:not(.locked) { background: rgba(240,90,26,0.08); }
+
+        .check-box { width: 22px; height: 22px; border: 2px solid var(--border-dim); border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.15s; }
+        .check-item.selected .check-box { background: var(--orange); border-color: var(--orange); color: white; }
+        .check-item.locked .check-box { background: var(--bg3); border-color: var(--border-dim); color: var(--text-dim); font-size: 11px; }
+
+        .check-info { flex: 1; min-width: 0; }
+        .check-label { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+        .check-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+
+        .check-price { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 800; color: var(--text); white-space: nowrap; flex-shrink: 0; }
+        .check-price.free { color: #4ade80; font-size: 13px; font-weight: 700; }
+
+        .total-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 4px; }
+        .total-label { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-dim); text-transform: uppercase; }
+        .total-amount { font-family: 'Barlow Condensed', sans-serif; font-size: 26px; font-weight: 900; color: var(--text); }
+
+        .btn-get-report { width: 100%; padding: 18px; background: var(--orange); border: none; border-radius: 10px; color: white; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; margin-top: 10px; }
+        .btn-get-report:hover:not(:disabled) { background: var(--orange-light); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(240,90,26,0.4); }
+        .btn-get-report:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* ── Salvage card ── */
+        .salvage-card { margin: 24px 20px 0; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .salvage-card:hover { border-color: var(--orange); background: var(--orange-dim); }
+        .salvage-card-left { display: flex; align-items: center; gap: 14px; }
+        .salvage-icon { font-size: 28px; flex-shrink: 0; }
+        .salvage-title { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 800; letter-spacing: 0.04em; color: var(--text); margin-bottom: 3px; }
+        .salvage-desc { font-size: 13px; color: var(--text-dim); line-height: 1.4; }
+        .salvage-price { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900; color: var(--orange); white-space: nowrap; flex-shrink: 0; }
+
+        /* ── Loading / error ── */
+        .loading { text-align: center; padding: 32px 20px; }
+        .spinner { width: 40px; height: 40px; border: 3px solid var(--border-dim); border-top-color: var(--orange); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: var(--text-dim); font-size: 15px; }
+
+        .error-box { margin: 24px 20px 0; background: rgba(248,113,113,0.1); border: 1.5px solid rgba(248,113,113,0.3); border-radius: 10px; padding: 16px 20px; color: #f87171; font-size: 14px; line-height: 1.5; }
+
+        .footer-note { text-align: center; padding: 28px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
       `}</style>
 
       <div className="app">
@@ -671,7 +364,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Check button — temporary free DVLA lookup; replaced by à la carte in Step 4+ */}
+          {/* Free DVLA check button */}
           <button
             className="btn-submit"
             onClick={handleCheck}
@@ -680,6 +373,79 @@ export default function Home() {
             {loading ? 'Looking up...' : 'Check →'}
           </button>
         </div>
+
+        {loading && (
+          <div className="loading">
+            <div className="spinner" />
+            <p className="loading-text">Looking up {vrm}...</p>
+          </div>
+        )}
+
+        {error && !loading && !checkoutLoading && (
+          <div className="error-box">⚠️ {error}</div>
+        )}
+
+        {result && !loading && (
+          <>
+            {/* Free DVLA result */}
+            <div className="result">
+              <div className="result-header">
+                <div className="result-reg">{vrm.toUpperCase()}</div>
+                <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
+              </div>
+              <div className="result-body">
+                {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
+                {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
+                {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
+                {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
+                {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+                {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
+                {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
+              </div>
+            </div>
+
+            {/* Build Your Report checklist */}
+            <div className="report-builder">
+              <div className="report-builder-label">Build Your Report</div>
+              <div className="check-list">
+                {enabledItems.map(item => {
+                  const selected = selectedKeys.includes(item.key);
+                  return (
+                    <div
+                      key={item.key}
+                      className={`check-item ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''}`}
+                      onClick={() => toggleItem(item.key)}
+                    >
+                      <div className="check-box">
+                        {item.locked ? '🔒' : selected ? '✓' : ''}
+                      </div>
+                      <div className="check-info">
+                        <div className="check-label">{item.label}</div>
+                        <div className="check-desc">{item.description}</div>
+                      </div>
+                      <div className={`check-price ${item.price === 0 ? 'free' : ''}`}>
+                        {item.price === 0 ? 'FREE' : `£${item.price.toFixed(2)}`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="total-bar">
+                <span className="total-label">Total</span>
+                <span className="total-amount">£{total.toFixed(2)}</span>
+              </div>
+
+              <button
+                className="btn-get-report"
+                onClick={handleGetReport}
+                disabled={checkoutLoading || total === 0}
+              >
+                {checkoutLoading ? 'Redirecting...' : `Get Report — £${total.toFixed(2)}`}
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Salvage Assessment Tool entry point */}
         {salvage.enabled && (
@@ -692,35 +458,6 @@ export default function Home() {
               </div>
             </div>
             <div className="salvage-price">£{salvage.price.toFixed(2)}</div>
-          </div>
-        )}
-
-        {loading && (
-          <div className="loading">
-            <div className="spinner" />
-            <p className="loading-text">Looking up {vrm}...</p>
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="error-box">⚠️ {error}</div>
-        )}
-
-        {result && !loading && (
-          <div className="result">
-            <div className="result-header">
-              <div className="result-reg">{vrm.toUpperCase()}</div>
-              <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
-            </div>
-            <div className="result-body">
-              {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
-              {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
-              {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
-              {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
-              {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
-              {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
-              {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
-            </div>
           </div>
         )}
 
