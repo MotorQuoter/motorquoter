@@ -93,17 +93,31 @@ export default function Home() {
   };
 
   // ── Checklist toggle ─────────────────────────────────────────────────────────
+  // Optional items = enabled items that are not always-locked (MOT) and not valuation
+  const optionalItems = enabledItems.filter(i => !i.locked && i.key !== 'valuation');
+  const anyOptionalSelected = optionalItems.some(i => selectedKeys.includes(i.key));
+  // Valuation is locked (mandatory) only while no optional item is selected
+  const valuationLocked = !anyOptionalSelected;
+
   const toggleItem = (key) => {
     const item = enabledItems.find(i => i.key === key);
-    if (!item || item.locked) return;
-    setSelectedKeys(prev =>
-      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
-    );
+    if (!item) return;
+    if (item.locked && key !== 'valuation') return; // MOT always locked
+    if (key === 'valuation' && valuationLocked) return; // valuation locked with empty basket
+
+    setSelectedKeys(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      // If basket just became all-optional-empty, re-lock valuation (auto-add it back)
+      const anyOptInNext = optionalItems.some(i => next.includes(i.key));
+      if (!anyOptInNext && !next.includes('valuation')) return [...next, 'valuation'];
+      return next;
+    });
   };
 
+  const SERVICE_FEE = 0.25;
   const total = enabledItems
     .filter(i => selectedKeys.includes(i.key))
-    .reduce((sum, i) => sum + i.price, 0);
+    .reduce((sum, i) => sum + i.price, 0) + SERVICE_FEE;
 
   // ── Stripe checkout ──────────────────────────────────────────────────────────
   const handleGetReport = async () => {
@@ -435,14 +449,15 @@ export default function Home() {
               <div className="check-list">
                 {enabledItems.map(item => {
                   const selected = selectedKeys.includes(item.key);
+                  const isLocked = item.key === 'valuation' ? valuationLocked : item.locked;
                   return (
                     <div
                       key={item.key}
-                      className={`check-item ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''}`}
+                      className={`check-item ${selected ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
                       onClick={() => toggleItem(item.key)}
                     >
                       <div className="check-box">
-                        {item.locked ? '🔒' : selected ? '✓' : ''}
+                        {isLocked ? '🔒' : selected ? '✓' : ''}
                       </div>
                       <div className="check-info">
                         <div className="check-label">{item.label}</div>
@@ -454,6 +469,15 @@ export default function Home() {
                     </div>
                   );
                 })}
+                {/* Service fee — always applied */}
+                <div className="check-item locked">
+                  <div className="check-box" style={{fontSize: 11}}>✓</div>
+                  <div className="check-info">
+                    <div className="check-label">Service Fee</div>
+                    <div className="check-desc">Payment processing contribution</div>
+                  </div>
+                  <div className="check-price">£0.25</div>
+                </div>
               </div>
 
               <div className="total-bar">

@@ -31,6 +31,16 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No paid items selected' }, { status: 400 });
     }
 
+    // Always add 25p service fee to cover payment processing on small baskets
+    lineItems.push({
+      price_data: {
+        currency: 'gbp',
+        product_data: { name: 'Service fee' },
+        unit_amount: 25,
+      },
+      quantity: 1,
+    });
+
     const checksStr = checks.join(',');
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.vercel.app');

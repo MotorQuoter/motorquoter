@@ -15,8 +15,9 @@ export async function GET(request) {
     const paid = session.payment_status === 'paid';
     return NextResponse.json({
       paid,
-      tier: session.metadata?.tier || null,
+      checks: session.metadata?.checks || '',
       vrm: session.metadata?.vrm || null,
+      market: session.metadata?.market || 'GB',
     });
   } catch (err) {
     console.error('Stripe verify error:', err);
