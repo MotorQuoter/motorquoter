@@ -329,6 +329,7 @@ function buildPdf(result, vrm, tierLabel, checkDate) {
 }
 
 export async function POST(request) {
+  console.log('PDF route hit');
   try {
     const { result, vrm, tier } = await request.json();
     if (!result || !vrm) {
@@ -344,13 +345,13 @@ export async function POST(request) {
 
     const pdfBuffer = buildPdf(result, vrm, tierLabel, today);
 
-    return new Response(pdfBuffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': String(pdfBuffer.byteLength),
-      },
-    });
+    const headers = {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': String(pdfBuffer.byteLength),
+    };
+    console.log('PDF response headers:', JSON.stringify(headers));
+    return new Response(pdfBuffer, { headers });
   } catch (err) {
     console.error('PDF generation error:', err);
     return Response.json({ error: 'PDF generation failed' }, { status: 500 });

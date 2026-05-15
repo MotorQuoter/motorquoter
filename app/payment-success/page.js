@@ -350,14 +350,19 @@ function PaymentSuccessContent() {
       const datePart = `${now.getDate()}${months[now.getMonth()]}${now.getFullYear()}`;
       const filename = `${vrm}_${datePart}.pdf`;
 
+      console.log('[PDF] fetching /api/generate-pdf');
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ result, vrm, tier }),
       });
+      console.log('[PDF] response status:', response.status);
+      console.log('[PDF] content-type:', response.headers.get('content-type'));
+      console.log('[PDF] content-disposition:', response.headers.get('content-disposition'));
       if (!response.ok) throw new Error('PDF generation failed');
 
       const arrayBuffer = await response.arrayBuffer();
+      console.log('[PDF] buffer byteLength:', arrayBuffer.byteLength);
       // Use octet-stream so Chrome does not intercept as a PDF and open its viewer
       const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
