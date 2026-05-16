@@ -175,7 +175,7 @@ export default function SalvagePage() {
         </header>
 
         <div className="hero" style={{ padding: '32px 20px 20px' }}>
-          <p className="hero-eyebrow">Copart & Salvage Intelligence</p>
+          <p className="hero-eyebrow">Salvage & Damage Intelligence</p>
           <h1 className="hero-title">
             DAMAGE<br /><span>ASSESSMENT</span>
           </h1>
@@ -278,7 +278,7 @@ export default function SalvagePage() {
               </div>
               <input
                 className="text-input"
-                placeholder="Copart Lot Number"
+                placeholder="Auction Lot Number"
                 value={details.lotNumber}
                 onChange={e => setDetails(p => ({ ...p, lotNumber: e.target.value }))}
               />
@@ -294,7 +294,7 @@ export default function SalvagePage() {
               </select>
               <textarea
                 className="textarea-input"
-                placeholder="Copart damage description (copy from listing — helps AI compare against photos)"
+                placeholder="Seller damage description (copy from listing — helps AI compare against photos)"
                 value={details.damageDescription}
                 onChange={e => setDetails(p => ({ ...p, damageDescription: e.target.value }))}
               />
