@@ -381,6 +381,7 @@ function PaymentSuccessContent() {
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [vehicleImage, setVehicleImage] = useState(null);
 
   const vrm       = searchParams.get('vrm');
   const market    = searchParams.get('market') || 'GB';
@@ -420,6 +421,18 @@ function PaymentSuccessContent() {
   }, [vrm, sessionId, mileage, market, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
+
+  useEffect(() => {
+    if (!result || result.market === 'IE') return;
+    fetch('/api/vehicle-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vrm, colour: result.colour }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.imageUrl) setVehicleImage(d.imageUrl); })
+      .catch(() => {});
+  }, [result, vrm]);
 
   async function generatePdf() {
     if (!result) return;
@@ -568,6 +581,19 @@ function PaymentSuccessContent() {
               <div className="report-reg">{vrm}</div>
               <div className="report-vehicle">{result.make} {result.yearOfManufacture}</div>
             </div>
+
+            {vehicleImage && (
+              <div style={{ margin: '0 20px 6px', textAlign: 'center' }}>
+                <img
+                  src={vehicleImage}
+                  alt={`${result.make} representative image`}
+                  style={{ width: '100%', maxHeight: 220, objectFit: 'contain', background: 'transparent', display: 'block' }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                  Representative image — not the actual vehicle
+                </div>
+              </div>
+            )}
 
             <IdentitySection result={result} />
             {checks.includes('valuation')        && <ValuationSection       result={result} />}
