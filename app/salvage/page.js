@@ -7,7 +7,7 @@ import { PRICING } from '@/config/pricing';
 export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
-  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '' });
+  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', primaryDamage: '', damageDescription: '' });
   const [market, setMarket] = useState('GB');
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -142,6 +142,9 @@ export default function SalvagePage() {
         .textarea-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 14px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; resize: vertical; min-height: 90px; line-height: 1.5; }
         .textarea-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .textarea-input::placeholder { color: rgba(154,143,135,0.45); }
+        .select-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 15px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239a8f87' d='M1 1l5 5 5-5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; cursor: pointer; }
+        .select-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
+        .select-input option { background: #2a2420; color: var(--text); }
 
         .market-toggle { display: flex; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 4px; gap: 4px; }
         .market-btn { flex: 1; padding: 11px 16px; background: none; border: 1.5px solid transparent; border-radius: 7px; cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.06em; color: var(--text-dim); transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 7px; }
@@ -279,6 +282,16 @@ export default function SalvagePage() {
                 value={details.lotNumber}
                 onChange={e => setDetails(p => ({ ...p, lotNumber: e.target.value }))}
               />
+              <select
+                className="select-input"
+                value={details.primaryDamage}
+                onChange={e => setDetails(p => ({ ...p, primaryDamage: e.target.value }))}
+              >
+                <option value="">Primary Damage (optional)</option>
+                {['Burn','Burn - Engine','Front End','Mechanical','Minor Dents/Scratches','Missing/Altered Vin','Previous Repair','Rear End','Side','Stripped','Top/Roof','Undercarriage','Vandalism','Water/Flood'].map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
               <textarea
                 className="textarea-input"
                 placeholder="Copart damage description (copy from listing — helps AI compare against photos)"
