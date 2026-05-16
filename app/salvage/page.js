@@ -179,7 +179,7 @@ export default function SalvagePage() {
           <h1 className="hero-title">
             DAMAGE<br /><span>ASSESSMENT</span>
           </h1>
-          <p className="hero-sub">Upload Copart photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
+          <p className="hero-sub">Upload damage photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
           <div className="price-badge">
             <span className="price-badge-amount">£{price.toFixed(2)}</span>
             <span className="price-badge-label">per assessment · no subscription</span>
@@ -208,7 +208,7 @@ export default function SalvagePage() {
                 <>
                   <div className="upload-icon">📸</div>
                   <div className="upload-title">Drop photos here or tap to upload</div>
-                  <div className="upload-sub">All Copart listing photos — exterior, interior, engine, dashboard</div>
+                  <div className="upload-sub">All damage photos — exterior, interior, engine, dashboard</div>
                 </>
               ) : (
                 <>

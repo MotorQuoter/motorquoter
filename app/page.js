@@ -323,7 +323,7 @@ export default function Home() {
               boxShadow: '0 0 30px rgba(240,90,26,0.3)',
             }}
           />
-          <p className="hero-eyebrow">UK Vehicle Intelligence</p>
+          <p className="hero-eyebrow">UK & ROI Vehicle Intelligence</p>
           <h1 className="hero-title">
             KNOW YOUR<span>NUMBERS</span>
           </h1>
