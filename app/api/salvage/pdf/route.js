@@ -29,6 +29,10 @@ function stripMd(text) {
     .replace(/^\s*[-=_]{3,}\s*$/gm, '')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[•✓✗þ]/g, '-')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
     .trim();
 }
 
@@ -61,9 +65,13 @@ function parseFromRaw(rawText) {
 
 function resolveFields(assessment) {
   const hasFields = ['Visible Damage Summary', 'Estimated Repair Range', 'Key Cost Drivers']
-    .some(f => assessment[f] && String(assessment[f]).trim().length > 2);
+    .every(f => assessment[f] && String(assessment[f]).trim().length > 2);
   if (hasFields) return assessment;
-  if (assessment._raw) return { ...parseFromRaw(assessment._raw), _market: assessment._market };
+  if (assessment._raw) {
+    const reparsed = parseFromRaw(assessment._raw);
+    reparsed._market = assessment._market;
+    return reparsed;
+  }
   return assessment;
 }
 
@@ -81,8 +89,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   let y = MARGIN;
 
   // Fix 1: replace £ and em dashes before passing to jsPDF (helvetica cannot render them)
+  // Only replace bare £ — do not double-replace already-substituted GBP text
   const str = (v) => stripMd(v == null ? '' : String(v))
-    .replace(/£/g, 'GBP')
+    .replace(/£(?!GBP)/g, 'GBP ')
+    .replace(/GBP\s+GBP/g, 'GBP')
     .replace(/—/g, '-')
     .replace(/–/g, '-');
 
@@ -225,6 +235,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']);
   if (checklistItems.length > 0) {
+    checkPage(20);
     sectionTitle('WhatsApp Inspection Checklist (GBP 15 - book 48hrs before sale)');
     for (let i = 0; i < checklistItems.length; i++) {
       const itemText = checklistItems[i];
