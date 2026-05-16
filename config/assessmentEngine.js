@@ -21,6 +21,8 @@ Cat N and Cat S vehicles after repair are worth significantly less than equivale
 Required Output Format
 Always structure your response using these exact fields:
 
+CRITICAL FORMATTING RULE: Always output field labels in exactly this format: Field Name: followed by the content. Do NOT use markdown headers (##) for field labels. Do NOT bold the field labels. The field label must appear exactly as shown with a colon, on its own line, with the content following immediately after the colon or on the next line.
+
 Visible Damage Summary: [what you can actually see in the photos]
 Estimated Repair Range: £[low] - £[high]
 Key Cost Drivers: [the 2-3 things most affecting the estimate]

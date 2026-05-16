@@ -30,16 +30,15 @@ const ASSESSMENT_FIELDS = [
 function parseAssessment(text) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Strip markdown formatting that wraps field labels so labels are found reliably
+  // Strip bold/italic markers and horizontal rules; keep ## so the regex below can match both formats
   const clean = text
     .replace(/\*{1,3}/g, '')
-    .replace(/^#{1,6}\s*/gm, '')
     .replace(/^\s*[-=_]{3,}\s*$/gm, '');
 
-  // Find the position of each field label in the cleaned text
+  // Match field label in plain format (Field Name:) or markdown header (## Field Name with optional colon)
   const positions = [];
   for (const field of ASSESSMENT_FIELDS) {
-    const rx = new RegExp(esc(field) + '\\s*:', 'i');
+    const rx = new RegExp('^(?:##\\s*)?' + esc(field) + '\\s*:?', 'im');
     const m = clean.match(rx);
     if (m !== null) {
       positions.push({ field, start: m.index, afterColon: m.index + m[0].length });
@@ -154,6 +153,7 @@ export async function GET(request) {
     if (!apiResponse.ok) throw new Error(apiData.error?.message || 'Claude API error');
 
     const rawText = apiData.content?.[0]?.text || '';
+    console.log('RAW CLAUDE OUTPUT:', rawText.substring(0, 500));
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
