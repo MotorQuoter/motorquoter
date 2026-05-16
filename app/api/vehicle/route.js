@@ -312,7 +312,7 @@ export async function GET(request) {
 
       const payload = {
         make: dvla.make,
-        model: dvla.model,
+        model: dvsaData?.model || null,
         colour: dvla.colour,
         fuelType: dvla.fuelType,
         engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
@@ -323,6 +323,7 @@ export async function GET(request) {
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
         monthOfFirstRegistration: dvla.monthOfFirstRegistration,
+        hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         autocheck: autocheck?.result || null,
         valuation: valuation?.result || null,
         motExpiryDate: latestMot?.expiryDate || null,

@@ -198,6 +198,25 @@ function StolenSection({ result }) {
   );
 }
 
+// ── Outstanding Recall Warning ────────────────────────────────────────────────
+
+function RecallWarning({ result }) {
+  if (!result.hasOutstandingRecall) return null;
+  return (
+    <div style={{ margin: '0 20px 6px', background: 'rgba(248,113,113,0.09)', border: '1.5px solid rgba(248,113,113,0.35)', borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>⚠️</span>
+      <div>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171', letterSpacing: '0.04em', marginBottom: 4 }}>
+          OUTSTANDING SAFETY RECALL
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+          DVSA records show an outstanding safety recall on this vehicle. Contact the manufacturer or a franchise dealer before purchase to confirm the recall status and arrange rectification.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Experian Attribution ──────────────────────────────────────────────────────
 
 function ExperianAttribution({ result, checks }) {
@@ -579,8 +598,10 @@ function PaymentSuccessContent() {
 
             <div className="report-header">
               <div className="report-reg">{vrm}</div>
-              <div className="report-vehicle">{result.make} {result.yearOfManufacture}</div>
+              <div className="report-vehicle">{result.make} {result.model ? `${result.model} ` : ''}{result.yearOfManufacture}</div>
             </div>
+
+            <RecallWarning result={result} />
 
             {vehicleImage && (
               <div style={{ margin: '0 20px 6px', textAlign: 'center' }}>
