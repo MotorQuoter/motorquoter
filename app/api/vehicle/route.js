@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
 
-const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
+const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
 function extractApiResult(data) {

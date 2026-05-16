@@ -1,4 +1,4 @@
-const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
+const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
 
 export async function POST(request) {
