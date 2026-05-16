@@ -198,6 +198,20 @@ function StolenSection({ result }) {
   );
 }
 
+// ── Experian Attribution ──────────────────────────────────────────────────────
+
+function ExperianAttribution({ result, checks }) {
+  const shown = ['writeoff', 'finance', 'stolen'].some(c => checks.includes(c));
+  if (!shown || !result.autocheck) return null;
+  return (
+    <div style={{ textAlign: 'right', padding: '2px 20px 10px', fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.02em' }}>
+      Powered by{' '}
+      <span style={{ fontWeight: 700, color: '#a01346', letterSpacing: 0 }}>Experian</span>
+      {' '}AutoCheck
+    </div>
+  );
+}
+
 // ── Market Demand ─────────────────────────────────────────────────────────────
 
 function MarketDemandSection({ result }) {
@@ -561,6 +575,7 @@ function PaymentSuccessContent() {
             {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
             {checks.includes('finance')           && <FinanceSection         result={result} />}
             {checks.includes('stolen')            && <StolenSection          result={result} />}
+            <ExperianAttribution result={result} checks={checks} />
             {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
             {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
             {checks.includes('mot')               && <MotSection             result={result} />}
