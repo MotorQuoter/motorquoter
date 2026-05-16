@@ -93,6 +93,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const str = (v) => stripMd(v == null ? '' : String(v))
     .replace(/£(?!GBP)/g, 'GBP ')
     .replace(/GBP\s+GBP/g, 'GBP')
+    .replace(/(\d[\d,.]*)\s*GBP/g, '$1')
     .replace(/—/g, '-')
     .replace(/–/g, '-');
 
@@ -120,7 +121,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const clean = str(value);
     const isEmpty = !clean;
     const displayText = isEmpty ? 'Not available' : clean;
-    const lines = doc.splitTextToSize(displayText, CONTENT_W);
+    const wrapW = opts.wrapWidth || CONTENT_W;
+    const lines = doc.splitTextToSize(displayText, wrapW);
     checkPage(8 + lines.length * 4.5);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
@@ -220,8 +222,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 5: VALUATION & BIDDING
   sectionTitle('Valuation & Bidding');
-  fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true });
-  fieldBlock('Margin Calculation',   assessment['Margin Calculation']);
+  fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true, wrapWidth: CONTENT_W + 5 });
+  fieldBlock('Margin Calculation',   assessment['Margin Calculation'], { wrapWidth: CONTENT_W + 5 });
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Fix 5: keep existing colour logic for Recommended Action
