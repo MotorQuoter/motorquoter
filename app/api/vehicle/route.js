@@ -132,6 +132,7 @@ export async function GET(request) {
 
       const payload = {
         make: dvla.make,
+        model: dvla.model,
         colour: dvla.colour,
         fuelType: dvla.fuelType,
         engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
@@ -221,6 +222,7 @@ export async function GET(request) {
 
       const payload = {
         make: cartell.make ?? cartell.manufacturer ?? null,
+        model: cartell.model ?? null,
         colour: cartell.colour ?? cartell.color ?? null,
         fuelType: cartell.fuel_type ?? cartell.fuelType ?? null,
         engineSize: cc ? `${cc}cc` : null,
@@ -310,6 +312,7 @@ export async function GET(request) {
 
       const payload = {
         make: dvla.make,
+        model: dvla.model,
         colour: dvla.colour,
         fuelType: dvla.fuelType,
         engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
