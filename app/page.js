@@ -114,6 +114,18 @@ export default function Home() {
     });
   };
 
+  const allOptionalSelected = optionalItems.length > 0 && optionalItems.every(i => selectedKeys.includes(i.key));
+
+  const handleSelectAll = () => {
+    if (allOptionalSelected) {
+      // Deselect all optional — keep only locked items (Valuation + MOT)
+      setSelectedKeys(defaultSelected);
+    } else {
+      // Select every enabled item
+      setSelectedKeys(enabledItems.map(i => i.key));
+    }
+  };
+
   const SERVICE_FEE = 0.25;
   const total = enabledItems
     .filter(i => selectedKeys.includes(i.key))
@@ -447,6 +459,23 @@ export default function Home() {
             <div className="report-builder">
               <div className="report-builder-label">Build Your Report</div>
               <div className="check-list">
+                {/* Select All toggle */}
+                <div
+                  className={`check-item ${allOptionalSelected ? 'selected' : ''}`}
+                  style={{ borderBottom: '2px solid var(--border-dim)' }}
+                  onClick={handleSelectAll}
+                >
+                  <div className="check-box">
+                    {allOptionalSelected ? '✓' : ''}
+                  </div>
+                  <div className="check-info">
+                    <div className="check-label">Select All Items</div>
+                    <div className="check-desc">
+                      {allOptionalSelected ? 'Click to deselect optional checks' : 'Add all available checks to your report'}
+                    </div>
+                  </div>
+                </div>
+
                 {enabledItems.map(item => {
                   const selected = selectedKeys.includes(item.key);
                   const isLocked = item.key === 'valuation' ? valuationLocked : item.locked;
