@@ -146,7 +146,17 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('stolen')) {
     const hasStolen = ac.stolen_vehicle_data_qty > 0;
     sectionTitle('Stolen Check');
-    row('Police Database', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
+    row(isIE ? 'Stolen Register' : 'Police Database', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
+    if (isIE) {
+      checkPage(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(130, 130, 130);
+      const gardaNote = 'Irish stolen data is based on a private register. An Garda Síochána do not share stolen vehicle data with third parties.';
+      const noteLines = doc.splitTextToSize(gardaNote, CONTENT_W);
+      for (const line of noteLines) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 2;
+    }
   }
 
   // ── Market Demand ─────────────────────────────────────────────────────────────

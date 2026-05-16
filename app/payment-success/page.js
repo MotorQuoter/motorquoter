@@ -183,10 +183,15 @@ function StolenSection({ result }) {
         ? <EmptyState text="Stolen data not available for this vehicle" />
         : <div className="flag-list">
             <FlagRow
-              label="Police Stolen Database"
+              label={isIE ? 'Stolen Register Check' : 'Police Stolen Database'}
               value={hasStolen ? '⚠️ Recorded as stolen' : '✓ Not recorded stolen'}
               tone={hasStolen ? 'red' : 'green'}
             />
+            {isIE && (
+              <div style={{fontSize:12,color:'var(--text-dim)',lineHeight:1.55,padding:'8px 12px',background:'rgba(255,255,255,0.04)',borderRadius:6,marginTop:2}}>
+                Irish stolen data is based on a private register. An Garda Síochána do not share stolen vehicle data with third parties.
+              </div>
+            )}
           </div>
       }
     </div>
