@@ -330,6 +330,19 @@ export default function Home() {
           <p className="hero-sub">Accurate vehicle valuations. Cheaper and faster than CAP or HPI.</p>
         </div>
 
+        {salvage.enabled && (
+          <div className="salvage-card" onClick={() => router.push('/salvage')}>
+            <div className="salvage-card-left">
+              <span className="salvage-icon">🔨</span>
+              <div>
+                <div className="salvage-title">Salvage Assessment Tool</div>
+                <div className="salvage-desc">Full assessment for salvage and damaged vehicles — predicted hammer price included</div>
+              </div>
+            </div>
+            <div className="salvage-price">£{salvage.price.toFixed(2)}</div>
+          </div>
+        )}
+
         <div className="form">
           {/* Registration number */}
           <div>
@@ -525,19 +538,6 @@ export default function Home() {
           </>
         )}
 
-        {/* Salvage Assessment Tool entry point */}
-        {salvage.enabled && (
-          <div className="salvage-card" onClick={() => router.push('/salvage')}>
-            <div className="salvage-card-left">
-              <span className="salvage-icon">🔨</span>
-              <div>
-                <div className="salvage-title">Salvage Assessment Tool</div>
-                <div className="salvage-desc">Full assessment for salvage and damaged vehicles — predicted hammer price included</div>
-              </div>
-            </div>
-            <div className="salvage-price">£{salvage.price.toFixed(2)}</div>
-          </div>
-        )}
 
         <p className="footer-note">
           {market === 'IE' ? 'Vehicle identity returned with your paid report.' : 'Free DVLA lookup included.'} Paid checks selected at checkout.<br />
