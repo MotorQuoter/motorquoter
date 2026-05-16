@@ -258,7 +258,7 @@ export default function Home() {
 
         .check-box { width: 22px; height: 22px; border: 2px solid var(--border-dim); border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.15s; }
         .check-item.selected .check-box { background: var(--orange); border-color: var(--orange); color: white; }
-        .check-item.locked .check-box { background: var(--bg3); border-color: var(--border-dim); color: var(--text-dim); font-size: 11px; }
+        .check-item.locked .check-box { background: rgba(154,143,135,0.18); border-color: rgba(154,143,135,0.35); color: var(--text-dim); }
 
         .check-info { flex: 1; min-width: 0; }
         .check-label { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
@@ -432,7 +432,7 @@ export default function Home() {
               <div className="result">
                 <div className="result-header">
                   <div className="result-reg">{vrm.toUpperCase()}</div>
-                  <div className="result-vehicle">{result.make} {result.yearOfManufacture}</div>
+                  <div className="result-vehicle">{result.make}{result.model ? ` ${result.model}` : ''} {result.yearOfManufacture}</div>
                 </div>
                 <div className="result-body">
                   {result.colour     && <div className="result-row"><span className="result-key">Colour</span><span className="result-val">{result.colour}</span></div>}
@@ -486,7 +486,7 @@ export default function Home() {
                       onClick={() => toggleItem(item.key)}
                     >
                       <div className="check-box">
-                        {isLocked ? '🔒' : selected ? '✓' : ''}
+                        {selected || isLocked ? '✓' : ''}
                       </div>
                       <div className="check-info">
                         <div className="check-label">{item.label}</div>
