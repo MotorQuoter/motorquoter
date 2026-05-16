@@ -156,87 +156,6 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 3;
   }
 
-  // Margin Calculation rendered as a two-column table (Low / High scenario)
-  // Falls back to plain fieldBlock if fewer than 2 rows can be parsed
-  function renderMarginTable(rawText) {
-    const text = str(rawText || '');
-    if (!text) { fieldBlock('Margin Calculation', rawText); return; }
-
-    function extractAmt(keywords) {
-      for (const kw of keywords) {
-        const rx = new RegExp(
-          kw + '[^\\d\\n]{0,60}?(?:GBP\\s*)?(\\d[\\d,]+)(?:\\s*[-–]\\s*(?:GBP\\s*)?(\\d[\\d,]+))?',
-          'i'
-        );
-        const m = text.match(rx);
-        if (m) return { low: m[1], high: m[2] || null };
-      }
-      return null;
-    }
-
-    const rows = [
-      { label: 'Exit Value',          amt: extractAmt(['exit value', 'realistic exit']) },
-      { label: 'Minus Repair',        amt: extractAmt(['repair cost', 'repair range', 'repair']) },
-      { label: 'Minus Buyer Fees',    amt: extractAmt(['buyer fee', 'copart fee', 'premium', 'fees']) },
-      { label: 'Minus Transport',     amt: extractAmt(['transport', 'delivery', 'recovery']) },
-      { label: 'Hammer Price Budget', amt: extractAmt(['hammer', 'remaining', 'bid up to', 'maximum bid', 'budget']) },
-    ];
-
-    const hasData = rows.filter(r => r.amt).length >= 2;
-    if (!hasData) { fieldBlock('Margin Calculation', rawText); return; }
-
-    const ROW_H = 6.5;
-    checkPage(10 + rows.length * ROW_H + 10);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 100, 100);
-    doc.text('MARGIN CALCULATION', MARGIN, y);
-    y += 5;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(130, 130, 130);
-    doc.text('LOW', MARGIN + 80, y);
-    doc.text('HIGH', MARGIN + 120, y);
-    y += 3;
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.3);
-    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 4;
-
-    for (let i = 0; i < rows.length; i++) {
-      const { label, amt } = rows[i];
-      const isLast = i === rows.length - 1;
-      const low  = amt?.low  || '-';
-      const high = amt?.high || (amt?.low || '-');
-
-      if (isLast) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.setTextColor(20, 20, 20);
-      } else {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-      }
-
-      doc.text(label,  MARGIN, y);
-      doc.text(low,    MARGIN + 80, y);
-      doc.text(high,   MARGIN + 120, y);
-      y += ROW_H;
-
-      doc.setDrawColor(isLast ? 60 : 220, isLast ? 60 : 220, isLast ? 60 : 220);
-      doc.setLineWidth(isLast ? 0.3 : 0.15);
-      doc.line(MARGIN, y - 1.5, PAGE_W - MARGIN, y - 1.5);
-    }
-
-    y += 5;
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.15);
-    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
-    y += 3;
-  }
 
   // Fix 4 — Section 1: HEADER
   doc.setFillColor(20, 20, 20);
@@ -258,8 +177,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   doc.setTextColor(180, 180, 180);
   doc.text(`${market === 'IE' ? 'IE' : 'GB'} Market - ${checkDate}`, PAGE_W - MARGIN, y + 15, { align: 'right' });
 
-  // Fix 2: set y explicitly — header is always 28mm + 6mm padding
-  y = 34;
+  // Header is 28mm tall + 3mm padding before first content
+  y = 31;
 
   // Fix 4 — Section 2: VEHICLE DETAILS
   const vd = vehicleDetails || {};
@@ -311,7 +230,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Fix 4 — Section 5: VALUATION & BIDDING
   sectionTitle('Valuation & Bidding');
   fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true, wrapWidth: CONTENT_W + 5, fontSize: 8 });
-  renderMarginTable(assessment['Margin Calculation']);
+  fieldBlock('Margin Calculation', assessment['Margin Calculation'], { wrapWidth: CONTENT_W + 5 });
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Fix 5: keep existing colour logic for Recommended Action

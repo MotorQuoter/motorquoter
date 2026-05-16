@@ -112,8 +112,7 @@ export default function SalvageSuccessPage() {
     try {
       const vd = vehicleDetails || {};
       const identifier = vd.vrm || vd.lotNumber || [vd.make, vd.model, vd.year].filter(Boolean).join(' ') || 'Salvage';
-      console.log('Assessment being sent to PDF:', JSON.stringify(assessment).substring(0, 500));
-    const res = await fetch('/api/salvage/pdf', {
+      const res = await fetch('/api/salvage/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assessment, vehicleDetails: vd, market, identifier }),
