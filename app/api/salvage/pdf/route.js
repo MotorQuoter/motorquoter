@@ -117,11 +117,16 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   }
 
   // Fix 3: render "Not available" in grey if value is empty/null
+  // Supports opts.fontSize, opts.bold, opts.large, opts.color, opts.wrapWidth
   function fieldBlock(label, value, opts = {}) {
     const clean = str(value);
     const isEmpty = !clean;
     const displayText = isEmpty ? 'Not available' : clean;
     const wrapW = opts.wrapWidth || CONTENT_W;
+    const fontSize = isEmpty ? 9 : (opts.large ? 11 : (opts.fontSize || 9));
+    // Set font/size before splitTextToSize so line-break metrics match render size
+    doc.setFont('helvetica', (!isEmpty && opts.bold) ? 'bold' : 'normal');
+    doc.setFontSize(fontSize);
     const lines = doc.splitTextToSize(displayText, wrapW);
     checkPage(8 + lines.length * 4.5);
     doc.setFont('helvetica', 'bold');
@@ -135,7 +140,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setTextColor(160, 160, 160);
     } else {
       doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
-      doc.setFontSize(opts.large ? 11 : 9);
+      doc.setFontSize(fontSize);
       if (opts.color) doc.setTextColor(...opts.color);
       else doc.setTextColor(20, 20, 20);
     }
@@ -145,6 +150,88 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       y += 4.5;
     }
     y += 2;
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.15);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 3;
+  }
+
+  // Margin Calculation rendered as a two-column table (Low / High scenario)
+  // Falls back to plain fieldBlock if fewer than 2 rows can be parsed
+  function renderMarginTable(rawText) {
+    const text = str(rawText || '');
+    if (!text) { fieldBlock('Margin Calculation', rawText); return; }
+
+    function extractAmt(keywords) {
+      for (const kw of keywords) {
+        const rx = new RegExp(
+          kw + '[^\\d\\n]{0,60}?(?:GBP\\s*)?(\\d[\\d,]+)(?:\\s*[-–]\\s*(?:GBP\\s*)?(\\d[\\d,]+))?',
+          'i'
+        );
+        const m = text.match(rx);
+        if (m) return { low: m[1], high: m[2] || null };
+      }
+      return null;
+    }
+
+    const rows = [
+      { label: 'Exit Value',          amt: extractAmt(['exit value', 'realistic exit']) },
+      { label: 'Minus Repair',        amt: extractAmt(['repair cost', 'repair range', 'repair']) },
+      { label: 'Minus Buyer Fees',    amt: extractAmt(['buyer fee', 'copart fee', 'premium', 'fees']) },
+      { label: 'Minus Transport',     amt: extractAmt(['transport', 'delivery', 'recovery']) },
+      { label: 'Hammer Price Budget', amt: extractAmt(['hammer', 'remaining', 'bid up to', 'maximum bid', 'budget']) },
+    ];
+
+    const hasData = rows.filter(r => r.amt).length >= 2;
+    if (!hasData) { fieldBlock('Margin Calculation', rawText); return; }
+
+    const ROW_H = 6.5;
+    checkPage(10 + rows.length * ROW_H + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('MARGIN CALCULATION', MARGIN, y);
+    y += 5;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(130, 130, 130);
+    doc.text('LOW', MARGIN + 80, y);
+    doc.text('HIGH', MARGIN + 120, y);
+    y += 3;
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 4;
+
+    for (let i = 0; i < rows.length; i++) {
+      const { label, amt } = rows[i];
+      const isLast = i === rows.length - 1;
+      const low  = amt?.low  || '-';
+      const high = amt?.high || (amt?.low || '-');
+
+      if (isLast) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(20, 20, 20);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(60, 60, 60);
+      }
+
+      doc.text(label,  MARGIN, y);
+      doc.text(low,    MARGIN + 80, y);
+      doc.text(high,   MARGIN + 120, y);
+      y += ROW_H;
+
+      doc.setDrawColor(isLast ? 60 : 220, isLast ? 60 : 220, isLast ? 60 : 220);
+      doc.setLineWidth(isLast ? 0.3 : 0.15);
+      doc.line(MARGIN, y - 1.5, PAGE_W - MARGIN, y - 1.5);
+    }
+
+    y += 5;
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
@@ -188,6 +275,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   }
 
   // Fix 4 — Section 3: REPAIR ESTIMATE BANNER
+  // str() is applied here to convert £ to GBP for helvetica compatibility
   const repairRange = str(assessment['Estimated Repair Range']);
   if (repairRange) {
     checkPage(26);
@@ -222,8 +310,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 5: VALUATION & BIDDING
   sectionTitle('Valuation & Bidding');
-  fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true, wrapWidth: CONTENT_W + 5 });
-  fieldBlock('Margin Calculation',   assessment['Margin Calculation'], { wrapWidth: CONTENT_W + 5 });
+  fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true, wrapWidth: CONTENT_W + 5, fontSize: 8 });
+  renderMarginTable(assessment['Margin Calculation']);
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Fix 5: keep existing colour logic for Recommended Action
