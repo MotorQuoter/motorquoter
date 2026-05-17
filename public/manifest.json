@@ -2,7 +2,7 @@
   "name": "MotorQuoter",
   "short_name": "MotorQuoter",
   "description": "AI-powered vehicle damage assessment for Copart auction buyers",
-  "start_url": "/salvage",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#1e1a17",
   "theme_color": "#f05a1a",
