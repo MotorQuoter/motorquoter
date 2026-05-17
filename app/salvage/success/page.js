@@ -459,10 +459,10 @@ export default function SalvageSuccessPage() {
                       ['Run Condition', savedLot.vehicleDetails?.runCondition, vehicleDetails?.runCondition],
                       ['Primary Damage', savedLot.vehicleDetails?.primaryDamage, vehicleDetails?.primaryDamage],
                       ['Repair Range', savedLot.assessment?.['Estimated Repair Range'], assessment?.['Estimated Repair Range']],
-                      ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.slice(0,120), assessment?.['Realistic Exit Value']?.slice(0,120)],
-                      ['Airbags', savedLot.assessment?.['Airbags']?.slice(0,100), assessment?.['Airbags']?.slice(0,100)],
-                      ['Confidence', savedLot.assessment?.['Confidence Level']?.slice(0,60), assessment?.['Confidence Level']?.slice(0,60)],
-                      ['Action', savedLot.assessment?.['Recommended Action']?.slice(0,80), assessment?.['Recommended Action']?.slice(0,80)],
+                      ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
+                      ['Airbags', savedLot.assessment?.['Airbags']?.split('.')[0] + '.', assessment?.['Airbags']?.split('.')[0] + '.'],
+                      ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],
+                      ['Action', savedLot.assessment?.['Recommended Action']?.split('.')[0] + '.', assessment?.['Recommended Action']?.split('.')[0] + '.'],
                     ].map(([field, val1, val2]) => (
                       <tr key={field}>
                         <td><div className="compare-field">{field}</div></td>
