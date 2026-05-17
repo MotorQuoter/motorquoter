@@ -68,40 +68,35 @@ export default function SalvagePage() {
     setDvlaStatus('loading');
     setMotWarning('');
     try {
-      const [dvlaRes, motRes] = await Promise.all([
-        fetch(`/api/vehicle?vrm=${encodeURIComponent(vrm)}`),
-        fetch(`/api/mot?vrm=${encodeURIComponent(vrm)}`),
-      ]);
-      const dvla = await dvlaRes.json();
-      const mot = await motRes.json();
+      const res = await fetch(`/api/vehicle?vrm=${encodeURIComponent(vrm)}&tier=free`);
+      const data = await res.json();
 
-      if (dvla.make) {
-        setDvlaData(dvla);
+      if (data.make) {
+        setDvlaData(data);
         setDvlaStatus('found');
         setDetails(p => ({
           ...p,
-          make: dvla.make || p.make,
-          model: dvla.model || p.model,
-          year: dvla.yearOfManufacture ? String(dvla.yearOfManufacture) : p.year,
-          colour: dvla.colour || p.colour,
-          fuelType: dvla.fuelType || p.fuelType,
-          engineSize: dvla.engineCapacity || p.engineSize,
-          taxStatus: dvla.taxStatus || p.taxStatus,
-          motStatus: dvla.motStatus || p.motStatus,
+          make: data.make || p.make,
+          model: data.model || p.model,
+          year: data.yearOfManufacture ? String(data.yearOfManufacture) : p.year,
+          colour: data.colour || p.colour,
+          fuelType: data.fuelType || p.fuelType,
+          taxStatus: data.taxStatus || p.taxStatus,
+          motStatus: data.motStatus || p.motStatus,
+          lastMotMileage: data.motMileage ? String(data.motMileage) : p.lastMotMileage,
         }));
 
-        // Cross-reference MOT mileage vs Copart odometer
-        if (mot && Array.isArray(mot) && mot.length > 0) {
-          const lastMot = mot[0];
-          const lastMotMileage = lastMot?.odometerValue;
-          if (lastMotMileage && details.odometer) {
-            const copartMiles = parseInt(String(details.odometer).replace(/,/g, ''));
-            if (copartMiles < lastMotMileage * 0.95) {
-              setMotWarning(`⚠️ MILEAGE FLAG: Last MOT recorded ${lastMotMileage.toLocaleString()} miles — Copart shows ${copartMiles.toLocaleString()} miles. Possible clocking — verify before bidding.`);
-            }
+        // Cross-reference MOT mileage vs Copart odometer if both available
+        if (data.motMileage && details.odometer) {
+          const copartMiles = parseInt(String(details.odometer).replace(/,/g, ''));
+          if (!isNaN(copartMiles) && copartMiles < data.motMileage * 0.95) {
+            setMotWarning(`⚠️ MILEAGE FLAG: Last MOT recorded ${data.motMileage.toLocaleString()} miles — Copart shows ${copartMiles.toLocaleString()} miles. Possible clocking — verify before bidding.`);
           }
-          // Store last MOT mileage in details for assessment
-          setDetails(p => ({ ...p, lastMotMileage: lastMotMileage ? String(lastMotMileage) : '' }));
+        }
+
+        // Flag SORN or expired MOT
+        if (data.taxStatus && data.taxStatus.toUpperCase().includes('SORN')) {
+          setMotWarning(prev => prev + (prev ? ' | ' : '') + '⚠️ Vehicle is SORN — not currently taxed.');
         }
       } else {
         setDvlaStatus('not_found');
