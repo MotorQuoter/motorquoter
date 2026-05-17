@@ -254,7 +254,13 @@ export async function GET(request) {
       .update({ status: 'assessed', assessment })
       .eq('id', salvageId);
 
-    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0 });
+    return NextResponse.json({
+      assessment,
+      vehicleDetails: enrichedVd,
+      market,
+      rerunCount: 0,
+      _debug_raw: rawText.slice(0, 500)
+    });
 
   } catch (err) {
     console.error('Salvage assess error:', err);
