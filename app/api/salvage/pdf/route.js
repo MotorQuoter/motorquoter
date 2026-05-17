@@ -60,10 +60,21 @@ function parseFromRaw(rawText) {
 }
 
 function resolveFields(assessment) {
-  const hasFields = ['Visible Damage Summary', 'Estimated Repair Range', 'Key Cost Drivers']
-    .some(f => assessment[f] && String(assessment[f]).trim().length > 2);
-  if (hasFields) return assessment;
-  if (assessment._raw) return { ...parseFromRaw(assessment._raw), _market: assessment._market };
+  const hasAllFields = ['Visible Damage Summary', 'Key Cost Drivers', 'Red Flags', 'Airbags', 'Confidence Level', 'Realistic Exit Value']
+    .every(f => assessment[f] && String(assessment[f]).trim().length > 2);
+  if (hasAllFields) return assessment;
+  if (assessment._raw) {
+    const parsed = parseFromRaw(assessment._raw);
+    const merged = { ...assessment };
+    for (const field of ASSESSMENT_FIELDS) {
+      if (!merged[field] || String(merged[field]).trim().length < 2) {
+        if (parsed[field] && String(parsed[field]).trim().length > 2) {
+          merged[field] = parsed[field];
+        }
+      }
+    }
+    return merged;
+  }
   return assessment;
 }
 
