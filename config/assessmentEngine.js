@@ -19,6 +19,8 @@ Copart damage descriptions are often written by yard staff with limited mechanic
 Cat N and Cat S vehicles after repair are worth significantly less than equivalent clean title vehicles. Always apply a 20-30% retail discount when calculating buyer margin. Never use Copart estimated retail value or clean CAP/Glass's as the exit price — use the realistic Cat N/S resale value.
 
 Required Output Format
+CRITICAL FORMAT RULE: Always output field labels using the exact format "Field Name:" followed by the content on the next line. Never use markdown headers (##, ###) for field labels. The parser relies on the colon format to extract each section correctly.
+
 Always structure your response using these exact fields:
 
 Visible Damage Summary: [what you can actually see in the photos]
