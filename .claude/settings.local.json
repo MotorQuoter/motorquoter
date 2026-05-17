@@ -28,7 +28,8 @@
       "Bash(python3 *)",
       "Bash(py *)",
       "Bash(Read the *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(node *)"
     ]
   }
 }
