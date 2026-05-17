@@ -330,7 +330,7 @@ export default function SalvageSuccessPage() {
               <div className="checklist-section">
                 <div className="checklist-header">
                   <span className="checklist-header-left">WhatsApp Inspection Checklist</span>
-                  <span className="checklist-header-right">£15 · book 48hrs before sale</span>
+                  <span className="checklist-header-right">£10 · book 48hrs before sale</span>
                 </div>
                 <div className="checklist-body">
                   {checklist.map((item, i) => (

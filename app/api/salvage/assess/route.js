@@ -108,13 +108,37 @@ export async function GET(request) {
     const vd = session.vehicle_details || {};
     const market = session.market || 'GB';
 
+    function cleanCopartNotes(raw) {
+      if (!raw) return '';
+      return raw
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0)
+        .filter(l => !/thumbnail/i.test(l))
+        .filter(l => !/^https?:\/\//i.test(l))
+        .filter(l => !/^VIN:/i.test(l))
+        .filter(l => !/^Lot number:/i.test(l))
+        .filter(l => !/^Lane\/Item:/i.test(l))
+        .filter(l => !/^Sale name:/i.test(l))
+        .filter(l => !/^Sale date:/i.test(l))
+        .filter(l => !/^Location:/i.test(l))
+        .filter(l => !/^\d+\/\d+$/.test(l))
+        .filter(l => !/^Watchlist$/i.test(l))
+        .filter(l => !/^HD$/i.test(l))
+        .filter(l => !/VIEW FULL VEHICLE/i.test(l))
+        .join('\n')
+        .trim();
+    }
+
+    const cleanedVd = { ...vd, damageDescription: cleanCopartNotes(vd.damageDescription) };
+
     const contextLines = [
-      vd.vrm && `Registration: ${vd.vrm}`,
-      vd.make && `Make: ${vd.make}`,
-      vd.model && `Model: ${vd.model}`,
-      vd.year && `Year: ${vd.year}`,
-      vd.lotNumber && `Copart Lot Number: ${vd.lotNumber}`,
-      vd.damageDescription && `Seller/Copart Damage Description: ${vd.damageDescription}`,
+      cleanedVd.vrm && `Registration: ${cleanedVd.vrm}`,
+      cleanedVd.make && `Make: ${cleanedVd.make}`,
+      cleanedVd.model && `Model: ${cleanedVd.model}`,
+      cleanedVd.year && `Year: ${cleanedVd.year}`,
+      cleanedVd.lotNumber && `Copart Lot Number: ${cleanedVd.lotNumber}`,
+      cleanedVd.damageDescription && `Seller/Copart Damage Description: ${cleanedVd.damageDescription}`,
       `Market: ${market}`,
     ].filter(Boolean).join('\n');
 
@@ -163,7 +187,7 @@ export async function GET(request) {
       .update({ status: 'assessed', assessment })
       .eq('id', salvageId);
 
-    return NextResponse.json({ assessment, vehicleDetails: vd, market });
+    return NextResponse.json({ assessment, vehicleDetails: cleanedVd, market });
 
   } catch (err) {
     console.error('Salvage assess error:', err);
