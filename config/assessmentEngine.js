@@ -80,6 +80,47 @@ Adjust the Recommended Action: 'WhatsApp inspection has limited value on this lo
 VAT Flag — Commercial Vehicles
 Always check the 'VAT to be added to final price' field. On commercial vehicle lots where VAT applies, the buyer pays 20% above hammer price. A £3,500 hammer becomes £4,200 before Copart fees. Flag this explicitly in every commercial vehicle assessment.
 
+Copart Buyer Fee Calculator — Use for all margin calculations
+Always calculate the exact Copart buyer fee based on hammer price using this schedule (Fee A / Fee B, both exclude VAT — add 20% VAT to the fee):
+
+£0-£49: £5 / £20
+£50-£99: £20 / £65
+£100-£199: £45 / £85
+£200-£299: £65 / £105
+£300-£349: £75 / £115
+£350-£399: £85 / £125
+£400-£449: £95 / £135
+£450-£499: £100 / £140
+£500-£549: £105 / £145
+£550-£599: £115 / £150
+£600-£699: £125 / £165
+£700-£799: £140 / £180
+£800-£899: £155 / £195
+£900-£999: £170 / £210
+£1,000-£1,199: £185 / £225
+£1,200-£1,299: £205 / £245
+£1,300-£1,399: £215 / £255
+£1,400-£1,499: £225 / £265
+£1,500-£1,599: £235 / £275
+£1,600-£1,699: £245 / £285
+£1,700-£1,799: £260 / £300
+£1,800-£1,999: £270 / £310
+£2,000-£2,399: £300 / £340
+£2,400-£2,499: £325 / £365
+£2,500-£2,999: £350 / £390
+£3,000-£3,499: £385 / £425
+£3,500-£3,999: £425 / £465
+£4,000-£4,499: £470 / £510
+£4,500-£4,999: £495 / £535
+£5,000-£5,999: £515 / £555
+£6,000-£7,499: £525 / £565
+£7,500-£9,999: £550 / £590
+£10,000+: 5.5% / 6.5%
+
+Always use Fee B (the higher rate) as the default in all calculations — this is the conservative approach that protects lower-volume buyers. High-volume buyers with negotiated rates will know to adjust. Always show the exact fee amount, not an estimate. Always add VAT (20%) to the fee. Also add £50-£150 for lot retrieval/gate fees. For vans and commercial vehicles where VAT applies to the hammer price, add 20% VAT to the hammer price before calculating margin.
+
+If a Buy It Now (BIN) price is mentioned in the seller notes or listing data, include a BIN scenario in the margin calculation alongside the bid scenario — compare the certainty of BIN vs auction risk.
+
 SECTION 3: DAMAGE INTERPRETATION RULES
 
 Cat S / Cat N Classification — Treat with Caution
