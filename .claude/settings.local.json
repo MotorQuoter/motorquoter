@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(vercel ls *)",
+      "Bash(gh run *)",
+      "Bash(gh deployment *)",
+      "Bash(gh api *)",
+      "Bash(curl *)",
+      "Bash(python -m json.tool)",
+      "WebFetch(domain:docs.oneautoapi.com)",
+      "Bash(python -c ' *)",
+      "Bash(npx vercel *)",
+      "Bash(node -e ' *)",
+      "Bash(npm install *)",
+      "Bash(npm list *)",
+      "Bash(npm run *)",
+      "Bash(node -e \"require\\('./package.json'\\); console.log\\('package.json OK'\\)\")",
+      "Bash(node -e \"require\\('./package-lock.json'\\); console.log\\('package-lock.json OK'\\)\")",
+      "Bash(npm uninstall *)",
+      "Bash(git commit *)",
+      "Bash(Start-Sleep -Seconds 25)",
+      "Bash(git branch *)",
+      "Bash(vercel --prod)",
+      "Bash(where pandoc *)",
+      "Bash(python3 *)",
+      "Bash(py *)",
+      "Bash(Read the *)"
+    ]
+  }
+}
