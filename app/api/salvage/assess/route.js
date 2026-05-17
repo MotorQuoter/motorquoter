@@ -260,8 +260,6 @@ export async function GET(request) {
 
     const rawText = apiData.content?.[0]?.text || '';
     const assessment = parseAssessment(rawText);
-    console.log('PARSED FIELDS:', Object.keys(assessment).filter(k => k !== '_raw').join(', '));
-    console.log('VISIBLE DAMAGE LENGTH:', assessment['Visible Damage Summary']?.length ?? 0);
     assessment._raw = rawText;
     assessment._market = market;
 
