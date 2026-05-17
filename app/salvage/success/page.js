@@ -110,8 +110,6 @@ export default function SalvageSuccessPage() {
 
   const handleRerun = async () => {
     if (!salvageIdRef.current) return;
-    setStatus('loading');
-    setMsgIdx(0);
     try {
       const res = await fetch('/api/salvage/rerun', {
         method: 'POST',
@@ -119,8 +117,7 @@ export default function SalvageSuccessPage() {
         body: JSON.stringify({ salvage_id: salvageIdRef.current }),
       });
       if (!res.ok) throw new Error('Re-run failed');
-      setAssessment(null);
-      runAssessment();
+      router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${vehicleDetails?.vrm || ''}`);
     } catch(e) {
       setErrorMsg(e.message);
       setStatus('error');

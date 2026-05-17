@@ -16,12 +16,25 @@ export default function SalvagePage() {
   const [dvlaData, setDvlaData] = useState(null);
   const [dvlaStatus, setDvlaStatus] = useState(''); // '' | 'loading' | 'found' | 'not_found' | 'error'
   const [motWarning, setMotWarning] = useState('');
+  const [isRerun, setIsRerun] = useState(false);
+  const [rerunSalvageId, setRerunSalvageId] = useState('');
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
 
   useEffect(() => {
-    if (window.location.search.includes('cancelled=true')) setCancelled(true);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('cancelled') === 'true') setCancelled(true);
+    const rerunId = params.get('rerun');
+    const rerunVrm = params.get('vrm');
+    if (rerunId) {
+      setIsRerun(true);
+      setRerunSalvageId(rerunId);
+      if (rerunVrm) {
+        setDetails(p => ({ ...p, vrm: rerunVrm.toUpperCase() }));
+        handleVrmLookup(rerunVrm.toUpperCase());
+      }
+    }
   }, []);
 
   const compressImage = (file) => new Promise((resolve) => {
@@ -111,18 +124,34 @@ export default function SalvagePage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/salvage/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
-          images: images.map(i => i.base64),
-          market,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error || 'Checkout failed');
-      window.location.href = data.url;
+      if (isRerun) {
+        const res = await fetch('/api/salvage/rerun-submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salvage_id: rerunSalvageId,
+            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
+            images: images.map(i => i.base64),
+            market,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.salvage_id) throw new Error(data.error || 'Re-run failed');
+        router.push(`/salvage/success?salvage_id=${data.salvage_id}&session_id=${data.stripe_session_id}`);
+      } else {
+        const res = await fetch('/api/salvage/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
+            images: images.map(i => i.base64),
+            market,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.error || 'Checkout failed');
+        window.location.href = data.url;
+      }
     } catch (e) {
       setError(e.message);
       setLoading(false);
@@ -291,7 +320,10 @@ export default function SalvagePage() {
                 onChange={e => { setDetails(p => ({ ...p, vrm: e.target.value.toUpperCase() })); setDvlaStatus(''); }}
                 onBlur={e => { if (e.target.value.length >= 2) handleVrmLookup(e.target.value.trim()); }}
                 maxLength={12}
+                disabled={isRerun}
+                style={{ opacity: isRerun ? 0.6 : 1, cursor: isRerun ? 'not-allowed' : 'text' }}
               />
+              {isRerun && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>VRM locked — re-run is for this vehicle only</div>}
               {dvlaStatus === 'loading' && (
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '4px 0' }}>🔍 Looking up vehicle...</div>
               )}
@@ -381,7 +413,7 @@ export default function SalvagePage() {
             onClick={handleSubmit}
             disabled={loading}
           >
-            {loading ? '⏳ Saving...' : `🔨 Pay £${price.toFixed(2)} and Assess`}
+            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : `🔨 Pay £${price.toFixed(2)} and Assess`}
           </button>
         </div>
 
