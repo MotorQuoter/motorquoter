@@ -63,6 +63,7 @@ export default function SalvageSuccessPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [msgIdx, setMsgIdx] = useState(0);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [rerunCount, setRerunCount] = useState(null);
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -99,8 +100,28 @@ export default function SalvageSuccessPage() {
       setAssessment(data.assessment);
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');
+      setRerunCount(data.rerunCount ?? 0);
       setStatus('success');
     } catch (e) {
+      setErrorMsg(e.message);
+      setStatus('error');
+    }
+  };
+
+  const handleRerun = async () => {
+    if (!salvageIdRef.current) return;
+    setStatus('loading');
+    setMsgIdx(0);
+    try {
+      const res = await fetch('/api/salvage/rerun', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salvage_id: salvageIdRef.current }),
+      });
+      if (!res.ok) throw new Error('Re-run failed');
+      setAssessment(null);
+      runAssessment();
+    } catch(e) {
       setErrorMsg(e.message);
       setStatus('error');
     }
@@ -211,6 +232,9 @@ export default function SalvageSuccessPage() {
         .btn-pdf:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
         .btn-new { width: 100%; padding: 14px; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.06em; cursor: pointer; transition: all 0.2s; }
         .btn-new:hover { border-color: var(--orange); color: var(--text); }
+        .btn-rerun { width: 100%; padding: 12px; background: transparent; border: 1.5px solid var(--orange); border-radius: 10px; color: var(--orange); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.06em; cursor: pointer; transition: all 0.2s; }
+        .btn-rerun:hover { background: var(--orange-dim); }
+        .rerun-used { text-align: center; font-size: 12px; color: var(--text-dim); padding: 8px; }
 
         .footer-note { text-align: center; padding: 24px 20px 0; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
 
@@ -360,6 +384,13 @@ export default function SalvageSuccessPage() {
               <button className="btn-new" onClick={() => router.push('/salvage')}>
                 + New Assessment
               </button>
+              {rerunCount !== null && rerunCount < 1 ? (
+                <button className="btn-rerun" onClick={handleRerun}>
+                  ↺ Re-run Assessment (1 free re-run remaining)
+                </button>
+              ) : rerunCount >= 1 ? (
+                <div className="rerun-used">Re-run already used</div>
+              ) : null}
             </div>
 
             <p className="footer-note">

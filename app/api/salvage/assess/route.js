@@ -77,7 +77,7 @@ export async function GET(request) {
     // Check for cached assessment first (without fetching images)
     const { data: check } = await supabase
       .from('salvage_sessions')
-      .select('status, vehicle_details, market, assessment')
+      .select('status, vehicle_details, market, assessment, rerun_count')
       .eq('id', salvageId)
       .single();
 
@@ -86,6 +86,7 @@ export async function GET(request) {
         assessment: check.assessment,
         vehicleDetails: check.vehicle_details,
         market: check.market,
+        rerunCount: check.rerun_count ?? 0,
       });
     }
 
@@ -244,7 +245,7 @@ export async function GET(request) {
       .update({ status: 'assessed', assessment })
       .eq('id', salvageId);
 
-    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market });
+    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0 });
 
   } catch (err) {
     console.error('Salvage assess error:', err);
