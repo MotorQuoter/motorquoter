@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
 
-const ONE_AUTO_BASE = 'https://api.oneautoapi.com';
+const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CACHE_TTL_HOURS = 48;
 
 function extractApiResult(data) {
@@ -114,14 +114,17 @@ export async function GET(request) {
     }
 
     try {
-      const dvlaRes = await fetch(
-        'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
-        {
-          method: 'POST',
-          headers: { 'x-api-key': process.env.DVLA_API_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ registrationNumber: cleanVrm }),
-        }
-      );
+      const [dvlaRes, dvsaData] = await Promise.all([
+        fetch(
+          'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
+          {
+            method: 'POST',
+            headers: { 'x-api-key': process.env.DVLA_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ registrationNumber: cleanVrm }),
+          }
+        ),
+        getDvsaMotHistory(cleanVrm).catch(() => null),
+      ]);
       const dvla = await safeJson(dvlaRes);
       if (!dvlaRes.ok || !dvla) {
         return NextResponse.json(
@@ -130,8 +133,12 @@ export async function GET(request) {
         );
       }
 
+      const freeMotTests = dvsaData?.motTests || null;
+      const freeLatestMot = freeMotTests?.[0] || null;
+
       const payload = {
         make: dvla.make,
+        model: dvsaData?.model || null,
         colour: dvla.colour,
         fuelType: dvla.fuelType,
         engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
@@ -139,6 +146,11 @@ export async function GET(request) {
         taxStatus: dvla.taxStatus,
         taxDueDate: dvla.taxDueDate,
         motStatus: dvla.motStatus,
+        motExpiryDate: freeLatestMot?.expiryDate || null,
+        motMileage: freeLatestMot?.odometerValue || null,
+        motResult: freeLatestMot?.testResult || null,
+        motHistory: freeMotTests,
+        hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
         monthOfFirstRegistration: dvla.monthOfFirstRegistration,
@@ -221,6 +233,7 @@ export async function GET(request) {
 
       const payload = {
         make: cartell.make ?? cartell.manufacturer ?? null,
+        model: cartell.model ?? null,
         colour: cartell.colour ?? cartell.color ?? null,
         fuelType: cartell.fuel_type ?? cartell.fuelType ?? null,
         engineSize: cc ? `${cc}cc` : null,
@@ -310,6 +323,7 @@ export async function GET(request) {
 
       const payload = {
         make: dvla.make,
+        model: dvsaData?.model || null,
         colour: dvla.colour,
         fuelType: dvla.fuelType,
         engineSize: dvla.engineCapacity ? `${dvla.engineCapacity}cc` : null,
@@ -320,6 +334,7 @@ export async function GET(request) {
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
         monthOfFirstRegistration: dvla.monthOfFirstRegistration,
+        hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         autocheck: autocheck?.result || null,
         valuation: valuation?.result || null,
         motExpiryDate: latestMot?.expiryDate || null,

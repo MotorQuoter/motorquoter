@@ -198,6 +198,38 @@ function StolenSection({ result }) {
   );
 }
 
+// ── Outstanding Recall Warning ────────────────────────────────────────────────
+
+function RecallWarning({ result }) {
+  if (!result.hasOutstandingRecall) return null;
+  return (
+    <div style={{ margin: '0 20px 6px', background: 'rgba(248,113,113,0.09)', border: '1.5px solid rgba(248,113,113,0.35)', borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>⚠️</span>
+      <div>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171', letterSpacing: '0.04em', marginBottom: 4 }}>
+          OUTSTANDING SAFETY RECALL
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+          DVSA records show an outstanding safety recall on this vehicle. Contact the manufacturer or a franchise dealer before purchase to confirm the recall status and arrange rectification.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Experian Attribution ──────────────────────────────────────────────────────
+
+function ExperianAttribution({ result, checks }) {
+  const shown = ['writeoff', 'finance', 'stolen'].some(c => checks.includes(c));
+  if (!shown || !result.autocheck) return null;
+  return (
+    <div style={{ textAlign: 'right', padding: '2px 20px 10px', fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.02em' }}>
+      Data provided by{' '}
+      <span style={{ fontWeight: 700, color: '#a01346', letterSpacing: 0 }}>Experian</span>
+    </div>
+  );
+}
+
 // ── Market Demand ─────────────────────────────────────────────────────────────
 
 function MarketDemandSection({ result }) {
@@ -368,6 +400,7 @@ function PaymentSuccessContent() {
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [vehicleImage, setVehicleImage] = useState(null);
 
   const vrm       = searchParams.get('vrm');
   const market    = searchParams.get('market') || 'GB';
@@ -407,6 +440,18 @@ function PaymentSuccessContent() {
   }, [vrm, sessionId, mileage, market, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
+
+  useEffect(() => {
+    if (!result || result.market === 'IE') return;
+    fetch('/api/vehicle-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vrm, colour: result.colour }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.imageUrl) setVehicleImage(d.imageUrl); })
+      .catch(() => {});
+  }, [result, vrm]);
 
   async function generatePdf() {
     if (!result) return;
@@ -553,14 +598,30 @@ function PaymentSuccessContent() {
 
             <div className="report-header">
               <div className="report-reg">{vrm}</div>
-              <div className="report-vehicle">{result.make} {result.yearOfManufacture}</div>
+              <div className="report-vehicle">{result.make} {result.model ? `${result.model} ` : ''}{result.yearOfManufacture}</div>
             </div>
+
+            <RecallWarning result={result} />
+
+            {vehicleImage && (
+              <div style={{ margin: '0 20px 6px', textAlign: 'center' }}>
+                <img
+                  src={vehicleImage}
+                  alt={`${result.make} representative image`}
+                  style={{ width: '100%', maxHeight: 220, objectFit: 'contain', background: 'transparent', display: 'block' }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                  Representative image — not the actual vehicle
+                </div>
+              </div>
+            )}
 
             <IdentitySection result={result} />
             {checks.includes('valuation')        && <ValuationSection       result={result} />}
             {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
             {checks.includes('finance')           && <FinanceSection         result={result} />}
             {checks.includes('stolen')            && <StolenSection          result={result} />}
+            <ExperianAttribution result={result} checks={checks} />
             {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
             {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
             {checks.includes('mot')               && <MotSection             result={result} />}

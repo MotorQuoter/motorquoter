@@ -119,3 +119,9 @@ Free lookups don't require payment; Standard/Pro redirect to Stripe. In payment-
 - Check Network tab in DevTools for request/response bodies
 - API errors include `error` field with message
 - Cached results include `_cached: true` to distinguish from live calls
+
+## Known Issues — PDF
+- Repair Range banner showing GBP instead of £
+- Two £ signs slipping through in WhatsApp checklist items
+- Vehicle Details section ordering inconsistent (Highlights/Additional Info labels appearing)
+- GBP 8,120.50 estimated retail value formatting in Vehicle Details
