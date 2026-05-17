@@ -147,6 +147,12 @@ export async function GET(request) {
         .filter(l => !/^Front End$/i.test(l))
         .filter(l => !/^Rear End$/i.test(l))
         .filter(l => !/^No V5/i.test(l))
+        .filter(l => !/^N REPAIRABLE/i.test(l))
+        .filter(l => !/^S REPAIRABLE/i.test(l))
+        .filter(l => !/^Water\/flood/i.test(l))
+        .filter(l => !/^VAT to be added/i.test(l))
+        .filter(l => !/^Yes$/i.test(l))
+        .filter(l => !/^No$/i.test(l))
         .filter(l => /[a-zA-Z]{4,}/.test(l))
         .join('\n')
         .trim();
@@ -174,7 +180,7 @@ export async function GET(request) {
         secondaryDamage:  get(/Secondary damage:\s*\n?([^\n]+)/i),
         additionalDamage: get(/Additional damage[^:]*:\s*\n?([^\n]+)/i),
         estimatedRetail:  get(/Estimated retail value:\s*\n?([^\n]+)/i),
-        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?([^\n]+)/i),
+        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?(Yes|No)\b/i),
         v5Status:         get(/V5 available:\s*\n?([^\n]+)/i),
         lotNumber:        get(/Lot number:\s*\n?([^\n]+)/i),
       };
