@@ -64,6 +64,8 @@ export default function SalvageSuccessPage() {
   const [msgIdx, setMsgIdx] = useState(0);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [rerunCount, setRerunCount] = useState(null);
+  const [savedLot, setSavedLot] = useState(null);
+  const [showComparison, setShowComparison] = useState(false);
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -78,6 +80,13 @@ export default function SalvageSuccessPage() {
       return;
     }
     runAssessment();
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('motorquoter_saved_lot');
+      if (saved) setSavedLot(JSON.parse(saved));
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -155,6 +164,29 @@ export default function SalvageSuccessPage() {
     } finally {
       setPdfLoading(false);
     }
+  };
+
+  const handleSaveForComparison = () => {
+    try {
+      const lotData = {
+        identifier,
+        assessment,
+        vehicleDetails,
+        market,
+        savedAt: new Date().toISOString(),
+      };
+      sessionStorage.setItem('motorquoter_saved_lot', JSON.stringify(lotData));
+      setSavedLot(lotData);
+      alert(`${identifier} saved for comparison`);
+    } catch {
+      alert('Could not save lot for comparison');
+    }
+  };
+
+  const handleClearSaved = () => {
+    sessionStorage.removeItem('motorquoter_saved_lot');
+    setSavedLot(null);
+    setShowComparison(false);
   };
 
   const identifier = vehicleDetails
@@ -237,6 +269,21 @@ export default function SalvageSuccessPage() {
         .rerun-used { text-align: center; font-size: 12px; color: var(--text-dim); padding: 8px; }
 
         .footer-note { text-align: center; padding: 24px 20px 0; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+
+        .compare-bar { margin: 16px 20px 0; padding: 12px 16px; background: var(--bg2); border: 1.5px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+        .compare-bar-title { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; color: var(--orange); letter-spacing: 0.1em; text-transform: uppercase; }
+        .compare-bar-saved { font-size: 12px; color: var(--text-dim); }
+        .btn-compare { width: 100%; padding: 13px; background: transparent; border: 1.5px solid var(--orange); border-radius: 10px; color: var(--orange); font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.06em; cursor: pointer; transition: all 0.2s; }
+        .btn-compare:hover { background: var(--orange-dim); }
+        .btn-save { width: 100%; padding: 13px; background: transparent; border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.06em; cursor: pointer; transition: all 0.2s; }
+        .btn-save:hover { border-color: var(--orange); color: var(--text); }
+        .comparison-view { margin: 16px 20px 0; }
+        .comparison-title { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900; color: var(--text); margin-bottom: 12px; letter-spacing: 0.05em; }
+        .compare-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .compare-table th { background: var(--bg3); padding: 8px 6px; text-align: left; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 800; color: var(--orange); letter-spacing: 0.08em; border-bottom: 1px solid var(--border-dim); }
+        .compare-table td { padding: 8px 6px; border-bottom: 1px solid var(--border-dim); color: var(--text); vertical-align: top; line-height: 1.4; }
+        .compare-table tr:nth-child(even) td { background: var(--bg2); }
+        .compare-field { font-size: 10px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding-bottom: 2px; }
 
         @media print {
           .actions { display: none; }
@@ -374,6 +421,59 @@ export default function SalvageSuccessPage() {
                 <div className="section-body">
                   <div className="field-val" style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{assessment._raw}</div>
                 </div>
+              </div>
+            )}
+
+            {status === 'success' && assessment && !showComparison && (
+              <div className="compare-bar">
+                <div className="compare-bar-title">⚖ Compare Lots</div>
+                {savedLot && savedLot.identifier !== identifier ? (
+                  <>
+                    <div className="compare-bar-saved">Saved: {savedLot.identifier} — {[savedLot.vehicleDetails?.make, savedLot.vehicleDetails?.model, savedLot.vehicleDetails?.year].filter(Boolean).join(' ')}</div>
+                    <button className="btn-compare" onClick={() => setShowComparison(true)}>Compare with {savedLot.identifier}</button>
+                    <button className="btn-save" onClick={handleSaveForComparison}>Replace saved lot with {identifier}</button>
+                  </>
+                ) : (
+                  <button className="btn-save" onClick={handleSaveForComparison}>
+                    {savedLot?.identifier === identifier ? '✓ This lot is saved' : `Save ${identifier} for comparison`}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {showComparison && savedLot && (
+              <div className="comparison-view">
+                <div className="comparison-title">⚖ LOT COMPARISON</div>
+                <table className="compare-table">
+                  <thead>
+                    <tr>
+                      <th style={{width:'30%'}}>Field</th>
+                      <th style={{width:'35%'}}>{savedLot.identifier}</th>
+                      <th style={{width:'35%'}}>{identifier}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      ['Category', savedLot.vehicleDetails?.category, vehicleDetails?.category],
+                      ['Odometer', savedLot.vehicleDetails?.odometer ? savedLot.vehicleDetails.odometer + ' mi' : '-', vehicleDetails?.odometer ? vehicleDetails.odometer + ' mi' : '-'],
+                      ['Run Condition', savedLot.vehicleDetails?.runCondition, vehicleDetails?.runCondition],
+                      ['Primary Damage', savedLot.vehicleDetails?.primaryDamage, vehicleDetails?.primaryDamage],
+                      ['Repair Range', savedLot.assessment?.['Estimated Repair Range'], assessment?.['Estimated Repair Range']],
+                      ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.slice(0,120), assessment?.['Realistic Exit Value']?.slice(0,120)],
+                      ['Airbags', savedLot.assessment?.['Airbags']?.slice(0,100), assessment?.['Airbags']?.slice(0,100)],
+                      ['Confidence', savedLot.assessment?.['Confidence Level']?.slice(0,60), assessment?.['Confidence Level']?.slice(0,60)],
+                      ['Action', savedLot.assessment?.['Recommended Action']?.slice(0,80), assessment?.['Recommended Action']?.slice(0,80)],
+                    ].map(([field, val1, val2]) => (
+                      <tr key={field}>
+                        <td><div className="compare-field">{field}</div></td>
+                        <td>{val1 || '-'}</td>
+                        <td>{val2 || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button className="btn-save" style={{marginTop: 12, width: '100%'}} onClick={() => setShowComparison(false)}>← Back to Assessment</button>
+                <button className="btn-save" style={{marginTop: 8, width: '100%', color: '#f87171', borderColor: 'rgba(248,113,113,0.3)'}} onClick={handleClearSaved}>Clear saved lot</button>
               </div>
             )}
 
