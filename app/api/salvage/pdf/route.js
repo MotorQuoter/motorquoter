@@ -84,7 +84,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const str = (v) => stripMd(v == null ? '' : String(v))
     .replace(/£/g, 'GBP')
     .replace(/—/g, '-')
-    .replace(/–/g, '-');
+    .replace(/–/g, '-')
+    .replace(/&\s*þ/g, '-')
+    .replace(/•/g, '-')
+    .replace(/[^\x00-\x7F]/g, '');
 
   // Fix 6: 5mm buffer on page breaks
   function checkPage(needed = 10) {

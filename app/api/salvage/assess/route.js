@@ -126,6 +126,11 @@ export async function GET(request) {
         .filter(l => !/^Watchlist$/i.test(l))
         .filter(l => !/^HD$/i.test(l))
         .filter(l => !/VIEW FULL VEHICLE/i.test(l))
+        .filter(l => !/^Estimated retail value:\s*$/i.test(l))
+        .filter(l => !/^Transmission:\s*$/i.test(l))
+        .filter(l => !/^2 AXLE RIGID BODY/i.test(l))
+        .filter(l => !/^Drive:/i.test(l))
+        .filter(l => /[a-zA-Z]{4,}/.test(l))
         .join('\n')
         .trim();
     }

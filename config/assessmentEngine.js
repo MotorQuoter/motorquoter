@@ -136,6 +136,14 @@ ALWAYS surface in output (include in Red Flags or Visible Damage Summary):
 - Structural repair declarations
 - Any fault that materially affects repair cost or resale value
 
+Dual Control Vehicle Detection
+If seller notes or damage description contain references to "extra pedal", "dual controls", "additional pedal", or "instructor controls" in the passenger footwell, flag this explicitly in the assessment:
+- This indicates the vehicle was used as a driving school/learner driver vehicle
+- Dual control vehicles have significantly higher wear on clutch, brakes, and transmission due to learner driver use
+- Mileage may underrepresent actual wear — learner driver mileage is disproportionately hard on mechanical components
+- Resale value is further reduced beyond standard Cat N/S discount — many private buyers avoid ex-driving school vehicles
+- Flag in Red Flags section: "EX-DRIVING SCHOOL VEHICLE — dual controls indicated. Apply additional 10-15% resale discount beyond standard Cat N/S reduction. Mechanical wear likely disproportionate to mileage."
+
 SECTION 4: WHATSAPP INSPECTION GUIDANCE
 Copart offers a £10 WhatsApp video inspection (10 minutes maximum). Must be booked at least 48 hours before sale. No physical yard access is permitted. A Copart staff member walks around the vehicle on their phone — they are not mechanics or assessors.
 
