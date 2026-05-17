@@ -130,6 +130,11 @@ export async function GET(request) {
         .filter(l => !/^Transmission:\s*$/i.test(l))
         .filter(l => !/^2 AXLE RIGID BODY/i.test(l))
         .filter(l => !/^Drive:/i.test(l))
+        .filter(l => !/^Transmission engages/i.test(l))
+        .filter(l => !/^1 Speed/i.test(l))
+        .filter(l => !/^2 Speed/i.test(l))
+        .filter(l => !/^\d+ Speed/i.test(l))
+        .filter(l => !/^Gears engage/i.test(l))
         .filter(l => /[a-zA-Z]{4,}/.test(l))
         .join('\n')
         .trim();

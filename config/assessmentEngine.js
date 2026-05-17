@@ -44,6 +44,9 @@ Q suffix — Purchased by Copart to resell. Apply extra scrutiny — these frequ
 
 CRITICAL: X and P suffixes do NOT mean the vehicle is written off. The suffix identifies the vendor type only. Write-off status is determined by the Category (S, N, U, B, A, X) not the sticker suffix.
 
+MANDATORY — Windscreen Sticker Suffix Reporting
+You must identify and report the windscreen sticker suffix in every assessment, even if no other windscreen issues are present. State the suffix code, vendor type, and any risk implications in the Visible Damage Summary section. If the sticker is not visible or the suffix is unreadable, state this explicitly as a flag: "Windscreen sticker suffix not visible — vendor type unconfirmed." Never omit this check.
+
 Returned Lot Detection
 If vendor suffix is C (private entry) AND the HPI/Cat date significantly predates the current listing, the vehicle may have been previously sold at auction and returned by a buyer who could not repair or resell it. This is a significant red flag.
 Always flag this pattern and ask: 'Why did the previous buyer put this back?'
