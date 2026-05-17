@@ -30,19 +30,22 @@ const ASSESSMENT_FIELDS = [
 function parseAssessment(text) {
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Strip markdown formatting that wraps field labels so labels are found reliably
   const clean = text
     .replace(/\*{1,3}/g, '')
-    .replace(/^#{1,6}\s*/gm, '')
     .replace(/^\s*[-=_]{3,}\s*$/gm, '');
 
-  // Find the position of each field label in the cleaned text
   const positions = [];
   for (const field of ASSESSMENT_FIELDS) {
-    const rx = new RegExp(esc(field) + '\\s*:', 'i');
-    const m = clean.match(rx);
-    if (m !== null) {
-      positions.push({ field, start: m.index, afterColon: m.index + m[0].length });
+    const patterns = [
+      new RegExp('^#{1,6}\\s*' + esc(field) + '\\s*$', 'im'),
+      new RegExp(esc(field) + '\\s*:', 'i'),
+    ];
+    for (const rx of patterns) {
+      const m = clean.match(rx);
+      if (m !== null) {
+        positions.push({ field, start: m.index, afterColon: m.index + m[0].length });
+        break;
+      }
     }
   }
   positions.sort((a, b) => a.start - b.start);
