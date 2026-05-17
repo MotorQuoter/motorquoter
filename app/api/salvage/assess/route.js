@@ -167,7 +167,7 @@ export async function GET(request) {
         return m ? m[1].trim() : null;
       };
       return {
-        category:         get(/Category:\s*\n?([^\n]+)/i),
+        category:         get(/^Category:\s*([^\n]+)/im),
         runCondition:     get(/Run condition:\s*\n?([^\n]+)/i),
         odometer:         get(/Odometer:\s*\n?([^\n]+)/i),
         keys:             get(/Has key:\s*\n?([^\n]+)/i),
@@ -180,7 +180,7 @@ export async function GET(request) {
         secondaryDamage:  get(/Secondary damage:\s*\n?([^\n]+)/i),
         additionalDamage: get(/Additional damage[^:]*:\s*\n?([^\n]+)/i),
         estimatedRetail:  get(/Estimated retail value:\s*\n?([^\n]+)/i),
-        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?(Yes|No)\b/i),
+        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?(Yes|No)/i),
         v5Status:         get(/V5 available:\s*\n?([^\n]+)/i),
         lotNumber:        get(/Lot number:\s*\n?([^\n]+)/i),
       };
