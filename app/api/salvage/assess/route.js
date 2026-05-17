@@ -224,6 +224,7 @@ export async function GET(request) {
     if (!apiResponse.ok) throw new Error(apiData.error?.message || 'Claude API error');
 
     const rawText = apiData.content?.[0]?.text || '';
+    console.log('RAW ASSESSMENT TEXT:', rawText.slice(0, 500));
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;

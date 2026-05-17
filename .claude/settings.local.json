@@ -27,7 +27,8 @@
       "Bash(where pandoc *)",
       "Bash(python3 *)",
       "Bash(py *)",
-      "Bash(Read the *)"
+      "Bash(Read the *)",
+      "Bash(git checkout *)"
     ]
   }
 }
