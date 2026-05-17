@@ -132,13 +132,59 @@ export async function GET(request) {
 
     const cleanedVd = { ...vd, damageDescription: cleanCopartNotes(vd.damageDescription) };
 
+    function parseCopartListing(raw) {
+      if (!raw) return {};
+      const get = (pattern) => {
+        const m = raw.match(pattern);
+        return m ? m[1].trim() : null;
+      };
+      return {
+        category:         get(/Category:\s*\n?([^\n]+)/i),
+        runCondition:     get(/Run condition:\s*\n?([^\n]+)/i),
+        odometer:         get(/Odometer:\s*\n?([^\n]+)/i),
+        keys:             get(/Has key:\s*\n?([^\n]+)/i),
+        fuel:             get(/Fuel:\s*\n?([^\n]+)/i),
+        transmission:     get(/Transmission:\s*\n?([^\n]+)/i),
+        bodyStyle:        get(/Body style:\s*\n?([^\n]+)/i),
+        colour:           get(/Colour:\s*\n?([^\n]+)/i),
+        engineSize:       get(/Engine type:\s*\n?([^\n]+)/i),
+        primaryDamage:    get(/Primary damage:\s*\n?([^\n]+)/i),
+        secondaryDamage:  get(/Secondary damage:\s*\n?([^\n]+)/i),
+        additionalDamage: get(/Additional damage[^:]*:\s*\n?([^\n]+)/i),
+        estimatedRetail:  get(/Estimated retail value:\s*\n?([^\n]+)/i),
+        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?([^\n]+)/i),
+        v5Status:         get(/V5 available:\s*\n?([^\n]+)/i),
+        lotNumber:        get(/Lot number:\s*\n?([^\n]+)/i),
+      };
+    }
+
+    const parsed = parseCopartListing(vd.damageDescription || '');
+    const enrichedVd = {
+      ...cleanedVd,
+      category:         cleanedVd.category        || parsed.category,
+      runCondition:     cleanedVd.runCondition     || parsed.runCondition,
+      odometer:         cleanedVd.odometer         || parsed.odometer,
+      keys:             cleanedVd.keys             || parsed.keys,
+      fuel:             cleanedVd.fuel             || parsed.fuel,
+      transmission:     cleanedVd.transmission     || parsed.transmission,
+      colour:           cleanedVd.colour           || parsed.colour,
+      engineSize:       cleanedVd.engineSize       || parsed.engineSize,
+      primaryDamage:    cleanedVd.primaryDamage    || parsed.primaryDamage,
+      secondaryDamage:  cleanedVd.secondaryDamage  || parsed.secondaryDamage,
+      additionalDamage: cleanedVd.additionalDamage || parsed.additionalDamage,
+      estimatedRetail:  cleanedVd.estimatedRetail  || parsed.estimatedRetail,
+      vatOnSale:        cleanedVd.vatOnSale        || parsed.vatOnSale,
+      v5Status:         cleanedVd.v5Status         || parsed.v5Status,
+      lotNumber:        cleanedVd.lotNumber        || parsed.lotNumber || vd.lotNumber,
+    };
+
     const contextLines = [
-      cleanedVd.vrm && `Registration: ${cleanedVd.vrm}`,
-      cleanedVd.make && `Make: ${cleanedVd.make}`,
-      cleanedVd.model && `Model: ${cleanedVd.model}`,
-      cleanedVd.year && `Year: ${cleanedVd.year}`,
-      cleanedVd.lotNumber && `Copart Lot Number: ${cleanedVd.lotNumber}`,
-      cleanedVd.damageDescription && `Seller/Copart Damage Description: ${cleanedVd.damageDescription}`,
+      enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
+      enrichedVd.make && `Make: ${enrichedVd.make}`,
+      enrichedVd.model && `Model: ${enrichedVd.model}`,
+      enrichedVd.year && `Year: ${enrichedVd.year}`,
+      enrichedVd.lotNumber && `Copart Lot Number: ${enrichedVd.lotNumber}`,
+      enrichedVd.damageDescription && `Seller/Copart Damage Description: ${enrichedVd.damageDescription}`,
       `Market: ${market}`,
     ].filter(Boolean).join('\n');
 
@@ -187,7 +233,7 @@ export async function GET(request) {
       .update({ status: 'assessed', assessment })
       .eq('id', salvageId);
 
-    return NextResponse.json({ assessment, vehicleDetails: cleanedVd, market });
+    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market });
 
   } catch (err) {
     console.error('Salvage assess error:', err);
