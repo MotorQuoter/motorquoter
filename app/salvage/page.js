@@ -13,6 +13,9 @@ export default function SalvagePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [cancelled, setCancelled] = useState(false);
+  const [dvlaData, setDvlaData] = useState(null);
+  const [dvlaStatus, setDvlaStatus] = useState(''); // '' | 'loading' | 'found' | 'not_found' | 'error'
+  const [motWarning, setMotWarning] = useState('');
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
@@ -60,6 +63,54 @@ export default function SalvagePage() {
   const onDragOver = (e) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = () => setDragging(false);
 
+  const handleVrmLookup = async (vrm) => {
+    if (!vrm || vrm.length < 2) return;
+    setDvlaStatus('loading');
+    setMotWarning('');
+    try {
+      const [dvlaRes, motRes] = await Promise.all([
+        fetch(`/api/vehicle?vrm=${encodeURIComponent(vrm)}`),
+        fetch(`/api/mot?vrm=${encodeURIComponent(vrm)}`),
+      ]);
+      const dvla = await dvlaRes.json();
+      const mot = await motRes.json();
+
+      if (dvla.make) {
+        setDvlaData(dvla);
+        setDvlaStatus('found');
+        setDetails(p => ({
+          ...p,
+          make: dvla.make || p.make,
+          model: dvla.model || p.model,
+          year: dvla.yearOfManufacture ? String(dvla.yearOfManufacture) : p.year,
+          colour: dvla.colour || p.colour,
+          fuelType: dvla.fuelType || p.fuelType,
+          engineSize: dvla.engineCapacity || p.engineSize,
+          taxStatus: dvla.taxStatus || p.taxStatus,
+          motStatus: dvla.motStatus || p.motStatus,
+        }));
+
+        // Cross-reference MOT mileage vs Copart odometer
+        if (mot && Array.isArray(mot) && mot.length > 0) {
+          const lastMot = mot[0];
+          const lastMotMileage = lastMot?.odometerValue;
+          if (lastMotMileage && details.odometer) {
+            const copartMiles = parseInt(String(details.odometer).replace(/,/g, ''));
+            if (copartMiles < lastMotMileage * 0.95) {
+              setMotWarning(`⚠️ MILEAGE FLAG: Last MOT recorded ${lastMotMileage.toLocaleString()} miles — Copart shows ${copartMiles.toLocaleString()} miles. Possible clocking — verify before bidding.`);
+            }
+          }
+          // Store last MOT mileage in details for assessment
+          setDetails(p => ({ ...p, lastMotMileage: lastMotMileage ? String(lastMotMileage) : '' }));
+        }
+      } else {
+        setDvlaStatus('not_found');
+      }
+    } catch {
+      setDvlaStatus('error');
+    }
+  };
+
   const handleSubmit = async () => {
     if (images.length === 0) { setError('Please upload at least one photo of the vehicle.'); return; }
     setError('');
@@ -69,7 +120,7 @@ export default function SalvagePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vehicleDetails: details,
+          vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
           images: images.map(i => i.base64),
           market,
         }),
@@ -242,9 +293,26 @@ export default function SalvagePage() {
                 className="text-input"
                 placeholder="Registration / VRM (e.g. AB12CDE)"
                 value={details.vrm}
-                onChange={e => setDetails(p => ({ ...p, vrm: e.target.value.toUpperCase() }))}
+                onChange={e => { setDetails(p => ({ ...p, vrm: e.target.value.toUpperCase() })); setDvlaStatus(''); }}
+                onBlur={e => { if (e.target.value.length >= 2) handleVrmLookup(e.target.value.trim()); }}
                 maxLength={12}
               />
+              {dvlaStatus === 'loading' && (
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '4px 0' }}>🔍 Looking up vehicle...</div>
+              )}
+              {dvlaStatus === 'found' && dvlaData && (
+                <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
+                  ✓ DVLA Verified — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                </div>
+              )}
+              {dvlaStatus === 'not_found' && (
+                <div style={{ fontSize: 12, color: '#f87171', padding: '4px 0' }}>⚠️ VRM not found on DVLA — check and retry</div>
+              )}
+              {motWarning && (
+                <div style={{ fontSize: 12, color: '#f5c842', padding: '6px 10px', background: 'rgba(245,200,66,0.1)', borderRadius: 6, marginTop: 4 }}>
+                  {motWarning}
+                </div>
+              )}
               <div className="row-fields">
                 <div>
                   <input

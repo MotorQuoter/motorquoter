@@ -213,6 +213,13 @@ export async function GET(request) {
       enrichedVd.year && `Year: ${enrichedVd.year}`,
       enrichedVd.lotNumber && `Copart Lot Number: ${enrichedVd.lotNumber}`,
       enrichedVd.damageDescription && `Seller/Copart Damage Description: ${enrichedVd.damageDescription}`,
+      enrichedVd.dvlaVerified && `DVLA Verified: Yes — vehicle identity confirmed against DVLA database`,
+      enrichedVd.colour && `DVLA Colour: ${enrichedVd.colour}`,
+      enrichedVd.fuelType && `DVLA Fuel Type: ${enrichedVd.fuelType}`,
+      enrichedVd.taxStatus && `Tax Status: ${enrichedVd.taxStatus}`,
+      enrichedVd.motStatus && `MOT Status: ${enrichedVd.motStatus}`,
+      enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
+      enrichedVd.motMileageFlag && `MILEAGE DISCREPANCY FLAG: ${enrichedVd.motMileageFlag}`,
       `Market: ${market}`,
     ].filter(Boolean).join('\n');
 
