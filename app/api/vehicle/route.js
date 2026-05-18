@@ -218,9 +218,76 @@ export async function GET(request) {
 
   const checksParam = searchParams.get('checks') || '';
   const checks = checksParam.split(',').map(s => s.trim()).filter(Boolean);
+  const roiTierParam = searchParams.get('roiTier');
 
-  if (checks.length === 0) {
+  if (checks.length === 0 && !roiTierParam) {
     return NextResponse.json({ error: 'No checks specified' }, { status: 400 });
+  }
+
+  // ── ROI TIER PAID PATH ───────────────────────────────────────────────────────
+  if (market === 'IE' && roiTierParam) {
+    const isPro = ['roi_pro', 'roi_history'].includes(roiTierParam);
+    const isHistory = roiTierParam === 'roi_history';
+    const roiCacheKey = `roi:${roiTierParam}`;
+
+    const roiCached = await getCachedResult(supabase, cleanVrm, roiCacheKey);
+    if (roiCached) {
+      return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
+    }
+
+    const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
+      fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
+      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
+      fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
+      isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+    ]);
+
+    const cartellData = await safeJson(cartellRes);
+    const cartell = cartellData?.success === true ? cartellData.result : null;
+    if (!cartell?.vehicle_registration_mark) {
+      return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
+    }
+
+    const bregoRaw    = await safeJson(bregoRes);
+    const demandRaw   = await safeJson(demandRes);
+    const pgRaw       = isPro     ? await safeJson(priceGuideRes) : null;
+    const hpiRaw      = isHistory ? await safeJson(hpiRes)        : null;
+    const nctRaw      = isHistory ? await safeJson(nctRes)        : null;
+
+    const roiValuation    = bregoRaw?.success === true ? (bregoRaw.result ?? bregoRaw) : (bregoRaw?.result ?? null);
+    const roiMarketDemand = (demandRaw?.result || demandRaw?.success) ? (demandRaw.result ?? demandRaw) : null;
+    const roiPriceGuide   = isPro ? extractApiResult(pgRaw)  : null;
+    const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
+    const nctData         = isHistory ? extractApiResult(nctRaw) : null;
+
+    const cc      = cartell.engine_capacity_cc ?? null;
+    const nctDue  = cartell.nct_due_date ?? null;
+    const nctStatus = nctDue ? (new Date(nctDue) > new Date() ? 'Valid' : 'Expired') : null;
+
+    const roiPayload = {
+      make:                    cartell.manufacturer_desc ?? null,
+      model:                   cartell.model_desc ?? null,
+      colour:                  cartell.colour ?? null,
+      fuelType:                cartell.fuel_type_desc ?? null,
+      engineSize:              cc ? `${cc}cc` : null,
+      yearOfManufacture:       cartell.manufactured_year ?? null,
+      motStatus:               nctStatus,
+      nctExpiryDate:           nctDue,
+      co2Emissions:            cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
+      monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
+      roiValuation,
+      roiMarketDemand,
+      roiPriceGuide,
+      hpi:        hpiData,
+      nctHistory: nctData,
+      market:     'IE',
+      roiTier:    roiTierParam,
+    };
+
+    await storeCachedResult(supabase, cleanVrm, roiCacheKey, roiPayload);
+    return NextResponse.json(roiPayload);
   }
 
   const sortedKey = [...checks].sort().join(',');

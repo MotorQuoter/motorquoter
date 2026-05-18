@@ -391,6 +391,70 @@ function ServiceHistorySection({ result }) {
   );
 }
 
+// ── ROI Valuation ─────────────────────────────────────────────────────────────
+
+function RoiValuationSection({ result }) {
+  const val = result.roiValuation;
+  if (!val) return null;
+  const cur = val.current || val;
+  const fut = val.future;
+  const hasAny = cur.retail != null || cur.trade != null || cur.private != null || fut?.retail != null;
+  if (!hasAny) return null;
+  return (
+    <div className="card">
+      <SectionTitle>Market Valuation</SectionTitle>
+      <div className="bid-grid">
+        {cur.retail  != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtCurrency(cur.retail,  'EUR')}</div></div>}
+        {cur.trade   != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtCurrency(cur.trade,   'EUR')}</div></div>}
+        {cur.private != null && <div className="bid-card"><div className="bid-label">Private Sale</div><div className="bid-value">{fmtCurrency(cur.private, 'EUR')}</div></div>}
+        {fut?.retail != null && <div className="bid-card"><div className="bid-label">Future Value</div><div className="bid-value">{fmtCurrency(fut.retail,  'EUR')}</div></div>}
+      </div>
+    </div>
+  );
+}
+
+// ── ROI Market Demand ─────────────────────────────────────────────────────────
+
+function RoiMarketDemandSection({ result }) {
+  const d = result.roiMarketDemand;
+  if (!d) return null;
+  const score   = d.market_demand_score ?? d.demand_score ?? null;
+  const days    = d.average_days_to_sell ?? d.days_to_sell ?? null;
+  const similar = d.similar_adverts_count ?? d.total_similar ?? null;
+  if (score == null && days == null && similar == null) return null;
+  return (
+    <div className="card">
+      <SectionTitle>Market Demand</SectionTitle>
+      <div className="info-grid">
+        {score   != null && <div className="info-cell"><div className="info-key">Demand Score</div><div className="info-val">{score} / 100</div></div>}
+        {days    != null && <div className="info-cell"><div className="info-key">Avg Days to Sell</div><div className="info-val">{days}</div></div>}
+        {similar != null && <div className="info-cell"><div className="info-key">Similar Listed</div><div className="info-val">{similar}</div></div>}
+      </div>
+    </div>
+  );
+}
+
+// ── ROI Price Guide ───────────────────────────────────────────────────────────
+
+function RoiPriceGuideSection({ result }) {
+  const pg = result.roiPriceGuide;
+  if (!pg) return null;
+  const retail  = pg.retail  ?? pg.retail_price  ?? pg.dealer_price ?? null;
+  const trade   = pg.trade   ?? pg.trade_price   ?? pg.auction_price ?? null;
+  const priv    = pg.private ?? pg.private_price ?? null;
+  if (retail == null && trade == null && priv == null) return null;
+  return (
+    <div className="card">
+      <SectionTitle>Cartell Price Guide</SectionTitle>
+      <div className="bid-grid">
+        {retail != null && <div className="bid-card"><div className="bid-label">Retail</div><div className="bid-value bid-green">{fmtCurrency(retail, 'EUR')}</div></div>}
+        {trade  != null && <div className="bid-card"><div className="bid-label">Trade</div><div className="bid-value">{fmtCurrency(trade,  'EUR')}</div></div>}
+        {priv   != null && <div className="bid-card"><div className="bid-label">Private</div><div className="bid-value">{fmtCurrency(priv,   'EUR')}</div></div>}
+      </div>
+    </div>
+  );
+}
+
 // ── Page component ────────────────────────────────────────────────────────────
 
 function PaymentSuccessContent() {
@@ -402,10 +466,11 @@ function PaymentSuccessContent() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [vehicleImage, setVehicleImage] = useState(null);
 
-  const vrm       = searchParams.get('vrm');
-  const market    = searchParams.get('market') || 'GB';
-  const mileage   = searchParams.get('mileage');
-  const sessionId = searchParams.get('session_id');
+  const vrm          = searchParams.get('vrm');
+  const market       = searchParams.get('market') || 'GB';
+  const mileage      = searchParams.get('mileage');
+  const sessionId    = searchParams.get('session_id');
+  const roiTierParam = searchParams.get('roiTier');
 
   const runLookup = useCallback(async () => {
     if (!vrm || !sessionId) { router.push('/'); return; }
@@ -420,12 +485,15 @@ function PaymentSuccessContent() {
       }
 
       setStatus('loading');
-      const params = new URLSearchParams({
-        vrm,
-        checks: verifyData.checks || searchParams.get('checks') || '',
-        verified: 'true',
-        market: verifyData.market || market,
-      });
+      const resolvedRoiTier = verifyData.roiTier || roiTierParam;
+      const resolvedMarket  = verifyData.market  || market;
+
+      const params = new URLSearchParams({ vrm, verified: 'true', market: resolvedMarket });
+      if (resolvedRoiTier && resolvedMarket === 'IE') {
+        params.set('roiTier', resolvedRoiTier);
+      } else {
+        params.set('checks', verifyData.checks || searchParams.get('checks') || '');
+      }
       if (mileage) params.append('mileage', mileage);
 
       const res  = await fetch(`/api/vehicle?${params}`);
@@ -437,7 +505,7 @@ function PaymentSuccessContent() {
       setError('Something went wrong. Please contact support — you have not been charged twice.');
       setStatus('error');
     }
-  }, [vrm, sessionId, mileage, market, router]);
+  }, [vrm, sessionId, mileage, market, roiTierParam, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
 
@@ -484,7 +552,10 @@ function PaymentSuccessContent() {
     }
   }
 
-  const checks = result?.checks || [];
+  const checks     = result?.checks || [];
+  const isRoiTier  = !!result?.roiTier && result?.market === 'IE';
+  const isRoiPro   = ['roi_pro', 'roi_history'].includes(result?.roiTier);
+  const isRoiHistory = result?.roiTier === 'roi_history';
 
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600&display=swap');
@@ -598,7 +669,12 @@ function PaymentSuccessContent() {
 
             <div className="report-header">
               <div className="report-reg">{vrm}</div>
-              <div className="report-vehicle">{result.make} {result.model ? `${result.model} ` : ''}{result.yearOfManufacture}</div>
+              <div className="report-vehicle">
+                {result.make} {result.model ? `${result.model} ` : ''}{result.yearOfManufacture}
+                {isRoiTier && <span style={{marginLeft:8,fontSize:13,fontWeight:400,color:'var(--text-dim)'}}>
+                  🇮🇪 ROI {result.roiTier === 'roi_history' ? 'History' : result.roiTier === 'roi_pro' ? 'Pro' : 'Standard'} Report
+                </span>}
+              </div>
             </div>
 
             <RecallWarning result={result} />
@@ -617,15 +693,28 @@ function PaymentSuccessContent() {
             )}
 
             <IdentitySection result={result} />
-            {checks.includes('valuation')        && <ValuationSection       result={result} />}
-            {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
-            {checks.includes('finance')           && <FinanceSection         result={result} />}
-            {checks.includes('stolen')            && <StolenSection          result={result} />}
-            <ExperianAttribution result={result} checks={checks} />
-            {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
-            {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
-            {checks.includes('mot')               && <MotSection             result={result} />}
-            {checks.includes('service_history')   && <ServiceHistorySection  result={result} />}
+            {isRoiTier ? (
+              <>
+                {result.roiValuation    && <RoiValuationSection    result={result} />}
+                {result.roiMarketDemand && <RoiMarketDemandSection result={result} />}
+                {isRoiPro && result.roiPriceGuide && <RoiPriceGuideSection result={result} />}
+                {isRoiHistory && <FinanceSection result={result} />}
+                {isRoiHistory && <StolenSection  result={result} />}
+                {isRoiHistory && <MotSection     result={result} />}
+              </>
+            ) : (
+              <>
+                {checks.includes('valuation')        && <ValuationSection       result={result} />}
+                {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
+                {checks.includes('finance')           && <FinanceSection         result={result} />}
+                {checks.includes('stolen')            && <StolenSection          result={result} />}
+                <ExperianAttribution result={result} checks={checks} />
+                {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
+                {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
+                {checks.includes('mot')               && <MotSection             result={result} />}
+                {checks.includes('service_history')   && <ServiceHistorySection  result={result} />}
+              </>
+            )}
 
             <button className="pdf-btn" onClick={generatePdf} disabled={pdfLoading}>
               {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}

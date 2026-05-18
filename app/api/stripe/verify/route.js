@@ -18,6 +18,7 @@ export async function GET(request) {
       checks: session.metadata?.checks || '',
       vrm: session.metadata?.vrm || null,
       market: session.metadata?.market || 'GB',
+      roiTier: session.metadata?.roiTier || null,
     });
   } catch (err) {
     console.error('Stripe verify error:', err);
