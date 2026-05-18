@@ -27,7 +27,11 @@ function buildPdf(result, vrm, checks, checkDate) {
   const dt    = (s) => {
     if (!s) return '-';
     const parts = s.split(/[ T]/)[0].split(/[-./]/);
-    return parts[2] ? `${parts[2]}/${parts[1]}/${parts[0]}` : s;
+    if (parts.length !== 3) return s;
+    const [a, b, c] = parts;
+    if (a.length === 4) return `${c}/${b}/${a}`;  // YYYY-MM-DD → DD/MM/YYYY
+    if (c.length === 4) return `${b}/${a}/${c}`;  // MM/DD/YYYY → DD/MM/YYYY
+    return s;
   };
   const str  = (v) => (v == null ? '-' : String(v));
   const clip = (s, max) => s && s.length > max ? s.slice(0, max - 1) + '...' : (s || '-');
@@ -99,6 +103,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   // ── Vehicle Identity ─────────────────────────────────────────────────────────
   sectionTitle('Vehicle Identity');
   if (result.make)                     row('Make',          result.make);
+  if (result.model)                    row('Model',         result.model);
   if (result.yearOfManufacture)        row('Year',          result.yearOfManufacture);
   if (result.colour)                   row('Colour',        result.colour);
   if (result.engineSize)               row('Engine',        result.engineSize);
@@ -106,7 +111,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (result.co2Emissions)             row('CO2 Emissions', `${result.co2Emissions} g/km`);
   if (result.taxStatus)                row('Tax Status',    result.taxStatus,  result.taxStatus !== 'Taxed' ? 'bad' : undefined);
   if (result.motStatus)                row(isIE ? 'NCT Status' : 'MOT Status', result.motStatus, result.motStatus !== 'Valid' ? 'bad' : undefined);
-  if (result.monthOfFirstRegistration) row('First Registered', result.monthOfFirstRegistration);
+  if (result.monthOfFirstRegistration) row('First Registered', dt(result.monthOfFirstRegistration));
   if (result.dateOfLastV5CIssued)      row('Last V5C Issued', dt(result.dateOfLastV5CIssued));
   if (result.nctExpiryDate)            row('NCT Expiry',    dt(result.nctExpiryDate));
 
@@ -116,6 +121,94 @@ function buildPdf(result, vrm, checks, checkDate) {
     row('Retail Value', `${money(val.retail_low_valuation)} - ${money(val.retail_high_valuation)}`);
     row('Trade Value',  `${money(val.trade_low_valuation)} - ${money(val.trade_high_valuation)}`);
     if (val.private_low_valuation != null) row('Private Sale', `${money(val.private_low_valuation)} - ${money(val.private_high_valuation)}`);
+  }
+
+  // ── ROI Tier Sections ─────────────────────────────────────────────────────────
+  if (isIE && result.roiTier) {
+    const roiVal = result.roiValuation;
+    if (roiVal) {
+      const cur    = roiVal.current || roiVal.valuations?.current || roiVal;
+      const fut    = roiVal.future  || roiVal.valuations?.future;
+      const retail = cur.retail  ?? cur.retail_price  ?? null;
+      const trade  = cur.trade   ?? cur.trade_price   ?? null;
+      const priv   = cur.private ?? cur.private_price ?? null;
+      const futRet = fut?.retail ?? fut?.retail_price ?? null;
+      if (retail != null || trade != null || priv != null || futRet != null) {
+        sectionTitle('Market Valuation');
+        if (retail != null) row('Current Retail', `EUR ${Number(retail).toLocaleString('en-GB')}`);
+        if (trade  != null) row('Trade Value',     `EUR ${Number(trade).toLocaleString('en-GB')}`);
+        if (priv   != null) row('Private Sale',    `EUR ${Number(priv).toLocaleString('en-GB')}`);
+        if (futRet != null) row('Future Value',    `EUR ${Number(futRet).toLocaleString('en-GB')}`);
+      }
+    }
+
+    const roiDem = result.roiMarketDemand;
+    if (roiDem) {
+      const score   = roiDem.market_demand_score ?? roiDem.demand_score ?? null;
+      const days    = roiDem.average_days_to_sell ?? roiDem.days_to_sell ?? null;
+      const similar = roiDem.similar_adverts_count ?? roiDem.total_similar ?? null;
+      if (score != null || days != null || similar != null) {
+        sectionTitle('Market Demand');
+        if (score   != null) row('Demand Score',     `${score} / 100`);
+        if (days    != null) row('Avg Days to Sell', str(days));
+        if (similar != null) row('Similar Listed',   str(similar));
+      }
+    }
+
+    const pg = result.roiPriceGuide;
+    if (pg && ['roi_pro', 'roi_history'].includes(result.roiTier)) {
+      const pgRetail = pg.retail  ?? pg.retail_price  ?? pg.dealer_price  ?? null;
+      const pgTrade  = pg.trade   ?? pg.trade_price   ?? pg.auction_price ?? null;
+      const pgPriv   = pg.private ?? pg.private_price ?? null;
+      if (pgRetail != null || pgTrade != null || pgPriv != null) {
+        sectionTitle('Cartell Price Guide');
+        if (pgRetail != null) row('Retail',  `EUR ${Number(pgRetail).toLocaleString('en-GB')}`);
+        if (pgTrade  != null) row('Trade',   `EUR ${Number(pgTrade).toLocaleString('en-GB')}`);
+        if (pgPriv   != null) row('Private', `EUR ${Number(pgPriv).toLocaleString('en-GB')}`);
+      }
+    }
+
+    if (result.roiTier === 'roi_history') {
+      const hpi = result.hpi || {};
+
+      const hasFinance = hpi.finance_data_qty > 0;
+      sectionTitle('Finance Check');
+      row('Outstanding Finance', hasFinance ? '[!] Finance outstanding' : '[OK] No finance recorded', hasFinance ? 'bad' : 'good');
+      for (const f of (hpi.finance_data_items || [])) {
+        if (f.finance_company) row('Finance Company', f.finance_company);
+        if (f.agreement_type)  row('Agreement Type',  f.agreement_type);
+      }
+
+      const hasStolen = hpi.stolen_vehicle_data_qty > 0;
+      sectionTitle('Stolen Check');
+      row('Stolen Register', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
+      checkPage(10);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+      const gardaNote2 = 'Irish stolen data is based on a private register. An Garda Síochána do not share stolen vehicle data with third parties.';
+      for (const line of doc.splitTextToSize(gardaNote2, CONTENT_W)) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 2;
+
+      const nctRaw   = result.nctHistory;
+      const nctTests = Array.isArray(nctRaw) ? nctRaw : (nctRaw?.tests ?? nctRaw?.nct_tests ?? []);
+      sectionTitle('NCT History');
+      if (nctTests.length > 0) {
+        for (const test of nctTests.slice(0, 15)) {
+          checkPage(8);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+          doc.text(dt(test.test_date || test.date) || '-', MARGIN + 1, y);
+          const res = test.result || test.test_result || '-';
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(res === 'PASS' ? 0 : 170, res === 'PASS' ? 120 : 0, 0);
+          doc.text(res, MARGIN + 30, y);
+          y += 5;
+          doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
+          doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
+        }
+      } else {
+        checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
+        doc.text('No NCT history on record', MARGIN, y); y += 8;
+      }
+    }
   }
 
   // ── Write-off ────────────────────────────────────────────────────────────────
@@ -288,8 +381,11 @@ function buildPdf(result, vrm, checks, checkDate) {
   doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.2);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 5;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+  const footerSource = isIE
+    ? 'Data sourced from Cartell and Brego'
+    : 'Data sourced from DVLA, Experian AutoCheck, DVSA and Cazana';
   doc.text(
-    `Generated by MotorQuoter - motorquoter.app - ${checkDate} - Data sourced from DVLA, Experian AutoCheck, DVSA, Cazana and Cartell`,
+    `Generated by MotorQuoter - motorquoter.app - ${checkDate} - ${footerSource}`,
     PAGE_W / 2, y, { align: 'center' }
   );
 

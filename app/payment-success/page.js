@@ -6,8 +6,13 @@ import { useSearchParams, useRouter } from 'next/navigation';
 
 function fmtDate(str) {
   if (!str) return null;
-  const [y, m, d] = str.split(' ')[0].split(/[-./]/);
-  return d ? `${d}/${m}/${y}` : str;
+  const s = str.split(' ')[0];
+  const parts = s.split(/[-./]/);
+  if (parts.length !== 3) return str;
+  const [a, b, c] = parts;
+  if (a.length === 4) return `${c}/${b}/${a}`;  // YYYY-MM-DD → DD/MM/YYYY
+  if (c.length === 4) return `${b}/${a}/${c}`;  // MM/DD/YYYY → DD/MM/YYYY
+  return str;
 }
 
 function fmtCurrency(val, currency = 'GBP') {
@@ -59,7 +64,7 @@ function IdentitySection({ result }) {
         {result.engineSize      && <div className="info-cell"><div className="info-key">Engine</div><div className="info-val">{result.engineSize}</div></div>}
         {result.fuelType        && <div className="info-cell"><div className="info-key">Fuel</div><div className="info-val">{result.fuelType}</div></div>}
         {result.co2Emissions    && <div className="info-cell"><div className="info-key">CO₂</div><div className="info-val">{result.co2Emissions} g/km</div></div>}
-        {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{result.monthOfFirstRegistration}</div></div>}
+        {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{fmtDate(result.monthOfFirstRegistration) || result.monthOfFirstRegistration}</div></div>}
         {result.taxStatus       && <div className="info-cell"><div className="info-key">Tax</div><div className="info-val" style={{color: result.taxStatus === 'Taxed' ? '#4ade80' : '#f87171'}}>{result.taxStatus}</div></div>}
         {result.motStatus       && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: result.motStatus === 'Valid' ? '#4ade80' : '#f5c842'}}>{result.motStatus}</div></div>}
         {result.nctExpiryDate   && <div className="info-cell"><div className="info-key">NCT Expiry</div><div className="info-val">{fmtDate(result.nctExpiryDate) || result.nctExpiryDate}</div></div>}
@@ -396,18 +401,21 @@ function ServiceHistorySection({ result }) {
 function RoiValuationSection({ result }) {
   const val = result.roiValuation;
   if (!val) return null;
-  const cur = val.current || val;
-  const fut = val.future;
-  const hasAny = cur.retail != null || cur.trade != null || cur.private != null || fut?.retail != null;
-  if (!hasAny) return null;
+  const cur = val.current || val.valuations?.current || val;
+  const fut = val.future  || val.valuations?.future;
+  const retail = cur.retail  ?? cur.retail_price  ?? cur.retailPrice  ?? null;
+  const trade  = cur.trade   ?? cur.trade_price   ?? cur.tradePrice   ?? null;
+  const priv   = cur.private ?? cur.private_price ?? cur.privatePrice ?? null;
+  const futRet = fut?.retail ?? fut?.retail_price ?? fut?.retailPrice ?? null;
+  if (retail == null && trade == null && priv == null && futRet == null) return null;
   return (
     <div className="card">
       <SectionTitle>Market Valuation</SectionTitle>
       <div className="bid-grid">
-        {cur.retail  != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtCurrency(cur.retail,  'EUR')}</div></div>}
-        {cur.trade   != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtCurrency(cur.trade,   'EUR')}</div></div>}
-        {cur.private != null && <div className="bid-card"><div className="bid-label">Private Sale</div><div className="bid-value">{fmtCurrency(cur.private, 'EUR')}</div></div>}
-        {fut?.retail != null && <div className="bid-card"><div className="bid-label">Future Value</div><div className="bid-value">{fmtCurrency(fut.retail,  'EUR')}</div></div>}
+        {retail != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtCurrency(retail, 'EUR')}</div></div>}
+        {trade  != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtCurrency(trade,  'EUR')}</div></div>}
+        {priv   != null && <div className="bid-card"><div className="bid-label">Private Sale</div><div className="bid-value">{fmtCurrency(priv,   'EUR')}</div></div>}
+        {futRet != null && <div className="bid-card"><div className="bid-label">Future Value</div><div className="bid-value">{fmtCurrency(futRet, 'EUR')}</div></div>}
       </div>
     </div>
   );

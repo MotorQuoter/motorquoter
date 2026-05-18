@@ -237,7 +237,7 @@ export async function GET(request) {
 
     const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
+      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
       isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
@@ -256,8 +256,8 @@ export async function GET(request) {
     const hpiRaw      = isHistory ? await safeJson(hpiRes)        : null;
     const nctRaw      = isHistory ? await safeJson(nctRes)        : null;
 
-    const roiValuation    = bregoRaw?.success === true ? (bregoRaw.result ?? bregoRaw) : (bregoRaw?.result ?? null);
-    const roiMarketDemand = (demandRaw?.result || demandRaw?.success) ? (demandRaw.result ?? demandRaw) : null;
+    const roiValuation    = extractApiResult(bregoRaw);
+    const roiMarketDemand = extractApiResult(demandRaw);
     const roiPriceGuide   = isPro ? extractApiResult(pgRaw)  : null;
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
     const nctData         = isHistory ? extractApiResult(nctRaw) : null;
