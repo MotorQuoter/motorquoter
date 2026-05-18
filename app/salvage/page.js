@@ -80,10 +80,12 @@ export default function SalvagePage() {
     if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
-  // Immediate market detection — fires on every keystroke, no API wait
+  // Immediate market detection — fires on every keystroke, no API wait.
+  // Minimum 3 chars: shortest valid ROI old-format plate is 3 chars (e.g. 1D1).
+  // GB/NI plates always start with letters so they can never false-positive here.
   useEffect(() => {
     if (marketLocked) return;
-    if (!details.vrm || details.vrm.length < 4) { setMarket('GB'); return; }
+    if (!details.vrm || details.vrm.length < 3) { setMarket('GB'); return; }
     const isIrish = isRoiPlate(details.vrm);
     console.log(`isRoiPlate('${details.vrm}'):`, isIrish);
     setMarket(isIrish ? 'IE' : 'GB');
