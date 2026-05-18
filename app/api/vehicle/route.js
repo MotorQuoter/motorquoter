@@ -109,10 +109,9 @@ export async function GET(request) {
         return NextResponse.json({ ...cached.payload, _cached: true, _cachedAt: cached.created_at });
       }
       try {
-        const cartellRes = await fetch(
-          `${CARTELL_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`,
-          { headers: oneAutoHeaders() }
-        );
+        const cartellUrl = `${CARTELL_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`;
+        console.log('[Cartell] fetching:', cartellUrl);
+        const cartellRes = await fetch(cartellUrl, { headers: oneAutoHeaders() });
         const cartellData = await safeJson(cartellRes);
         const cartell = cartellData?.success === true ? cartellData.result : null;
         if (!cartell?.vehicle_registration_mark) {
