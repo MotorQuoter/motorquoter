@@ -96,14 +96,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
-  // Fix 1: replace £ and em dashes before passing to jsPDF (helvetica cannot render them)
+  // Helvetica uses WinAnsiEncoding: £ (U+00A3) maps to 0xA3 and renders correctly.
+  // Strip only characters outside Latin-1 (> 0xFF) which have no WinAnsi mapping.
   const str = (v) => stripMd(v == null ? '' : String(v))
-    .replace(/£/g, 'GBP')
     .replace(/—/g, '-')
     .replace(/–/g, '-')
     .replace(/&\s*þ/g, '-')
     .replace(/•/g, '-')
-    .replace(/[^\x00-\x7F]/g, '');
+    .replace(/[^\x00-\xFF]/g, '');
 
   // Fix 6: 5mm buffer on page breaks
   function checkPage(needed = 10) {
