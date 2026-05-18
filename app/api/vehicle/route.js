@@ -110,7 +110,7 @@ export async function GET(request) {
       }
       try {
         const cartellRes = await fetch(
-          `${CARTELL_BASE}/cartell/vehicleidentity/v1?vehicle_registration_mark=${cleanVrm}`,
+          `${CARTELL_BASE}/ireland/vehicleidentity/v1?vehicle_registration_mark=${cleanVrm}`,
           { headers: oneAutoHeaders() }
         );
         const cartellData = await safeJson(cartellRes);
@@ -245,7 +245,7 @@ export async function GET(request) {
     if (market === 'IE') {
       // ── IE PAID PATH ─────────────────────────────────────────────────────────
       const cartellRes = await fetch(
-        `${ONE_AUTO_BASE}/cartell/vehicleidentity/v1?vehicle_registration_mark=${cleanVrm}`,
+        `${ONE_AUTO_BASE}/ireland/vehicleidentity/v1?vehicle_registration_mark=${cleanVrm}`,
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
