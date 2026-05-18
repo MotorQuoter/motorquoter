@@ -7,7 +7,7 @@ const pwaConfig = withPWA({
   disable: process.env.NODE_ENV === 'development',
   // Don't precache page JS chunks — they're content-hashed so always fresh,
   // and precaching them causes stale bundle issues on deploy.
-  buildExcludes: [/middleware-manifest\.json$/, /^\/_next\/static\/chunks\/app\//],
+  buildExcludes: [/middleware-manifest\.json$/, /static\/chunks\/app\//],
 });
 
 /** @type {import('next').NextConfig} */

@@ -31,7 +31,7 @@ export default function SalvagePage() {
   const autoIrish = details.vrm.length >= 3 && isRoiPlate(details.vrm);
   const effectiveMarket = marketLocked ? market : (autoIrish ? 'IE' : 'GB');
   if (details.vrm.length >= 3) {
-    console.log(`isRoiPlate('${details.vrm}'):`, autoIrish, '→ effectiveMarket:', effectiveMarket);
+    console.log('[mq] isRoiPlate:', details.vrm, autoIrish, '→', effectiveMarket);
   }
 
   const selectedRoiTier = ROI_TIERS.find(t => t.key === roiTier);
