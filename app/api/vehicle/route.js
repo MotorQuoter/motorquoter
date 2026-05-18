@@ -236,11 +236,12 @@ export async function GET(request) {
     }
 
     const dashedVrm = formatRoiVrm(cleanVrm);
-    console.log('[ROI VRM] cleanVrm:', cleanVrm, '| dashedVrm:', dashedVrm);
+    const bregoUrl = `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${dashedVrm}&current_mileage=${cleanMileage}`;
+    console.log('[ROI BREGO URL]', bregoUrl);
 
     const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${dashedVrm}&current_mileage=${cleanMileage}`, { headers: oneAutoHeaders() }),
+      fetch(bregoUrl, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
       isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
@@ -253,7 +254,13 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
     }
 
-    const bregoRaw    = await safeJson(bregoRes);
+    const bregoStatus = bregoRes?.status;
+    const bregoText   = await bregoRes.text();
+    console.log('[ROI BREGO STATUS]', bregoStatus);
+    console.log('[ROI BREGO BODY]', bregoText);
+    let bregoRaw = null;
+    try { bregoRaw = bregoText ? JSON.parse(bregoText) : null; } catch {}
+
     const demandRaw   = await safeJson(demandRes);
     const pgRaw       = isPro     ? await safeJson(priceGuideRes) : null;
     const hpiRaw      = isHistory ? await safeJson(hpiRes)        : null;
@@ -261,15 +268,6 @@ export async function GET(request) {
 
     const roiValuation    = extractApiResult(bregoRaw);
     const roiMarketDemand = extractApiResult(demandRaw);
-    console.log('[ROI roiData] brego_raw_keys:', Object.keys(bregoRaw || {}));
-    console.log('[ROI roiData] brego_full:', JSON.stringify(bregoRaw));
-    console.log('[ROI roiData] roiValuation_extracted:', JSON.stringify(roiValuation));
-    console.log('[ROI roiData] roiValuation_keys:', Object.keys(roiValuation || {}));
-    if (roiValuation && typeof roiValuation === 'object') {
-      for (const [k, v] of Object.entries(roiValuation)) {
-        console.log(`[ROI roiData] roiValuation.${k}:`, JSON.stringify(v));
-      }
-    }
     const roiPriceGuide   = isPro ? extractApiResult(pgRaw)  : null;
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
     const nctData         = isHistory ? extractApiResult(nctRaw) : null;
