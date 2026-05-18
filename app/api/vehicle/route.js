@@ -235,7 +235,7 @@ export async function GET(request) {
       return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
     }
 
-    const bregoUrl = `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vrm=${cleanVrm}&current_mileage=${cleanMileage}`;
+    const bregoUrl = `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`;
     console.log('[ROI BREGO URL]', bregoUrl);
 
     const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
