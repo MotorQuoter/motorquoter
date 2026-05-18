@@ -25,8 +25,17 @@ export default function SalvagePage() {
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
+
+  // Computed synchronously on every render — no useEffect, no second render cycle.
+  // marketLocked = user explicitly clicked the toggle; otherwise auto-detect from VRM.
+  const autoIrish = details.vrm.length >= 3 && isRoiPlate(details.vrm);
+  const effectiveMarket = marketLocked ? market : (autoIrish ? 'IE' : 'GB');
+  if (details.vrm.length >= 3) {
+    console.log(`isRoiPlate('${details.vrm}'):`, autoIrish, '→ effectiveMarket:', effectiveMarket);
+  }
+
   const selectedRoiTier = ROI_TIERS.find(t => t.key === roiTier);
-  const roiAddOn = market === 'IE' ? (selectedRoiTier?.addOn || 0) : 0;
+  const roiAddOn = effectiveMarket === 'IE' ? (selectedRoiTier?.addOn || 0) : 0;
   const totalPrice = price + roiAddOn;
 
   useEffect(() => {
@@ -80,17 +89,6 @@ export default function SalvagePage() {
     if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
-  // Immediate market detection — fires on every keystroke, no API wait.
-  // Minimum 3 chars: shortest valid ROI old-format plate is 3 chars (e.g. 1D1).
-  // GB/NI plates always start with letters so they can never false-positive here.
-  useEffect(() => {
-    if (marketLocked) return;
-    if (!details.vrm || details.vrm.length < 3) { setMarket('GB'); return; }
-    const isIrish = isRoiPlate(details.vrm);
-    console.log(`isRoiPlate('${details.vrm}'):`, isIrish);
-    setMarket(isIrish ? 'IE' : 'GB');
-  }, [details.vrm, marketLocked]);
-
   const onDragOver = (e) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = () => setDragging(false);
 
@@ -106,7 +104,7 @@ export default function SalvagePage() {
       if (data.make) {
         setDvlaData(data);
         setDvlaStatus('found');
-        if (data.market === 'IE' && !marketLocked) setMarket('IE');
+        // effectiveMarket auto-detects from VRM — no setMarket needed here
         setDetails(p => ({
           ...p,
           make: data.make || p.make,
@@ -153,7 +151,7 @@ export default function SalvagePage() {
             salvage_id: rerunSalvageId,
             vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
-            market,
+            market: effectiveMarket,
           }),
         });
         const data = await res.json();
@@ -166,8 +164,8 @@ export default function SalvagePage() {
           body: JSON.stringify({
             vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
-            market,
-            roiTier: market === 'IE' ? roiTier : undefined,
+            market: effectiveMarket,
+            roiTier: effectiveMarket === 'IE' ? roiTier : undefined,
           }),
         });
         const data = await res.json();
@@ -296,7 +294,7 @@ export default function SalvagePage() {
           <div className="price-badge">
             <span className="price-badge-amount">£{totalPrice.toFixed(2)}</span>
             <span className="price-badge-label">
-              {market === 'IE' && roiAddOn > 0
+              {effectiveMarket === 'IE' && roiAddOn > 0
                 ? `assessment + ROI ${selectedRoiTier?.label}`
                 : 'per assessment · no subscription'}
             </span>
@@ -455,29 +453,29 @@ export default function SalvagePage() {
           <div>
             <div className="field-label">Repair Market</div>
             <div className="market-toggle">
-              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => { setMarket('GB'); setMarketLocked(true); }}>
+              <button className={`market-btn ${effectiveMarket === 'GB' ? 'active' : ''}`} onClick={() => { setMarket('GB'); setMarketLocked(true); }}>
                 🇬🇧 GB
               </button>
-              <button className={`market-btn ${market === 'IE' ? 'active' : ''}`} onClick={() => { setMarket('IE'); setMarketLocked(true); }}>
+              <button className={`market-btn ${effectiveMarket === 'IE' ? 'active' : ''}`} onClick={() => { setMarket('IE'); setMarketLocked(true); }}>
                 🇮🇪 ROI
               </button>
             </div>
           </div>
 
           {/* Cross-registration warnings */}
-          {dvlaData?.market === 'IE' && market === 'GB' && (
+          {dvlaData?.market === 'IE' && effectiveMarket === 'GB' && (
             <div className="cross-warning">
               🇮🇪 Irish registration detected — <button onClick={() => { setMarket('IE'); setMarketLocked(true); }}>switch to ROI</button> for Irish vehicle data alongside your assessment.
             </div>
           )}
-          {dvlaData?.market === 'GB' && market === 'IE' && (
+          {dvlaData?.market === 'GB' && effectiveMarket === 'IE' && (
             <div className="cross-warning">
               🇬🇧 GB registration detected — <button onClick={() => { setMarket('GB'); setMarketLocked(true); }}>switch to GB</button> for accurate results.
             </div>
           )}
 
           {/* ROI tier menu (IE market only) */}
-          {market === 'IE' ? (
+          {effectiveMarket === 'IE' ? (
             <div>
               <div className="field-label">ROI Vehicle Data <span>(add-on alongside damage assessment)</span></div>
               <div className="tier-menu">
