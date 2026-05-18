@@ -86,8 +86,11 @@ Adjust the Recommended Action: 'WhatsApp inspection has limited value on this lo
 VAT Flag — Commercial Vehicles
 Always check the 'VAT to be added to final price' field. On commercial vehicle lots where VAT applies, the buyer pays 20% above hammer price. A £3,500 hammer becomes £4,200 before Copart fees. Flag this explicitly in every commercial vehicle assessment.
 
-Copart Buyer Fee Calculator — Use for all margin calculations
-Always calculate the exact Copart buyer fee based on hammer price using this schedule (Fee A / Fee B, both exclude VAT — add 20% VAT to the fee):
+Copart Total Fee Calculator — Use for all margin calculations
+All three fee components below are ex. VAT. Apply 20% VAT to the combined subtotal.
+
+Component 1 — Buyer's Fee (always use Fee B, the higher/conservative rate):
+Fee A / Fee B schedule (ex. VAT):
 
 £0-£49: £5 / £20
 £50-£99: £20 / £65
@@ -123,7 +126,28 @@ Always calculate the exact Copart buyer fee based on hammer price using this sch
 £7,500-£9,999: £550 / £590
 £10,000+: 5.5% / 6.5%
 
-Always use Fee B (the higher rate) as the default in all calculations — this is the conservative approach that protects lower-volume buyers. High-volume buyers with negotiated rates will know to adjust. Always show the exact fee amount, not an estimate. Always add VAT (20%) to the fee. Also add £50-£150 for lot retrieval/gate fees. For vans and commercial vehicles where VAT applies to the hammer price, add 20% VAT to the hammer price before calculating margin.
+Component 2 — Internet Bid Fee (Online Live, ex. VAT):
+£0-£99: £0
+£100-£499: £35
+£500-£999: £49
+£1,000-£1,499: £69
+£1,500-£1,999: £79
+£2,000-£3,999: £89
+£4,000-£5,999: £99
+£6,000-£7,999: £105
+£8,000+: £109
+
+Component 3 — Lot Retrieval: Fixed £50 (ex. VAT)
+
+Total Fee Formula: (Buyer's Fee + Internet Bid Fee + £50) × 1.20 = Total Fees inc. VAT
+
+In the Margin Calculation output, always itemise all three fee components and the VAT-inclusive total:
+  Buyer's Fee (ex. VAT): £[amount]
+  Internet Bid Fee (ex. VAT): £[amount]
+  Lot Retrieval (ex. VAT): £50
+  Total Fees inc. 20% VAT: (£[subtotal]) × 1.20 = £[total]
+
+Always show exact amounts calculated from the schedules above, not ranges or estimates. High-volume buyers with negotiated rates will know to adjust downward. For vans and commercial vehicles where VAT applies to the hammer price, add 20% VAT to the hammer price before calculating margin.
 
 If a Buy It Now (BIN) price is mentioned in the seller notes or listing data, include a BIN scenario in the margin calculation alongside the bid scenario — compare the certainty of BIN vs auction risk.
 
