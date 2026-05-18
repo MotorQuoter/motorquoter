@@ -258,6 +258,10 @@ export async function GET(request) {
 
     const roiValuation    = extractApiResult(bregoRaw);
     const roiMarketDemand = extractApiResult(demandRaw);
+    console.log('[ROI DEBUG] bregoRaw:', JSON.stringify(bregoRaw));
+    console.log('[ROI DEBUG] roiValuation:', JSON.stringify(roiValuation));
+    console.log('[ROI DEBUG] demandRaw:', JSON.stringify(demandRaw));
+    console.log('[ROI DEBUG] roiMarketDemand:', JSON.stringify(roiMarketDemand));
     const roiPriceGuide   = isPro ? extractApiResult(pgRaw)  : null;
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
     const nctData         = isHistory ? extractApiResult(nctRaw) : null;
