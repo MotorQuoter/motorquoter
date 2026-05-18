@@ -350,6 +350,40 @@ export default function SalvageSuccessPage() {
               </div>
             )}
 
+            {/* MOT History */}
+            {vehicleDetails?.motHistory?.length > 0 && (
+              <div className="section">
+                <div className="section-title">MOT History</div>
+                <div className="section-body">
+                  {vehicleDetails.motHistory.map((test, i) => {
+                    const pass = test.testResult?.toUpperCase() === 'PASSED';
+                    const failures  = test.rfrAndComments?.filter(c => c.type === 'FAIL') || [];
+                    const advisories = test.rfrAndComments?.filter(c => c.type === 'ADVISORY') || [];
+                    return (
+                      <div className="field-row" key={i}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: (failures.length || advisories.length) ? 5 : 0 }}>
+                          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 800, color: pass ? '#4ade80' : '#f87171' }}>
+                            {test.testResult}
+                          </span>
+                          <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                            {test.completedDate}
+                            {test.odometerValue ? ` · ${Number(test.odometerValue).toLocaleString()} mi` : ''}
+                            {pass && test.expiryDate ? ` · exp ${test.expiryDate}` : ''}
+                          </span>
+                        </div>
+                        {failures.map((f, j) => (
+                          <div key={`f${j}`} style={{ fontSize: 12, color: '#f87171', paddingLeft: 10, lineHeight: 1.5 }}>✗ {f.text}</div>
+                        ))}
+                        {advisories.map((a, j) => (
+                          <div key={`a${j}`} style={{ fontSize: 11, color: 'var(--text-dim)', paddingLeft: 10, lineHeight: 1.5 }}>↳ {a.text}</div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Damage Assessment section */}
             <div className="section">
               <div className="section-title">Damage Assessment</div>

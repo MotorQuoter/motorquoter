@@ -278,6 +278,48 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     }
   }
 
+  // MOT History section
+  const motHistory = vd.motHistory;
+  if (Array.isArray(motHistory) && motHistory.length > 0) {
+    sectionTitle('MOT History');
+    for (const test of motHistory) {
+      const pass = (test.testResult || '').toUpperCase() === 'PASSED';
+      const failures   = (test.rfrAndComments || []).filter(c => c.type === 'FAIL');
+      const advisories = (test.rfrAndComments || []).filter(c => c.type === 'ADVISORY');
+      checkPage(10);
+      const testLine = [
+        test.testResult,
+        test.completedDate,
+        test.odometerValue ? `${Number(test.odometerValue).toLocaleString()} mi` : null,
+        pass && test.expiryDate ? `exp ${test.expiryDate}` : null,
+      ].filter(Boolean).join(' - ');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...(pass ? [0, 130, 0] : [180, 0, 0]));
+      doc.text(str(testLine), MARGIN, y);
+      y += 5;
+      for (const f of failures) {
+        const lines = doc.splitTextToSize(`FAIL: ${str(f.text)}`, CONTENT_W - 8);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(180, 0, 0);
+        for (const line of lines) { checkPage(4); doc.text(line, MARGIN + 4, y); y += 4; }
+      }
+      for (const a of advisories) {
+        const lines = doc.splitTextToSize(`> ${str(a.text)}`, CONTENT_W - 8);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(120, 120, 120);
+        for (const line of lines) { checkPage(4); doc.text(line, MARGIN + 4, y); y += 4; }
+      }
+      y += 2;
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.15);
+      doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+      y += 2;
+    }
+  }
+
   // Fix 4 — Section 3: REPAIR ESTIMATE BANNER
   const repairRange = str(assessment['Estimated Repair Range']);
   if (repairRange) {

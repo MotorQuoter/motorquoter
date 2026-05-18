@@ -180,7 +180,7 @@ export async function GET(request) {
         secondaryDamage:  get(/Secondary damage:\s*\n?([^\n]+)/i),
         additionalDamage: get(/Additional damage[^:]*:\s*\n?([^\n]+)/i),
         estimatedRetail:  get(/Estimated retail value:\s*\n?([^\n]+)/i),
-        vatOnSale:        get(/VAT to be added[^:]*:\s*\n?(Yes|No)/i),
+        vatOnSale:        get(/VAT to be added[^:\n]*(?::\s*|\s*\r?\n\s*)(Yes|No)/i),
         v5Status:         get(/V5 available:\s*\n?([^\n]+)/i),
         lotNumber:        get(/Lot number:\s*\n?([^\n]+)/i),
       };
@@ -265,7 +265,7 @@ export async function GET(request) {
 
     await supabase
       .from('salvage_sessions')
-      .update({ status: 'assessed', assessment })
+      .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
       .eq('id', salvageId);
 
     return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0 });

@@ -133,7 +133,7 @@ export default function SalvagePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             salvage_id: rerunSalvageId,
-            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
+            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -146,7 +146,7 @@ export default function SalvagePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null },
+            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -331,8 +331,29 @@ export default function SalvagePage() {
                 <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '4px 0' }}>🔍 Looking up vehicle...</div>
               )}
               {dvlaStatus === 'found' && dvlaData && (
-                <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
-                  {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ DVLA Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                <div>
+                  <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
+                    {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ DVLA Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                  </div>
+                  {dvlaData.motHistory?.length > 0 && (
+                    <div style={{ marginTop: 4, paddingLeft: 2 }}>
+                      {dvlaData.motHistory.slice(0, 4).map((test, i) => {
+                        const pass = test.testResult?.toUpperCase() === 'PASSED';
+                        const advisories = test.rfrAndComments?.filter(c => c.type === 'ADVISORY') || [];
+                        return (
+                          <div key={i} style={{ marginBottom: 3 }}>
+                            <div style={{ fontSize: 11, display: 'flex', gap: 6 }}>
+                              <span style={{ color: pass ? '#4ade80' : '#f87171', fontWeight: 700, flexShrink: 0 }}>{pass ? '✓' : '✗'}</span>
+                              <span style={{ color: 'var(--text-dim)' }}>{test.completedDate}{test.odometerValue ? ` · ${Number(test.odometerValue).toLocaleString()} mi` : ''}</span>
+                            </div>
+                            {advisories.map((adv, j) => (
+                              <div key={j} style={{ fontSize: 10, color: 'var(--text-dim)', paddingLeft: 16, lineHeight: 1.4 }}>↳ {adv.text}</div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
               {dvlaStatus === 'not_found' && (
