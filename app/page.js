@@ -2,7 +2,8 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { PRICING } from '@/config/pricing';
+import { PRICING, ROI_TIERS } from '@/config/pricing';
+import { isRoiPlate } from '@/lib/roiPlate';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
@@ -19,6 +20,13 @@ export default function Home() {
   const [scanning, setScanning] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState(defaultSelected);
   const fileInputRef = useRef(null);
+  const [marketLocked, setMarketLocked] = useState(false);
+  const [roiTier, setRoiTier] = useState('roi_standard');
+
+  // Computed synchronously on every render — no useEffect, no async state cycle.
+  const autoIrish = vrm.length >= 3 && isRoiPlate(vrm);
+  const effectiveMarket = marketLocked ? market : (autoIrish ? 'IE' : 'GB');
+  const selectedRoiTier = ROI_TIERS.find(t => t.key === roiTier);
 
   // ── Plate scan — preserved exactly ──────────────────────────────────────────
   const handlePhotoScan = async (e) => {
@@ -59,10 +67,9 @@ export default function Home() {
   const handleCheck = async () => {
     if (!vrm.trim()) return;
 
-    // IE: no free lookup — show checklist directly with a holding message
-    if (market === 'IE') {
-      setResult({ _ieMarket: true });
-      setError(null);
+    // IE: go directly to paid checkout for selected ROI tier
+    if (effectiveMarket === 'IE') {
+      handleRoiCheckout();
       return;
     }
 
@@ -89,6 +96,35 @@ export default function Home() {
       setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ── ROI checkout ─────────────────────────────────────────────────────────────
+  const handleRoiCheckout = async () => {
+    if (!vrm.trim()) return;
+    setCheckoutLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          mileage: mileage || '',
+          market: 'IE',
+          roiTier,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setCheckoutLoading(false);
+      } else {
+        window.location.href = data.url;
+      }
+    } catch {
+      setError('Could not start checkout. Please try again.');
+      setCheckoutLoading(false);
     }
   };
 
@@ -144,7 +180,7 @@ export default function Home() {
           vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
           checks: selectedKeys,
           mileage: mileage || '',
-          market: market || 'GB',
+          market: effectiveMarket || 'GB',
         }),
       });
       const data = await res.json();
@@ -299,6 +335,24 @@ export default function Home() {
         .ie-holding-text { font-size: 14px; color: var(--text-dim); line-height: 1.6; max-width: 300px; margin: 0 auto; }
 
         .footer-note { text-align: center; padding: 28px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+
+        /* ── ROI tier cards ── */
+        .tier-menu { display: flex; flex-direction: column; gap: 8px; }
+        .tier-card { background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 14px; cursor: pointer; transition: all 0.15s; display: flex; align-items: flex-start; gap: 12px; }
+        .tier-card.selected { border-color: var(--orange); background: var(--orange-dim); }
+        .tier-card:hover:not(.selected) { border-color: rgba(240,90,26,0.3); }
+        .tier-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border-dim); flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; background: var(--bg3); }
+        .tier-card.selected .tier-radio { border-color: var(--orange); }
+        .tier-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); display: none; }
+        .tier-card.selected .tier-radio-dot { display: block; }
+        .tier-info { flex: 1; }
+        .tier-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+        .tier-name { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 800; color: var(--text); letter-spacing: 0.03em; }
+        .tier-price { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; color: var(--orange); }
+        .tier-desc { font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-bottom: 4px; }
+        .tier-features { display: flex; flex-direction: column; gap: 1px; }
+        .tier-feat { font-size: 11px; color: var(--text-dim); display: flex; gap: 5px; line-height: 1.5; }
+        .tier-feat-dot { color: var(--orange); flex-shrink: 0; }
       `}</style>
 
       <div className="app">
@@ -353,7 +407,7 @@ export default function Home() {
                 type="text"
                 placeholder="AB12CDE"
                 value={vrm}
-                onChange={e => setVrm(e.target.value.toUpperCase())}
+                onChange={e => { setVrm(e.target.value.toUpperCase()); setMarketLocked(false); }}
                 maxLength={12}
               />
               <button
@@ -403,27 +457,62 @@ export default function Home() {
             <div className="field-label">Target Market</div>
             <div className="market-toggle">
               <button
-                className={`market-toggle-btn ${market === 'GB' ? 'active' : ''}`}
-                onClick={() => setMarket('GB')}
+                className={`market-toggle-btn ${effectiveMarket === 'GB' ? 'active' : ''}`}
+                onClick={() => { setMarket('GB'); setMarketLocked(true); }}
               >
                 <span className="market-flag">🇬🇧</span> GB
               </button>
               <button
-                className={`market-toggle-btn ${market === 'IE' ? 'active' : ''}`}
-                onClick={() => setMarket('IE')}
+                className={`market-toggle-btn ${effectiveMarket === 'IE' ? 'active' : ''}`}
+                onClick={() => { setMarket('IE'); setMarketLocked(true); }}
               >
                 <span className="market-flag">🇮🇪</span> IE
               </button>
             </div>
           </div>
 
-          {/* Free DVLA check button */}
+          {/* ROI tier menu — IE market only */}
+          {effectiveMarket === 'IE' && (
+            <div>
+              <div className="field-label">ROI Vehicle Data <span>(select a tier)</span></div>
+              <div className="tier-menu">
+                {ROI_TIERS.filter(t => t.addOn > 0).map(tier => (
+                  <div
+                    key={tier.key}
+                    className={`tier-card ${roiTier === tier.key ? 'selected' : ''}`}
+                    onClick={() => setRoiTier(tier.key)}
+                  >
+                    <div className="tier-radio">
+                      <div className="tier-radio-dot" />
+                    </div>
+                    <div className="tier-info">
+                      <div className="tier-header">
+                        <span className="tier-name">{tier.label}</span>
+                        <span className="tier-price">£{tier.addOn.toFixed(2)}</span>
+                      </div>
+                      <div className="tier-desc">{tier.description}</div>
+                      <div className="tier-features">
+                        {tier.features.map((f, i) => (
+                          <div className="tier-feat" key={i}><span className="tier-feat-dot">▸</span>{f}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Check / Get ROI Report button */}
           <button
             className="btn-submit"
             onClick={handleCheck}
-            disabled={loading || !vrm.trim()}
+            disabled={loading || checkoutLoading || !vrm.trim()}
           >
-            {loading ? 'Looking up...' : 'Check →'}
+            {loading ? 'Looking up...'
+              : checkoutLoading ? 'Redirecting...'
+              : effectiveMarket === 'IE' ? `Get ROI Report — £${selectedRoiTier?.addOn?.toFixed(2) ?? '4.99'}`
+              : 'Check →'}
           </button>
         </div>
 
@@ -438,7 +527,7 @@ export default function Home() {
           <div className="error-box">⚠️ {error}</div>
         )}
 
-        {result && !loading && (
+        {result && !loading && effectiveMarket === 'GB' && (
           <>
             {/* Free DVLA result — GB only */}
             {!result._ieMarket && (
@@ -540,7 +629,7 @@ export default function Home() {
 
 
         <p className="footer-note">
-          {market === 'IE' ? 'Vehicle identity returned with your paid report.' : 'Free DVLA lookup included.'} Paid checks selected at checkout.<br />
+          {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free DVLA lookup included. Paid checks selected at checkout.'}<br />
           Not affiliated with Copart, CAP or HPI.
         </p>
       </div>
