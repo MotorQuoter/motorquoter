@@ -226,7 +226,7 @@ export async function GET(request) {
       const isHistory = roiTier === 'roi_history';
 
       const fetches = [
-        safeGet(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`),
+        safeGet(`${oneAutoBase}/brego/valuationfromvrm/v2?vrm=${cleanVrm}`),
         safeGet(`${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`),
         isPro ? safeGet(`${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
         isHistory ? safeGet(`${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
