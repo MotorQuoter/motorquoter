@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PRICING } from '@/config/pricing';
+import { PRICING, ROI_TIERS } from '@/config/pricing';
+import { isRoiPlate } from '@/lib/roiPlate';
 
 export default function SalvagePage() {
   const router = useRouter();
@@ -19,9 +20,14 @@ export default function SalvagePage() {
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
+  const [roiTier, setRoiTier] = useState('roi_free');
+  const [marketLocked, setMarketLocked] = useState(false);
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
+  const selectedRoiTier = ROI_TIERS.find(t => t.key === roiTier);
+  const roiAddOn = market === 'IE' ? (selectedRoiTier?.addOn || 0) : 0;
+  const totalPrice = price + roiAddOn;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -89,6 +95,7 @@ export default function SalvagePage() {
       if (data.make) {
         setDvlaData(data);
         setDvlaStatus('found');
+        if (data.market === 'IE' && !marketLocked) setMarket('IE');
         setDetails(p => ({
           ...p,
           make: data.make || p.make,
@@ -149,6 +156,7 @@ export default function SalvagePage() {
             vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
+            roiTier: market === 'IE' ? roiTier : undefined,
           }),
         });
         const data = await res.json();
@@ -239,6 +247,25 @@ export default function SalvagePage() {
 
         .footer-note { text-align: center; padding: 24px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
         .footer-note a { color: var(--orange); text-decoration: none; }
+
+        .tier-menu { display: flex; flex-direction: column; gap: 8px; }
+        .tier-card { background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 14px; cursor: pointer; transition: all 0.15s; display: flex; align-items: flex-start; gap: 12px; }
+        .tier-card.selected { border-color: var(--orange); background: var(--orange-dim); }
+        .tier-card:hover:not(.selected) { border-color: rgba(240,90,26,0.3); }
+        .tier-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border-dim); flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; background: var(--bg3); }
+        .tier-card.selected .tier-radio { border-color: var(--orange); }
+        .tier-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); display: none; }
+        .tier-card.selected .tier-radio-dot { display: block; }
+        .tier-info { flex: 1; }
+        .tier-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+        .tier-name { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 800; color: var(--text); letter-spacing: 0.03em; }
+        .tier-price { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; color: var(--orange); }
+        .tier-desc { font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-bottom: 4px; }
+        .tier-features { display: flex; flex-direction: column; gap: 1px; }
+        .tier-feat { font-size: 11px; color: var(--text-dim); display: flex; gap: 5px; line-height: 1.5; }
+        .tier-feat-dot { color: var(--orange); flex-shrink: 0; }
+        .cross-warning { background: rgba(245,200,66,0.08); border: 1.5px solid rgba(245,200,66,0.3); border-radius: 10px; padding: 11px 15px; color: var(--yellow); font-size: 13px; line-height: 1.5; cursor: default; }
+        .cross-warning button { background: none; border: none; color: var(--orange); font-family: 'Barlow', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; }
       `}</style>
 
       <div className="app">
@@ -256,8 +283,12 @@ export default function SalvagePage() {
           </h1>
           <p className="hero-sub">Upload Copart photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
           <div className="price-badge">
-            <span className="price-badge-amount">£{price.toFixed(2)}</span>
-            <span className="price-badge-label">per assessment · no subscription</span>
+            <span className="price-badge-amount">£{totalPrice.toFixed(2)}</span>
+            <span className="price-badge-label">
+              {market === 'IE' && roiAddOn > 0
+                ? `assessment + ROI ${selectedRoiTier?.label}`
+                : 'per assessment · no subscription'}
+            </span>
           </div>
         </div>
 
@@ -320,7 +351,7 @@ export default function SalvagePage() {
                 className="text-input"
                 placeholder="Registration / VRM (e.g. AB12CDE)"
                 value={details.vrm}
-                onChange={e => { setDetails(p => ({ ...p, vrm: e.target.value.toUpperCase() })); setDvlaStatus(''); }}
+                onChange={e => { setDetails(p => ({ ...p, vrm: e.target.value.toUpperCase() })); setDvlaStatus(''); setDvlaData(null); setMarketLocked(false); }}
                 onBlur={e => { if (e.target.value.length >= 2) handleVrmLookup(e.target.value.trim()); }}
                 maxLength={12}
                 disabled={isRerun}
@@ -409,28 +440,72 @@ export default function SalvagePage() {
             </div>
           </div>
 
-          {/* Market */}
+          {/* Market toggle */}
           <div>
             <div className="field-label">Repair Market</div>
             <div className="market-toggle">
-              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => setMarket('GB')}>
+              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => { setMarket('GB'); setMarketLocked(true); }}>
                 🇬🇧 GB
               </button>
-              <button className={`market-btn ${market === 'IE' ? 'active' : ''}`} onClick={() => setMarket('IE')}>
-                🇮🇪 IE
+              <button className={`market-btn ${market === 'IE' ? 'active' : ''}`} onClick={() => { setMarket('IE'); setMarketLocked(true); }}>
+                🇮🇪 ROI
               </button>
             </div>
           </div>
 
-          {/* What's included */}
-          <div className="feature-list">
-            <div className="feature-item"><span className="feature-dot">▸</span>Repair cost range with key cost drivers</div>
-            <div className="feature-item"><span className="feature-dot">▸</span>Cat S/N assessment, airbag deployment analysis, dashboard warning light interpretation</div>
-            <div className="feature-item"><span className="feature-dot">▸</span>Realistic Cat N/S exit value with 20–35% discount applied</div>
-            <div className="feature-item"><span className="feature-dot">▸</span>Margin calculation — hammer price ready to enter</div>
-            <div className="feature-item"><span className="feature-dot">▸</span>Tailored WhatsApp inspection checklist for this lot</div>
-            <div className="feature-item"><span className="feature-dot">▸</span>Downloadable PDF report</div>
-          </div>
+          {/* Cross-registration warnings */}
+          {dvlaData?.market === 'IE' && market === 'GB' && (
+            <div className="cross-warning">
+              🇮🇪 Irish registration detected — <button onClick={() => { setMarket('IE'); setMarketLocked(true); }}>switch to ROI</button> for Irish vehicle data alongside your assessment.
+            </div>
+          )}
+          {dvlaData?.market === 'GB' && market === 'IE' && (
+            <div className="cross-warning">
+              🇬🇧 GB registration detected — <button onClick={() => { setMarket('GB'); setMarketLocked(true); }}>switch to GB</button> for accurate results.
+            </div>
+          )}
+
+          {/* ROI tier menu (IE market only) */}
+          {market === 'IE' ? (
+            <div>
+              <div className="field-label">ROI Vehicle Data <span>(add-on alongside damage assessment)</span></div>
+              <div className="tier-menu">
+                {ROI_TIERS.map(tier => (
+                  <div
+                    key={tier.key}
+                    className={`tier-card ${roiTier === tier.key ? 'selected' : ''}`}
+                    onClick={() => setRoiTier(tier.key)}
+                  >
+                    <div className="tier-radio">
+                      <div className="tier-radio-dot" />
+                    </div>
+                    <div className="tier-info">
+                      <div className="tier-header">
+                        <span className="tier-name">{tier.label}</span>
+                        <span className="tier-price">{tier.addOn === 0 ? 'Free' : `+£${tier.addOn.toFixed(2)}`}</span>
+                      </div>
+                      <div className="tier-desc">{tier.description}</div>
+                      <div className="tier-features">
+                        {tier.features.map((f, i) => (
+                          <div className="tier-feat" key={i}><span className="tier-feat-dot">▸</span>{f}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* What's included — GB */
+            <div className="feature-list">
+              <div className="feature-item"><span className="feature-dot">▸</span>Repair cost range with key cost drivers</div>
+              <div className="feature-item"><span className="feature-dot">▸</span>Cat S/N assessment, airbag deployment analysis, dashboard warning light interpretation</div>
+              <div className="feature-item"><span className="feature-dot">▸</span>Realistic Cat N/S exit value with 20–35% discount applied</div>
+              <div className="feature-item"><span className="feature-dot">▸</span>Margin calculation — hammer price ready to enter</div>
+              <div className="feature-item"><span className="feature-dot">▸</span>Tailored WhatsApp inspection checklist for this lot</div>
+              <div className="feature-item"><span className="feature-dot">▸</span>Downloadable PDF report</div>
+            </div>
+          )}
 
           {error && <div className="error-box">⚠️ {error}</div>}
 
@@ -439,7 +514,7 @@ export default function SalvagePage() {
             onClick={handleSubmit}
             disabled={loading}
           >
-            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : `🔨 Pay £${price.toFixed(2)} and Assess`}
+            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : `🔨 Pay £${totalPrice.toFixed(2)} and Assess`}
           </button>
         </div>
 

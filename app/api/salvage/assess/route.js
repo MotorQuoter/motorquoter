@@ -111,6 +111,7 @@ export async function GET(request) {
 
     const vd = session.vehicle_details || {};
     const market = session.market || 'GB';
+    const roiTier = vd.roiTier || 'roi_free';
 
     function cleanCopartNotes(raw) {
       if (!raw) return '';
@@ -206,6 +207,41 @@ export async function GET(request) {
       lotNumber:        cleanedVd.lotNumber        || parsed.lotNumber || vd.lotNumber,
     };
 
+    // Fetch ROI vehicle data for paid tiers
+    let roiData = null;
+    if (market === 'IE' && roiTier !== 'roi_free' && enrichedVd.vrm) {
+      const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
+      const oneAutoKey = process.env.ONE_AUTO_API_KEY;
+      const cleanVrm = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
+      const safeGet = async (url) => {
+        try {
+          const r = await fetch(url, { headers: { 'x-api-key': oneAutoKey } });
+          const t = await r.text();
+          return t ? JSON.parse(t) : null;
+        } catch { return null; }
+      };
+
+      roiData = {};
+      const isPro = ['roi_pro', 'roi_history'].includes(roiTier);
+      const isHistory = roiTier === 'roi_history';
+
+      const fetches = [
+        safeGet(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`),
+        safeGet(`${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`),
+        isPro ? safeGet(`${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
+        isHistory ? safeGet(`${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
+      ];
+      const [bregoRaw, demandRaw, cpgRaw, hpiRaw] = await Promise.all(fetches);
+
+      if (bregoRaw?.success === true) roiData.valuation = bregoRaw.result ?? bregoRaw;
+      else if (bregoRaw?.result) roiData.valuation = bregoRaw.result;
+      if (demandRaw?.result || demandRaw?.success) roiData.marketDemand = demandRaw?.result ?? demandRaw;
+      if (isPro && cpgRaw) roiData.priceGuide = cpgRaw?.result ?? cpgRaw;
+      if (isHistory && hpiRaw) roiData.historyCheck = hpiRaw?.result ?? hpiRaw;
+    }
+
+    if (roiData) enrichedVd.roiData = roiData;
+
     const contextLines = [
       enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
       enrichedVd.make && `Make: ${enrichedVd.make}`,
@@ -221,6 +257,11 @@ export async function GET(request) {
       enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
       enrichedVd.motMileageFlag && `MILEAGE DISCREPANCY FLAG: ${enrichedVd.motMileageFlag}`,
       `Market: ${market}`,
+      market === 'IE' && enrichedVd.motStatus && `NCT Status: ${enrichedVd.motStatus}`,
+      market === 'IE' && enrichedVd.motExpiryDate && `NCT Expiry: ${enrichedVd.motExpiryDate}`,
+      market === 'IE' && enrichedVd.monthOfFirstRegistration && `First Registered in Ireland: ${enrichedVd.monthOfFirstRegistration}`,
+      market === 'IE' && roiData?.valuation?.current?.retail && `Current Retail Valuation (Brego IE): €${roiData.valuation.current.retail}`,
+      market === 'IE' && roiData?.valuation?.future?.retail && `Future Retail Valuation (Brego IE): €${roiData.valuation.future.retail}`,
     ].filter(Boolean).join('\n');
 
     const imageBlocks = session.images

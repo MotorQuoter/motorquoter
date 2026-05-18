@@ -1,3 +1,34 @@
+export const ROI_TIERS = [
+  {
+    key: 'roi_free',
+    label: 'Identity Only',
+    addOn: 0,
+    description: 'Vehicle identity from ROI register',
+    features: ['Make, model, year, colour', 'Engine size & fuel type', 'NCT status', 'First registration date'],
+  },
+  {
+    key: 'roi_standard',
+    label: 'Standard',
+    addOn: 4.99,
+    description: 'Identity + current market valuation + demand',
+    features: ['Everything in Identity', 'Current market valuation (Brego)', 'Market demand score', 'Days to sell estimate'],
+  },
+  {
+    key: 'roi_pro',
+    label: 'Pro',
+    addOn: 12.99,
+    description: 'Standard + future valuation + Cartell Price Guide',
+    features: ['Everything in Standard', 'Future value projection', 'Cartell Price Guide', 'Depreciation forecast'],
+  },
+  {
+    key: 'roi_history',
+    label: 'History',
+    addOn: 17.99,
+    description: 'Pro + full Cartell vehicle history check',
+    features: ['Everything in Pro', 'Full Cartell history', 'Outstanding finance', 'Ownership count'],
+  },
+];
+
 export const PRICING = {
   menu: [
     {
