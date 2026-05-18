@@ -114,10 +114,10 @@ export async function GET(request) {
           { headers: oneAutoHeaders() }
         );
         const cartellData = await safeJson(cartellRes);
-        const cartell = extractApiResult(cartellData);
-        if (!cartellRes.ok || !cartell) {
+        const cartell = cartellData?.success === true ? cartellData.result : null;
+        if (!cartell?.vehicle_registration_mark) {
           return NextResponse.json(
-            { error: 'Vehicle not found in Irish register — please check the registration', _debug: { status: cartellRes.status, raw: cartellData } },
+            { error: 'Vehicle not found in Irish register — please check the registration' },
             { status: 404 }
           );
         }
@@ -239,11 +239,11 @@ export async function GET(request) {
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
-      const cartell = extractApiResult(cartellData);
-      if (!cartellRes.ok || !cartell) {
+      const cartell = cartellData?.success === true ? cartellData.result : null;
+      if (!cartell?.vehicle_registration_mark) {
         return NextResponse.json(
-          { error: cartellData?.message || 'Vehicle not found in Irish register' },
-          { status: cartellRes.ok ? 500 : cartellRes.status }
+          { error: 'Vehicle not found in Irish register' },
+          { status: 404 }
         );
       }
 
