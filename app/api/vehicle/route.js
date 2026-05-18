@@ -117,7 +117,7 @@ export async function GET(request) {
         const cartell = extractApiResult(cartellData);
         if (!cartellRes.ok || !cartell) {
           return NextResponse.json(
-            { error: 'Vehicle not found in Irish register — please check the registration', _debug: { status: cartellRes.status, raw: cartellData, hasKey: !!process.env.ONE_AUTO_API_KEY, keyPrefix: process.env.ONE_AUTO_API_KEY?.slice(0, 4) } },
+            { error: 'Vehicle not found in Irish register — please check the registration' },
             { status: 404 }
           );
         }
