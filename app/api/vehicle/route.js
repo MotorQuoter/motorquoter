@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
-import { isRoiPlate } from '@/lib/roiPlate';
+import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
@@ -235,9 +235,12 @@ export async function GET(request) {
       return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
     }
 
+    const dashedVrm = formatRoiVrm(cleanVrm);
+    console.log('[ROI VRM] cleanVrm:', cleanVrm, '| dashedVrm:', dashedVrm);
+
     const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`, { headers: oneAutoHeaders() }),
+      fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${dashedVrm}&current_mileage=${cleanMileage}`, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
       isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
