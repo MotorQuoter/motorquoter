@@ -15,6 +15,7 @@ export default function SalvagePage() {
   const [cancelled, setCancelled] = useState(false);
   const [dvlaData, setDvlaData] = useState(null);
   const [dvlaStatus, setDvlaStatus] = useState(''); // '' | 'loading' | 'found' | 'not_found' | 'error'
+  const [dvlaError, setDvlaError] = useState('');
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
@@ -79,6 +80,7 @@ export default function SalvagePage() {
   const handleVrmLookup = async (vrm) => {
     if (!vrm || vrm.length < 2) return;
     setDvlaStatus('loading');
+    setDvlaError('');
     setMotWarning('');
     try {
       const res = await fetch(`/api/vehicle?vrm=${encodeURIComponent(vrm)}&tier=free`);
@@ -112,6 +114,7 @@ export default function SalvagePage() {
           setMotWarning(prev => prev + (prev ? ' | ' : '') + '⚠️ Vehicle is SORN — not currently taxed.');
         }
       } else {
+        setDvlaError(data.error || '');
         setDvlaStatus('not_found');
       }
     } catch {
@@ -329,11 +332,13 @@ export default function SalvagePage() {
               )}
               {dvlaStatus === 'found' && dvlaData && (
                 <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
-                  ✓ DVLA Verified — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                  {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ DVLA Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
                 </div>
               )}
               {dvlaStatus === 'not_found' && (
-                <div style={{ fontSize: 12, color: '#f87171', padding: '4px 0' }}>⚠️ VRM not found on DVLA — check and retry</div>
+                <div style={{ fontSize: 12, color: '#f87171', padding: '4px 0' }}>
+                  ⚠️ {dvlaError || 'VRM not found — check and retry'}
+                </div>
               )}
               {motWarning && (
                 <div style={{ fontSize: 12, color: '#f5c842', padding: '6px 10px', background: 'rgba(245,200,66,0.1)', borderRadius: 6, marginTop: 4 }}>

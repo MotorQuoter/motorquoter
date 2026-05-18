@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
+import { isRoiPlate } from '@/lib/roiPlate';
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
+const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
 const CACHE_TTL_HOURS = 48;
 
 function extractApiResult(data) {
@@ -98,13 +100,66 @@ export async function GET(request) {
   const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
   const supabase = getSupabase();
 
-  // ── FREE GB LOOKUP ───────────────────────────────────────────────────────────
+  // ── FREE LOOKUP ──────────────────────────────────────────────────────────────
   if (tier === 'free') {
-    if (market === 'IE') {
-      return NextResponse.json(
-        { error: 'Irish vehicle data is only available in paid reports' },
-        { status: 400 }
-      );
+    if (isRoiPlate(cleanVrm)) {
+      const cacheKey = 'free_IE';
+      const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
+      if (cached) {
+        return NextResponse.json({ ...cached.payload, _cached: true, _cachedAt: cached.created_at });
+      }
+      try {
+        const cartellRes = await fetch(
+          `${CARTELL_BASE}/cartell/vehicleidentity/v1?vehicle_registration_mark=${cleanVrm}`,
+          { headers: oneAutoHeaders() }
+        );
+        const cartellData = await safeJson(cartellRes);
+        const cartell = extractApiResult(cartellData);
+        if (!cartellRes.ok || !cartell) {
+          return NextResponse.json(
+            { error: 'Vehicle not found in Irish register — please check the registration' },
+            { status: 404 }
+          );
+        }
+        const cc = cartell.engine_capacity ?? cartell.engineCapacity ?? cartell.cc ?? null;
+        const rawTax = cartell.motor_tax_status ?? cartell.motorTaxStatus ?? null;
+        let taxStatus = null;
+        if (rawTax) {
+          const t = rawTax.toLowerCase();
+          taxStatus = (t.includes('paid') || t.includes('taxed') || t === 'current') ? 'Taxed' : rawTax;
+        }
+        const rawNct = cartell.nct_status ?? cartell.nctStatus ?? null;
+        let nctStatus = null;
+        if (rawNct) {
+          const n = rawNct.toLowerCase();
+          nctStatus = (n === 'valid' || n.includes('valid') || n === 'current') ? 'Valid' : rawNct;
+        }
+        const payload = {
+          make: cartell.make ?? cartell.manufacturer ?? null,
+          model: cartell.model ?? null,
+          colour: cartell.colour ?? cartell.color ?? null,
+          fuelType: cartell.fuel_type ?? cartell.fuelType ?? null,
+          engineSize: cc ? `${cc}cc` : null,
+          yearOfManufacture: cartell.year_of_first_registration ?? cartell.yearOfFirstRegistration ?? cartell.year_of_manufacture ?? null,
+          taxStatus,
+          taxDueDate: cartell.motor_tax_expiry_date ?? cartell.motorTaxExpiryDate ?? null,
+          motStatus: nctStatus,
+          motExpiryDate: null,
+          motMileage: null,
+          motResult: null,
+          motHistory: null,
+          hasOutstandingRecall: null,
+          co2Emissions: cartell.co2_emissions ?? cartell.co2 ?? null,
+          monthOfFirstRegistration: cartell.first_registration_date_in_ireland ?? cartell.first_registration_date ?? null,
+          market: 'IE',
+          tier: 'free',
+        };
+        await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+        return NextResponse.json(payload);
+      } catch (err) {
+        console.error('Cartell lookup error:', err);
+        return NextResponse.json({ error: err.message || 'Irish register lookup failed' }, { status: 500 });
+      }
     }
 
     const cacheKey = 'free_GB';
