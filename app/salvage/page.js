@@ -80,6 +80,15 @@ export default function SalvagePage() {
     if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
+  // Immediate market detection — fires on every keystroke, no API wait
+  useEffect(() => {
+    if (marketLocked) return;
+    if (!details.vrm || details.vrm.length < 4) { setMarket('GB'); return; }
+    const isIrish = isRoiPlate(details.vrm);
+    console.log(`isRoiPlate('${details.vrm}'):`, isIrish);
+    setMarket(isIrish ? 'IE' : 'GB');
+  }, [details.vrm, marketLocked]);
+
   const onDragOver = (e) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = () => setDragging(false);
 
