@@ -117,7 +117,7 @@ export async function GET(request) {
         const cartell = extractApiResult(cartellData);
         if (!cartellRes.ok || !cartell) {
           return NextResponse.json(
-            { error: 'Vehicle not found in Irish register — please check the registration' },
+            { error: 'Vehicle not found in Irish register — please check the registration', _debug: { status: cartellRes.status, raw: cartellData } },
             { status: 404 }
           );
         }
