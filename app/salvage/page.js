@@ -26,7 +26,7 @@ export default function SalvagePage() {
 
   const price = PRICING.salvageAssessment.price;
 
-  // Computed synchronously on every render — no useEffect, no second render cycle.
+  // Computed synchronously on every render — no useEffect, no async state cycle.
   // marketLocked = user explicitly clicked the toggle; otherwise auto-detect from VRM.
   const autoIrish = details.vrm.length >= 3 && isRoiPlate(details.vrm);
   const effectiveMarket = marketLocked ? market : (autoIrish ? 'IE' : 'GB');
