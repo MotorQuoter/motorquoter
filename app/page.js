@@ -334,6 +334,7 @@ export default function Home() {
         .ie-holding-text { font-size: 14px; color: var(--text-dim); line-height: 1.6; max-width: 300px; margin: 0 auto; }
 
         .footer-note { text-align: center; padding: 28px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+        .footer-note a { color: var(--orange); text-decoration: none; }
 
         /* ── ROI tier cards ── */
         .tier-menu { display: flex; flex-direction: column; gap: 8px; }
@@ -625,7 +626,7 @@ export default function Home() {
 
         <p className="footer-note">
           {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
-          Not affiliated with Copart, CAP or HPI.
+          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a>
         </p>
       </div>
     </>

@@ -268,6 +268,7 @@ export default function SalvageSuccessPage() {
         .rerun-used { text-align: center; font-size: 12px; color: var(--text-dim); padding: 8px; }
 
         .footer-note { text-align: center; padding: 24px 20px 0; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+        .footer-note a { color: var(--orange); text-decoration: none; }
 
         .compare-bar { margin: 16px 20px 0; padding: 12px 16px; background: var(--bg2); border: 1.5px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
         .compare-bar-title { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; color: var(--orange); letter-spacing: 0.1em; text-transform: uppercase; }
@@ -537,7 +538,7 @@ export default function SalvageSuccessPage() {
 
             <p className="footer-note">
               AI-generated guidance only. Not a professional repair quote. Repair costs are estimates based on visible photo evidence — hidden or secondary damage may increase actual costs.<br />
-              MotorQuoter is not affiliated with Copart, CAP or HPI.
+              MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a>
             </p>
           </>
         )}

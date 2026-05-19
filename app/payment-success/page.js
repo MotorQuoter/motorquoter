@@ -588,6 +588,8 @@ function PaymentSuccessContent() {
     .pdf-btn:disabled { opacity: 0.6; cursor: wait; }
     .back-btn { display: block; margin: 0 auto 20px; padding: 14px 28px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; text-align: center; width: calc(100% - 40px); }
     .back-btn:hover { border-color: var(--orange); color: var(--orange); }
+    .footer-note { text-align: center; padding: 16px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+    .footer-note a { color: var(--orange); text-decoration: none; }
     .success-badge { display: inline-block; background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #4ade80; font-weight: 600; margin-bottom: 12px; }
     .report-header { margin: 0 20px 4px; background: var(--orange-dim); border: 1.5px solid var(--border); border-radius: 12px; padding: 16px 20px; }
     .report-reg { font-family: 'Barlow Condensed', sans-serif; font-size: 24px; font-weight: 900; letter-spacing: 0.1em; color: var(--orange); }
@@ -733,6 +735,7 @@ function PaymentSuccessContent() {
               {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}
             </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
+            <p className="footer-note">Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a></p>
           </>
         )}
       </div>
