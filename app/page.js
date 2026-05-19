@@ -372,19 +372,7 @@ export default function Home() {
         </header>
 
         <div className="hero">
-          <img
-            src="/Wheel.jpeg"
-            alt="MotorQuoter"
-            style={{
-              width: '160px',
-              height: '160px',
-              objectFit: 'cover',
-              borderRadius: '50%',
-              border: '3px solid var(--orange)',
-              marginBottom: '20px',
-              boxShadow: '0 0 30px rgba(240,90,26,0.3)',
-            }}
-          />
+          <svg viewBox="0 0 36 36" width="160" height="160" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:'20px'}}><circle cx="18" cy="18" r="16" fill="none" stroke="#e8500a" strokeWidth="2.5"/><circle cx="18" cy="18" r="11" fill="none" stroke="#e8500a" strokeWidth="1.5"/><line x1="18" y1="18" x2="18" y2="7" stroke="#e8500a" strokeWidth="1.5"/><line x1="18" y1="18" x2="28.5" y2="14.6" stroke="#e8500a" strokeWidth="1.5"/><line x1="18" y1="18" x2="24.5" y2="26.9" stroke="#e8500a" strokeWidth="1.5"/><line x1="18" y1="18" x2="11.5" y2="26.9" stroke="#e8500a" strokeWidth="1.5"/><line x1="18" y1="18" x2="7.5" y2="14.6" stroke="#e8500a" strokeWidth="1.5"/><circle cx="18" cy="18" r="2.5" fill="#e8500a"/></svg>
           <p className="hero-eyebrow">UK & ROI Vehicle Intelligence</p>
           <h1 className="hero-title">
             KNOW YOUR<span>NUMBERS</span>
