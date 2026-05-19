@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
+import { getAllCopartFeeBands } from '@/lib/copartFees';
 
 export const maxDuration = 120;
 
@@ -242,6 +243,25 @@ export async function GET(request) {
 
     if (roiData) enrichedVd.roiData = roiData;
 
+    const AUCTION_SOURCE_LABELS = {
+      copart: 'Copart UK',
+      bca: 'BCA',
+      manheim: 'Manheim',
+      other: 'Other / Private',
+    };
+
+    const auctionSource = enrichedVd.auctionSource || 'copart';
+
+    const feeRef = auctionSource === 'copart' ? (() => {
+      const rows = getAllCopartFeeBands().map(f => {
+        if (f.buyersFee === null) {
+          return `  Hammer ${f.band} → Buyer's Fee TBC (confirm with Copart) + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee}`;
+        }
+        return `  Hammer ${f.band} → Buyer's Fee £${f.buyersFee} + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee} = £${f.totalExVat} ex. VAT / £${f.totalIncVat} inc. VAT`;
+      });
+      return `Copart Fees (online bidding, all bands):\n${rows.join('\n')}\nMatch the actual hammer price to the correct band for Margin Calculation.`;
+    })() : null;
+
     const contextLines = [
       enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
       enrichedVd.make && `Make: ${enrichedVd.make}`,
@@ -262,6 +282,9 @@ export async function GET(request) {
       market === 'IE' && enrichedVd.monthOfFirstRegistration && `First Registered in Ireland: ${enrichedVd.monthOfFirstRegistration}`,
       market === 'IE' && roiData?.valuation?.current?.retail && `Current Retail Valuation (Brego IE): €${roiData.valuation.current.retail}`,
       market === 'IE' && roiData?.valuation?.future?.retail && `Future Retail Valuation (Brego IE): €${roiData.valuation.future.retail}`,
+      auctionSource !== 'copart' && `Auction Source: ${AUCTION_SOURCE_LABELS[auctionSource] || auctionSource}`,
+      feeRef,
+      enrichedVd.vatOnSale && `VAT on Sale: ${enrichedVd.vatOnSale}`,
     ].filter(Boolean).join('\n');
 
     const imageBlocks = session.images

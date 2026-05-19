@@ -19,6 +19,7 @@ export default function SalvagePage() {
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
+  const [auctionSource, setAuctionSource] = useState('copart');
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
@@ -133,7 +134,7 @@ export default function SalvagePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             salvage_id: rerunSalvageId,
-            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
+            vehicleDetails: { ...details, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -146,7 +147,7 @@ export default function SalvagePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            vehicleDetails: { ...details, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
+            vehicleDetails: { ...details, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -221,6 +222,10 @@ export default function SalvagePage() {
         .textarea-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .textarea-input::placeholder { color: rgba(154,143,135,0.45); }
 
+        .select-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 15px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; appearance: none; cursor: pointer; }
+        .select-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
+        .select-input option { background: var(--bg2); color: var(--text); }
+
         .market-toggle { display: flex; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 4px; gap: 4px; }
         .market-btn { flex: 1; padding: 11px 16px; background: none; border: 1.5px solid transparent; border-radius: 7px; cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.06em; color: var(--text-dim); transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 7px; }
         .market-btn:hover { color: var(--text); background: var(--bg3); }
@@ -265,6 +270,21 @@ export default function SalvagePage() {
           {cancelled && (
             <div className="cancel-box">Payment cancelled — your photos are still saved. You can try again below.</div>
           )}
+
+          {/* Auction Source */}
+          <div>
+            <div className="field-label">Auction Source</div>
+            <select
+              className="select-input"
+              value={auctionSource}
+              onChange={e => setAuctionSource(e.target.value)}
+            >
+              <option value="copart">Copart UK</option>
+              <option value="bca">BCA</option>
+              <option value="manheim">Manheim</option>
+              <option value="other">Other / Private</option>
+            </select>
+          </div>
 
           {/* Photo upload */}
           <div>
