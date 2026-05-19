@@ -285,6 +285,14 @@ export async function GET(request) {
       auctionSource !== 'copart' && `Auction Source: ${AUCTION_SOURCE_LABELS[auctionSource] || auctionSource}`,
       feeRef,
       enrichedVd.vatOnSale && `VAT on Sale: ${enrichedVd.vatOnSale}`,
+      enrichedVd.category && `Category: ${enrichedVd.category}`,
+      enrichedVd.runCondition && `Run Condition: ${enrichedVd.runCondition}`,
+      enrichedVd.keys && `Keys: ${enrichedVd.keys}`,
+      enrichedVd.transmission && `Transmission: ${enrichedVd.transmission}`,
+      enrichedVd.primaryDamage && `Primary Damage: ${enrichedVd.primaryDamage}`,
+      enrichedVd.secondaryDamage && `Secondary Damage: ${enrichedVd.secondaryDamage}`,
+      enrichedVd.additionalDamage && `Additional Damage: ${enrichedVd.additionalDamage}`,
+      enrichedVd.v5Status && `V5 Status: ${enrichedVd.v5Status}`,
     ].filter(Boolean).join('\n');
 
     const imageBlocks = session.images
