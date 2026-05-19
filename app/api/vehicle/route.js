@@ -114,7 +114,6 @@ export async function GET(request) {
           { headers: oneAutoHeaders() }
         );
         const cartellData = await safeJson(cartellRes);
-        console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
         const cartell = cartellData?.success === true ? cartellData.result : null;
         if (!cartell?.vehicle_registration_mark) {
           return NextResponse.json(
@@ -236,12 +235,8 @@ export async function GET(request) {
       return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
     }
 
-    const bregoUrl = `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`;
-    console.log('[ROI BREGO URL]', bregoUrl);
-
-    const [cartellRes, bregoRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
+    const [cartellRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(bregoUrl, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
       isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
@@ -249,15 +244,27 @@ export async function GET(request) {
     ]);
 
     const cartellData = await safeJson(cartellRes);
-    console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
     const cartell = cartellData?.success === true ? cartellData.result : null;
     if (!cartell?.vehicle_registration_mark) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
     }
 
-    const bregoStatus = bregoRes?.status;
-    const bregoText   = await bregoRes.text();
-    console.log('[ROI BREGO STATUS]', bregoStatus);
+    let bregoRes = await fetch(
+      `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
+      { headers: oneAutoHeaders() }
+    );
+    console.log('[ROI BREGO STATUS]', bregoRes.status);
+    if (bregoRes.status === 204 || bregoRes.status === 400) {
+      const vin = cartell.vehicle_identification_number;
+      if (vin) {
+        bregoRes = await fetch(
+          `${ONE_AUTO_BASE}/brego/valuationfromid/v2?vehicle_id=${vin}&current_mileage=${cleanMileage}`,
+          { headers: oneAutoHeaders() }
+        );
+        console.log('[ROI BREGO FALLBACK STATUS]', bregoRes.status);
+      }
+    }
+    const bregoText = await bregoRes.text();
     console.log('[ROI BREGO BODY]', bregoText);
     let bregoRaw = null;
     try { bregoRaw = bregoText ? JSON.parse(bregoText) : null; } catch {}
@@ -317,7 +324,6 @@ export async function GET(request) {
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
-      console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
       const cartell = cartellData?.success === true ? cartellData.result : null;
       if (!cartell?.vehicle_registration_mark) {
         return NextResponse.json(
