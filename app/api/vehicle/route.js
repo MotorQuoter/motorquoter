@@ -249,21 +249,11 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
     }
 
-    let bregoRes = await fetch(
-      `${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
+    const bregoRes = await fetch(
+      `${ONE_AUTO_BASE}/brego/ireland/currentandfuturevaluationsfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
       { headers: oneAutoHeaders() }
     );
     console.log('[ROI BREGO STATUS]', bregoRes.status);
-    if (bregoRes.status === 204 || bregoRes.status === 400) {
-      const vin = cartell.vehicle_identification_number;
-      if (vin) {
-        bregoRes = await fetch(
-          `${ONE_AUTO_BASE}/brego/valuationfromid/v2?vehicle_id=${vin}&current_mileage=${cleanMileage}`,
-          { headers: oneAutoHeaders() }
-        );
-        console.log('[ROI BREGO FALLBACK STATUS]', bregoRes.status);
-      }
-    }
     const bregoText = await bregoRes.text();
     console.log('[ROI BREGO BODY]', bregoText);
     let bregoRaw = null;
