@@ -215,7 +215,7 @@ function RecallWarning({ result }) {
           OUTSTANDING SAFETY RECALL
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-          DVSA records show an outstanding safety recall on this vehicle. Contact the manufacturer or a franchise dealer before purchase to confirm the recall status and arrange rectification.
+          An outstanding safety recall has been recorded for this vehicle. Contact the manufacturer or a franchise dealer before purchase to confirm the recall status and arrange rectification.
         </div>
       </div>
     </div>
@@ -453,7 +453,7 @@ function RoiPriceGuideSection({ result }) {
   if (retail == null && trade == null && priv == null) return null;
   return (
     <div className="card">
-      <SectionTitle>Cartell Price Guide</SectionTitle>
+      <SectionTitle>Price Guide</SectionTitle>
       <div className="bid-grid">
         {retail != null && <div className="bid-card"><div className="bid-label">Retail</div><div className="bid-value bid-green">{fmtCurrency(retail, 'EUR')}</div></div>}
         {trade  != null && <div className="bid-card"><div className="bid-label">Trade</div><div className="bid-value">{fmtCurrency(trade,  'EUR')}</div></div>}

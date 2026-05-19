@@ -629,7 +629,7 @@ export default function Home() {
 
 
         <p className="footer-note">
-          {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free DVLA lookup included. Paid checks selected at checkout.'}<br />
+          {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
           Not affiliated with Copart, CAP or HPI.
         </p>
       </div>

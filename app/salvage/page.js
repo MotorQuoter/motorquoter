@@ -333,7 +333,7 @@ export default function SalvagePage() {
               {dvlaStatus === 'found' && dvlaData && (
                 <div>
                   <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
-                    {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ DVLA Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                    {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
                   </div>
                   {dvlaData.motHistory?.length > 0 && (
                     <div style={{ marginTop: 4, paddingLeft: 2 }}>
