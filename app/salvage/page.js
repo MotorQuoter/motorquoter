@@ -106,7 +106,7 @@ export default function SalvagePage() {
         if (data.motMileage && details.odometer) {
           const copartMiles = parseInt(String(details.odometer).replace(/,/g, ''));
           if (!isNaN(copartMiles) && copartMiles < data.motMileage * 0.95) {
-            setMotWarning(`⚠️ MILEAGE FLAG: Last MOT recorded ${data.motMileage.toLocaleString()} miles — Copart shows ${copartMiles.toLocaleString()} miles. Possible clocking — verify before bidding.`);
+            setMotWarning(`⚠️ MILEAGE FLAG: Last MOT recorded ${data.motMileage.toLocaleString()} miles — listing shows ${copartMiles.toLocaleString()} miles. Possible clocking — verify before bidding.`);
           }
         }
 
@@ -255,11 +255,11 @@ export default function SalvagePage() {
         </header>
 
         <div className="hero" style={{ padding: '32px 20px 20px' }}>
-          <p className="hero-eyebrow">Copart & Salvage Intelligence</p>
+          <p className="hero-eyebrow">Salvage & Auction Intelligence</p>
           <h1 className="hero-title">
             DAMAGE<br /><span>ASSESSMENT</span>
           </h1>
-          <p className="hero-sub">Upload Copart photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
+          <p className="hero-sub">Upload auction listing photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
           <div className="price-badge">
             <span className="price-badge-amount">£{price.toFixed(2)}</span>
             <span className="price-badge-label">per assessment · no subscription</span>
@@ -303,7 +303,7 @@ export default function SalvagePage() {
                 <>
                   <div className="upload-icon">📸</div>
                   <div className="upload-title">Drop photos here or tap to upload</div>
-                  <div className="upload-sub">All Copart listing photos — exterior, interior, engine, dashboard</div>
+                  <div className="upload-sub">All listing photos — exterior, interior, engine, dashboard</div>
                 </>
               ) : (
                 <>
@@ -416,13 +416,13 @@ export default function SalvagePage() {
               </div>
               <input
                 className="text-input"
-                placeholder="Copart Lot Number"
+                placeholder="Lot Number"
                 value={details.lotNumber}
                 onChange={e => setDetails(p => ({ ...p, lotNumber: e.target.value }))}
               />
               <textarea
                 className="textarea-input"
-                placeholder="Copart damage description (copy from listing — helps AI compare against photos)"
+                placeholder="Damage description (copy from listing — helps AI compare against photos)"
                 value={details.damageDescription}
                 onChange={e => setDetails(p => ({ ...p, damageDescription: e.target.value }))}
               />
