@@ -250,7 +250,7 @@ export async function GET(request) {
     }
 
     const bregoRes = await fetch(
-      `${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`,
+      `${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${cleanMileage}`,
       { headers: oneAutoHeaders() }
     );
     console.log('[ROI BREGO STATUS]', bregoRes.status);

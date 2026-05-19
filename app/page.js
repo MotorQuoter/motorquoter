@@ -428,14 +428,14 @@ export default function Home() {
           {/* Mileage */}
           <div>
             <div className="field-label">
-              Current Mileage <span>(optional — improves valuation accuracy)</span>
+              Current {effectiveMarket === 'IE' ? 'Kilometres' : 'Mileage'} <span>(optional — improves valuation accuracy)</span>
             </div>
             <div className="mileage-wrap">
               <input
                 className="mileage-input"
                 type="text"
                 inputMode="numeric"
-                placeholder="e.g. 61,309"
+                placeholder={effectiveMarket === 'IE' ? 'e.g. 98,500' : 'e.g. 61,309'}
                 value={mileage}
                 onChange={e => {
                   const raw = e.target.value.replace(/,/g, '');
@@ -443,7 +443,7 @@ export default function Home() {
                   setMileage(raw ? Number(raw).toLocaleString('en-GB') : '');
                 }}
               />
-              <span className="mileage-unit">miles</span>
+              <span className="mileage-unit">{effectiveMarket === 'IE' ? 'km' : 'miles'}</span>
             </div>
           </div>
 
