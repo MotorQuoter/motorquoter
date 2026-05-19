@@ -103,6 +103,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     .replace(/–/g, '-')
     .replace(/&\s*þ/g, '-')
     .replace(/•/g, '-')
+    .replace(/\bGBP\b\s*/g, '£')
     .replace(/[^\x00-\xFF]/g, '');
 
   // Fix 6: 5mm buffer on page breaks
@@ -235,6 +236,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       /cat\s*[a-z]\s*repairable/i, /repairable structural/i,
       /\d{3,6}\s*miles?/i, /v5 reference/i, /v5c/i,
       /copart verified/i, /run condition/i, /there are keys/i,
+      /^highlights/i, /^additional info/i,
     ];
     const RISK_PATTERNS = [
       /knock/i, /gearbox/i, /transmission/i, /slipping/i,
@@ -368,9 +370,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   fieldBlock('Recommended Action', action, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
-  const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']);
+  const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
   if (checklistItems.length > 0) {
-    sectionTitle('WhatsApp Inspection Checklist (GBP 10 - book 48hrs before sale)');
+    sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');
     for (let i = 0; i < checklistItems.length; i++) {
       const itemText = checklistItems[i];
       const prefix = `${i + 1}. `;

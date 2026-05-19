@@ -22,7 +22,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
 
-  const money = (v) => v != null ? `GBP ${Number(v).toLocaleString('en-GB')}` : '-';
+  const money = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
   const num   = (v) => v != null ? Number(v).toLocaleString('en-GB') : '-';
   const dt    = (s) => {
     if (!s) return '-';
