@@ -34,6 +34,7 @@ Opposite side to the steering wheel = passenger side = LEFT side = NEARSIDE
 Use the steering wheel as your reference point in every assessment. If damage is on the same side as the steering wheel it is OFFSIDE. If on the opposite side it is NEARSIDE.
 Example: "The steering wheel is on the right. The damage is on the opposite side to the steering wheel → this is the NEARSIDE (passenger side, left)."
 Never use left or right without the offside/nearside qualifier. Never assume driver's side means left — in UK vehicles the driver sits on the right.
+Perform this reasoning step internally before writing the assessment. Do not include the steering wheel anchor reasoning in your output — simply use the correct offside/nearside term. UK buyers do not need this explained.
 
 Required Output Format
 CRITICAL FORMAT RULE: Always output field labels using the exact format "Field Name:" followed by the content on the next line. Never use markdown headers (##, ###) for field labels. The parser relies on the colon format to extract each section correctly.
