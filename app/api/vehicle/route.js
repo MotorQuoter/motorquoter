@@ -114,6 +114,7 @@ export async function GET(request) {
           { headers: oneAutoHeaders() }
         );
         const cartellData = await safeJson(cartellRes);
+        console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
         const cartell = cartellData?.success === true ? cartellData.result : null;
         if (!cartell?.vehicle_registration_mark) {
           return NextResponse.json(
@@ -248,6 +249,7 @@ export async function GET(request) {
     ]);
 
     const cartellData = await safeJson(cartellRes);
+    console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
     const cartell = cartellData?.success === true ? cartellData.result : null;
     if (!cartell?.vehicle_registration_mark) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
@@ -315,6 +317,7 @@ export async function GET(request) {
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
+      console.log('[CARTELL RAW]', JSON.stringify(cartellData, null, 2));
       const cartell = cartellData?.success === true ? cartellData.result : null;
       if (!cartell?.vehicle_registration_mark) {
         return NextResponse.json(
