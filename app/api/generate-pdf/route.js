@@ -303,7 +303,7 @@ function buildPdf(result, vrm, checks, checkDate) {
         doc.text('Mileage', MARGIN + 52, y + 1); doc.text('Expiry', MARGIN + 90, y + 1);
         y += 8;
         for (const test of motHistory.slice(0, 15)) {
-          const fails = test.rfrAndComments?.filter(r => r.type === 'FAIL') || [];
+          const fails = test.rfrAndComments?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
           const advs  = test.rfrAndComments?.filter(r => r.type === 'ADVISORY') || [];
           checkPage(7 + (fails.length + advs.length) * 4);
           doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
@@ -315,7 +315,7 @@ function buildPdf(result, vrm, checks, checkDate) {
           doc.text(test.odometerValue ? `${num(test.odometerValue)} mi` : '-', MARGIN + 52, y);
           doc.text(str(test.expiryDate || '-'), MARGIN + 90, y);
           y += 5;
-          for (const f of fails) { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(170, 0, 0); doc.text(`[F] ${clip(f.text, 90)}`, MARGIN + 4, y); y += 4; }
+          for (const f of fails) { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(170, 0, 0); doc.text(`[${f.type}] ${clip(f.text, 86)}`, MARGIN + 4, y); y += 4; }
           for (const a of advs)  { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(140, 90, 0); doc.text(`[A] ${clip(a.text, 90)}`, MARGIN + 4, y); y += 4; }
           doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
           doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;

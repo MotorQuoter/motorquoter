@@ -332,7 +332,7 @@ function MotSection({ result }) {
         : <div className="history-list">
             {motHistory.map((test, i) => {
               const advisories = test.rfrAndComments?.filter(r => r.type === 'ADVISORY') || [];
-              const failures   = test.rfrAndComments?.filter(r => r.type === 'FAIL') || [];
+              const failures   = test.rfrAndComments?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
               return (
                 <div className="history-record" key={i}>
                   <div className="history-row">
