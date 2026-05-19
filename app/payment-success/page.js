@@ -401,21 +401,18 @@ function ServiceHistorySection({ result }) {
 function RoiValuationSection({ result }) {
   const val = result.roiValuation;
   if (!val) return null;
-  const cur = val.current || val.valuations?.current || val;
-  const fut = val.future  || val.valuations?.future;
-  const retail = cur.retail  ?? cur.retail_price  ?? cur.retailPrice  ?? null;
-  const trade  = cur.trade   ?? cur.trade_price   ?? cur.tradePrice   ?? null;
-  const priv   = cur.private ?? cur.private_price ?? cur.privatePrice ?? null;
-  const futRet = fut?.retail ?? fut?.retail_price ?? fut?.retailPrice ?? null;
-  if (retail == null && trade == null && priv == null && futRet == null) return null;
+  const retLow  = val.retail_low_valuation  ?? null;
+  const retHigh = val.retail_high_valuation ?? null;
+  const trdLow  = val.trade_low_valuation   ?? null;
+  const trdHigh = val.trade_high_valuation  ?? null;
+  if (retLow == null && trdLow == null) return null;
+  const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
   return (
     <div className="card">
       <SectionTitle>Market Valuation</SectionTitle>
       <div className="bid-grid">
-        {retail != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtCurrency(retail, 'EUR')}</div></div>}
-        {trade  != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtCurrency(trade,  'EUR')}</div></div>}
-        {priv   != null && <div className="bid-card"><div className="bid-label">Private Sale</div><div className="bid-value">{fmtCurrency(priv,   'EUR')}</div></div>}
-        {futRet != null && <div className="bid-card"><div className="bid-label">Future Value</div><div className="bid-value">{fmtCurrency(futRet, 'EUR')}</div></div>}
+        {retLow != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtEur(retLow)} — {fmtEur(retHigh)}</div></div>}
+        {trdLow != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtEur(trdLow)} — {fmtEur(trdHigh)}</div></div>}
       </div>
     </div>
   );

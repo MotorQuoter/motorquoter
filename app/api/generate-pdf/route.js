@@ -127,18 +127,15 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (isIE && result.roiTier) {
     const roiVal = result.roiValuation;
     if (roiVal) {
-      const cur    = roiVal.current || roiVal.valuations?.current || roiVal;
-      const fut    = roiVal.future  || roiVal.valuations?.future;
-      const retail = cur.retail  ?? cur.retail_price  ?? null;
-      const trade  = cur.trade   ?? cur.trade_price   ?? null;
-      const priv   = cur.private ?? cur.private_price ?? null;
-      const futRet = fut?.retail ?? fut?.retail_price ?? null;
-      if (retail != null || trade != null || priv != null || futRet != null) {
+      const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
+      const retLow  = roiVal.retail_low_valuation  ?? null;
+      const retHigh = roiVal.retail_high_valuation ?? null;
+      const trdLow  = roiVal.trade_low_valuation   ?? null;
+      const trdHigh = roiVal.trade_high_valuation  ?? null;
+      if (retLow != null || trdLow != null) {
         sectionTitle('Market Valuation');
-        if (retail != null) row('Current Retail', `EUR ${Number(retail).toLocaleString('en-GB')}`);
-        if (trade  != null) row('Trade Value',     `EUR ${Number(trade).toLocaleString('en-GB')}`);
-        if (priv   != null) row('Private Sale',    `EUR ${Number(priv).toLocaleString('en-GB')}`);
-        if (futRet != null) row('Future Value',    `EUR ${Number(futRet).toLocaleString('en-GB')}`);
+        if (retLow != null) row('Current Retail', `${fmtEur(retLow)} — ${fmtEur(retHigh)}`);
+        if (trdLow != null) row('Trade Value',    `${fmtEur(trdLow)} — ${fmtEur(trdHigh)}`);
       }
     }
 
