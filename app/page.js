@@ -8,6 +8,12 @@ import { isRoiPlate } from '@/lib/roiPlate';
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
 
+const FULL_COVERAGE_MAKES = new Set([
+  'AUDI', 'BMW', 'CUPRA', 'FORD', 'HONDA', 'INFINITI', 'JAGUAR', 'LAND ROVER',
+  'LEXUS', 'MAZDA', 'MERCEDES-BENZ', 'MINI', 'NISSAN', 'OPEL', 'PORSCHE',
+  'SEAT', 'SKODA', 'TOYOTA', 'VAUXHALL', 'VOLKSWAGEN',
+]);
+
 export default function Home() {
   const router = useRouter();
   const [vrm, setVrm] = useState('');
@@ -92,6 +98,10 @@ export default function Home() {
         setError(data.error);
       } else {
         setResult(data);
+        const make = data.make?.toUpperCase() || null;
+        if (make && !FULL_COVERAGE_MAKES.has(make)) {
+          setSelectedKeys(prev => prev.filter(k => k !== 'service_history'));
+        }
       }
     } catch {
       setError('Something went wrong. Please try again.');
@@ -579,18 +589,23 @@ export default function Home() {
                 {enabledItems.map(item => {
                   const selected = selectedKeys.includes(item.key);
                   const isLocked = item.key === 'valuation' ? valuationLocked : item.locked;
+                  const vehicleMake = result?.make?.toUpperCase() || null;
+                  const svcUnavailable = item.key === 'service_history' && vehicleMake !== null && !FULL_COVERAGE_MAKES.has(vehicleMake);
                   return (
                     <div
                       key={item.key}
-                      className={`check-item ${selected ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
-                      onClick={() => toggleItem(item.key)}
+                      className={`check-item ${selected && !svcUnavailable ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
+                      style={svcUnavailable ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
+                      onClick={() => !svcUnavailable && toggleItem(item.key)}
                     >
                       <div className="check-box">
-                        {selected || isLocked ? '✓' : ''}
+                        {(selected && !svcUnavailable) || isLocked ? '✓' : ''}
                       </div>
                       <div className="check-info">
                         <div className="check-label">{item.label}</div>
-                        <div className="check-desc">{item.description}</div>
+                        <div className="check-desc">
+                          {svcUnavailable ? 'Service history not available for this vehicle' : item.description}
+                        </div>
                         {['writeoff', 'finance', 'stolen'].includes(item.key) && (
                           <div style={{ fontSize: 10, color: '#a01346', marginTop: 2, fontWeight: 600 }}>Data provided by Experian</div>
                         )}
