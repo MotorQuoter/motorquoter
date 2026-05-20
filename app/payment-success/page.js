@@ -211,7 +211,7 @@ function StolenSection({ result }) {
 function SalvageHistorySection({ result }) {
   const sh = result.salvageHistory;
   const records = sh?.records || [];
-  const found = sh?.salvage_auction_record_found === true;
+  const found = sh?.salvage_auction_record_found === true && records.length > 0;
 
   return (
     <div className="card">
