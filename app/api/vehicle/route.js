@@ -89,8 +89,7 @@ const FREE_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const freeRateLimitMap = new Map();
 
 function checkFreeRateLimit(request) {
-  const forwarded = request.headers.get('x-forwarded-for');
-  const ip = forwarded ? forwarded.split(',')[0].trim() : (request.connection?.remoteAddress || 'unknown');
+  const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'unknown';
   const now = Date.now();
   const entry = freeRateLimitMap.get(ip);
   if (!entry || now > entry.resetTime) {
