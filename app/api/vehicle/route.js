@@ -84,6 +84,24 @@ async function storeCachedResult(supabase, cleanVrm, cacheKey, payload) {
 
 const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
 
+const FREE_RATE_LIMIT = 10;
+const FREE_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const freeRateLimitMap = new Map();
+
+function checkFreeRateLimit(request) {
+  const forwarded = request.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0].trim() : (request.connection?.remoteAddress || 'unknown');
+  const now = Date.now();
+  const entry = freeRateLimitMap.get(ip);
+  if (!entry || now > entry.resetTime) {
+    freeRateLimitMap.set(ip, { count: 1, resetTime: now + FREE_RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= FREE_RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
@@ -102,6 +120,12 @@ export async function GET(request) {
 
   // ── FREE LOOKUP ──────────────────────────────────────────────────────────────
   if (tier === 'free') {
+    if (!checkFreeRateLimit(request)) {
+      return NextResponse.json(
+        { error: 'Too many requests — please try again later' },
+        { status: 429 }
+      );
+    }
     if (isRoiPlate(cleanVrm)) {
       const cacheKey = 'free_IE';
       const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
