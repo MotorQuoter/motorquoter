@@ -31,7 +31,17 @@
       "Bash(git checkout *)",
       "Bash(node *)",
       "Bash(vercel --version)",
-      "WebFetch(domain:api.oneautoapi.com)"
+      "WebFetch(domain:api.oneautoapi.com)",
+      "Bash(npx next *)",
+      "Bash(.\\\\node_modules\\\\.bin\\\\next dev *)",
+      "Bash(node_modules/.bin/next dev *)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(python -c \"import docx; print\\('python-docx available'\\)\")",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(xargs grep -l \"docx\\\\|Assessment_Engine\")",
+      "Read(//c/mnt/user-data/outputs/**)",
+      "Bash(cp \"/mnt/user-data/outputs/MotorQuoter_Assessment_Engine_v1_6_2026-05-20.docx\" \"/c/Users/vincy/Documents/MotorQuoter_Assessment_Engine_v1_6_2026-05-20.docx\")"
     ]
   }
 }

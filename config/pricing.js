@@ -35,7 +35,7 @@ export const PRICING = {
       key: 'valuation',
       label: 'Valuation',
       description: 'Trade, retail and private sale values',
-      price: 0.99,
+      price: 1.99,
       preSelected: true,
       locked: true,
       enabled: true,
