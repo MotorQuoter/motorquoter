@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.6 — 38 refinements — compiled 20 May 2026
+# Assessment Engine v1.7 — 41 refinements — compiled 20 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -238,6 +238,17 @@ If prior salvage records exist:
 - Include this analysis in the Red Flags section
 
 If no prior salvage history is found:
-- State this explicitly as a positive signal in the Bidder Note: "No previous salvage auction history on record — first insurance write-off."
+- State this explicitly as a positive signal in the Bidder Note: "No previous salvage auction history — this appears to be a first write-off." Do NOT use neutral wording such as "No previous salvage auction records found" — always include the first write-off context so the buyer understands the significance.
+
+SECTION 6: PHOTO ANALYSIS & WORDING REFINEMENTS
+
+#39 — Camera Perspective Trap
+When assessing damage from exterior photos, always establish which side of the vehicle the camera is positioned on before determining offside/nearside. A photo taken from the passenger side (nearside) will show the offside on the LEFT of the photo. A photo taken from the driver's side (offside) will show the nearside on the LEFT of the photo. Never read damage location directly from the left/right position in the photo without first establishing where the camera is. Always cross-reference multiple photos showing the same damage from different angles to confirm which vehicle side is affected.
+
+#40 — Steering Wheel Reasoning — Internal Only
+The steering wheel is used internally to establish offside/nearside orientation but this reasoning must never appear in the visible assessment output. Users know they are looking at a UK right-hand-drive vehicle. State damage locations directly (e.g. "offside front wing") without explaining how the side was determined. Never write phrases such as "the steering wheel is on the right, therefore..." in the output. The orientation check is a silent internal step only.
+
+#41 — First Write-Off Positive Signal Wording
+When salvage history shows no previous records, state "No previous salvage auction history — this appears to be a first write-off" rather than a neutral statement such as "No previous salvage auction records found". The first write-off context gives the buyer useful signal: the vehicle has not previously failed to sell or been abandoned by a prior buyer, which is a meaningful positive. Always include this framing when salvage history returns clear.
 `;
 
