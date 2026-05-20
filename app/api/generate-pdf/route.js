@@ -40,13 +40,19 @@ function buildPdf(result, vrm, checks, checkDate) {
     if (y + needed > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
   }
 
-  function sectionTitle(title) {
+  function sectionTitle(title, subtext) {
     checkPage(16);
     y += 5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(90, 90, 90);
     doc.text(title.toUpperCase(), MARGIN, y);
+    if (subtext) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(150, 150, 150);
+      doc.text(subtext, PAGE_W - MARGIN, y, { align: 'right' });
+    }
     y += 3;
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.4);
@@ -215,7 +221,7 @@ function buildPdf(result, vrm, checks, checkDate) {
     const wSrc = writeOffItem?.recovered_category_desc || writeOffItem?.vehicle_status || '';
     const wMatch = wSrc.match(/\bCAT\s*([A-Z])\b/i);
     const wLabel = hasWriteOff ? (wMatch ? `Cat ${wMatch[1]}` : (wSrc || 'Write-off recorded')) : null;
-    sectionTitle('Write-off / Cat S·N Check');
+    sectionTitle('Write-off / Cat S·N Check', 'Data provided by Experian');
     row('Write-off Status', hasWriteOff ? `[!] ${wLabel}` : '[OK] No write-off recorded', hasWriteOff ? 'bad' : 'good');
     if (writeOffItem?.total_loss_date) row('Total Loss Date', dt(writeOffItem.total_loss_date));
   }
@@ -223,7 +229,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   // ── Finance ───────────────────────────────────────────────────────────────────
   if (has('finance')) {
     const hasFinance = ac.finance_data_qty > 0;
-    sectionTitle('Finance Check');
+    sectionTitle('Finance Check', 'Data provided by Experian');
     row('Outstanding Finance', hasFinance ? '[!] Finance outstanding' : '[OK] No finance recorded', hasFinance ? 'bad' : 'good');
     const items = ac.finance_data_items || [];
     for (const f of items) {
@@ -235,7 +241,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   // ── Stolen ────────────────────────────────────────────────────────────────────
   if (has('stolen')) {
     const hasStolen = ac.stolen_vehicle_data_qty > 0;
-    sectionTitle('Stolen Check');
+    sectionTitle('Stolen Check', 'Data provided by Experian');
     row(isIE ? 'Stolen Register' : 'Police Database', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
     if (isIE) {
       checkPage(10);
