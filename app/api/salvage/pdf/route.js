@@ -425,19 +425,19 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
   if (checklistItems.length > 0) {
     sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(20, 20, 20);
     for (let i = 0; i < checklistItems.length; i++) {
       const itemText = checklistItems[i];
       const prefix = `${i + 1}. `;
       const wrapped = doc.splitTextToSize(prefix + itemText, CONTENT_W - 4);
-      checkPage(wrapped.length * 4.5 + 4);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(20, 20, 20);
       for (const line of wrapped) {
         checkPage(4.5);
         doc.text(line, MARGIN + 2, y);
         y += 4.5;
       }
+      checkPage(4);
       y += 2;
     }
   }
