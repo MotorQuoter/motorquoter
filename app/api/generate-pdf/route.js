@@ -254,7 +254,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (result.salvageHistory != null && !isIE) {
     const sh = result.salvageHistory;
     const found = sh?.salvage_auction_record_found === true;
-    const shRecords = sh?.records || [];
+    const shRecords = sh?.salvage_auction_records || [];
     sectionTitle('Salvage History Check');
     if (!sh || !found) {
       checkPage(8);
