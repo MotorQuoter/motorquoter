@@ -326,7 +326,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const sh = vd.salvageHistory;
   if (sh) {
     const shFound = sh.salvage_auction_record_found === true;
-    const shRecords = sh.records || [];
+    const shRecords = sh.salvage_auction_records || [];
     sectionTitle('Salvage History Check');
     if (!shFound) {
       checkPage(8);
@@ -345,12 +345,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
         };
         checkPage(24);
         const recLines = [
-          rec.lot_date          && ['Lot Date',         dt(rec.lot_date)],
-          rec.category          && ['Category',         `Cat ${rec.category}`],
-          rec.mileage != null   && ['Mileage at Sale',  `${Number(rec.mileage).toLocaleString()} miles`],
-          rec.primary_damage    && ['Primary Damage',   rec.primary_damage],
-          rec.secondary_damage  && ['Secondary Damage', rec.secondary_damage],
-          rec.auction_location  && ['Auction Location', rec.auction_location],
+          rec.salvage_auction_lot_date && ['Lot Date',         dt(rec.salvage_auction_lot_date)],
+          rec.salvage_auction_lot_desc && ['Category',         rec.salvage_auction_lot_desc],
+          rec.mileage != null          && ['Mileage at Sale',  `${Number(rec.mileage).toLocaleString()} miles`],
+          rec.primary_damage_desc      && ['Primary Damage',   rec.primary_damage_desc],
+          rec.secondary_damage_desc    && ['Secondary Damage', rec.secondary_damage_desc],
+          rec.salvage_auction_location && ['Auction Location', rec.salvage_auction_location],
         ].filter(Boolean);
         for (const [label, value] of recLines) {
           checkPage(8);
@@ -434,6 +434,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFontSize(8.5);
       doc.setTextColor(20, 20, 20);
       for (const line of wrapped) {
+        checkPage(4.5);
         doc.text(line, MARGIN + 2, y);
         y += 4.5;
       }

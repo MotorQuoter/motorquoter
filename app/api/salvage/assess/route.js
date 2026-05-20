@@ -313,15 +313,15 @@ export async function GET(request) {
         const sh = enrichedVd.salvageHistory;
         if (!sh) return null;
         const found = sh.salvage_auction_record_found === true;
-        const records = sh.records || [];
+        const records = sh.salvage_auction_records || [];
         if (!found) return 'Previous Salvage Auction History: No previous salvage auction history found.';
         const lines = records.map((rec, i) => [
           `Record ${i + 1}:`,
-          rec.lot_date          && `  Lot Date: ${rec.lot_date}`,
-          rec.category          && `  Category: Cat ${rec.category}`,
-          rec.mileage != null   && `  Mileage at Sale: ${Number(rec.mileage).toLocaleString()} miles`,
-          rec.primary_damage    && `  Primary Damage: ${rec.primary_damage}`,
-          rec.secondary_damage  && `  Secondary Damage: ${rec.secondary_damage}`,
+          rec.salvage_auction_lot_date && `  Lot Date: ${rec.salvage_auction_lot_date}`,
+          rec.salvage_auction_lot_desc && `  Category: ${rec.salvage_auction_lot_desc}`,
+          rec.mileage != null          && `  Mileage at Sale: ${Number(rec.mileage).toLocaleString()} miles`,
+          rec.primary_damage_desc      && `  Primary Damage: ${rec.primary_damage_desc}`,
+          rec.secondary_damage_desc    && `  Secondary Damage: ${rec.secondary_damage_desc}`,
         ].filter(Boolean).join('\n')).join('\n');
         return `Previous Salvage Auction History (${records.length} record${records.length !== 1 ? 's' : ''} found):\n${lines}`;
       })(),

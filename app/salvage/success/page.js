@@ -398,7 +398,7 @@ export default function SalvageSuccessPage() {
               const sh = vehicleDetails?.salvageHistory;
               if (!sh) return null;
               const found = sh.salvage_auction_record_found === true;
-              const records = sh.records || [];
+              const records = sh.salvage_auction_records || [];
               return (
                 <div className="section">
                   <div className="section-title">Salvage History Check</div>
@@ -418,18 +418,18 @@ export default function SalvageSuccessPage() {
                           <div className="field-row" key={i}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                               <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>
-                                {rec.lot_date ? rec.lot_date.split('T')[0].split('-').reverse().join('/') : '—'}
+                                {rec.salvage_auction_lot_date ? rec.salvage_auction_lot_date.split('T')[0].split('-').reverse().join('/') : '—'}
                               </span>
-                              {rec.category && (
+                              {rec.salvage_auction_lot_desc && (
                                 <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 4, padding: '2px 8px' }}>
-                                  Cat {rec.category}
+                                  {rec.salvage_auction_lot_desc}
                                 </span>
                               )}
                             </div>
-                            {rec.mileage != null     && <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 2 }}>{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
-                            {rec.primary_damage      && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Primary: {rec.primary_damage}</div>}
-                            {rec.secondary_damage    && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Secondary: {rec.secondary_damage}</div>}
-                            {rec.auction_location    && <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{rec.auction_location}</div>}
+                            {rec.mileage != null          && <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 2 }}>{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
+                            {rec.primary_damage_desc      && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Primary: {rec.primary_damage_desc}</div>}
+                            {rec.secondary_damage_desc    && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Secondary: {rec.secondary_damage_desc}</div>}
+                            {rec.salvage_auction_location && <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{rec.salvage_auction_location}</div>}
                             {rec.external_image_urls?.length > 0 && (
                               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                                 {rec.external_image_urls.slice(0, 4).map((url, j) => (
