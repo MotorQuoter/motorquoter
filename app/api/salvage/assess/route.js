@@ -86,9 +86,30 @@ export async function GET(request) {
       .single();
 
     if (check?.assessment) {
+      const vd = check.vehicle_details || {};
+      if (!vd.salvageHistory && check.market !== 'IE' && vd.vrm) {
+        try {
+          const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
+          const cleanVrm = vd.vrm.replace(/\s+/g, '').toUpperCase();
+          const shRes = await fetch(
+            `${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`,
+            { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
+          );
+          const shText = await shRes.text();
+          const shRaw = shText ? JSON.parse(shText) : null;
+          const shResult = shRaw?.result ?? shRaw;
+          if (shResult && !shResult.error) {
+            vd.salvageHistory = shResult;
+            await supabase
+              .from('salvage_sessions')
+              .update({ vehicle_details: vd })
+              .eq('id', salvageId);
+          }
+        } catch {}
+      }
       return NextResponse.json({
         assessment: check.assessment,
-        vehicleDetails: check.vehicle_details,
+        vehicleDetails: vd,
         market: check.market,
         rerunCount: check.rerun_count ?? 0,
       });

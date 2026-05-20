@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.6 — 36 refinements — compiled 20 May 2026
+# Assessment Engine v1.6 — 37 refinements — compiled 20 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -24,17 +24,9 @@ Parts pricing — always give three tiers where relevant: OEM (main dealer), use
 When VAT on Sale = Yes is present in the vehicle data, treat it as confirmed. Calculate the VAT-inclusive hammer cost explicitly: hammer price × 1.20. Never refer the user back to Copart to verify something already stated in the listing data.
 When Category is present in the structured vehicle data, treat it as confirmed. Do not refer to windscreen chalk annotations to determine category when it is already stated in the listing data.
 
-UK Offside/Nearside Convention — MANDATORY REASONING STEP
-Before using offside or nearside anywhere in an assessment, anchor to the steering wheel:
-
-The steering wheel is on the RIGHT side of a UK right-hand drive vehicle
-Same side as the steering wheel = driver's side = RIGHT side = OFFSIDE
-Opposite side to the steering wheel = passenger side = LEFT side = NEARSIDE
-
-Use the steering wheel as your reference point in every assessment. If damage is on the same side as the steering wheel it is OFFSIDE. If on the opposite side it is NEARSIDE.
-Example: "The steering wheel is on the right. The damage is on the opposite side to the steering wheel → this is the NEARSIDE (passenger side, left)."
-Never use left or right without the offside/nearside qualifier. Never assume driver's side means left — in UK vehicles the driver sits on the right.
-Perform this reasoning step internally before writing the assessment. Do not include the steering wheel anchor reasoning in your output — simply use the correct offside/nearside term. UK buyers do not need this explained.
+UK Offside/Nearside — MANDATORY PHOTO-FIRST REASONING
+Before writing any offside/nearside reference, locate the steering wheel in the photos. The side with the steering wheel = driver's side = RIGHT = OFFSIDE. The opposite side = passenger side = LEFT = NEARSIDE. Only then apply the convention. If the steering wheel is not visible in any photo, state 'side not confirmed from photos' rather than guessing.
+CRITICAL: Never derive offside/nearside from the Copart damage description text — always derive from visual evidence in the photos. The damage description may say 'Front End' or 'Side' without specifying which side — do not assume.
 
 Required Output Format
 CRITICAL FORMAT RULE: Always output field labels using the exact format "Field Name:" followed by the content on the next line. Never use markdown headers (##, ###) for field labels. The parser relies on the colon format to extract each section correctly.
