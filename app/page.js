@@ -514,7 +514,7 @@ export default function Home() {
           {/* Check / Get ROI Report button */}
           <button
             className="btn-submit"
-            onClick={handleCheck}
+            onClick={() => handleCheck()}
             disabled={loading || checkoutLoading || !vrm.trim()}
           >
             {loading ? 'Looking up...'
