@@ -210,7 +210,7 @@ function StolenSection({ result }) {
 
 function SalvageHistorySection({ result }) {
   const sh = result.salvageHistory;
-  const records = sh?.records || [];
+  const records = sh?.salvage_auction_records || [];
   const found = sh?.salvage_auction_record_found === true && records.length > 0;
 
   return (
@@ -234,13 +234,13 @@ function SalvageHistorySection({ result }) {
                 {records.map((rec, i) => (
                   <div className="history-record" key={i}>
                     <div className="history-row">
-                      <span className="history-date">{fmtDate(rec.lot_date) || rec.lot_date || '—'}</span>
-                      {rec.category && <span className="badge-fail">Cat {rec.category}</span>}
+                      <span className="history-date">{fmtDate(rec.salvage_auction_lot_date) || rec.salvage_auction_lot_date || '—'}</span>
+                      {rec.salvage_auction_lot_desc && <span className="badge-fail">{rec.salvage_auction_lot_desc}</span>}
                     </div>
                     {rec.mileage != null && <div className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
-                    {rec.primary_damage   && <div className="history-detail">Primary: {rec.primary_damage}</div>}
-                    {rec.secondary_damage && <div className="history-detail">Secondary: {rec.secondary_damage}</div>}
-                    {rec.auction_location && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.auction_location}</div>}
+                    {rec.primary_damage_desc   && <div className="history-detail">Primary: {rec.primary_damage_desc}</div>}
+                    {rec.secondary_damage_desc && <div className="history-detail">Secondary: {rec.secondary_damage_desc}</div>}
+                    {rec.salvage_auction_location && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.salvage_auction_location}</div>}
                     {rec.external_image_urls?.length > 0 && (
                       <div style={{display:'flex', gap:6, marginTop:8, flexWrap:'wrap'}}>
                         {rec.external_image_urls.slice(0, 4).map((url, j) => (
