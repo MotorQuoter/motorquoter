@@ -64,8 +64,9 @@ export default function Home() {
   };
 
   // ── Free DVLA check (GB) / IE menu reveal ────────────────────────────────────
-  const handleCheck = async () => {
-    if (!vrm.trim()) return;
+  const handleCheck = async (vrmArg) => {
+    const vrmToUse = vrmArg !== undefined ? vrmArg : vrm;
+    if (!vrmToUse.trim()) return;
 
     // IE: go directly to paid checkout for selected ROI tier
     if (effectiveMarket === 'IE') {
@@ -78,7 +79,7 @@ export default function Home() {
     setError(null);
     try {
       const params = new URLSearchParams({
-        vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+        vrm: vrmToUse.trim().replace(/\s/g, '').toUpperCase(),
         tier: 'free',
       });
       if (mileage) params.append('mileage', mileage);
@@ -404,6 +405,7 @@ export default function Home() {
                 placeholder="AB12CDE"
                 value={vrm}
                 onChange={e => { setVrm(e.target.value.toUpperCase()); setMarketLocked(false); }}
+                onPaste={e => { const el = e.target; setTimeout(() => { const v = el.value.toUpperCase().replace(/\s/g, ''); if (v) handleCheck(v); }, 50); }}
                 maxLength={12}
               />
               <button

@@ -46,7 +46,7 @@ export async function POST(request) {
     const salvageId = session.id;
     const price = PRICING.salvageAssessment.price;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.vercel.app');
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
 
     const vd = vehicleDetails || {};
     const identifier = vd.vrm || vd.lotNumber || [vd.make, vd.model, vd.year].filter(Boolean).join(' ') || '';

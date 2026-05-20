@@ -322,6 +322,58 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     }
   }
 
+  // Salvage History section
+  const sh = vd.salvageHistory;
+  if (sh) {
+    const shFound = sh.salvage_auction_record_found === true;
+    const shRecords = sh.records || [];
+    sectionTitle('Salvage History Check');
+    if (!shFound) {
+      checkPage(8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(0, 130, 0);
+      doc.text('[OK] No previous salvage auction records found', MARGIN, y); y += 8;
+    } else {
+      checkPage(8);
+      const timesText = `[!] This vehicle has been through salvage auction ${shRecords.length} time${shRecords.length !== 1 ? 's' : ''}`;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(170, 0, 0);
+      doc.text(str(timesText), MARGIN, y); y += 7;
+      for (const rec of shRecords) {
+        const dt = (s) => {
+          if (!s) return '-';
+          const d = s.split('T')[0].split('-');
+          return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s;
+        };
+        checkPage(24);
+        const recLines = [
+          rec.lot_date          && ['Lot Date',         dt(rec.lot_date)],
+          rec.category          && ['Category',         `Cat ${rec.category}`],
+          rec.mileage != null   && ['Mileage at Sale',  `${Number(rec.mileage).toLocaleString()} miles`],
+          rec.primary_damage    && ['Primary Damage',   rec.primary_damage],
+          rec.secondary_damage  && ['Secondary Damage', rec.secondary_damage],
+          rec.auction_location  && ['Auction Location', rec.auction_location],
+        ].filter(Boolean);
+        for (const [label, value] of recLines) {
+          checkPage(8);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+          doc.text(label, MARGIN, y);
+          doc.setFont('helvetica', label === 'Category' ? 'bold' : 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(label === 'Category' ? 170 : 20, 0, 0);
+          doc.text(str(value), MARGIN + 40, y); y += 5;
+          doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
+          doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1); y += 2;
+        }
+        const imgCount = rec.external_image_urls?.length || 0;
+        if (imgCount > 0) {
+          checkPage(6);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+          doc.text(`${imgCount} photo${imgCount !== 1 ? 's' : ''} on record`, MARGIN, y); y += 6;
+        }
+        y += 2;
+      }
+    }
+  }
+
   // Fix 4 — Section 3: REPAIR ESTIMATE BANNER
   const repairRange = str(assessment['Estimated Repair Range']);
   if (repairRange) {

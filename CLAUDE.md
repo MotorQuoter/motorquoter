@@ -91,7 +91,7 @@ DVLA_API_KEY
 ONE_AUTO_API_KEY
 ANTHROPIC_API_KEY
 STRIPE_SECRET_KEY
-NEXT_PUBLIC_APP_URL (defaults to https://motorquoter.vercel.app)
+NEXT_PUBLIC_APP_URL (defaults to https://motorquoter.app)
 DVSA_CLIENT_ID
 DVSA_CLIENT_SECRET
 DVSA_API_KEY

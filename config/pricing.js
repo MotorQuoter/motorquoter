@@ -124,7 +124,7 @@ export const PRICING = {
     },
   ],
   salvageAssessment: {
-    price: 6.99,
+    price: 8.99,
     enabled: true,
   },
 }

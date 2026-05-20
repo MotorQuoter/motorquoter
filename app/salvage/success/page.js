@@ -393,6 +393,60 @@ export default function SalvageSuccessPage() {
               </div>
             )}
 
+            {/* Salvage History */}
+            {(() => {
+              const sh = vehicleDetails?.salvageHistory;
+              if (!sh) return null;
+              const found = sh.salvage_auction_record_found === true;
+              const records = sh.records || [];
+              return (
+                <div className="section">
+                  <div className="section-title">Salvage History Check</div>
+                  <div className="section-body">
+                    {!found ? (
+                      <div className="field-row">
+                        <div className="field-val" style={{ color: '#4ade80' }}>✓ No previous salvage auction records found</div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="field-row" style={{ background: 'rgba(248,113,113,0.07)', borderRadius: 8, padding: '10px 12px', marginBottom: 4 }}>
+                          <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>
+                            ⚠️ This vehicle has been through salvage auction {records.length} time{records.length !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                        {records.map((rec, i) => (
+                          <div className="field-row" key={i}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>
+                                {rec.lot_date ? rec.lot_date.split('T')[0].split('-').reverse().join('/') : '—'}
+                              </span>
+                              {rec.category && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 4, padding: '2px 8px' }}>
+                                  Cat {rec.category}
+                                </span>
+                              )}
+                            </div>
+                            {rec.mileage != null     && <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 2 }}>{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
+                            {rec.primary_damage      && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Primary: {rec.primary_damage}</div>}
+                            {rec.secondary_damage    && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Secondary: {rec.secondary_damage}</div>}
+                            {rec.auction_location    && <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{rec.auction_location}</div>}
+                            {rec.external_image_urls?.length > 0 && (
+                              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                                {rec.external_image_urls.slice(0, 4).map((url, j) => (
+                                  <img key={j} src={url} alt="Salvage record photo"
+                                    style={{ width: 80, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border-dim)' }} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Damage Assessment section */}
             <div className="section">
               <div className="section-title">Damage Assessment</div>

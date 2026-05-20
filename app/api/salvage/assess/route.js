@@ -243,6 +243,22 @@ export async function GET(request) {
 
     if (roiData) enrichedVd.roiData = roiData;
 
+    // Fetch salvage history (GB/NI only — bundled silently into the assessment price)
+    if (market !== 'IE' && enrichedVd.vrm) {
+      const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
+      const cleanVrm = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
+      try {
+        const shRes = await fetch(
+          `${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`,
+          { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
+        );
+        const shText = await shRes.text();
+        const shRaw = shText ? JSON.parse(shText) : null;
+        const shResult = shRaw?.result ?? shRaw;
+        if (shResult && !shResult.error) enrichedVd.salvageHistory = shResult;
+      } catch {}
+    }
+
     const AUCTION_SOURCE_LABELS = {
       copart: 'Copart UK',
       bca: 'BCA',
@@ -293,6 +309,22 @@ export async function GET(request) {
       enrichedVd.secondaryDamage && `Secondary Damage: ${enrichedVd.secondaryDamage}`,
       enrichedVd.additionalDamage && `Additional Damage: ${enrichedVd.additionalDamage}`,
       enrichedVd.v5Status && `V5 Status: ${enrichedVd.v5Status}`,
+      (() => {
+        const sh = enrichedVd.salvageHistory;
+        if (!sh) return null;
+        const found = sh.salvage_auction_record_found === true;
+        const records = sh.records || [];
+        if (!found) return 'Previous Salvage Auction History: No previous salvage auction history found.';
+        const lines = records.map((rec, i) => [
+          `Record ${i + 1}:`,
+          rec.lot_date          && `  Lot Date: ${rec.lot_date}`,
+          rec.category          && `  Category: Cat ${rec.category}`,
+          rec.mileage != null   && `  Mileage at Sale: ${Number(rec.mileage).toLocaleString()} miles`,
+          rec.primary_damage    && `  Primary Damage: ${rec.primary_damage}`,
+          rec.secondary_damage  && `  Secondary Damage: ${rec.secondary_damage}`,
+        ].filter(Boolean).join('\n')).join('\n');
+        return `Previous Salvage Auction History (${records.length} record${records.length !== 1 ? 's' : ''} found):\n${lines}`;
+      })(),
     ].filter(Boolean).join('\n');
 
     const imageBlocks = session.images

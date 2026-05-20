@@ -14,7 +14,7 @@ export async function POST(request) {
 
     const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.vercel.app');
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
 
     // ── ROI tier checkout ────────────────────────────────────────────────────
     if (market === 'IE' && roiTier) {
