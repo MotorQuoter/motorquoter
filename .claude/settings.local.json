@@ -29,7 +29,9 @@
       "Bash(py *)",
       "Bash(Read the *)",
       "Bash(git checkout *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(vercel --version)",
+      "WebFetch(domain:api.oneautoapi.com)"
     ]
   }
 }

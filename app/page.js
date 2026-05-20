@@ -589,6 +589,9 @@ export default function Home() {
                       <div className="check-info">
                         <div className="check-label">{item.label}</div>
                         <div className="check-desc">{item.description}</div>
+                        {['writeoff', 'finance', 'stolen'].includes(item.key) && (
+                          <div style={{ fontSize: 10, color: '#a01346', marginTop: 2, fontWeight: 600 }}>Data provided by Experian</div>
+                        )}
                       </div>
                       <div className={`check-price ${item.price === 0 ? 'free' : ''}`}>
                         {item.price === 0 ? 'FREE' : `£${item.price.toFixed(2)}`}

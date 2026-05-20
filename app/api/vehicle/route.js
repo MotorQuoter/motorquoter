@@ -392,6 +392,7 @@ export async function GET(request) {
       const needsMarketDemand = checks.includes('market_demand');
       const needsPreviousAdverts = checks.includes('previous_adverts');
       const needsServiceHistory = checks.includes('service_history');
+      const needsSalvageHistory = checks.includes('salvagehistory');
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
@@ -404,7 +405,7 @@ export async function GET(request) {
           )
         : Promise.resolve(null);
 
-      const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData] = await Promise.all([
+      const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes] = await Promise.all([
         needsAutocheck
           ? fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -418,6 +419,9 @@ export async function GET(request) {
           ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsMot ? getDvsaMotHistory(cleanVrm) : Promise.resolve(null),
+        needsSalvageHistory
+          ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          : Promise.resolve(null),
       ]);
 
       const autocheck = autocheckRes ? await safeJson(autocheckRes) : null;
@@ -425,6 +429,7 @@ export async function GET(request) {
       const cazanaAdverts = cazAdvRes ? await safeJson(cazAdvRes) : null;
       const cazanaDemand = cazDemRes ? await safeJson(cazDemRes) : null;
       const motTests = dvsaData?.motTests || null;
+      const salvageHistoryRaw = salvageHistoryRes ? await safeJson(salvageHistoryRes) : null;
 
       const svcRes = await svcHistoryPromise;
       const serviceHistory = svcRes ? await safeJson(svcRes) : null;
@@ -455,6 +460,7 @@ export async function GET(request) {
         cazanaDemand: extractApiResult(cazanaDemand),
         serviceHistory: extractApiResult(serviceHistory),
         serviceHistoryCoverage: svcCoverage,
+        salvageHistory: extractApiResult(salvageHistoryRaw),
         market: 'GB',
         checks,
       };

@@ -138,6 +138,7 @@ function WriteoffSection({ result }) {
             {writeOffItem?.mileage_at_loss != null && <DataRow label="Mileage at Loss" value={`${Number(writeOffItem.mileage_at_loss).toLocaleString('en-GB')} miles`} />}
           </div>
       }
+      {!isIE && ac != null && <ExperianAttribution />}
     </div>
   );
 }
@@ -170,6 +171,7 @@ function FinanceSection({ result }) {
             ))}
           </div>
       }
+      {!isIE && ac != null && <ExperianAttribution />}
     </div>
   );
 }
@@ -199,6 +201,63 @@ function StolenSection({ result }) {
             )}
           </div>
       }
+      {!isIE && ac != null && <ExperianAttribution />}
+    </div>
+  );
+}
+
+// ── Salvage History ───────────────────────────────────────────────────────────
+
+function SalvageHistorySection({ result }) {
+  const sh = result.salvageHistory;
+  const records = sh?.records || [];
+  const found = sh?.salvage_auction_record_found === true;
+
+  return (
+    <div className="card">
+      <SectionTitle>Salvage History Check</SectionTitle>
+      {sh == null
+        ? <EmptyState text="Salvage history data not available for this vehicle" />
+        : !found
+          ? <div className="flag-list">
+              <FlagRow label="Salvage Auction History" value="✓ No previous salvage auction records found" tone="green" />
+            </div>
+          : <>
+              <div className="flag-list" style={{marginBottom: 12}}>
+                <FlagRow
+                  label="Salvage Auction History"
+                  value={`⚠️ This vehicle has been through salvage auction ${records.length} time${records.length !== 1 ? 's' : ''}`}
+                  tone="red"
+                />
+              </div>
+              <div className="history-list">
+                {records.map((rec, i) => (
+                  <div className="history-record" key={i}>
+                    <div className="history-row">
+                      <span className="history-date">{fmtDate(rec.lot_date) || rec.lot_date || '—'}</span>
+                      {rec.category && <span className="badge-fail">Cat {rec.category}</span>}
+                    </div>
+                    {rec.mileage != null && <div className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
+                    {rec.primary_damage   && <div className="history-detail">Primary: {rec.primary_damage}</div>}
+                    {rec.secondary_damage && <div className="history-detail">Secondary: {rec.secondary_damage}</div>}
+                    {rec.auction_location && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.auction_location}</div>}
+                    {rec.external_image_urls?.length > 0 && (
+                      <div style={{display:'flex', gap:6, marginTop:8, flexWrap:'wrap'}}>
+                        {rec.external_image_urls.slice(0, 4).map((url, j) => (
+                          <img
+                            key={j}
+                            src={url}
+                            alt={`Salvage record photo`}
+                            style={{width:80, height:60, objectFit:'cover', borderRadius:6, border:'1px solid var(--border-dim)'}}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+      }
     </div>
   );
 }
@@ -224,12 +283,10 @@ function RecallWarning({ result }) {
 
 // ── Experian Attribution ──────────────────────────────────────────────────────
 
-function ExperianAttribution({ result, checks }) {
-  const shown = ['writeoff', 'finance', 'stolen'].some(c => checks.includes(c));
-  if (!shown || !result.autocheck) return null;
+function ExperianAttribution() {
   return (
-    <div style={{ textAlign: 'right', padding: '2px 20px 10px', fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.02em' }}>
-      Powered by{' '}
+    <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', paddingTop: 6, letterSpacing: '0.02em' }}>
+      Data provided by{' '}
       <span style={{ fontWeight: 700, color: '#a01346', letterSpacing: 0 }}>Experian</span>
     </div>
   );
@@ -723,7 +780,7 @@ function PaymentSuccessContent() {
                 {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
                 {checks.includes('finance')           && <FinanceSection         result={result} />}
                 {checks.includes('stolen')            && <StolenSection          result={result} />}
-                <ExperianAttribution result={result} checks={checks} />
+                {checks.includes('salvagehistory')    && <SalvageHistorySection  result={result} />}
                 {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}

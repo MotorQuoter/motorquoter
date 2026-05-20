@@ -68,6 +68,16 @@ export const PRICING = {
       enabled: true,
     },
     {
+      key: 'salvagehistory',
+      label: 'Salvage History Check',
+      description: 'See if this vehicle has been previously sold at a salvage auction — lot date, damage description, mileage, and photos from prior listings',
+      price: 1.49,
+      cost: 0.50,
+      preSelected: false,
+      locked: false,
+      enabled: true,
+    },
+    {
       key: 'market_demand',
       label: 'Market Demand',
       description: 'How quickly this vehicle sells in the current market',
