@@ -250,6 +250,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Salvage History ───────────────────────────────────────────────────────────
+  console.log('[PDF salvage]', JSON.stringify(result.salvageHistory));
   if (result.salvageHistory != null && !isIE) {
     const sh = result.salvageHistory;
     const found = sh?.salvage_auction_record_found === true;
