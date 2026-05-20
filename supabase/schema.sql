@@ -1,0 +1,146 @@
+-- MotorQuoter — Supabase PostgreSQL schema
+-- Sufficient to rebuild the entire database from scratch.
+-- All writes go through the service role key (server-side only), which bypasses RLS.
+-- RLS is enabled on every table to block anon/authenticated direct access.
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 1. reg_lookup_cache
+--    Caches API responses (DVLA + OneAuto) per registration + tier combination.
+--    TTL enforced in application code (48 hours); rows older than 48 h are
+--    ignored on read but not automatically deleted — run the cleanup query below
+--    periodically if storage becomes a concern.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS reg_lookup_cache (
+  -- GB/IE registration plate, normalised to uppercase with no spaces (e.g. "AB12CDE")
+  reg_plate  text        NOT NULL,
+
+  -- Cache key encodes tier + market, e.g.:
+  --   'free_GB'                        free GB lookup
+  --   'free_IE'                        free IE (Cartell) lookup
+  --   'checks:market_demand,valuation_GB'   paid GB checks (sorted, underscore-joined)
+  --   'roi:roi_standard'               paid ROI tier lookup
+  tier       text        NOT NULL,
+
+  -- Full JSON payload returned to the client, stored verbatim.
+  -- Shape varies by tier — see /api/vehicle/route.js for field definitions.
+  payload    jsonb       NOT NULL,
+
+  -- When this row was written. Used for TTL filtering (>= now() - 48h).
+  created_at timestamptz NOT NULL DEFAULT now(),
+
+  PRIMARY KEY (reg_plate, tier)
+);
+
+-- Index on created_at to support periodic cleanup of expired rows:
+--   DELETE FROM reg_lookup_cache WHERE created_at < now() - INTERVAL '48 hours';
+CREATE INDEX IF NOT EXISTS reg_lookup_cache_created_at_idx
+  ON reg_lookup_cache (created_at DESC);
+
+ALTER TABLE reg_lookup_cache ENABLE ROW LEVEL SECURITY;
+-- No permissive policies — all access is via the service role key, which bypasses RLS.
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2. used_sessions
+--    One-use ledger for Stripe checkout session IDs on the motorquoter.app
+--    paid vehicle report flow (Standard / Pro).  Prevents replay: a session ID
+--    is inserted on first verified payment; subsequent requests for the same ID
+--    are rejected with 403.  The unique constraint on session_id also guards
+--    against race conditions (two simultaneous requests racing past the
+--    pre-insert existence check).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS used_sessions (
+  -- Stripe checkout session ID, e.g. "cs_live_...". Treated as the natural PK.
+  session_id text        PRIMARY KEY,
+
+  -- When the session was first redeemed.
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE used_sessions ENABLE ROW LEVEL SECURITY;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. salvage_sessions
+--    Persists the full lifecycle of a salvage damage assessment:
+--    image upload → Stripe payment → Claude assessment → optional re-run.
+--    The row is created before payment so the salvage_id can be embedded in
+--    the Stripe success URL; status advances as the session progresses.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS salvage_sessions (
+  -- Auto-generated surrogate key; embedded in Stripe metadata and success URLs.
+  id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Lifecycle status:
+  --   'pending_payment'  row created, Stripe checkout not yet completed
+  --   'processing'       payment confirmed, Claude assessment running
+  --   'assessed'         assessment written to the assessment column
+  --   'pending'          reset for re-run (assessment cleared, rerun_count incremented)
+  status            text        NOT NULL DEFAULT 'pending_payment',
+
+  -- Rich JSON object submitted by the client.  Typical fields:
+  --   vrm, make, model, year, colour, fuelType, engineSize
+  --   damageDescription (raw Copart listing text)
+  --   primaryDamage, secondaryDamage, additionalDamage
+  --   category (Cat S, Cat N, etc.)
+  --   runCondition, keys, transmission, odometer, fuel
+  --   estimatedRetail, vatOnSale, v5Status, lotNumber
+  --   auctionSource ('copart' | 'bca' | 'manheim' | 'other')
+  --   dvlaVerified (bool), motStatus, taxStatus
+  --   lastMotMileage, motMileageFlag
+  --   motHistory (array from DVSA)
+  --   salvageHistory (carguide result)
+  --   roiTier (IE only: 'roi_free' | 'roi_standard' | 'roi_pro' | 'roi_history')
+  --   roiData (IE paid: { valuation, marketDemand, priceGuide, historyCheck })
+  --   Enriched in-place by the assess route with parsed Copart listing fields.
+  vehicle_details   jsonb,
+
+  -- Array of base64-encoded images (data URIs or raw base64 strings, up to 20).
+  -- Stored as submitted; passed directly to the Claude vision API.
+  images            text[],
+
+  -- 'GB' or 'IE'
+  market            text        NOT NULL DEFAULT 'GB',
+
+  -- Parsed Claude assessment, written once the AI response is received.
+  -- Keys mirror ASSESSMENT_FIELDS in the assess route:
+  --   'Visible Damage Summary', 'Estimated Repair Range', 'Key Cost Drivers',
+  --   'Red Flags', 'Alternative Damage Scenario', 'Airbags',
+  --   'Confidence Level', 'Bidder Note', 'Recommended Action',
+  --   'Realistic Exit Value', 'Margin Calculation',
+  --   'WhatsApp Inspection Checklist'
+  -- Also contains _raw (full Claude text), _market.
+  assessment        jsonb,
+
+  -- Stripe checkout session ID recorded when payment is confirmed.
+  -- NULL until the assess route receives the paid callback.
+  -- Also used as the auth token for re-run-submit (proves original payment).
+  stripe_session_id text,
+
+  -- Number of re-runs consumed (max 1). Starts at 0; incremented by /api/salvage/rerun.
+  rerun_count       integer     NOT NULL DEFAULT 0,
+
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS salvage_sessions_created_at_idx
+  ON salvage_sessions (created_at DESC);
+
+ALTER TABLE salvage_sessions ENABLE ROW LEVEL SECURITY;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Cleanup queries (run manually or via pg_cron as needed)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Expire old cache entries (application TTL is 48 h; purge after 7 days for safety)
+-- DELETE FROM reg_lookup_cache WHERE created_at < now() - INTERVAL '7 days';
+
+-- Purge old Stripe session records (Stripe sessions expire after 24 h anyway)
+-- DELETE FROM used_sessions WHERE created_at < now() - INTERVAL '30 days';
+
+-- Purge old salvage sessions (images are large; trim after 90 days)
+-- DELETE FROM salvage_sessions WHERE created_at < now() - INTERVAL '90 days';
