@@ -39,12 +39,19 @@ export async function GET(request) {
     }
 
     // Insert with conflict check — guards against two simultaneous requests racing through the check above
-    const { error: insertError } = await supabase
-      .from('used_sessions')
-      .insert({ session_id: sessionId });
+    try {
+      const { error: insertError } = await supabase
+        .from('used_sessions')
+        .insert({ session_id: sessionId });
 
-    if (insertError?.code === '23505') {
-      return NextResponse.json({ error: 'This payment link has already been used' }, { status: 403 });
+      if (insertError?.code === '23505') {
+        return NextResponse.json({ error: 'This payment link has already been used' }, { status: 403 });
+      }
+      if (insertError) {
+        console.error('used_sessions insert error:', insertError);
+      }
+    } catch (insertErr) {
+      console.error('used_sessions insert exception:', insertErr);
     }
 
     return NextResponse.json({
