@@ -371,7 +371,12 @@ function buildPdf(result, vrm, checks, checkDate) {
       }
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-      doc.text(svcHistory === null && svcCoverage ? 'Service history unavailable - please try again' : 'No digital service history on record', MARGIN, y); y += 8;
+      if (svcHistory === null && svcCoverage) {
+        doc.text('Service history could not be retrieved at this time.', MARGIN, y); y += 5;
+        doc.text('Please contact info@motorquoter.app for a service history fee refund.', MARGIN, y); y += 8;
+      } else {
+        doc.text('No digital service history on record', MARGIN, y); y += 8;
+      }
     }
   }
 

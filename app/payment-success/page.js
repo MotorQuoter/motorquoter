@@ -433,7 +433,7 @@ function ServiceHistorySection({ result }) {
         )}
       </div>
       {svcHistory === null && svcCoverage
-        ? <EmptyState text="Service history unavailable — please try again" />
+        ? <EmptyState text="Service history could not be retrieved at this time. Please contact info@motorquoter.app and we will refund your service history fee." />
         : svcHistory?.service_records?.length > 0
           ? <div className="history-list">
               {svcHistory.service_records.map((rec, i) => (
