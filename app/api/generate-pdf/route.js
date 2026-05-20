@@ -266,12 +266,12 @@ function buildPdf(result, vrm, checks, checkDate) {
       }
       for (const rec of shRecords) {
         checkPage(28);
-        if (rec.lot_date)         row('Lot Date',         dt(rec.lot_date));
-        if (rec.category)         row('Category',         `Cat ${rec.category}`, 'bad');
-        if (rec.mileage != null)  row('Mileage at Sale',  `${num(rec.mileage)} miles`);
-        if (rec.primary_damage)   row('Primary Damage',   rec.primary_damage);
-        if (rec.secondary_damage) row('Secondary Damage', rec.secondary_damage);
-        if (rec.auction_location) row('Auction Location', rec.auction_location);
+        if (rec.salvage_auction_lot_date) row('Lot Date',        dt(rec.salvage_auction_lot_date));
+        if (rec.salvage_auction_lot_desc) row('Category',        rec.salvage_auction_lot_desc, 'bad');
+        if (rec.mileage != null)          row('Mileage at Sale', `${num(rec.mileage)} miles`);
+        if (rec.primary_damage_desc)      row('Primary Damage',  rec.primary_damage_desc);
+        if (rec.secondary_damage_desc)    row('Secondary Damage',rec.secondary_damage_desc);
+        if (rec.salvage_auction_location) row('Auction Location',rec.salvage_auction_location);
         const imgCount = rec.external_image_urls?.length || 0;
         if (imgCount > 0) row('Photos on Record', `${imgCount} image${imgCount !== 1 ? 's' : ''} available`);
         y += 2;
