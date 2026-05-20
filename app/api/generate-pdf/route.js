@@ -250,7 +250,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Salvage History ───────────────────────────────────────────────────────────
-  if (has('salvagehistory') && !isIE) {
+  if (result.salvageHistory != null && !isIE) {
     const sh = result.salvageHistory;
     const found = sh?.salvage_auction_record_found === true;
     const shRecords = sh?.records || [];
