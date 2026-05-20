@@ -792,7 +792,7 @@ function PaymentSuccessContent() {
               {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}
             </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
-            <p className="footer-note">Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a></p>
+            <p className="footer-note">Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a></p>
           </>
         )}
       </div>

@@ -629,7 +629,7 @@ export default function Home() {
 
         <p className="footer-note">
           {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
-          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a>
+          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
         </p>
       </div>
     </>

@@ -473,7 +473,7 @@ export default function SalvagePage() {
 
         <p className="footer-note">
           AI-powered damage assessment. Not a professional repair quote.<br />
-          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/">← Back to VRM lookup</a>
+          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a> &nbsp;·&nbsp; <a href="/">← Back to VRM lookup</a>
         </p>
       </div>
     </>

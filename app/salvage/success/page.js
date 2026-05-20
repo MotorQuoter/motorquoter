@@ -538,7 +538,7 @@ export default function SalvageSuccessPage() {
 
             <p className="footer-note">
               AI-generated guidance only. Not a professional repair quote. Repair costs are estimates based on visible photo evidence — hidden or secondary damage may increase actual costs.<br />
-              MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a>
+              MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
             </p>
           </>
         )}
