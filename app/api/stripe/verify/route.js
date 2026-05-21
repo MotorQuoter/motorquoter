@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { logEvent } from '@/lib/analytics';
+// import { logEvent } from '@/lib/analytics';
 
 function getSupabase() {
   return createClient(
@@ -111,13 +111,13 @@ export async function GET(request) {
         .catch(() => {});
     }
 
-    logEvent('payment_completed', {
-      vrm: session.metadata?.vrm || '',
-      tier: session.metadata?.roiTier || session.metadata?.checks || '',
-      market: session.metadata?.market || 'GB',
-      stripe_session_id: session.id,
-      promo_code: promoCode || null,
-    });
+    // logEvent('payment_completed', {
+    //   vrm: session.metadata?.vrm || '',
+    //   tier: session.metadata?.roiTier || session.metadata?.checks || '',
+    //   market: session.metadata?.market || 'GB',
+    //   stripe_session_id: session.id,
+    //   promo_code: promoCode || null,
+    // });
 
     return NextResponse.json({
       paid:    true,
