@@ -126,55 +126,9 @@ export async function GET(request) {
         { status: 429 }
       );
     }
-    if (isRoiPlate(cleanVrm)) {
-      const cacheKey = 'free_IE';
-      const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
-      if (cached) {
-        return NextResponse.json({ ...cached.payload, _cached: true, _cachedAt: cached.created_at });
-      }
-      try {
-        const cartellRes = await fetch(
-          `${CARTELL_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`,
-          { headers: oneAutoHeaders() }
-        );
-        const cartellData = await safeJson(cartellRes);
-        const cartell = cartellData?.success === true ? cartellData.result : null;
-        if (!cartell?.vehicle_registration_mark) {
-          return NextResponse.json(
-            { error: 'Vehicle not found in Irish register — please check the registration' },
-            { status: 404 }
-          );
-        }
-        const cc = cartell.engine_capacity_cc ?? null;
-        const nctDue = cartell.nct_due_date ?? null;
-        const nctStatus = nctDue ? (new Date(nctDue) > new Date() ? 'Valid' : 'Expired') : null;
-        const payload = {
-          make: cartell.manufacturer_desc ?? null,
-          model: cartell.model_desc ?? null,
-          colour: cartell.colour ?? null,
-          fuelType: cartell.fuel_type_desc ?? null,
-          engineSize: cc ? `${cc}cc` : null,
-          yearOfManufacture: cartell.manufactured_year ?? null,
-          taxStatus: null,
-          taxDueDate: null,
-          motStatus: nctStatus,
-          motExpiryDate: nctDue,
-          motMileage: null,
-          motResult: null,
-          motHistory: null,
-          hasOutstandingRecall: null,
-          co2Emissions: cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
-          monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
-          market: 'IE',
-          tier: 'free',
-        };
-        await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
-        logEvent('lookup_submitted', { vrm: cleanVrm, tier: 'free', market: 'IE' });
-        return NextResponse.json(payload);
-      } catch (err) {
-        console.error('Cartell lookup error:', err);
-        return NextResponse.json({ error: err.message || 'Irish register lookup failed' }, { status: 500 });
-      }
+    // IE has no free tier — reject early so the paid Cartell endpoint is never called without payment
+    if (isRoiPlate(cleanVrm) || market === 'IE') {
+      return NextResponse.json({ error: 'Free lookups are not available for Irish-registered vehicles' }, { status: 400 });
     }
 
     const cacheKey = 'free_GB';
