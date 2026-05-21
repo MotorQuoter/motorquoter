@@ -24,12 +24,18 @@ export async function GET(request) {
 
   // ── Free promo path ──────────────────────────────────────────────────────────
   if (isFree) {
-    const { data: redeemed } = await supabase
+    const { data: session, error: sessionError } = await supabase
       .from('redeemed_sessions')
       .select('*')
       .eq('token', sessionId)
       .eq('used', false)
       .maybeSingle();
+
+    console.log('redeemed_sessions lookup - token:', sessionId);
+    console.log('redeemed_sessions lookup - error:', JSON.stringify(sessionError));
+    console.log('redeemed_sessions lookup - data:', JSON.stringify(session));
+
+    const redeemed = session;
 
     if (!redeemed) {
       return NextResponse.json({ error: 'Invalid or already used session' }, { status: 403 });
