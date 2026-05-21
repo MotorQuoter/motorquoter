@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-// import { logEvent } from '@/lib/analytics';
+import { logEvent } from '@/lib/analytics';
 
 function getSupabase() {
   return createClient(
@@ -16,18 +16,6 @@ export async function GET(request) {
   const sessionId = searchParams.get('session_id');
   const isFree    = searchParams.get('free') === 'true';
 
-  // TEMPORARY BYPASS — skips Supabase for free codes to test downstream rendering
-  if (isFree) {
-    const url = new URL(request.url);
-    const vrm     = url.searchParams.get('vrm')    || '';
-    const checks  = url.searchParams.get('checks') || '';
-    const mileage = url.searchParams.get('mileage')|| '';
-    const market  = url.searchParams.get('market') || 'GB';
-    return NextResponse.json({ paid: true, vrm, checks, mileage, market });
-  }
-
-  console.log('verify called - free:', searchParams.get('free'), 'session_id:', sessionId);
-
   if (!sessionId) {
     return NextResponse.json({ paid: false, error: 'No session ID' }, { status: 400 });
   }
@@ -36,18 +24,12 @@ export async function GET(request) {
 
   // ── Free promo path ──────────────────────────────────────────────────────────
   if (isFree) {
-    const { data: session, error: sessionError } = await supabase
+    const { data: redeemed } = await supabase
       .from('redeemed_sessions')
       .select('*')
       .eq('token', sessionId)
       .eq('used', false)
       .maybeSingle();
-
-    console.log('redeemed_sessions query - sessionId:', sessionId);
-    console.log('redeemed_sessions query - error:', JSON.stringify(sessionError));
-    console.log('redeemed_sessions query - data:', JSON.stringify(session));
-
-    const redeemed = session;
 
     if (!redeemed) {
       return NextResponse.json({ error: 'Invalid or already used session' }, { status: 403 });
@@ -59,7 +41,7 @@ export async function GET(request) {
       .eq('token', sessionId);
 
     return NextResponse.json({
-      paid: true,
+      paid:    true,
       checks:  redeemed.checks   || '',
       vrm:     redeemed.vrm      || null,
       market:  redeemed.market   || 'GB',
@@ -121,13 +103,13 @@ export async function GET(request) {
         .catch(() => {});
     }
 
-    // logEvent('payment_completed', {
-    //   vrm: session.metadata?.vrm || '',
-    //   tier: session.metadata?.roiTier || session.metadata?.checks || '',
-    //   market: session.metadata?.market || 'GB',
-    //   stripe_session_id: session.id,
-    //   promo_code: promoCode || null,
-    // });
+    logEvent('payment_completed', {
+      vrm: session.metadata?.vrm || '',
+      tier: session.metadata?.roiTier || session.metadata?.checks || '',
+      market: session.metadata?.market || 'GB',
+      stripe_session_id: session.id,
+      promo_code: promoCode || null,
+    });
 
     return NextResponse.json({
       paid:    true,
