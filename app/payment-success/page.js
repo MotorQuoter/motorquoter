@@ -533,12 +533,13 @@ function PaymentSuccessContent() {
   const mileage      = searchParams.get('mileage');
   const sessionId    = searchParams.get('session_id');
   const roiTierParam = searchParams.get('roiTier');
+  const isFree       = searchParams.get('free') === 'true';
 
   const runLookup = useCallback(async () => {
     if (!vrm || !sessionId) { router.push('/'); return; }
     try {
       setStatus('verifying');
-      const verifyRes  = await fetch(`/api/stripe/verify?session_id=${sessionId}`);
+      const verifyRes  = await fetch(`/api/stripe/verify?session_id=${sessionId}${isFree ? '&free=true' : ''}`);
       const verifyData = await verifyRes.json();
       if (!verifyData.paid) {
         setError('Payment could not be verified. Please contact support.');
@@ -567,7 +568,7 @@ function PaymentSuccessContent() {
       setError('Something went wrong. Please contact support — you have not been charged twice.');
       setStatus('error');
     }
-  }, [vrm, sessionId, mileage, market, roiTierParam, router]);
+  }, [vrm, sessionId, isFree, mileage, market, roiTierParam, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
 

@@ -28,6 +28,10 @@ export default function Home() {
   const fileInputRef = useRef(null);
   const [marketLocked, setMarketLocked] = useState(false);
   const [roiTier, setRoiTier] = useState('roi_standard');
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState(null);
 
   // Computed synchronously on every render — no useEffect, no async state cycle.
   const autoIrish = vrm.length >= 3 && isRoiPlate(vrm);
@@ -115,15 +119,37 @@ export default function Home() {
     if (!vrm.trim()) return;
     setCheckoutLoading(true);
     setError(null);
+
+    const cleanVrm = vrm.trim().replace(/\s/g, '').toUpperCase();
+
+    // Free promo: skip Stripe entirely
+    if (appliedPromo?.discount_type === 'free') {
+      try {
+        const res = await fetch('/api/promo/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vrm: cleanVrm, checks: '', mileage: mileage || '', market: 'IE', roiTier, promo_code: appliedPromo.code }),
+        });
+        const data = await res.json();
+        if (data.error) { setError(data.error); setCheckoutLoading(false); }
+        else { window.location.href = `/payment-success?vrm=${cleanVrm}&roiTier=${roiTier}&market=IE&mileage=${mileage || ''}&session_id=${data.token}&free=true`; }
+      } catch {
+        setError('Could not redeem promo code. Please try again.');
+        setCheckoutLoading(false);
+      }
+      return;
+    }
+
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          vrm: cleanVrm,
           mileage: mileage || '',
           market: 'IE',
           roiTier,
+          promoCode: appliedPromo?.code || null,
         }),
       });
       const data = await res.json();
@@ -136,6 +162,27 @@ export default function Home() {
     } catch {
       setError('Could not start checkout. Please try again.');
       setCheckoutLoading(false);
+    }
+  };
+
+  // ── Promo code ───────────────────────────────────────────────────────────────
+  const handleApplyPromo = async () => {
+    const code = promoInput.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const res = await fetch(`/api/promo/validate?code=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (data.valid) {
+        setAppliedPromo({ code, discount_type: data.discount_type, discount_value: data.discount_value });
+      } else {
+        setPromoError(data.error || 'Invalid promo code');
+      }
+    } catch {
+      setPromoError('Could not check promo code. Please try again.');
+    } finally {
+      setPromoLoading(false);
     }
   };
 
@@ -174,24 +221,76 @@ export default function Home() {
   };
 
   const SERVICE_FEE = 0.25;
-  const total = enabledItems
+  const baseTotal = enabledItems
     .filter(i => selectedKeys.includes(i.key))
     .reduce((sum, i) => sum + i.price, 0) + SERVICE_FEE;
+
+  let discountAmount = 0;
+  if (appliedPromo) {
+    if (appliedPromo.discount_type === 'percent') {
+      discountAmount = parseFloat((baseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
+    } else if (appliedPromo.discount_type === 'fixed') {
+      discountAmount = Math.min(Number(appliedPromo.discount_value), baseTotal);
+    } else if (appliedPromo.discount_type === 'free') {
+      discountAmount = baseTotal;
+    }
+  }
+  const total = Math.max(0, parseFloat((baseTotal - discountAmount).toFixed(2)));
+
+  // ROI discounted price for IE button display
+  const roiAddOn = selectedRoiTier?.addOn || 0;
+  const roiBaseTotal = roiAddOn + SERVICE_FEE;
+  let roiDiscountAmount = 0;
+  if (appliedPromo) {
+    if (appliedPromo.discount_type === 'percent') {
+      roiDiscountAmount = parseFloat((roiBaseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
+    } else if (appliedPromo.discount_type === 'fixed') {
+      roiDiscountAmount = Math.min(Number(appliedPromo.discount_value), roiBaseTotal);
+    } else if (appliedPromo.discount_type === 'free') {
+      roiDiscountAmount = roiBaseTotal;
+    }
+  }
+  const roiTotal = Math.max(0, parseFloat((roiBaseTotal - roiDiscountAmount).toFixed(2)));
 
   // ── Stripe checkout ──────────────────────────────────────────────────────────
   const handleGetReport = async () => {
     if (!vrm.trim() || selectedKeys.length === 0) return;
     setCheckoutLoading(true);
     setError(null);
+
+    const cleanVrm = vrm.trim().replace(/\s/g, '').toUpperCase();
+
+    // Free promo: skip Stripe entirely
+    if (appliedPromo?.discount_type === 'free') {
+      try {
+        const res = await fetch('/api/promo/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vrm: cleanVrm, checks: selectedKeys, mileage: mileage || '', market: effectiveMarket || 'GB', promo_code: appliedPromo.code }),
+        });
+        const data = await res.json();
+        if (data.error) { setError(data.error); setCheckoutLoading(false); }
+        else {
+          const checksStr = selectedKeys.join(',');
+          window.location.href = `/payment-success?vrm=${cleanVrm}&checks=${checksStr}&mileage=${mileage || ''}&market=${effectiveMarket || 'GB'}&session_id=${data.token}&free=true`;
+        }
+      } catch {
+        setError('Could not redeem promo code. Please try again.');
+        setCheckoutLoading(false);
+      }
+      return;
+    }
+
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vrm: vrm.trim().replace(/\s/g, '').toUpperCase(),
+          vrm: cleanVrm,
           checks: selectedKeys,
           mileage: mileage || '',
           market: effectiveMarket || 'GB',
+          promoCode: appliedPromo?.code || null,
         }),
       });
       const data = await res.json();
@@ -511,6 +610,25 @@ export default function Home() {
             </div>
           )}
 
+          {/* Promo code — IE market */}
+          {effectiveMarket === 'IE' && (
+            <div style={{ background: 'var(--bg2)', border: '1.5px solid var(--border-dim)', borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 7 }}>Have a promo code?</div>
+              {appliedPromo ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1, background: 'rgba(74,222,128,0.1)', border: '1.5px solid rgba(74,222,128,0.3)', borderRadius: 7, padding: '7px 11px', fontSize: 13, color: '#4ade80', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700 }}>✓ {appliedPromo.code}</div>
+                  <button style={{ background: 'none', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif" }} onClick={() => { setAppliedPromo(null); setPromoInput(''); setPromoError(null); }}>Remove</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 7 }}>
+                  <input type="text" placeholder="Enter code" value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }} onKeyDown={e => e.key === 'Enter' && handleApplyPromo()} style={{ flex: 1, background: 'var(--bg)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 11px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: "'Barlow', sans-serif" }} />
+                  <button onClick={handleApplyPromo} disabled={!promoInput.trim() || promoLoading} style={{ background: 'var(--bg3)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 14px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer', opacity: (!promoInput.trim() || promoLoading) ? 0.45 : 1 }}>{promoLoading ? '...' : 'Apply'}</button>
+                </div>
+              )}
+              {promoError && <div style={{ marginTop: 5, fontSize: 11, color: '#f87171' }}>{promoError}</div>}
+            </div>
+          )}
+
           {/* Check / Get ROI Report button */}
           <button
             className="btn-submit"
@@ -519,7 +637,10 @@ export default function Home() {
           >
             {loading ? 'Looking up...'
               : checkoutLoading ? 'Redirecting...'
-              : effectiveMarket === 'IE' ? `Get ROI Report — £${selectedRoiTier?.addOn?.toFixed(2) ?? '4.99'}`
+              : effectiveMarket === 'IE'
+                ? roiTotal === 0
+                  ? 'Get ROI Report — FREE'
+                  : `Get ROI Report — £${Math.max(0, roiTotal - SERVICE_FEE).toFixed(2)}`
               : 'Check →'}
           </button>
         </div>
@@ -625,19 +746,41 @@ export default function Home() {
                   </div>
                   <div className="check-price">£0.25</div>
                 </div>
+
+                {/* Promo code — GB report builder */}
+                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
+                  {appliedPromo ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ flex: 1, background: 'rgba(74,222,128,0.1)', border: '1.5px solid rgba(74,222,128,0.3)', borderRadius: 7, padding: '7px 11px', fontSize: 13, color: '#4ade80', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700 }}>✓ {appliedPromo.code}</div>
+                      <button style={{ background: 'none', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif" }} onClick={() => { setAppliedPromo(null); setPromoInput(''); setPromoError(null); }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 7 }}>
+                      <input type="text" placeholder="Enter code" value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }} onKeyDown={e => e.key === 'Enter' && handleApplyPromo()} style={{ flex: 1, background: 'var(--bg)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 11px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: "'Barlow', sans-serif" }} />
+                      <button onClick={handleApplyPromo} disabled={!promoInput.trim() || promoLoading} style={{ background: 'var(--bg3)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 14px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer', opacity: (!promoInput.trim() || promoLoading) ? 0.45 : 1 }}>{promoLoading ? '...' : 'Apply'}</button>
+                    </div>
+                  )}
+                  {promoError && <div style={{ marginTop: 5, fontSize: 11, color: '#f87171' }}>{promoError}</div>}
+                </div>
               </div>
 
               <div className="total-bar">
                 <span className="total-label">Total</span>
-                <span className="total-amount">£{total.toFixed(2)}</span>
+                <span className="total-amount" style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  {appliedPromo && discountAmount > 0 && (
+                    <span style={{ fontSize: 15, color: 'var(--text-dim)', textDecoration: 'line-through', fontWeight: 400 }}>£{baseTotal.toFixed(2)}</span>
+                  )}
+                  {total === 0 ? <span style={{ color: '#4ade80' }}>FREE</span> : `£${total.toFixed(2)}`}
+                </span>
               </div>
 
               <button
                 className="btn-get-report"
                 onClick={handleGetReport}
-                disabled={checkoutLoading || total === 0}
+                disabled={checkoutLoading || selectedKeys.length === 0}
               >
-                {checkoutLoading ? 'Redirecting...' : `Get Report — £${total.toFixed(2)}`}
+                {checkoutLoading ? 'Redirecting...' : total === 0 ? 'Get Report — FREE' : `Get Report — £${total.toFixed(2)}`}
               </button>
             </div>
           </>
