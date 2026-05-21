@@ -29,6 +29,45 @@ export const ROI_TIERS = [
   },
 ];
 
+export const IE_MENU = [
+  {
+    key: 'ie_valuation',
+    label: 'Valuation',
+    description: 'Cartell Price Guide — trade and retail values for the Irish market',
+    price: 2.99,
+    preSelected: true,
+    locked: true,
+    enabled: true,
+  },
+  {
+    key: 'ie_nct',
+    label: 'NCT History',
+    description: 'NCT due date and test history',
+    price: 0,
+    preSelected: true,
+    locked: true,
+    enabled: true,
+  },
+  {
+    key: 'ie_service_history',
+    label: 'Service History',
+    description: 'OE digital service records where available',
+    price: 5.00,
+    preSelected: false,
+    locked: false,
+    enabled: true,
+  },
+  {
+    key: 'ie_history',
+    label: 'Full History Check',
+    description: 'Cartell — write-off, finance, mileage, stolen, tax, NCT detail',
+    price: 15.00,
+    preSelected: false,
+    locked: false,
+    enabled: true,
+  },
+];
+
 export const PRICING = {
   menu: [
     {

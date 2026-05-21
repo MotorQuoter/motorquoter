@@ -2,11 +2,14 @@
 
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { PRICING, ROI_TIERS } from '@/config/pricing';
+import { PRICING, IE_MENU } from '@/config/pricing';
 import { isRoiPlate } from '@/lib/roiPlate';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
+
+const ieEnabledItems = IE_MENU.filter(i => i.enabled);
+const ieDefaultSelected = ieEnabledItems.filter(i => i.preSelected).map(i => i.key);
 
 const FULL_COVERAGE_MAKES = new Set([
   'AUDI', 'BMW', 'CUPRA', 'FORD', 'HONDA', 'INFINITI', 'JAGUAR', 'LAND ROVER',
@@ -27,7 +30,7 @@ export default function Home() {
   const [selectedKeys, setSelectedKeys] = useState(defaultSelected);
   const fileInputRef = useRef(null);
   const [marketLocked, setMarketLocked] = useState(false);
-  const [roiTier, setRoiTier] = useState('roi_standard');
+  const [ieSelectedKeys, setIeSelectedKeys] = useState(ieDefaultSelected);
   const [promoInput, setPromoInput] = useState('');
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [promoLoading, setPromoLoading] = useState(false);
@@ -36,7 +39,6 @@ export default function Home() {
   // Computed synchronously on every render — no useEffect, no async state cycle.
   const autoIrish = vrm.length >= 3 && isRoiPlate(vrm);
   const effectiveMarket = marketLocked ? market : (autoIrish ? 'IE' : 'GB');
-  const selectedRoiTier = ROI_TIERS.find(t => t.key === roiTier);
 
   // ── Plate scan — preserved exactly ──────────────────────────────────────────
   const handlePhotoScan = async (e) => {
@@ -78,11 +80,8 @@ export default function Home() {
     const vrmToUse = vrmArg !== undefined ? vrmArg : vrm;
     if (!vrmToUse.trim()) return;
 
-    // IE: go directly to paid checkout for selected ROI tier
-    if (effectiveMarket === 'IE') {
-      handleRoiCheckout();
-      return;
-    }
+    // IE uses its own builder checkout — paste/auto-check should not trigger a lookup
+    if (effectiveMarket === 'IE') return;
 
     setLoading(true);
     setResult(null);
@@ -114,13 +113,14 @@ export default function Home() {
     }
   };
 
-  // ── ROI checkout ─────────────────────────────────────────────────────────────
-  const handleRoiCheckout = async () => {
-    if (!vrm.trim()) return;
+  // ── IE checkout ──────────────────────────────────────────────────────────────
+  const handleIeCheckout = async () => {
+    if (!vrm.trim() || ieSelectedKeys.length === 0) return;
     setCheckoutLoading(true);
     setError(null);
 
     const cleanVrm = vrm.trim().replace(/\s/g, '').toUpperCase();
+    const checksStr = ieSelectedKeys.join(',');
 
     // Free promo: skip Stripe entirely
     if (appliedPromo?.discount_type === 'free') {
@@ -128,11 +128,11 @@ export default function Home() {
         const res = await fetch('/api/promo/redeem', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vrm: cleanVrm, checks: '', mileage: mileage || '', market: 'IE', roiTier, promo_code: appliedPromo.code }),
+          body: JSON.stringify({ vrm: cleanVrm, checks: ieSelectedKeys, mileage: mileage || '', market: 'IE', promo_code: appliedPromo.code }),
         });
         const data = await res.json();
         if (data.error) { setError(data.error); setCheckoutLoading(false); }
-        else { window.location.href = `/payment-success?vrm=${cleanVrm}&roiTier=${roiTier}&market=IE&mileage=${mileage || ''}&session_id=${data.token}&free=true`; }
+        else { window.location.href = `/payment-success?vrm=${cleanVrm}&checks=${checksStr}&market=IE&mileage=${mileage || ''}&session_id=${data.token}&free=true`; }
       } catch {
         setError('Could not redeem promo code. Please try again.');
         setCheckoutLoading(false);
@@ -146,9 +146,9 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vrm: cleanVrm,
+          checks: ieSelectedKeys,
           mileage: mileage || '',
           market: 'IE',
-          roiTier,
           promoCode: appliedPromo?.code || null,
         }),
       });
@@ -220,6 +220,33 @@ export default function Home() {
     }
   };
 
+  // ── IE checklist ─────────────────────────────────────────────────────────────
+  const ieOptionalItems = ieEnabledItems.filter(i => !i.locked);
+  const ieAnyOptionalSelected = ieOptionalItems.some(i => ieSelectedKeys.includes(i.key));
+  const ieValuationLocked = !ieAnyOptionalSelected;
+  const ieAllOptionalSelected = ieOptionalItems.length > 0 && ieOptionalItems.every(i => ieSelectedKeys.includes(i.key));
+
+  const ieToggleItem = (key) => {
+    const item = ieEnabledItems.find(i => i.key === key);
+    if (!item) return;
+    if (item.locked && key !== 'ie_valuation') return;
+    if (key === 'ie_valuation' && ieValuationLocked) return;
+    setIeSelectedKeys(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      const anyOptInNext = ieOptionalItems.some(i => next.includes(i.key));
+      if (!anyOptInNext && !next.includes('ie_valuation')) return [...next, 'ie_valuation'];
+      return next;
+    });
+  };
+
+  const ieHandleSelectAll = () => {
+    if (ieAllOptionalSelected) {
+      setIeSelectedKeys(ieDefaultSelected);
+    } else {
+      setIeSelectedKeys(ieEnabledItems.map(i => i.key));
+    }
+  };
+
   const SERVICE_FEE = 0.25;
   const baseTotal = enabledItems
     .filter(i => selectedKeys.includes(i.key))
@@ -237,20 +264,21 @@ export default function Home() {
   }
   const total = Math.max(0, parseFloat((baseTotal - discountAmount).toFixed(2)));
 
-  // ROI discounted price for IE button display
-  const roiAddOn = selectedRoiTier?.addOn || 0;
-  const roiBaseTotal = roiAddOn + SERVICE_FEE;
-  let roiDiscountAmount = 0;
+  // IE total
+  const ieBaseTotal = ieEnabledItems
+    .filter(i => ieSelectedKeys.includes(i.key))
+    .reduce((sum, i) => sum + i.price, 0) + SERVICE_FEE;
+  let ieDiscountAmount = 0;
   if (appliedPromo) {
     if (appliedPromo.discount_type === 'percent') {
-      roiDiscountAmount = parseFloat((roiBaseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
+      ieDiscountAmount = parseFloat((ieBaseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
     } else if (appliedPromo.discount_type === 'fixed') {
-      roiDiscountAmount = Math.min(Number(appliedPromo.discount_value), roiBaseTotal);
+      ieDiscountAmount = Math.min(Number(appliedPromo.discount_value), ieBaseTotal);
     } else if (appliedPromo.discount_type === 'free') {
-      roiDiscountAmount = roiBaseTotal;
+      ieDiscountAmount = ieBaseTotal;
     }
   }
-  const roiTotal = Math.max(0, parseFloat((roiBaseTotal - roiDiscountAmount).toFixed(2)));
+  const ieTotal = Math.max(0, parseFloat((ieBaseTotal - ieDiscountAmount).toFixed(2)));
 
   // ── Stripe checkout ──────────────────────────────────────────────────────────
   const handleGetReport = async () => {
@@ -446,23 +474,7 @@ export default function Home() {
         .footer-note { text-align: center; padding: 28px 20px 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
         .footer-note a { color: var(--orange); text-decoration: none; }
 
-        /* ── ROI tier cards ── */
-        .tier-menu { display: flex; flex-direction: column; gap: 8px; }
-        .tier-card { background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 14px; cursor: pointer; transition: all 0.15s; display: flex; align-items: flex-start; gap: 12px; }
-        .tier-card.selected { border-color: var(--orange); background: var(--orange-dim); }
-        .tier-card:hover:not(.selected) { border-color: rgba(240,90,26,0.3); }
-        .tier-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border-dim); flex-shrink: 0; margin-top: 2px; display: flex; align-items: center; justify-content: center; background: var(--bg3); }
-        .tier-card.selected .tier-radio { border-color: var(--orange); }
-        .tier-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); display: none; }
-        .tier-card.selected .tier-radio-dot { display: block; }
-        .tier-info { flex: 1; }
-        .tier-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
-        .tier-name { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 800; color: var(--text); letter-spacing: 0.03em; }
-        .tier-price { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; color: var(--orange); }
-        .tier-desc { font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-bottom: 4px; }
-        .tier-features { display: flex; flex-direction: column; gap: 1px; }
-        .tier-feat { font-size: 11px; color: var(--text-dim); display: flex; gap: 5px; line-height: 1.5; }
-        .tier-feat-dot { color: var(--orange); flex-shrink: 0; }
+
       `}</style>
 
       <div className="app">
@@ -578,71 +590,102 @@ export default function Home() {
             </div>
           </div>
 
-          {/* ROI tier menu — IE market only */}
+          {/* IE Build Your Report */}
           {effectiveMarket === 'IE' && (
-            <div>
-              <div className="field-label">ROI Vehicle Data <span>(select a tier)</span></div>
-              <div className="tier-menu">
-                {ROI_TIERS.filter(t => t.addOn > 0).map(tier => (
-                  <div
-                    key={tier.key}
-                    className={`tier-card ${roiTier === tier.key ? 'selected' : ''}`}
-                    onClick={() => setRoiTier(tier.key)}
-                  >
-                    <div className="tier-radio">
-                      <div className="tier-radio-dot" />
-                    </div>
-                    <div className="tier-info">
-                      <div className="tier-header">
-                        <span className="tier-name">{tier.label}</span>
-                        <span className="tier-price">£{tier.addOn.toFixed(2)}</span>
-                      </div>
-                      <div className="tier-desc">{tier.description}</div>
-                      <div className="tier-features">
-                        {tier.features.map((f, i) => (
-                          <div className="tier-feat" key={i}><span className="tier-feat-dot">▸</span>{f}</div>
-                        ))}
-                      </div>
+            <div className="report-builder">
+              <div className="report-builder-label">Build Your ROI Report</div>
+              <div className="check-list">
+                <div
+                  className={`check-item ${ieAllOptionalSelected ? 'selected' : ''}`}
+                  style={{ borderBottom: '2px solid var(--border-dim)' }}
+                  onClick={ieHandleSelectAll}
+                >
+                  <div className="check-box">{ieAllOptionalSelected ? '✓' : ''}</div>
+                  <div className="check-info">
+                    <div className="check-label">Select All Items</div>
+                    <div className="check-desc">
+                      {ieAllOptionalSelected ? 'Click to deselect optional checks' : 'Add all available checks to your report'}
                     </div>
                   </div>
-                ))}
+                </div>
+
+                {ieEnabledItems.map(item => {
+                  const selected = ieSelectedKeys.includes(item.key);
+                  const isLocked = item.key === 'ie_valuation' ? ieValuationLocked : item.locked;
+                  return (
+                    <div
+                      key={item.key}
+                      className={`check-item ${selected ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
+                      onClick={() => ieToggleItem(item.key)}
+                    >
+                      <div className="check-box">{selected || isLocked ? '✓' : ''}</div>
+                      <div className="check-info">
+                        <div className="check-label">{item.label}</div>
+                        <div className="check-desc">{item.description}</div>
+                      </div>
+                      <div className={`check-price ${item.price === 0 ? 'free' : ''}`}>
+                        {item.price === 0 ? 'FREE' : `£${item.price.toFixed(2)}`}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="check-item locked">
+                  <div className="check-box" style={{fontSize: 11}}>✓</div>
+                  <div className="check-info">
+                    <div className="check-label">Service Fee</div>
+                    <div className="check-desc">Payment processing contribution</div>
+                  </div>
+                  <div className="check-price">£0.25</div>
+                </div>
+
+                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
+                  {appliedPromo ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ flex: 1, background: 'rgba(74,222,128,0.1)', border: '1.5px solid rgba(74,222,128,0.3)', borderRadius: 7, padding: '7px 11px', fontSize: 13, color: '#4ade80', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700 }}>✓ {appliedPromo.code}</div>
+                      <button style={{ background: 'none', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif" }} onClick={() => { setAppliedPromo(null); setPromoInput(''); setPromoError(null); }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 7 }}>
+                      <input type="text" placeholder="Enter code" value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }} onKeyDown={e => e.key === 'Enter' && handleApplyPromo()} style={{ flex: 1, background: 'var(--bg)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 11px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: "'Barlow', sans-serif" }} />
+                      <button onClick={handleApplyPromo} disabled={!promoInput.trim() || promoLoading} style={{ background: 'var(--bg3)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 14px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer', opacity: (!promoInput.trim() || promoLoading) ? 0.45 : 1 }}>{promoLoading ? '...' : 'Apply'}</button>
+                    </div>
+                  )}
+                  {promoError && <div style={{ marginTop: 5, fontSize: 11, color: '#f87171' }}>{promoError}</div>}
+                </div>
               </div>
+
+              <div className="total-bar">
+                <span className="total-label">Total</span>
+                <span className="total-amount" style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  {appliedPromo && ieDiscountAmount > 0 && (
+                    <span style={{ fontSize: 15, color: 'var(--text-dim)', textDecoration: 'line-through', fontWeight: 400 }}>£{ieBaseTotal.toFixed(2)}</span>
+                  )}
+                  {ieTotal === 0 ? <span style={{ color: '#4ade80' }}>FREE</span> : `£${ieTotal.toFixed(2)}`}
+                </span>
+              </div>
+
+              <button
+                className="btn-get-report"
+                onClick={handleIeCheckout}
+                disabled={checkoutLoading || ieSelectedKeys.length === 0}
+              >
+                {checkoutLoading ? 'Redirecting...' : ieTotal === 0 ? 'Get Report — FREE' : `Get Report — £${ieTotal.toFixed(2)}`}
+              </button>
             </div>
           )}
 
-          {/* Promo code — IE market */}
-          {effectiveMarket === 'IE' && (
-            <div style={{ background: 'var(--bg2)', border: '1.5px solid var(--border-dim)', borderRadius: 10, padding: '12px 14px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 7 }}>Have a promo code?</div>
-              {appliedPromo ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, background: 'rgba(74,222,128,0.1)', border: '1.5px solid rgba(74,222,128,0.3)', borderRadius: 7, padding: '7px 11px', fontSize: 13, color: '#4ade80', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700 }}>✓ {appliedPromo.code}</div>
-                  <button style={{ background: 'none', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif" }} onClick={() => { setAppliedPromo(null); setPromoInput(''); setPromoError(null); }}>Remove</button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 7 }}>
-                  <input type="text" placeholder="Enter code" value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }} onKeyDown={e => e.key === 'Enter' && handleApplyPromo()} style={{ flex: 1, background: 'var(--bg)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 11px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: "'Barlow', sans-serif" }} />
-                  <button onClick={handleApplyPromo} disabled={!promoInput.trim() || promoLoading} style={{ background: 'var(--bg3)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 14px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer', opacity: (!promoInput.trim() || promoLoading) ? 0.45 : 1 }}>{promoLoading ? '...' : 'Apply'}</button>
-                </div>
-              )}
-              {promoError && <div style={{ marginTop: 5, fontSize: 11, color: '#f87171' }}>{promoError}</div>}
-            </div>
+          {/* Check button — GB only */}
+          {effectiveMarket === 'GB' && (
+            <button
+              className="btn-submit"
+              onClick={() => handleCheck()}
+              disabled={loading || checkoutLoading || !vrm.trim()}
+            >
+              {loading ? 'Looking up...' : checkoutLoading ? 'Redirecting...' : 'Check →'}
+            </button>
           )}
-
-          {/* Check / Get ROI Report button */}
-          <button
-            className="btn-submit"
-            onClick={() => handleCheck()}
-            disabled={loading || checkoutLoading || !vrm.trim()}
-          >
-            {loading ? 'Looking up...'
-              : checkoutLoading ? 'Redirecting...'
-              : effectiveMarket === 'IE'
-                ? roiTotal === 0
-                  ? 'Get ROI Report — FREE'
-                  : `Get ROI Report — £${Math.max(0, roiTotal - SERVICE_FEE).toFixed(2)}`
-              : 'Check →'}
-          </button>
         </div>
 
         {loading && (
@@ -788,7 +831,7 @@ export default function Home() {
 
 
         <p className="footer-note">
-          {effectiveMarket === 'IE' ? 'Select a tier and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
+          {effectiveMarket === 'IE' ? 'Select your checks and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
           Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
         </p>
       </div>
