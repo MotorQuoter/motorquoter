@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { logEvent } from '@/lib/analytics';
 
@@ -53,22 +54,22 @@ export async function POST(request) {
     .update({ uses_so_far: promo.uses_so_far + 1 })
     .eq('code', code);
 
-  // Create redeemed session token
+  // Create redeemed session token — generate UUID here so we never need to read it back
+  const token = randomUUID();
   const checksStr = Array.isArray(checks) ? checks.join(',') : (checks || '');
-  const { data: session, error: sessionError } = await supabase
+  const { error: sessionError } = await supabase
     .from('redeemed_sessions')
     .insert({
+      id: token,
       vrm: cleanVrm,
       checks: checksStr,
       mileage: mileage || '',
       market: market || 'GB',
       roi_tier: roiTier || null,
       promo_code: code,
-    })
-    .select('id')
-    .single();
+    });
 
-  if (sessionError || !session) {
+  if (sessionError) {
     console.error('redeemed_sessions insert error:', sessionError);
     return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
   }
@@ -77,9 +78,9 @@ export async function POST(request) {
     vrm: cleanVrm,
     tier: checksStr || roiTier || '',
     market: market || 'GB',
-    stripe_session_id: session.id,
+    stripe_session_id: token,
     promo_code: code,
   });
 
-  return NextResponse.json({ token: session.id });
+  return NextResponse.json({ token });
 }
