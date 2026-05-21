@@ -320,6 +320,7 @@ const dvla = await safeJson(dvlaRes);
         : Promise.resolve(null);
 
       // Non-polling calls in parallel
+      console.log('Cartell Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`);
       const [priceGuideRes, nctHistoryRes] = await Promise.all([
         needsValuation
           ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() })
