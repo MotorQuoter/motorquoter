@@ -61,6 +61,7 @@ export async function POST(request) {
     .from('redeemed_sessions')
     .insert({
       id: token,
+      token: token,
       vrm: cleanVrm,
       checks: checksStr,
       mileage: mileage || '',
