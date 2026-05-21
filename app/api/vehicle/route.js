@@ -195,6 +195,7 @@ export async function GET(request) {
         ),
         getDvsaMotHistory(cleanVrm).catch(() => null),
       ]);
+      console.log('DVSA recall data:', JSON.stringify({ hasOutstandingRecall: dvsaData?.hasOutstandingRecall, recallInformation: dvsaData?.recallInformation }));
       const dvla = await safeJson(dvlaRes);
       if (!dvlaRes.ok || !dvla) {
         return NextResponse.json(
