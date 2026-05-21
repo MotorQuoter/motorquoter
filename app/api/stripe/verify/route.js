@@ -16,6 +16,8 @@ export async function GET(request) {
   const sessionId = searchParams.get('session_id');
   const isFree    = searchParams.get('free') === 'true';
 
+  console.log('verify called - free:', searchParams.get('free'), 'session_id:', sessionId);
+
   if (!sessionId) {
     return NextResponse.json({ paid: false, error: 'No session ID' }, { status: 400 });
   }
