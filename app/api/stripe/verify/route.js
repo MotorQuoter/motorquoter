@@ -27,7 +27,7 @@ export async function GET(request) {
     const { data: redeemed } = await supabase
       .from('redeemed_sessions')
       .select('*')
-      .eq('id', sessionId)
+      .eq('token', sessionId)
       .eq('used', false)
       .maybeSingle();
 
@@ -38,7 +38,7 @@ export async function GET(request) {
     await supabase
       .from('redeemed_sessions')
       .update({ used: true })
-      .eq('id', sessionId);
+      .eq('token', sessionId);
 
     return NextResponse.json({
       paid: true,
