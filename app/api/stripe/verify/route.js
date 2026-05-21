@@ -16,6 +16,16 @@ export async function GET(request) {
   const sessionId = searchParams.get('session_id');
   const isFree    = searchParams.get('free') === 'true';
 
+  // TEMPORARY BYPASS — skips Supabase for free codes to test downstream rendering
+  if (isFree) {
+    const url = new URL(request.url);
+    const vrm     = url.searchParams.get('vrm')    || '';
+    const checks  = url.searchParams.get('checks') || '';
+    const mileage = url.searchParams.get('mileage')|| '';
+    const market  = url.searchParams.get('market') || 'GB';
+    return NextResponse.json({ paid: true, vrm, checks, mileage, market });
+  }
+
   console.log('verify called - free:', searchParams.get('free'), 'session_id:', sessionId);
 
   if (!sessionId) {
