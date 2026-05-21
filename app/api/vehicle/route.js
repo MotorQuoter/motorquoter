@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
 import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
+import { logEvent } from '@/lib/analytics';
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
@@ -168,6 +169,7 @@ export async function GET(request) {
           tier: 'free',
         };
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+        logEvent('lookup_submitted', { vrm: cleanVrm, tier: 'free', market: 'IE' });
         return NextResponse.json(payload);
       } catch (err) {
         console.error('Cartell lookup error:', err);
@@ -227,6 +229,7 @@ export async function GET(request) {
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      logEvent('lookup_submitted', { vrm: cleanVrm, tier: 'free', market: 'GB' });
       return NextResponse.json(payload);
     } catch (err) {
       console.error('DVLA lookup error:', err);
@@ -318,6 +321,7 @@ export async function GET(request) {
     };
 
     await storeCachedResult(supabase, cleanVrm, roiCacheKey, roiPayload);
+    logEvent('report_viewed', { vrm: cleanVrm, tier: roiTierParam, market: 'IE' });
     return NextResponse.json(roiPayload);
   }
 
@@ -389,6 +393,7 @@ export async function GET(request) {
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });
       return NextResponse.json(payload);
 
     } else {
@@ -489,6 +494,7 @@ export async function GET(request) {
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
       return NextResponse.json(payload);
     }
 

@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { getAllCopartFeeBands } from '@/lib/copartFees';
+import { logEvent } from '@/lib/analytics';
 
 export const maxDuration = 120;
 
@@ -387,6 +388,8 @@ export async function GET(request) {
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
+
+    logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
     await supabase
       .from('salvage_sessions')
