@@ -458,18 +458,16 @@ function ServiceHistorySection({ result }) {
 function RoiValuationSection({ result }) {
   const val = result.roiValuation;
   if (!val) return null;
-  const retLow  = val.retail_low_valuation  ?? null;
-  const retHigh = val.retail_high_valuation ?? null;
-  const trdLow  = val.trade_low_valuation   ?? null;
-  const trdHigh = val.trade_high_valuation  ?? null;
-  if (retLow == null && trdLow == null) return null;
+  const retail = val.retail ?? null;
+  const trade  = val.trade  ?? null;
+  if (retail == null && trade == null) return null;
   const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
   return (
     <div className="card">
       <SectionTitle>Market Valuation</SectionTitle>
       <div className="bid-grid">
-        {retLow != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtEur(retLow)} — {fmtEur(retHigh)}</div></div>}
-        {trdLow != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtEur(trdLow)} — {fmtEur(trdHigh)}</div></div>}
+        {retail != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtEur(retail)}</div></div>}
+        {trade  != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtEur(trade)}</div></div>}
       </div>
     </div>
   );

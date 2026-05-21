@@ -134,14 +134,12 @@ function buildPdf(result, vrm, checks, checkDate) {
     const roiVal = result.roiValuation;
     if (roiVal) {
       const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
-      const retLow  = roiVal.retail_low_valuation  ?? null;
-      const retHigh = roiVal.retail_high_valuation ?? null;
-      const trdLow  = roiVal.trade_low_valuation   ?? null;
-      const trdHigh = roiVal.trade_high_valuation  ?? null;
-      if (retLow != null || trdLow != null) {
+      const retail = roiVal.retail ?? null;
+      const trade  = roiVal.trade  ?? null;
+      if (retail != null || trade != null) {
         sectionTitle('Market Valuation');
-        if (retLow != null) row('Current Retail', `${fmtEur(retLow)} — ${fmtEur(retHigh)}`);
-        if (trdLow != null) row('Trade Value',    `${fmtEur(trdLow)} — ${fmtEur(trdHigh)}`);
+        if (retail != null) row('Current Retail', fmtEur(retail));
+        if (trade  != null) row('Trade Value',    fmtEur(trade));
       }
     }
 

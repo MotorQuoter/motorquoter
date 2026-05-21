@@ -261,10 +261,12 @@ const dvla = await safeJson(dvlaRes);
       return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
     }
 
+    const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
+
     const [cartellRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
+      fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() }),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
     ]);
@@ -282,7 +284,10 @@ const dvla = await safeJson(dvlaRes);
 
     const roiPriceGuide   = extractApiResult(pgRaw);
     console.log('Cartell Price Guide raw response:', JSON.stringify(roiPriceGuide));
-    const roiValuation    = roiPriceGuide;
+    const roiValuation    = roiPriceGuide ? {
+      retail: roiPriceGuide.retail_valuation ?? null,
+      trade:  roiPriceGuide.trade_valuation  ?? null,
+    } : null;
     const roiMarketDemand = extractApiResult(demandRaw);
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
     const nctData         = isHistory ? extractApiResult(nctRaw) : null;
