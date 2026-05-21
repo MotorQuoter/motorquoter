@@ -264,7 +264,7 @@ const dvla = await safeJson(dvlaRes);
     const [cartellRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
       fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
       fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      isPro  ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+      fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
       isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
     ]);
@@ -275,24 +275,14 @@ const dvla = await safeJson(dvlaRes);
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
     }
 
-    const bregoRes = await fetch(
-      `${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${cleanMileage}`,
-      { headers: oneAutoHeaders() }
-    );
-    console.log('[ROI BREGO STATUS]', bregoRes.status);
-    const bregoText = await bregoRes.text();
-    console.log('[ROI BREGO BODY]', bregoText);
-    let bregoRaw = null;
-    try { bregoRaw = bregoText ? JSON.parse(bregoText) : null; } catch {}
-
     const demandRaw   = await safeJson(demandRes);
-    const pgRaw       = isPro     ? await safeJson(priceGuideRes) : null;
+    const pgRaw       = await safeJson(priceGuideRes);
     const hpiRaw      = isHistory ? await safeJson(hpiRes)        : null;
     const nctRaw      = isHistory ? await safeJson(nctRes)        : null;
 
-    const roiValuation    = extractApiResult(bregoRaw);
+    const roiPriceGuide   = extractApiResult(pgRaw);
+    const roiValuation    = roiPriceGuide;
     const roiMarketDemand = extractApiResult(demandRaw);
-    const roiPriceGuide   = isPro ? extractApiResult(pgRaw)  : null;
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
     const nctData         = isHistory ? extractApiResult(nctRaw) : null;
 

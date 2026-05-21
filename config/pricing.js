@@ -11,7 +11,7 @@ export const ROI_TIERS = [
     label: 'Standard',
     addOn: 4.99,
     description: 'Identity + current market valuation + demand',
-    features: ['Everything in Identity', 'Current market valuation (Brego)', 'Market demand score', 'Days to sell estimate'],
+    features: ['Everything in Identity', 'Current market valuation (Cartell)', 'Market demand score', 'Days to sell estimate'],
   },
   {
     key: 'roi_pro',
