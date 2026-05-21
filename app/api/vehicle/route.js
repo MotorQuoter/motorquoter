@@ -281,6 +281,7 @@ const dvla = await safeJson(dvlaRes);
     const nctRaw      = isHistory ? await safeJson(nctRes)        : null;
 
     const roiPriceGuide   = extractApiResult(pgRaw);
+    console.log('Cartell Price Guide raw response:', JSON.stringify(roiPriceGuide));
     const roiValuation    = roiPriceGuide;
     const roiMarketDemand = extractApiResult(demandRaw);
     const hpiData         = isHistory ? extractApiResult(hpiRaw) : null;
