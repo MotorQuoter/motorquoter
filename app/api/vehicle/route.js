@@ -237,7 +237,6 @@ const dvla = await safeJson(dvlaRes);
     const nctRaw      = isHistory ? await safeJson(nctRes)        : null;
 
     const roiPriceGuide   = extractApiResult(pgRaw);
-    console.log('Cartell Price Guide raw response:', JSON.stringify(roiPriceGuide));
     const roiValuation    = roiPriceGuide ? {
       retail: roiPriceGuide.retail_valuation ?? null,
       trade:  roiPriceGuide.trade_valuation  ?? null,
@@ -286,6 +285,13 @@ const dvla = await safeJson(dvlaRes);
   try {
     if (market === 'IE') {
       // ── IE PAID PATH ─────────────────────────────────────────────────────────
+      const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
+      const needsValuation      = checks.includes('ie_valuation');
+      const needsNct            = checks.includes('ie_nct');
+      const needsServiceHistory = checks.includes('ie_service_history');
+      const needsHistory        = checks.includes('ie_history');
+
+      // Cartell identity — always fetched; provides base vehicle data and VIN
       const cartellRes = await fetch(
         `${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`,
         { headers: oneAutoHeaders() }
@@ -293,51 +299,73 @@ const dvla = await safeJson(dvlaRes);
       const cartellData = await safeJson(cartellRes);
       const cartell = cartellData?.success === true ? cartellData.result : null;
       if (!cartell?.vehicle_registration_mark) {
-        return NextResponse.json(
-          { error: 'Vehicle not found in Irish register' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
       }
 
-      const needsHpi = checks.some(c => ['writeoff', 'finance', 'stolen'].includes(c));
-      const needsNct = checks.includes('mot');
+      const vin = cartell.vehicle_identification_number ?? null;
 
-      const [hpiRes, nctRes] = await Promise.all([
-        needsHpi
-          ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+      // Start polling calls before awaiting non-polling calls
+      const svcHistoryPromise = (needsServiceHistory && vin)
+        ? fetchWithPolling(
+            `${ONE_AUTO_BASE}/oneauto/servicehistory/?vin=${vin}`,
+            { headers: oneAutoHeaders() }
+          )
+        : Promise.resolve(null);
+
+      const historyPromise = needsHistory
+        ? fetchWithPolling(
+            `${ONE_AUTO_BASE}/cartell/vehiclehistorycheck/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}`,
+            { headers: oneAutoHeaders() }
+          )
+        : Promise.resolve(null);
+
+      // Non-polling calls in parallel
+      const [priceGuideRes, nctHistoryRes] = await Promise.all([
+        needsValuation
+          ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsNct
           ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
       ]);
 
-      const hpiData = hpiRes ? extractApiResult(await safeJson(hpiRes)) : null;
-      const nctData = nctRes ? extractApiResult(await safeJson(nctRes)) : null;
+      // Await polling results
+      const [svcRes, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
-      const cc = cartell.engine_capacity_cc ?? null;
+      // Parse
+      const pgRaw     = priceGuideRes  ? await safeJson(priceGuideRes)  : null;
+      const pgData    = pgRaw          ? extractApiResult(pgRaw)        : null;
+      const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
+      const svcRaw    = svcRes         ? await safeJson(svcRes)         : null;
+      const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
+
+      const roiValuation = pgData ? {
+        retail: pgData.retail_valuation ?? null,
+        trade:  pgData.trade_valuation  ?? null,
+      } : null;
+      const nctHistory   = nctRaw  ? extractApiResult(nctRaw)  : null;
+      const serviceHistory = svcRaw ? extractApiResult(svcRaw) : null;
+      const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
+
+      const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
       const nctStatus = nctDue ? (new Date(nctDue) > new Date() ? 'Valid' : 'Expired') : null;
 
       const payload = {
-        make: cartell.manufacturer_desc ?? null,
-        model: cartell.model_desc ?? null,
-        colour: cartell.colour ?? null,
-        fuelType: cartell.fuel_type_desc ?? null,
-        engineSize: cc ? `${cc}cc` : null,
-        yearOfManufacture: cartell.manufactured_year ?? null,
-        taxStatus: null,
-        taxDueDate: null,
-        motStatus: nctStatus,
-        nctExpiryDate: nctDue,
-        co2Emissions: cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
+        make:                     cartell.manufacturer_desc ?? null,
+        model:                    cartell.model_desc ?? null,
+        colour:                   cartell.colour ?? null,
+        fuelType:                 cartell.fuel_type_desc ?? null,
+        engineSize:               cc ? `${cc}cc` : null,
+        yearOfManufacture:        cartell.manufactured_year ?? null,
+        motStatus:                nctStatus,
+        nctExpiryDate:            nctDue,
+        co2Emissions:             cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
         monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
-        hpi: hpiData,
-        nctHistory: nctData,
-        valuation: null,
-        cazanaAdverts: null,
-        cazanaDemand: null,
-        serviceHistory: null,
-        serviceHistoryCoverage: null,
+        roiValuation,
+        nctHistory,
+        serviceHistory,
+        ieHistory,
         market: 'IE',
         checks,
       };
