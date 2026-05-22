@@ -110,6 +110,8 @@ export async function GET(request) {
   const market = (searchParams.get('market') || 'GB').toUpperCase();
   const tier = searchParams.get('tier');
   const isVerified = searchParams.get('verified') === 'true';
+  const paymentIntentId = searchParams.get('paymentIntentId') || null;
+  console.log('[PAYMENT INTENT]', paymentIntentId);
 
   if (!vrm) {
     return NextResponse.json({ error: 'No registration provided' }, { status: 400 });

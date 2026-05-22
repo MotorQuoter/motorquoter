@@ -598,6 +598,7 @@ function PaymentSuccessContent() {
         params.set('checks', verifyData.checks || searchParams.get('checks') || '');
       }
       if (mileage) params.append('mileage', mileage);
+      if (verifyData.paymentIntentId) params.set('paymentIntentId', verifyData.paymentIntentId);
 
       const res  = await fetch(`/api/vehicle?${params}`);
       const data = await res.json();
