@@ -401,6 +401,9 @@ const dvla = await safeJson(dvlaRes);
 
     } else {
       // ── GB PAID PATH ──────────────────────────────────────────────────────────
+      if (market === 'IE') {
+        return NextResponse.json({ error: 'Irish plates must use IE market path' }, { status: 400 });
+      }
       const dvlaRes = await fetch(
         'https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles',
         {
