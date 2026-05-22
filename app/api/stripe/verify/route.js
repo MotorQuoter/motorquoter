@@ -31,10 +31,6 @@ export async function GET(request) {
       .eq('used', false)
       .maybeSingle();
 
-    console.log('redeemed_sessions lookup - token:', sessionId);
-    console.log('redeemed_sessions lookup - error:', JSON.stringify(sessionError));
-    console.log('redeemed_sessions lookup - data:', JSON.stringify(session));
-
     const redeemed = session;
 
     if (!redeemed) {

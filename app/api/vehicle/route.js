@@ -111,7 +111,6 @@ export async function GET(request) {
   const tier = searchParams.get('tier');
   const isVerified = searchParams.get('verified') === 'true';
   const paymentIntentId = searchParams.get('paymentIntentId') || null;
-  console.log('[PAYMENT INTENT]', paymentIntentId);
 
   if (!vrm) {
     return NextResponse.json({ error: 'No registration provided' }, { status: 400 });
@@ -228,7 +227,6 @@ const dvla = await safeJson(dvlaRes);
     ]);
 
     const cartellData = await safeJson(cartellRes);
-    console.log('[CARTELL IDENTITY RAW]', JSON.stringify(cartellData));
     const cartell = cartellData?.success === true ? cartellData.result : null;
     if (!cartell?.vehicle_registration_mark) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
@@ -300,7 +298,6 @@ const dvla = await safeJson(dvlaRes);
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
-      console.log('[CARTELL IDENTITY RAW]', JSON.stringify(cartellData));
       const cartell = cartellData?.success === true ? cartellData.result : null;
       if (!cartell?.vehicle_registration_mark) {
         return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
@@ -324,8 +321,6 @@ const dvla = await safeJson(dvlaRes);
         : Promise.resolve(null);
 
       // Non-polling calls in parallel
-      console.log('IE paid - ONE_AUTO_BASE:', ONE_AUTO_BASE);
-      // console.log('IE paid - Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`);
       const [nctHistoryRes, bregoRoiRes] = await Promise.all([
         // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         // needsValuation
@@ -343,17 +338,10 @@ const dvla = await safeJson(dvlaRes);
       const [svcRes, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
-      // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
-      // if (priceGuideRes) console.log('[CARTELL PG STATUS]', priceGuideRes.status);
-      // const pgRaw     = priceGuideRes  ? await safeJson(priceGuideRes)  : null;
-      // console.log('[CARTELL PG BODY]', JSON.stringify(pgRaw));
-      // const pgData    = pgRaw          ? extractApiResult(pgRaw)        : null;
       const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
       const svcRaw    = svcRes         ? await safeJson(svcRes)         : null;
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
-      if (bregoRoiRes) console.log('[ROI BREGO STATUS]', bregoRoiRes.status);
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
-      console.log('[ROI BREGO BODY]', JSON.stringify(bregoRoiRaw));
       const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
 
       // const roiValuation = pgData ? {   // Cartell Price Guide — commented out
@@ -377,7 +365,6 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
       if (serviceHistoryRefunded) {
         const refundAmount = 500;
-        console.log('[SERVICE HISTORY REFUND]', { paymentIntentId, amount: refundAmount, market: 'IE' });
         fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -488,7 +475,6 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
       if (serviceHistoryRefunded) {
         const refundAmount = 349;
-        console.log('[SERVICE HISTORY REFUND]', { paymentIntentId, amount: refundAmount, market: 'GB' });
         fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
