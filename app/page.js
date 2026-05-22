@@ -570,6 +570,9 @@ export default function Home() {
               />
               <span className="mileage-unit">{effectiveMarket === 'IE' ? 'km' : 'miles'}</span>
             </div>
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>
+              {effectiveMarket === 'IE' ? 'If no mileage entered, 50,000 km assumed for valuation' : 'If no mileage entered, 50,000 miles assumed for valuation'}
+            </p>
           </div>
 
           {/* Market toggle */}

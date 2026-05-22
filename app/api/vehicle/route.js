@@ -321,16 +321,16 @@ const dvla = await safeJson(dvlaRes);
 
       // Non-polling calls in parallel
       console.log('IE paid - ONE_AUTO_BASE:', ONE_AUTO_BASE);
-      console.log('IE paid - Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`);
+      console.log('IE paid - Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`);
       const [priceGuideRes, nctHistoryRes, bregoRoiRes] = await Promise.all([
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() })
+          ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsNct
           ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 0}`, { headers: oneAutoHeaders() })
+          ? fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
       ]);
 
@@ -338,7 +338,9 @@ const dvla = await safeJson(dvlaRes);
       const [svcRes, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
+      if (priceGuideRes) console.log('[CARTELL PG STATUS]', priceGuideRes.status);
       const pgRaw     = priceGuideRes  ? await safeJson(priceGuideRes)  : null;
+      console.log('[CARTELL PG BODY]', JSON.stringify(pgRaw));
       const pgData    = pgRaw          ? extractApiResult(pgRaw)        : null;
       const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
       const svcRaw    = svcRes         ? await safeJson(svcRes)         : null;
