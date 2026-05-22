@@ -478,27 +478,39 @@ function RoiValuationSection({ result }) {
 function BregoRoiValuationSection({ result }) {
   const v = result.bregoRoi;
   if (!v) return null;
-  const { retailLow, retailHigh, tradeLow, tradeHigh, currency } = v;
-  if (retailLow == null && tradeLow == null) return null;
-  const sym = (currency || '').toUpperCase() === 'EUR' ? '€' : '€';
-  const fmtEur = n => `${sym}${Number(n).toLocaleString('en-IE')}`;
+  const { retailLow, retailAvg, retailHigh, tradeLow, tradeAvg, tradeHigh } = v;
+  if (retailHigh == null && tradeLow == null) return null;
+  const fmtEur = n => n != null ? `€${Number(n).toLocaleString('en-IE')}` : '—';
+  const rows = [
+    { label: 'High',    retail: retailHigh, trade: tradeHigh },
+    { label: 'Average', retail: retailAvg,  trade: tradeAvg  },
+    { label: 'Low',     retail: retailLow,  trade: tradeLow  },
+  ];
+  const headSt = { fontSize: 10, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, padding: '0 0 6px', textAlign: 'right' };
   return (
     <div className="card">
-      <SectionTitle>Brego Valuation</SectionTitle>
-      <div className="bid-grid">
-        {retailLow != null && retailHigh != null && (
-          <div className="bid-card">
-            <div className="bid-label">Retail Range</div>
-            <div className="bid-value bid-green">{fmtEur(retailLow)} – {fmtEur(retailHigh)}</div>
-          </div>
-        )}
-        {tradeLow != null && tradeHigh != null && (
-          <div className="bid-card">
-            <div className="bid-label">Trade Range</div>
-            <div className="bid-value">{fmtEur(tradeLow)} – {fmtEur(tradeHigh)}</div>
-          </div>
-        )}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '18px 0 10px', borderBottom: '1px solid var(--border-dim)', marginBottom: 4 }}>
+        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: 'var(--orange)', textTransform: 'uppercase' }}>Market Valuation</span>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif" }}>Condition-adjusted values (EUR)</span>
       </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+        <thead>
+          <tr>
+            <th style={{ ...headSt, textAlign: 'left' }}>Condition</th>
+            <th style={headSt}>Retail</th>
+            <th style={headSt}>Trade</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ label, retail, trade }) => (
+            <tr key={label} style={{ borderTop: '1px solid var(--border-dim)' }}>
+              <td style={{ fontSize: 13, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em', padding: '10px 0' }}>{label}</td>
+              <td style={{ fontSize: 15, fontWeight: 700, color: '#4ade80', textAlign: 'right', padding: '10px 0' }}>{fmtEur(retail)}</td>
+              <td style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', textAlign: 'right', padding: '10px 0' }}>{fmtEur(trade)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -796,8 +808,7 @@ function PaymentSuccessContent() {
             <IdentitySection result={result} />
             {isRoiTier ? (
               <>
-                {result.roiValuation    && <RoiValuationSection      result={result} />}
-                {result.bregoRoi       && <BregoRoiValuationSection result={result} />}
+                {result.bregoRoi        && <BregoRoiValuationSection result={result} />}
                 {result.roiMarketDemand && <RoiMarketDemandSection  result={result} />}
                 {isRoiPro && result.roiPriceGuide && <RoiPriceGuideSection result={result} />}
                 {isRoiHistory && <FinanceSection result={result} />}
@@ -815,8 +826,7 @@ function PaymentSuccessContent() {
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
                 {checks.includes('service_history')   && <ServiceHistorySection  result={result} />}
-                {result.market === 'IE' && checks.includes('ie_valuation') && result.roiValuation && <RoiValuationSection      result={result} />}
-                {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi     && <BregoRoiValuationSection result={result} />}
+                {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
               </>
             )}
 

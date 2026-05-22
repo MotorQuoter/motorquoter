@@ -131,17 +131,18 @@ function buildPdf(result, vrm, checks, checkDate) {
 
   // ── ROI Tier Sections ─────────────────────────────────────────────────────────
   if (isIE && result.roiTier) {
-    const roiVal = result.roiValuation;
-    if (roiVal) {
-      const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
-      const retail = roiVal.retail ?? null;
-      const trade  = roiVal.trade  ?? null;
-      if (retail != null || trade != null) {
-        sectionTitle('Market Valuation');
-        if (retail != null) row('Current Retail', fmtEur(retail));
-        if (trade  != null) row('Trade Value',    fmtEur(trade));
-      }
-    }
+    // Cartell Price Guide roiValuation — commented out; Brego is sole ROI valuation provider
+    // const roiVal = result.roiValuation;
+    // if (roiVal) {
+    //   const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
+    //   const retail = roiVal.retail ?? null;
+    //   const trade  = roiVal.trade  ?? null;
+    //   if (retail != null || trade != null) {
+    //     sectionTitle('Market Valuation');
+    //     if (retail != null) row('Current Retail', fmtEur(retail));
+    //     if (trade  != null) row('Trade Value',    fmtEur(trade));
+    //   }
+    // }
 
     const roiDem = result.roiMarketDemand;
     if (roiDem) {
@@ -209,6 +210,37 @@ function buildPdf(result, vrm, checks, checkDate) {
         checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
         doc.text('No NCT history on record', MARGIN, y); y += 8;
       }
+    }
+  }
+
+  // ── IE Brego Valuation (checks path) ─────────────────────────────────────────
+  if (isIE && has('ie_valuation') && result.bregoRoi) {
+    const brego = result.bregoRoi;
+    const fmtEur = v => v != null ? `€${Number(v).toLocaleString('en-IE')}` : '-';
+    sectionTitle('Market Valuation', 'Condition-adjusted values (EUR)');
+    checkPage(12);
+    doc.setFillColor(245, 245, 245);
+    doc.rect(MARGIN, y - 3, CONTENT_W, 7, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+    doc.text('Condition', MARGIN + 1, y + 1);
+    doc.text('Retail', MARGIN + 110, y + 1, { align: 'right' });
+    doc.text('Trade', PAGE_W - MARGIN, y + 1, { align: 'right' });
+    y += 8;
+    const bregoRows = [
+      { label: 'High',    retail: brego.retailHigh, trade: brego.tradeHigh },
+      { label: 'Average', retail: brego.retailAvg,  trade: brego.tradeAvg  },
+      { label: 'Low',     retail: brego.retailLow,  trade: brego.tradeLow  },
+    ];
+    for (const r of bregoRows) {
+      checkPage(8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(80, 80, 80);
+      doc.text(r.label, MARGIN + 1, y);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20);
+      doc.text(fmtEur(r.retail), MARGIN + 110, y, { align: 'right' });
+      doc.text(fmtEur(r.trade), PAGE_W - MARGIN, y, { align: 'right' });
+      y += 5;
+      doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
+      doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
     }
   }
 

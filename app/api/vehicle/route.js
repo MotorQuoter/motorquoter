@@ -321,11 +321,12 @@ const dvla = await safeJson(dvlaRes);
 
       // Non-polling calls in parallel
       console.log('IE paid - ONE_AUTO_BASE:', ONE_AUTO_BASE);
-      console.log('IE paid - Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`);
-      const [priceGuideRes, nctHistoryRes, bregoRoiRes] = await Promise.all([
-        needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`, { headers: oneAutoHeaders() })
-          : Promise.resolve(null),
+      // console.log('IE paid - Price Guide URL:', `${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`);
+      const [nctHistoryRes, bregoRoiRes] = await Promise.all([
+        // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
+        // needsValuation
+        //   ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`, { headers: oneAutoHeaders() })
+        //   : Promise.resolve(null),
         needsNct
           ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -338,10 +339,11 @@ const dvla = await safeJson(dvlaRes);
       const [svcRes, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
-      if (priceGuideRes) console.log('[CARTELL PG STATUS]', priceGuideRes.status);
-      const pgRaw     = priceGuideRes  ? await safeJson(priceGuideRes)  : null;
-      console.log('[CARTELL PG BODY]', JSON.stringify(pgRaw));
-      const pgData    = pgRaw          ? extractApiResult(pgRaw)        : null;
+      // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
+      // if (priceGuideRes) console.log('[CARTELL PG STATUS]', priceGuideRes.status);
+      // const pgRaw     = priceGuideRes  ? await safeJson(priceGuideRes)  : null;
+      // console.log('[CARTELL PG BODY]', JSON.stringify(pgRaw));
+      // const pgData    = pgRaw          ? extractApiResult(pgRaw)        : null;
       const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
       const svcRaw    = svcRes         ? await safeJson(svcRes)         : null;
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
@@ -350,10 +352,10 @@ const dvla = await safeJson(dvlaRes);
       console.log('[ROI BREGO BODY]', JSON.stringify(bregoRoiRaw));
       const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
 
-      const roiValuation = pgData ? {
-        retail: pgData.retail_valuation ?? null,
-        trade:  pgData.trade_valuation  ?? null,
-      } : null;
+      // const roiValuation = pgData ? {   // Cartell Price Guide — commented out
+      //   retail: pgData.retail_valuation ?? null,
+      //   trade:  pgData.trade_valuation  ?? null,
+      // } : null;
       const bregoRoi = bregoRoiData ? {
         retailLow:  bregoRoiData.retail_low_valuation     ?? null,
         retailAvg:  bregoRoiData.retail_average_valuation ?? null,
@@ -382,7 +384,7 @@ const dvla = await safeJson(dvlaRes);
         nctExpiryDate:            nctDue,
         co2Emissions:             cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
         monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
-        roiValuation,
+        // roiValuation,  // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         bregoRoi,
         nctHistory,
         serviceHistory,
