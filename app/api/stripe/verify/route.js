@@ -48,7 +48,7 @@ export async function GET(request) {
 
     return NextResponse.json({
       paid:    true,
-      checks:  redeemed.checks   || '',
+      checks:  redeemed.checks ? redeemed.checks.split(',') : [],
       vrm:     redeemed.vrm      || null,
       market:  redeemed.market   || 'GB',
       roiTier: redeemed.roi_tier || null,
