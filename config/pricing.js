@@ -64,7 +64,7 @@ export const IE_MENU = [
     price: 15.00,
     preSelected: false,
     locked: false,
-    enabled: true,
+    enabled: false,
   },
 ];
 
