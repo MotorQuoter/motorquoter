@@ -47,11 +47,12 @@ export async function GET(request) {
       .eq('token', sessionId);
 
     return NextResponse.json({
-      paid:    true,
-      checks:  redeemed.checks ? redeemed.checks.split(',') : [],
-      vrm:     redeemed.vrm      || null,
-      market:  redeemed.market   || 'GB',
-      roiTier: redeemed.roi_tier || null,
+      paid:            true,
+      checks:          redeemed.checks ? redeemed.checks.split(',') : [],
+      vrm:             redeemed.vrm      || null,
+      market:          redeemed.market   || 'GB',
+      roiTier:         redeemed.roi_tier || null,
+      paymentIntentId: null,
     });
   }
 
@@ -118,11 +119,12 @@ export async function GET(request) {
     });
 
     return NextResponse.json({
-      paid:    true,
-      checks:  session.metadata?.checks  || '',
-      vrm:     session.metadata?.vrm     || null,
-      market:  session.metadata?.market  || 'GB',
-      roiTier: session.metadata?.roiTier || null,
+      paid:            true,
+      checks:          session.metadata?.checks ? session.metadata.checks.split(',') : [],
+      vrm:             session.metadata?.vrm     || null,
+      market:          session.metadata?.market  || 'GB',
+      roiTier:         session.metadata?.roiTier || null,
+      paymentIntentId: session.payment_intent ?? null,
     });
   } catch (err) {
     console.error('Stripe verify error:', err);
