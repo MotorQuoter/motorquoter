@@ -464,10 +464,40 @@ function RoiValuationSection({ result }) {
   const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
   return (
     <div className="card">
-      <SectionTitle>Market Valuation</SectionTitle>
+      <SectionTitle>Cartell Valuation</SectionTitle>
       <div className="bid-grid">
         {retail != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtEur(retail)}</div></div>}
         {trade  != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtEur(trade)}</div></div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Brego ROI Valuation ───────────────────────────────────────────────────────
+
+function BregoRoiValuationSection({ result }) {
+  const v = result.bregoRoi;
+  if (!v) return null;
+  const { retailLow, retailHigh, tradeLow, tradeHigh, currency } = v;
+  if (retailLow == null && tradeLow == null) return null;
+  const sym = (currency || '').toUpperCase() === 'EUR' ? '€' : '€';
+  const fmtEur = n => `${sym}${Number(n).toLocaleString('en-IE')}`;
+  return (
+    <div className="card">
+      <SectionTitle>Brego Valuation</SectionTitle>
+      <div className="bid-grid">
+        {retailLow != null && retailHigh != null && (
+          <div className="bid-card">
+            <div className="bid-label">Retail Range</div>
+            <div className="bid-value bid-green">{fmtEur(retailLow)} – {fmtEur(retailHigh)}</div>
+          </div>
+        )}
+        {tradeLow != null && tradeHigh != null && (
+          <div className="bid-card">
+            <div className="bid-label">Trade Range</div>
+            <div className="bid-value">{fmtEur(tradeLow)} – {fmtEur(tradeHigh)}</div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -766,8 +796,9 @@ function PaymentSuccessContent() {
             <IdentitySection result={result} />
             {isRoiTier ? (
               <>
-                {result.roiValuation    && <RoiValuationSection    result={result} />}
-                {result.roiMarketDemand && <RoiMarketDemandSection result={result} />}
+                {result.roiValuation    && <RoiValuationSection      result={result} />}
+                {result.bregoRoi       && <BregoRoiValuationSection result={result} />}
+                {result.roiMarketDemand && <RoiMarketDemandSection  result={result} />}
                 {isRoiPro && result.roiPriceGuide && <RoiPriceGuideSection result={result} />}
                 {isRoiHistory && <FinanceSection result={result} />}
                 {isRoiHistory && <StolenSection  result={result} />}
@@ -784,6 +815,8 @@ function PaymentSuccessContent() {
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
                 {checks.includes('service_history')   && <ServiceHistorySection  result={result} />}
+                {result.market === 'IE' && checks.includes('ie_valuation') && result.roiValuation && <RoiValuationSection      result={result} />}
+                {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi     && <BregoRoiValuationSection result={result} />}
               </>
             )}
 
