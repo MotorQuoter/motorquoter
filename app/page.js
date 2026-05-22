@@ -82,6 +82,7 @@ export default function Home() {
 
     // IE uses its own builder checkout — paste/auto-check should not trigger a lookup
     if (effectiveMarket === 'IE') return;
+    if (isRoiPlate(vrmToUse.trim().replace(/\s/g, '').toUpperCase())) return;
 
     setLoading(true);
     setResult(null);
