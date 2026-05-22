@@ -217,7 +217,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (isIE && has('ie_valuation') && result.bregoRoi) {
     const brego = result.bregoRoi;
     const fmtEur = v => v != null ? `€${Number(v).toLocaleString('en-IE')}` : '-';
-    sectionTitle('Market Valuation', 'Condition-adjusted values (EUR)');
+    sectionTitle('Valuation');
     checkPage(12);
     doc.setFillColor(245, 245, 245);
     doc.rect(MARGIN, y - 3, CONTENT_W, 7, 'F');

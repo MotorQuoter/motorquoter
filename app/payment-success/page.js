@@ -491,8 +491,7 @@ function BregoRoiValuationSection({ result }) {
   return (
     <div className="card">
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '18px 0 10px', borderBottom: '1px solid var(--border-dim)', marginBottom: 4 }}>
-        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: 'var(--orange)', textTransform: 'uppercase' }}>Market Valuation</span>
-        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif" }}>Condition-adjusted values (EUR)</span>
+        <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: 'var(--orange)', textTransform: 'uppercase' }}>Valuation</span>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
         <thead>
@@ -835,7 +834,7 @@ function PaymentSuccessContent() {
               {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}
             </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
-            <p className="footer-note">Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a></p>
+            <p className="footer-note">Not affiliated with CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a></p>
           </>
         )}
       </div>
