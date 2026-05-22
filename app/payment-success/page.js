@@ -319,7 +319,7 @@ function MarketDemandSection({ result }) {
 
 function PreviousAdvertsSection({ result }) {
   const cazAdv = result.cazanaAdverts;
-  const adverts = cazAdv?.result || [];
+  const adverts = Array.isArray(cazAdv?.result) ? cazAdv.result : [];
 
   return (
     <div className="card">
