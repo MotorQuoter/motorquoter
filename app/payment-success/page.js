@@ -827,7 +827,7 @@ function PaymentSuccessContent() {
                 {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
-                {checks.includes('service_history')   && <ServiceHistorySection  result={result} />}
+                {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
                 {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
               </>
             )}
