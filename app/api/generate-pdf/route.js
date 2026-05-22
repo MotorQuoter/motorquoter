@@ -373,8 +373,8 @@ function buildPdf(result, vrm, checks, checkDate) {
         doc.text('Mileage', MARGIN + 52, y + 1); doc.text('Expiry', MARGIN + 90, y + 1);
         y += 8;
         for (const test of motHistory.slice(0, 15)) {
-          const fails = test.rfrAndComments?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
-          const advs  = test.rfrAndComments?.filter(r => r.type === 'ADVISORY') || [];
+          const fails = test.defects?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
+          const advs  = test.defects?.filter(r => r.type === 'ADVISORY') || [];
           checkPage(7 + (fails.length + advs.length) * 4);
           doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
           doc.text(str(test.completedDate || '-'), MARGIN + 1, y);

@@ -397,8 +397,8 @@ function MotSection({ result }) {
         ? <EmptyState text="No MOT history on record" />
         : <div className="history-list">
             {motHistory.map((test, i) => {
-              const advisories = test.rfrAndComments?.filter(r => r.type === 'ADVISORY') || [];
-              const failures   = test.rfrAndComments?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
+              const advisories = test.defects?.filter(r => r.type === 'ADVISORY') || [];
+              const failures   = test.defects?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
               return (
                 <div className="history-record" key={i}>
                   <div className="history-row">

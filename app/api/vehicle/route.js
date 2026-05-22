@@ -483,7 +483,6 @@ const dvla = await safeJson(dvlaRes);
       }
 
       const latestMot = motTests?.[0] || null;
-      console.log('[MOT RAW]', JSON.stringify(motTests?.slice(0, 2)));
 
       const payload = {
         make: dvla.make,
