@@ -419,6 +419,7 @@ function MotSection({ result }) {
 function ServiceHistorySection({ result }) {
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
+  const refunded    = result.serviceHistoryRefunded;
   const coverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
 
   return (
@@ -433,22 +434,22 @@ function ServiceHistorySection({ result }) {
           </span>
         )}
       </div>
-      {svcHistory === null && svcCoverage
-        ? <EmptyState text="Service history could not be retrieved at this time. Please contact info@motorquoter.app and we will refund your service history fee." />
-        : svcHistory?.service_records?.length > 0
-          ? <div className="history-list">
-              {svcHistory.service_records.map((rec, i) => (
-                <div className="history-record" key={i}>
-                  <div className="history-row">
-                    <span className="history-date">{fmtDate(rec.date) || rec.date}</span>
-                    {rec.mileage != null && <span className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} mi</span>}
-                  </div>
-                  {rec.service_type && <div className="history-detail">{rec.service_type}</div>}
-                  {rec.dealer       && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.dealer}</div>}
+      {svcHistory?.service_records?.length > 0
+        ? <div className="history-list">
+            {svcHistory.service_records.map((rec, i) => (
+              <div className="history-record" key={i}>
+                <div className="history-row">
+                  <span className="history-date">{fmtDate(rec.date) || rec.date}</span>
+                  {rec.mileage != null && <span className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} mi</span>}
                 </div>
-              ))}
-            </div>
-          : <EmptyState text="No digital service history on record" />
+                {rec.service_type && <div className="history-detail">{rec.service_type}</div>}
+                {rec.dealer       && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.dealer}</div>}
+              </div>
+            ))}
+          </div>
+        : refunded
+          ? <EmptyState text={`No service history records found — ${result.market === 'IE' ? '£5.00' : '£3.49'} refunded to your card automatically`} />
+          : <EmptyState text="No service history records found" />
       }
     </div>
   );

@@ -21,6 +21,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   const cazDem = result.cazanaDemand || {};
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
+  const serviceHistoryRefunded = result.serviceHistoryRefunded ?? false;
 
   const money = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
   const num   = (v) => v != null ? Number(v).toLocaleString('en-GB') : '-';
@@ -407,11 +408,11 @@ function buildPdf(result, vrm, checks, checkDate) {
       }
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-      if (svcHistory === null && svcCoverage) {
-        doc.text('Service history could not be retrieved at this time.', MARGIN, y); y += 5;
-        doc.text('Please contact info@motorquoter.app for a service history fee refund.', MARGIN, y); y += 8;
+      if (serviceHistoryRefunded) {
+        const amt = isIE ? '£5.00' : '£3.49';
+        doc.text(`No service history records found — ${amt} refunded automatically`, MARGIN, y); y += 8;
       } else {
-        doc.text('No digital service history on record', MARGIN, y); y += 8;
+        doc.text('No service history records found', MARGIN, y); y += 8;
       }
     }
   }

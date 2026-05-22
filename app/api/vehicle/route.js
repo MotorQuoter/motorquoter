@@ -373,6 +373,18 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistory = svcRaw ? extractApiResult(svcRaw) : null;
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
+      const svcEmpty = needsServiceHistory && (!serviceHistory || !serviceHistory.records || serviceHistory.records.length === 0);
+      const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      if (serviceHistoryRefunded) {
+        const refundAmount = 500;
+        console.log('[SERVICE HISTORY REFUND]', { paymentIntentId, amount: refundAmount, market: 'IE' });
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentIntentId, amount: refundAmount }),
+        });
+      }
+
       const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
       const nctStatus = nctDue ? (new Date(nctDue) > new Date() ? 'Valid' : 'Expired') : null;
@@ -393,6 +405,7 @@ const dvla = await safeJson(dvlaRes);
         nctHistory,
         serviceHistory,
         ieHistory,
+        serviceHistoryRefunded,
         market: 'IE',
         checks,
       };
@@ -469,6 +482,19 @@ const dvla = await safeJson(dvlaRes);
 
       const svcRes = await svcHistoryPromise;
       const serviceHistory = svcRes ? await safeJson(svcRes) : null;
+      const serviceHistoryData = extractApiResult(serviceHistory);
+
+      const svcEmpty = needsServiceHistory && (!serviceHistoryData || !serviceHistoryData.records || serviceHistoryData.records.length === 0);
+      const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      if (serviceHistoryRefunded) {
+        const refundAmount = 349;
+        console.log('[SERVICE HISTORY REFUND]', { paymentIntentId, amount: refundAmount, market: 'GB' });
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paymentIntentId, amount: refundAmount }),
+        });
+      }
 
       const latestMot = motTests?.[0] || null;
 
@@ -494,9 +520,10 @@ const dvla = await safeJson(dvlaRes);
         motHistory: motTests || null,
         cazanaAdverts: cazanaAdverts?.error ? null : cazanaAdverts,
         cazanaDemand: extractApiResult(cazanaDemand),
-        serviceHistory: extractApiResult(serviceHistory),
+        serviceHistory: serviceHistoryData,
         serviceHistoryCoverage: svcCoverage,
         salvageHistory: extractApiResult(salvageHistoryRaw),
+        serviceHistoryRefunded,
         market: 'GB',
         checks,
       };
