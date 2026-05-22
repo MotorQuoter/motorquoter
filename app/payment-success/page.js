@@ -4,6 +4,14 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+function fmtFirstReg(str) {
+  if (!str) return null;
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const ym = str.match(/^(\d{4})-(\d{2})$/);
+  if (ym) { const m = MONTHS[parseInt(ym[2], 10) - 1]; return m ? `${m} ${ym[1]}` : str; }
+  return fmtDate(str) || str;
+}
+
 function fmtDate(str) {
   if (!str) return null;
   const s = str.split(' ')[0];
@@ -65,7 +73,7 @@ function IdentitySection({ result }) {
         {result.engineSize      && <div className="info-cell"><div className="info-key">Engine</div><div className="info-val">{result.engineSize}</div></div>}
         {result.fuelType        && <div className="info-cell"><div className="info-key">Fuel</div><div className="info-val">{result.fuelType}</div></div>}
         {result.co2Emissions    && <div className="info-cell"><div className="info-key">CO₂</div><div className="info-val">{result.co2Emissions} g/km</div></div>}
-        {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{fmtDate(result.monthOfFirstRegistration) || result.monthOfFirstRegistration}</div></div>}
+        {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{fmtFirstReg(result.monthOfFirstRegistration)}</div></div>}
         {result.taxStatus       && <div className="info-cell"><div className="info-key">Tax</div><div className="info-val" style={{color: result.taxStatus === 'Taxed' ? '#4ade80' : '#f87171'}}>{result.taxStatus}</div></div>}
         {result.motStatus       && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: result.motStatus === 'Valid' ? '#4ade80' : '#f5c842'}}>{result.motStatus}</div></div>}
         {result.nctExpiryDate   && <div className="info-cell"><div className="info-key">NCT Expiry</div><div className="info-val">{fmtDate(result.nctExpiryDate) || result.nctExpiryDate}</div></div>}

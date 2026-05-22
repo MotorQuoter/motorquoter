@@ -34,6 +34,13 @@ function buildPdf(result, vrm, checks, checkDate) {
     if (c.length === 4) return `${b}/${a}/${c}`;  // MM/DD/YYYY → DD/MM/YYYY
     return s;
   };
+  const fmtFirstReg = (s) => {
+    if (!s) return '-';
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const ym = s.match(/^(\d{4})-(\d{2})$/);
+    if (ym) { const m = MONTHS[parseInt(ym[2], 10) - 1]; return m ? `${m} ${ym[1]}` : s; }
+    return dt(s);
+  };
   const str  = (v) => (v == null ? '-' : String(v));
   const clip = (s, max) => s && s.length > max ? s.slice(0, max - 1) + '...' : (s || '-');
 
@@ -118,7 +125,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (result.co2Emissions)             row('CO2 Emissions', `${result.co2Emissions} g/km`);
   if (result.taxStatus)                row('Tax Status',    result.taxStatus,  result.taxStatus !== 'Taxed' ? 'bad' : undefined);
   if (result.motStatus)                row(isIE ? 'NCT Status' : 'MOT Status', result.motStatus, result.motStatus !== 'Valid' ? 'bad' : undefined);
-  if (result.monthOfFirstRegistration) row('First Registered', dt(result.monthOfFirstRegistration));
+  if (result.monthOfFirstRegistration) row('First Registered', fmtFirstReg(result.monthOfFirstRegistration));
   if (result.dateOfLastV5CIssued)      row('Last V5C Issued', dt(result.dateOfLastV5CIssued));
   if (result.nctExpiryDate)            row('NCT Expiry',    dt(result.nctExpiryDate));
 
