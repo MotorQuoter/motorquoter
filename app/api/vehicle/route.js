@@ -226,6 +226,7 @@ const dvla = await safeJson(dvlaRes);
     ]);
 
     const cartellData = await safeJson(cartellRes);
+    console.log('[CARTELL IDENTITY RAW]', JSON.stringify(cartellData));
     const cartell = cartellData?.success === true ? cartellData.result : null;
     if (!cartell?.vehicle_registration_mark) {
       return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
@@ -297,6 +298,7 @@ const dvla = await safeJson(dvlaRes);
         { headers: oneAutoHeaders() }
       );
       const cartellData = await safeJson(cartellRes);
+      console.log('[CARTELL IDENTITY RAW]', JSON.stringify(cartellData));
       const cartell = cartellData?.success === true ? cartellData.result : null;
       if (!cartell?.vehicle_registration_mark) {
         return NextResponse.json({ error: 'Vehicle not found in Irish register' }, { status: 404 });
