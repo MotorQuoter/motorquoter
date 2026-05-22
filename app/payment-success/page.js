@@ -59,6 +59,7 @@ function IdentitySection({ result }) {
       <SectionTitle>Vehicle Identity</SectionTitle>
       <div className="info-grid">
         {result.make            && <div className="info-cell"><div className="info-key">Make</div><div className="info-val">{result.make}</div></div>}
+        {result.model           && <div className="info-cell"><div className="info-key">Model</div><div className="info-val">{result.model}</div></div>}
         {result.yearOfManufacture && <div className="info-cell"><div className="info-key">Year</div><div className="info-val">{result.yearOfManufacture}</div></div>}
         {result.colour          && <div className="info-cell"><div className="info-key">Colour</div><div className="info-val">{result.colour}</div></div>}
         {result.engineSize      && <div className="info-cell"><div className="info-key">Engine</div><div className="info-val">{result.engineSize}</div></div>}
