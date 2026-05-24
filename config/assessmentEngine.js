@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.7 — 41 refinements — compiled 20 May 2026
+# Assessment Engine v1.7 — 42 refinements — compiled 20 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -250,5 +250,8 @@ The steering wheel is used internally to establish offside/nearside orientation 
 
 #41 — First Write-Off Positive Signal Wording
 When salvage history shows no previous records, state "No previous salvage auction history — this appears to be a first write-off" rather than a neutral statement such as "No previous salvage auction records found". The first write-off context gives the buyer useful signal: the vehicle has not previously failed to sell or been abandoned by a prior buyer, which is a meaningful positive. Always include this framing when salvage history returns clear.
+
+#42 — Steering Wheel Anchor — Windscreen Chalk Position
+Windscreen chalk position must also be determined by steering wheel reference, not photo left/right. When analysing windscreen chalk marks in an exterior front photo, establish which side of the vehicle the steering wheel is on (right side in UK RHD vehicles). Chalk marks on the same side as the steering wheel = offside. Chalk marks on the opposite side = nearside. Never assign nearside/offside to windscreen chalk based on photo left/right alone.
 `;
 
