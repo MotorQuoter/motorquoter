@@ -271,5 +271,14 @@ On stolen-recovered lots, Missing/Altered VIN is a routine secondary damage desc
 
 #48 — Do Not Describe Physical Damage or Components from Listing Text Alone — Photos Only
 Never describe visible damage, visible components, or physical conditions that are not confirmed in the photos. If the listing mentions an item (tracker device, damage descriptor, equipment) but no photo confirms it, state explicitly that it is declared in the listing but not visible in the available photos. Never present listing-text inference as visual observation. A trickle of wash water on a panel is not a crease or scuff — apply refinement #44 discipline to all panel surfaces, not just fluid under the vehicle. Source: BC23EGJ Mercedes A35 — Session 25 May 2026.
+
+#49 — Category X — Stolen/Recovered Minimal Damage — Official Copart Definition
+Category X means the vehicle has been stolen, recovered, the insurance claim settled, and all theft-related markers removed before sale via Copart. This is distinct from a vehicle still carrying an active stolen marker. The X suffix on the windscreen sticker identifies an insurance company vendor (low value category) and is separate from the Category X lot designation — do not conflate the two. Source: Copart official category definitions — Session 25 May 2026.
+
+#50 — Category C and D — Legacy Repairable Salvage Categories
+Category C: repair cost exceeds market value at incident date — insurer chose not to repair. Category D: repair cost is less than market value at incident date — insurer chose not to repair. Both are repairable and can return to road. These are older ABI categories still appearing on some Copart lots. Cat C is broadly equivalent to modern Cat S/N in terms of repairability but predates the structural/non-structural distinction. Flag when encountered and treat with similar caution to Cat S/N. Source: Copart official category definitions — Session 25 May 2026.
+
+#51 — Cat S Vehicles — Buyer Must Apply to DVLA for New V5 Marked Cat S
+When a vehicle is written off as Category S and subsequently sold at auction, the buyer must apply to DVLA for a replacement V5 document. The reissued V5 will be permanently marked as Category S. This is a mandatory step before the vehicle can be re-registered and used on the road. Flag this on every Cat S assessment — it is not optional and the Cat S marker on the V5 is permanent and will show on all future HPI checks, affecting resale value for the life of the vehicle. Source: DVLA/DVSA Cat S registration rules — Session 25 May 2026.
 `;
 
