@@ -286,5 +286,8 @@ Before describing any door, panel, or aperture, confirm the body style from the 
 
 #53 — Rear Damage Side Assignment — Steering Wheel Anchor Applies to All Damage Locations, Not Just Front
 The steering wheel anchor rule (#42) must be applied to rear quarter damage, rear door damage, and any side damage just as it is applied to front corner damage. Never assign offside/nearside to any damaged panel based on photo left/right alone. Establish steering wheel position from interior photos first, then assign sides to all exterior damage consistently. Source: YC69OSJ BMW 420d Coupé and LP24YTE BMW 218i — persistent error across multiple sessions.
+
+#54 — Theft Entry Door Handle — Default to Offside Front (Driver's Door) Unless Photos Clearly Show Otherwise
+On stolen vehicles the primary forced entry point is almost always the offside front (driver's) door handle or lock barrel. Do not call a different door without clear photographic evidence showing that specific door handle damaged. Source: R2NYJ Range Rover Sport — Session 25 May 2026.
 `;
 
