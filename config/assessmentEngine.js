@@ -280,5 +280,11 @@ Category C: repair cost exceeds market value at incident date — insurer chose 
 
 #51 — Cat S Vehicles — Buyer Must Apply to DVLA for New V5 Marked Cat S
 When a vehicle is written off as Category S and subsequently sold at auction, the buyer must apply to DVLA for a replacement V5 document. The reissued V5 will be permanently marked as Category S. This is a mandatory step before the vehicle can be re-registered and used on the road. Flag this on every Cat S assessment — it is not optional and the Cat S marker on the V5 is permanent and will show on all future HPI checks, affecting resale value for the life of the vehicle. Source: DVLA/DVSA Cat S registration rules — Session 25 May 2026.
+
+#52 — Body Style Verification — Mandatory Before Describing Panels
+Before describing any door, panel, or aperture, confirm the body style from the listing data and photos. A 3-door coupé or hatchback has no rear doors — never reference a rear door on these body styles. A 2-door convertible has no B-pillar. Describing panels that do not exist on the body style is a hallucination. Always state the confirmed body style at the start of the visible damage summary and cross-check all panel references against it. Source: YC69OSJ BMW 420d Coupé — Session 25 May 2026.
+
+#53 — Rear Damage Side Assignment — Steering Wheel Anchor Applies to All Damage Locations, Not Just Front
+The steering wheel anchor rule (#42) must be applied to rear quarter damage, rear door damage, and any side damage just as it is applied to front corner damage. Never assign offside/nearside to any damaged panel based on photo left/right alone. Establish steering wheel position from interior photos first, then assign sides to all exterior damage consistently. Source: YC69OSJ BMW 420d Coupé and LP24YTE BMW 218i — persistent error across multiple sessions.
 `;
 
