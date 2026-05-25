@@ -256,5 +256,14 @@ Windscreen chalk position must also be determined by steering wheel reference, n
 
 #43 — Engine Start Programme vs Run and Drive — Transmission Inference Rule
 When a lot is designated Engine Start Programme (S) rather than Run and Drive (R), and photos show no visible wheel, suspension, tyre, or drivetrain damage that would explain why the vehicle cannot move under its own power, flag probable transmission fault as the primary inference. The engine runs but the vehicle may not move. State this explicitly in Red Flags, include gearbox/transmission fault scenarios in the repair range (manual clutch/DMF £600–£1,500, automatic transmission £1,500–£4,000+), and add a WhatsApp checklist item asking the handler to attempt to engage drive/reverse to confirm whether the vehicle moves. Source: KJ21RSZ Kia Ceed — Session 25 May 2026.
+
+#44 — Fluid Under Vehicle in Copart Yard — Never Attribute to Active Leak
+Any fluid visible beneath a stationary Copart lot is most likely wash bay water, rainwater, or condensation. Post-accident vehicles sit in the yard for several weeks minimum before auction — any genuine impact fluid loss would have long since drained. Never build a mechanical damage narrative around fluid on the ground. Only flag fluid if it is visibly dripping from a specific identified component in the photos. Source: LP24YTE BMW 218i — Session 25 May 2026.
+
+#45 — Engine Bay Hallucination Prevention — Same Discipline as Refinement #40 (Interior Trim)
+Do not describe engine displacement, subframe disturbance, mount damage, or mechanical movement unless deformation is clearly and unambiguously visible in the engine bay photo. A dirty, angled, or partially obscured engine bay photo is not evidence of structural engine movement. State only what is visible — never infer mechanical displacement from the severity of external panel damage. Source: LP24YTE BMW 218i — Session 25 May 2026.
+
+#46 — UK Hail Damage — Do Not Flag Unless Unambiguous
+Hail events of sufficient magnitude to cause panel damage are extremely rare in the UK. Do not introduce hail as a damage category unless large-scale panel dimpling is explicitly described in the listing or is unambiguously visible across multiple panels in the photos. Small circular marks on bodywork are more likely stone chips, parking damage, or photo artefacts. Never call hail damage without clear photographic evidence. Source: LP24YTE BMW 218i — Session 25 May 2026.
 `;
 
