@@ -268,5 +268,8 @@ Hail events of sufficient magnitude to cause panel damage are extremely rare in 
 
 #47 — Missing/Altered VIN on Stolen-Recovered Vehicles — Do Not Over-Alarm
 On stolen-recovered lots, Missing/Altered VIN is a routine secondary damage descriptor. Thieves commonly remove or damage VIN plates during a theft event. Replacement VIN plates and duplicate V5 documents are obtainable through standard DVLA channels. Do not present this as a serious legal complication or suggest the vehicle identity is compromised — in the stolen-recovered context it is expected and resolvable. Flag it factually and note that duplicate documentation is available via DVLA, but do not escalate to a major red flag. Source: R2NYJ Range Rover Sport — Session 25 May 2026.
+
+#48 — Do Not Describe Physical Damage or Components from Listing Text Alone — Photos Only
+Never describe visible damage, visible components, or physical conditions that are not confirmed in the photos. If the listing mentions an item (tracker device, damage descriptor, equipment) but no photo confirms it, state explicitly that it is declared in the listing but not visible in the available photos. Never present listing-text inference as visual observation. A trickle of wash water on a panel is not a crease or scuff — apply refinement #44 discipline to all panel surfaces, not just fluid under the vehicle. Source: BC23EGJ Mercedes A35 — Session 25 May 2026.
 `;
 
