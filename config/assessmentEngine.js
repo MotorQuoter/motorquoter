@@ -265,5 +265,8 @@ Do not describe engine displacement, subframe disturbance, mount damage, or mech
 
 #46 — UK Hail Damage — Do Not Flag Unless Unambiguous
 Hail events of sufficient magnitude to cause panel damage are extremely rare in the UK. Do not introduce hail as a damage category unless large-scale panel dimpling is explicitly described in the listing or is unambiguously visible across multiple panels in the photos. Small circular marks on bodywork are more likely stone chips, parking damage, or photo artefacts. Never call hail damage without clear photographic evidence. Source: LP24YTE BMW 218i — Session 25 May 2026.
+
+#47 — Missing/Altered VIN on Stolen-Recovered Vehicles — Do Not Over-Alarm
+On stolen-recovered lots, Missing/Altered VIN is a routine secondary damage descriptor. Thieves commonly remove or damage VIN plates during a theft event. Replacement VIN plates and duplicate V5 documents are obtainable through standard DVLA channels. Do not present this as a serious legal complication or suggest the vehicle identity is compromised — in the stolen-recovered context it is expected and resolvable. Flag it factually and note that duplicate documentation is available via DVLA, but do not escalate to a major red flag. Source: R2NYJ Range Rover Sport — Session 25 May 2026.
 `;
 
