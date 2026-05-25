@@ -253,5 +253,8 @@ When salvage history shows no previous records, state "No previous salvage aucti
 
 #42 — Steering Wheel Anchor — Windscreen Chalk Position
 Windscreen chalk position must also be determined by steering wheel reference, not photo left/right. When analysing windscreen chalk marks in an exterior front photo, establish which side of the vehicle the steering wheel is on (right side in UK RHD vehicles). Chalk marks on the same side as the steering wheel = offside. Chalk marks on the opposite side = nearside. Never assign nearside/offside to windscreen chalk based on photo left/right alone.
+
+#43 — Engine Start Programme vs Run and Drive — Transmission Inference Rule
+When a lot is designated Engine Start Programme (S) rather than Run and Drive (R), and photos show no visible wheel, suspension, tyre, or drivetrain damage that would explain why the vehicle cannot move under its own power, flag probable transmission fault as the primary inference. The engine runs but the vehicle may not move. State this explicitly in Red Flags, include gearbox/transmission fault scenarios in the repair range (manual clutch/DMF £600–£1,500, automatic transmission £1,500–£4,000+), and add a WhatsApp checklist item asking the handler to attempt to engage drive/reverse to confirm whether the vehicle moves. Source: KJ21RSZ Kia Ceed — Session 25 May 2026.
 `;
 
