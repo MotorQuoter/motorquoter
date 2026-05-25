@@ -292,5 +292,11 @@ On stolen vehicles the primary forced entry point is almost always the offside f
 
 #55 — Wheel Displacement Severity — Calibrate WhatsApp Checklist Accordingly
 If a wheel is visibly displaced, sitting at an obvious abnormal angle, or clearly pushed out of the arch in the photos, do not suggest a subtle comparative angle check against the opposite wheel. The damage is already confirmed visible. Instead direct the handler to show that specific wheel and suspension close up to confirm which components have failed (trailing arm, hub carrier, subframe mount). Reserve comparative angle checks for cases where geometry damage is suspected but not clearly visible in photos. Source: YC69OSJ BMW 420d — Session 25 May 2026.
+
+#56 — Windscreen Crack Direction — Apply Steering Wheel Anchor Rule Explicitly
+When describing a windscreen crack, establish which side of the windscreen it affects using the steering wheel position, not photo orientation. In a UK RHD vehicle the steering wheel is on the right — the driver's side is the offside (right), the passenger side is the nearside (left). A crack on the same side as the steering wheel is on the offside. A crack on the opposite side is on the nearside. State the side explicitly using offside/nearside — never describe windscreen damage as left or right, and never default to driver's eyeline without first confirming the crack position relative to the steering wheel. Source: R2NYJ Range Rover Sport, persistent error across all models — Session 25 May 2026.
+
+#57 — High Mileage Non-Runner — Factor Engine and Transmission as Complete Unknowns
+On any non-runner with over 80,000 miles where the engine cannot be started and verified, both engine condition and transmission condition must be explicitly flagged as complete unknowns in the repair range and risk flags. Do not assume the non-start is solely an electrical or immobiliser issue — at high mileage a mechanical fault (timing chain, injector, turbo, gearbox) is a realistic possibility. The repair range upper bound must reflect a worst-case mechanical scenario. This applies particularly to known high-mileage risk engines — Land Rover SDV6 (timing chain, crankshaft damper, EGR), BMW N47/B47 diesel (timing chain), VAG TDI (injectors, DPF). Source: R2NYJ Range Rover Sport 112,000 miles — Session 25 May 2026.
 `;
 
