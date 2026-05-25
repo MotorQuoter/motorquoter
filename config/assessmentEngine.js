@@ -289,5 +289,8 @@ The steering wheel anchor rule (#42) must be applied to rear quarter damage, rea
 
 #54 — Theft Entry Door Handle — Default to Offside Front (Driver's Door) Unless Photos Clearly Show Otherwise
 On stolen vehicles the primary forced entry point is almost always the offside front (driver's) door handle or lock barrel. Do not call a different door without clear photographic evidence showing that specific door handle damaged. Source: R2NYJ Range Rover Sport — Session 25 May 2026.
+
+#55 — Wheel Displacement Severity — Calibrate WhatsApp Checklist Accordingly
+If a wheel is visibly displaced, sitting at an obvious abnormal angle, or clearly pushed out of the arch in the photos, do not suggest a subtle comparative angle check against the opposite wheel. The damage is already confirmed visible. Instead direct the handler to show that specific wheel and suspension close up to confirm which components have failed (trailing arm, hub carrier, subframe mount). Reserve comparative angle checks for cases where geometry damage is suspected but not clearly visible in photos. Source: YC69OSJ BMW 420d — Session 25 May 2026.
 `;
 
