@@ -298,5 +298,8 @@ When describing a windscreen crack, establish which side of the windscreen it af
 
 #57 — High Mileage Non-Runner — Factor Engine and Transmission as Complete Unknowns
 On any non-runner with over 80,000 miles where the engine cannot be started and verified, both engine condition and transmission condition must be explicitly flagged as complete unknowns in the repair range and risk flags. Do not assume the non-start is solely an electrical or immobiliser issue — at high mileage a mechanical fault (timing chain, injector, turbo, gearbox) is a realistic possibility. The repair range upper bound must reflect a worst-case mechanical scenario. This applies particularly to known high-mileage risk engines — Land Rover SDV6 (timing chain, crankshaft damper, EGR), BMW N47/B47 diesel (timing chain), VAG TDI (injectors, DPF). Source: R2NYJ Range Rover Sport 112,000 miles — Session 25 May 2026.
+
+#58 — Photo and Listing Evidence Always Overrides Assumed Specification Knowledge
+Never make confident factual claims about vehicle specifications that contradict visible evidence in the photos or listing data. If the dashboard shows a POWER/CHARGE display and the boot contains a 48V battery unit, the vehicle has a mild hybrid system regardless of what training memory suggests about that model. Photo and listing evidence always overrides assumed specification knowledge. Source: BC23EGJ Mercedes A35 — Opus 4.7 contradicted its own photo observations — Session 25 May 2026.
 `;
 

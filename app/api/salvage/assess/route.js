@@ -382,6 +382,7 @@ export async function GET(request) {
     });
 
     const apiData = await apiResponse.json();
+    console.log('[TOKEN LOG] Input tokens:', apiData.usage?.input_tokens, '| Output tokens:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
     if (!apiResponse.ok) throw new Error(apiData.error?.message || 'Claude API error');
 
     const rawText = apiData.content?.[0]?.text || '';
