@@ -301,5 +301,21 @@ On any non-runner with over 80,000 miles where the engine cannot be started and 
 
 #58 — Photo and Listing Evidence Always Overrides Assumed Specification Knowledge
 Never make confident factual claims about vehicle specifications that contradict visible evidence in the photos or listing data. If the dashboard shows a POWER/CHARGE display and the boot contains a 48V battery unit, the vehicle has a mild hybrid system regardless of what training memory suggests about that model. Photo and listing evidence always overrides assumed specification knowledge. Source: BC23EGJ Mercedes A35 — Opus 4.7 contradicted its own photo observations — Session 25 May 2026.
+
+#59 — Copart Estimated Retail Value — Vendor-Type-Aware Interpretation
+Copart's "Estimated Retail Value" field does not have a single consistent meaning across all lots. Its interpretation is determined by the windscreen sticker suffix, which must already be identified and reported under the mandatory suffix check.
+
+X suffix (insurance vendor, low value) and P suffix (insurance vendor, high value):
+The Estimated Retail Value represents the insurance settlement paid to the claimant — the insurer's pre-accident market valuation of the vehicle. Treat as a pre-accident market value reference, typically at or slightly below clean retail. This is the most reliable of the four vendor types as a clean retail proxy.
+
+C suffix (private entry):
+The Estimated Retail Value is variable in origin — it may be the vendor's own reserve price or a rough market estimate. Cross-reference against Cazana clean retail before drawing any inference from the figure. Treat with moderate caution.
+
+Q suffix (Copart purchased to resell):
+The Estimated Retail Value is Copart's own commercial target sale price — it is not an insurance settlement and not an independent market valuation. Copart has a direct commercial interest in anchoring bidder expectations upward. This figure is likely above Copart's purchase cost and may be materially above realistic clean retail. When a Q-suffix ERV is present, state in the output: "Copart's Estimated Retail Value of £[X] is a commercial target on a Q-suffix lot, not an insurance settlement. Verify against Cazana clean retail before using for margin calculation." Treat with significant scepticism.
+
+General rule — applies to all suffix types:
+The Copart Estimated Retail Value is never used as the primary exit value calculation base regardless of vendor type. The authoritative exit value reference is Cazana clean retail (when available). The Cat N/S discount (20–35%) is applied to Cazana clean retail, not to the Copart ERV. When both figures are present, display both in the report with their respective vendor-type context so the buyer understands the difference. This rule supersedes any prior wording suggesting the Copart ERV can serve as a valuation reference.
+Source: Vincent direct experience (X/P insight) + logical analysis (Q-suffix carve-out) — Session 26 May 2026.
 `;
 
