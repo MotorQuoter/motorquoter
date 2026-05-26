@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { getAllCopartFeeBands } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
+import { getMileageForValuation } from '@/lib/getMileageForValuation';
 
 export const maxDuration = 120;
 
@@ -113,6 +114,7 @@ export async function GET(request) {
         vehicleDetails: vd,
         market: check.market,
         rerunCount: check.rerun_count ?? 0,
+        bregoData: vd.bregoValuation ?? null,
       });
     }
 
@@ -265,19 +267,39 @@ export async function GET(request) {
 
     if (roiData) enrichedVd.roiData = roiData;
 
-    // Fetch salvage history (GB/NI only — bundled silently into the assessment price)
+    // Determine mileage for Brego valuation
+    const { mileage: brMileage, source: brMileageSource } = getMileageForValuation({
+      formMileage: enrichedVd.copartListedMileage ?? null,
+      dvsaMileage: enrichedVd.lastMotMileage ?? null,
+    });
+
+    // Fetch salvage history + Brego valuation in parallel (GB/NI only)
+    let bregoData = null;
     if (market !== 'IE' && enrichedVd.vrm) {
       const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-      const cleanVrm = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
+      const cleanVrmB = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
+      const hdrs = { 'x-api-key': process.env.ONE_AUTO_API_KEY };
+
+      const [shRes, brRes] = await Promise.all([
+        fetch(`${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, { headers: hdrs }).catch(() => null),
+        fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs }).catch(() => null),
+      ]);
+
       try {
-        const shRes = await fetch(
-          `${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`,
-          { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
-        );
-        const shText = await shRes.text();
+        const shText = await shRes?.text();
         const shRaw = shText ? JSON.parse(shText) : null;
         const shResult = shRaw?.result ?? shRaw;
         if (shResult && !shResult.error) enrichedVd.salvageHistory = shResult;
+      } catch {}
+
+      try {
+        const brText = await brRes?.text();
+        const brRaw = brText ? JSON.parse(brText) : null;
+        const brResult = brRaw?.result ?? brRaw;
+        if (brResult && !brResult.error) {
+          bregoData = { ...brResult, _mileageSource: brMileageSource, _mileageUsed: brMileage };
+          enrichedVd.bregoValuation = bregoData;
+        }
       } catch {}
     }
 
@@ -347,6 +369,23 @@ export async function GET(request) {
         ].filter(Boolean).join('\n')).join('\n');
         return `Previous Salvage Auction History (${records.length} record${records.length !== 1 ? 's' : ''} found):\n${lines}`;
       })(),
+      (() => {
+        if (!bregoData) return 'Live market valuation data: UNAVAILABLE — proceed with assessment but flag exit value as low confidence.';
+        const fmt = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
+        const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+        return [
+          `Live market valuation data (Brego, ${monthYear}):`,
+          `- Retail low (poor condition): ${fmt(bregoData.retail_low_valuation)}`,
+          `- Retail average (average condition): ${fmt(bregoData.retail_average_valuation)}`,
+          `- Retail high (excellent condition): ${fmt(bregoData.retail_high_valuation)}`,
+          `- Trade low (poor condition): ${fmt(bregoData.trade_low_valuation)}`,
+          `- Trade average (average condition): ${fmt(bregoData.trade_average_valuation)}`,
+          `- Trade high (excellent condition): ${fmt(bregoData.trade_high_valuation)}`,
+          bregoData.vehicle_desc ? `- Vehicle: ${bregoData.vehicle_desc}` : null,
+          `- Mileage used for valuation: ${bregoData._mileageUsed} miles`,
+          `- Mileage source: ${bregoData._mileageSource}`,
+        ].filter(Boolean).join('\n');
+      })(),
     ].filter(Boolean).join('\n');
 
     const imageBlocks = session.images
@@ -397,7 +436,7 @@ export async function GET(request) {
       .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
       .eq('id', salvageId);
 
-    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0 });
+    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
 
   } catch (err) {
     console.error('Salvage assess error:', err);

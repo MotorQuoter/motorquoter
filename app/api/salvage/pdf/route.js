@@ -91,7 +91,7 @@ function parseChecklistItems(text) {
     .filter(s => s.length > 0);
 }
 
-function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate) {
+function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate, bregoData) {
   const assessment = resolveFields(rawAssessment);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
@@ -374,6 +374,54 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     }
   }
 
+  // Brego Market Valuation section
+  if (bregoData) {
+    const fmtP = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
+    const src = bregoData._mileageSource;
+    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : 'default (50k miles)';
+    const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    sectionTitle(`Live Market Valuation (Brego, ${monthYear})`);
+    checkPage(36);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+    doc.text(`Mileage: ${Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles (source: ${srcLabel})`, MARGIN, y); y += 5;
+    const COL = CONTENT_W / 4;
+    const headers = ['', 'Low', 'Average', 'High'];
+    headers.forEach((h, i) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+      doc.text(h, MARGIN + i * COL + (i === 0 ? 0 : COL / 2), y, i === 0 ? {} : { align: 'center' });
+    });
+    y += 5;
+    doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2); doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    const rows = [
+      ['Retail', bregoData.retail_low_valuation, bregoData.retail_average_valuation, bregoData.retail_high_valuation],
+      ['Trade',  bregoData.trade_low_valuation,  bregoData.trade_average_valuation,  bregoData.trade_high_valuation],
+    ];
+    for (const [label, lo, avg, hi] of rows) {
+      checkPage(8);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(60, 60, 60);
+      doc.text(label, MARGIN, y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(fmtP(lo),  MARGIN + COL * 1.5, y, { align: 'center' });
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(0, 120, 60);
+      doc.text(fmtP(avg), MARGIN + COL * 2.5, y, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20);
+      doc.text(fmtP(hi),  MARGIN + COL * 3.5, y, { align: 'center' });
+      y += 6;
+      doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.15); doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    if (vd.estimatedRetail) {
+      checkPage(8); y += 2;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+      doc.text(`Copart ERV: ${str(vd.estimatedRetail)} — vendor-type interpretation in assessment`, MARGIN, y); y += 6;
+    }
+    if (src !== 'copart_listed') {
+      checkPage(8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 100, 0);
+      doc.text(`Note: mileage from ${srcLabel} — engine applied 5-10% downward caution to retail figures.`, MARGIN, y); y += 7;
+    }
+    y += 2;
+  }
+
   // Fix 4 — Section 3: REPAIR ESTIMATE BANNER
   const repairRange = str(assessment['Estimated Repair Range']);
   if (repairRange) {
@@ -466,7 +514,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
 export async function POST(request) {
   try {
-    const { assessment, vehicleDetails, market, identifier } = await request.json();
+    const { assessment, vehicleDetails, market, identifier, bregoData } = await request.json();
     if (!assessment) {
       return Response.json({ error: 'Missing assessment data' }, { status: 400 });
     }
@@ -483,7 +531,8 @@ export async function POST(request) {
       vehicleDetails || {},
       market || 'GB',
       identifier || '',
-      today
+      today,
+      bregoData || null
     );
 
     return new Response(pdfBuffer, {

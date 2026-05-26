@@ -20,6 +20,7 @@ export default function SalvagePage() {
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
   const [auctionSource, setAuctionSource] = useState('copart');
+  const [copartMileage, setCopartMileage] = useState('');
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
@@ -134,7 +135,7 @@ export default function SalvagePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             salvage_id: rerunSalvageId,
-            vehicleDetails: { ...details, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
+            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -147,7 +148,7 @@ export default function SalvagePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            vehicleDetails: { ...details, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
+            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
             images: images.map(i => i.base64),
             market,
           }),
@@ -428,6 +429,16 @@ export default function SalvagePage() {
                 value={details.lotNumber}
                 onChange={e => setDetails(p => ({ ...p, lotNumber: e.target.value }))}
               />
+              <div>
+                <input
+                  className="text-input"
+                  placeholder="Copart listed mileage (optional)"
+                  inputMode="numeric"
+                  value={copartMileage}
+                  onChange={e => setCopartMileage(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                />
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>Enter the mileage shown on the Copart listing. If blank, we'll use the last MOT mileage from DVSA.</div>
+              </div>
               <textarea
                 className="textarea-input"
                 placeholder="Damage description (copy from listing — helps AI compare against photos)"

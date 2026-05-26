@@ -66,6 +66,7 @@ export default function SalvageSuccessPage() {
   const [rerunCount, setRerunCount] = useState(null);
   const [savedLot, setSavedLot] = useState(null);
   const [showComparison, setShowComparison] = useState(false);
+  const [bregoData, setBregoData] = useState(null);
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -110,6 +111,7 @@ export default function SalvageSuccessPage() {
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');
       setRerunCount(data.rerunCount ?? 0);
+      setBregoData(data.bregoData || null);
       setStatus('success');
     } catch (e) {
       setErrorMsg(e.message);
@@ -145,7 +147,7 @@ export default function SalvageSuccessPage() {
       const res = await fetch('/api/salvage/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment: assessmentForPdf, vehicleDetails: vd, market, identifier }),
+        body: JSON.stringify({ assessment: assessmentForPdf, vehicleDetails: vd, market, identifier, bregoData: bregoData || null }),
       });
       if (!res.ok) throw new Error('PDF generation failed');
       const buf = await res.arrayBuffer();
@@ -466,6 +468,68 @@ export default function SalvageSuccessPage() {
             <div className="section">
               <div className="section-title">Valuation &amp; Bidding</div>
               <div className="section-body">
+                {/* Brego live market valuation matrix */}
+                {(() => {
+                  const fmtGbp = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                  const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+                  const headSt = { fontSize: 11, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase', textAlign: 'right', paddingBottom: 4 };
+                  const cellSt = (highlight) => ({ fontSize: 14, fontWeight: highlight ? 800 : 500, color: highlight ? '#4ade80' : 'var(--text)', textAlign: 'right', padding: '6px 0', borderTop: '1px solid var(--border-dim)' });
+                  const rowLabelSt = { fontSize: 12, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase', padding: '6px 0', borderTop: '1px solid var(--border-dim)' };
+                  if (bregoData) {
+                    const src = bregoData._mileageSource;
+                    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : 'default (50k)';
+                    return (
+                      <div className="field-row">
+                        <div className="field-key">
+                          Live Market Valuation
+                          <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow', sans-serif", textTransform: 'none', letterSpacing: 0, fontWeight: 400, marginTop: 2 }}>
+                            Brego · {monthYear} · {Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles ({srcLabel})
+                          </span>
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ ...headSt, textAlign: 'left' }}> </th>
+                              <th style={headSt}>Low</th>
+                              <th style={headSt}>Average</th>
+                              <th style={headSt}>High</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td style={rowLabelSt}>Retail</td>
+                              <td style={cellSt(false)}>{fmtGbp(bregoData.retail_low_valuation)}</td>
+                              <td style={cellSt(true)}>{fmtGbp(bregoData.retail_average_valuation)}</td>
+                              <td style={cellSt(false)}>{fmtGbp(bregoData.retail_high_valuation)}</td>
+                            </tr>
+                            <tr>
+                              <td style={rowLabelSt}>Trade</td>
+                              <td style={cellSt(false)}>{fmtGbp(bregoData.trade_low_valuation)}</td>
+                              <td style={cellSt(true)}>{fmtGbp(bregoData.trade_average_valuation)}</td>
+                              <td style={cellSt(false)}>{fmtGbp(bregoData.trade_high_valuation)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        {vehicleDetails?.estimatedRetail && (
+                          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-dim)', borderTop: '1px solid var(--border-dim)', paddingTop: 8 }}>
+                            Copart ERV: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{vehicleDetails.estimatedRetail}</span> — vendor-type interpretation in assessment above
+                          </div>
+                        )}
+                        {src !== 'copart_listed' && (
+                          <div style={{ marginTop: 6, fontSize: 12, color: '#f5c842' }}>
+                            ⚠️ Mileage from {src === 'dvsa_mot' ? 'DVSA last MOT — may be understated if driven since' : 'default (50,000 miles) — actual mileage unknown'}. Engine applies 5–10% downward caution.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">Live Market Valuation</div>
+                      <div className="field-val" style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Unavailable — engine used wider confidence range</div>
+                    </div>
+                  );
+                })()}
                 {assessment['Realistic Exit Value'] && (
                   <div className="field-row">
                     <div className="field-key">Realistic Exit Value</div>
