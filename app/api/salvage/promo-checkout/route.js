@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { logEvent } from '@/lib/analytics';
 
 function getSupabase() {
   return createClient(
@@ -16,17 +15,21 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const { vrm, checks, mileage, market, roiTier, promo_code } = body;
+  const { vehicleDetails, images, market, roiTier, promoCode } = body;
 
-  if (!vrm || !promo_code) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  if (!promoCode) {
+    return NextResponse.json({ error: 'Promo code required' }, { status: 400 });
+  }
+  if (!Array.isArray(images) || images.length === 0) {
+    return NextResponse.json({ error: 'At least one image is required' }, { status: 400 });
+  }
+  if (images.length > 20) {
+    return NextResponse.json({ error: 'Maximum 20 images allowed' }, { status: 400 });
   }
 
-  const code = promo_code.trim().toUpperCase();
-  const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
+  const code = promoCode.trim().toUpperCase();
   const supabase = getSupabase();
 
-  // Re-validate server-side
   const { data: promo } = await supabase
     .from('promo_codes')
     .select('*')
@@ -35,57 +38,43 @@ export async function POST(request) {
     .maybeSingle();
 
   if (!promo) return NextResponse.json({ error: 'Invalid promo code' }, { status: 400 });
-
   if (promo.expires_at && new Date(promo.expires_at) < new Date()) {
     return NextResponse.json({ error: 'Promo code has expired' }, { status: 400 });
   }
-
   if (promo.max_uses !== null && promo.uses_so_far >= promo.max_uses) {
     return NextResponse.json({ error: 'Promo code has no uses remaining' }, { status: 400 });
   }
-
   if (promo.discount_type !== 'free') {
     return NextResponse.json({ error: 'This endpoint is for free codes only' }, { status: 400 });
   }
-
-  if (promo.allowed_products && !promo.allowed_products.includes('main_app')) {
+  if (promo.allowed_products && !promo.allowed_products.includes('salvage')) {
     return NextResponse.json({ error: 'This code is not valid for this product' }, { status: 400 });
   }
 
-  // Increment uses_so_far
+  // Increment uses immediately — before session creation to prevent double-use on retry
   await supabase
     .from('promo_codes')
     .update({ uses_so_far: promo.uses_so_far + 1 })
     .eq('code', code);
 
-  // Create redeemed session token — generate UUID here so we never need to read it back
-  const token = randomUUID();
-  const checksStr = Array.isArray(checks) ? checks.join(',') : (checks || '');
-  const { error: sessionError } = await supabase
-    .from('redeemed_sessions')
-    .insert({
-      id: token,
-      token: token,
-      vrm: cleanVrm,
-      checks: checksStr,
-      mileage: mileage || '',
-      market: market || 'GB',
-      roi_tier: roiTier || null,
-      promo_code: code,
-    });
+  const promoToken = randomUUID();
+  const roiTierKey = market === 'IE' ? (roiTier || 'roi_free') : null;
 
-  if (sessionError) {
-    console.error('redeemed_sessions insert error:', sessionError);
+  const { data: session, error: dbError } = await supabase
+    .from('salvage_sessions')
+    .insert({
+      status: 'promo_redeemed',
+      vehicle_details: { ...(vehicleDetails || {}), roiTier: roiTierKey, promoToken },
+      images,
+      market: market || 'GB',
+    })
+    .select('id')
+    .single();
+
+  if (dbError) {
+    console.error('Supabase insert error:', dbError);
     return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
   }
 
-  logEvent('payment_completed', {
-    vrm: cleanVrm,
-    tier: checksStr || roiTier || '',
-    market: market || 'GB',
-    stripe_session_id: token,
-    promo_code: code,
-  });
-
-  return NextResponse.json({ token });
+  return NextResponse.json({ salvage_id: session.id, promoToken });
 }

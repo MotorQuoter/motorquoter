@@ -21,7 +21,7 @@ export async function GET(request) {
 
   const { data: promo } = await supabase
     .from('promo_codes')
-    .select('code, discount_type, discount_value, max_uses, uses_so_far, expires_at, active')
+    .select('code, discount_type, discount_value, max_uses, uses_so_far, expires_at, active, allowed_products')
     .eq('code', code)
     .eq('active', true)
     .maybeSingle();
@@ -42,5 +42,6 @@ export async function GET(request) {
     valid: true,
     discount_type: promo.discount_type,
     discount_value: promo.discount_value,
+    allowed_products: promo.allowed_products ?? null,
   });
 }

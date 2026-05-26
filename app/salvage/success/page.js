@@ -70,12 +70,14 @@ export default function SalvageSuccessPage() {
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
+  const promoTokenRef = useRef(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     salvageIdRef.current = params.get('salvage_id');
     sessionIdRef.current = params.get('session_id');
-    if (!salvageIdRef.current || !sessionIdRef.current) {
+    promoTokenRef.current = params.get('promo_token');
+    if (!salvageIdRef.current || (!sessionIdRef.current && !promoTokenRef.current)) {
       setErrorMsg('Invalid session. Please return to the salvage tool.');
       setStatus('error');
       return;
@@ -103,7 +105,9 @@ export default function SalvageSuccessPage() {
 
   const runAssessment = async () => {
     try {
-      const url = `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
+      const url = promoTokenRef.current
+        ? `/api/salvage/assess?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
+        : `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
       const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Assessment failed');

@@ -66,18 +66,30 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
   const salvageId = searchParams.get('salvage_id');
+  const promoToken = searchParams.get('promo_token');
 
-  if (!stripeSessionId || !salvageId) {
+  if (!salvageId || (!stripeSessionId && !promoToken)) {
     return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const supabase = getSupabase();
 
   try {
-    const stripeSession = await stripe.checkout.sessions.retrieve(stripeSessionId);
-    if (stripeSession.payment_status !== 'paid') {
-      return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
+    if (promoToken) {
+      const { data: tokenCheck } = await supabase
+        .from('salvage_sessions')
+        .select('vehicle_details')
+        .eq('id', salvageId)
+        .single();
+      if (!tokenCheck || tokenCheck.vehicle_details?.promoToken !== promoToken) {
+        return NextResponse.json({ error: 'Invalid promo token' }, { status: 403 });
+      }
+    } else {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const stripeSession = await stripe.checkout.sessions.retrieve(stripeSessionId);
+      if (stripeSession.payment_status !== 'paid') {
+        return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
+      }
     }
 
     // Check for cached assessment first (without fetching images)
@@ -129,10 +141,9 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    await supabase
-      .from('salvage_sessions')
-      .update({ status: 'processing', stripe_session_id: stripeSessionId })
-      .eq('id', salvageId);
+    const sessionUpdate = { status: 'processing' };
+    if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
+    await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
 
     const vd = session.vehicle_details || {};
     const market = session.market || 'GB';

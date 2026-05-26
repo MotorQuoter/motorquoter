@@ -21,6 +21,10 @@ export default function SalvagePage() {
   const [rerunSalvageId, setRerunSalvageId] = useState('');
   const [auctionSource, setAuctionSource] = useState('copart');
   const [copartMileage, setCopartMileage] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState(null);
   const fileInputRef = useRef(null);
 
   const price = PRICING.salvageAssessment.price;
@@ -124,11 +128,51 @@ export default function SalvagePage() {
     }
   };
 
+  const handleApplyPromo = async () => {
+    const code = promoInput.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoError(null);
+    try {
+      const res = await fetch(`/api/promo/validate?code=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (data.valid) {
+        if (data.allowed_products && !data.allowed_products.includes('salvage')) {
+          setPromoError('This code is not valid for this product');
+        } else {
+          setAppliedPromo({ code, discount_type: data.discount_type, discount_value: data.discount_value });
+        }
+      } else {
+        setPromoError(data.error || 'Invalid promo code');
+      }
+    } catch {
+      setPromoError('Could not check promo code. Please try again.');
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (images.length === 0) { setError('Please upload at least one photo of the vehicle.'); return; }
     setError('');
     setLoading(true);
     try {
+      if (appliedPromo?.discount_type === 'free') {
+        const res = await fetch('/api/salvage/promo-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
+            images: images.map(i => i.base64),
+            market,
+            promoCode: appliedPromo.code,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.salvage_id) throw new Error(data.error || 'Promo checkout failed');
+        router.push(`/salvage/success?salvage_id=${data.salvage_id}&promo_token=${data.promoToken}`);
+        return;
+      }
       if (isRerun) {
         const res = await fetch('/api/salvage/rerun-submit', {
           method: 'POST',
@@ -471,6 +515,25 @@ export default function SalvagePage() {
             <div className="feature-item"><span className="feature-dot">▸</span>Downloadable PDF report</div>
           </div>
 
+          {/* Promo code */}
+          {!isRerun && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
+              {appliedPromo ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1, background: 'rgba(74,222,128,0.1)', border: '1.5px solid rgba(74,222,128,0.3)', borderRadius: 7, padding: '7px 11px', fontSize: 13, color: '#4ade80', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700 }}>✓ {appliedPromo.code}</div>
+                  <button style={{ background: 'none', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '7px 10px', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer', fontFamily: "'Barlow Condensed', sans-serif" }} onClick={() => { setAppliedPromo(null); setPromoInput(''); setPromoError(null); }}>Remove</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="text" placeholder="Enter code" value={promoInput} onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null); }} onKeyDown={e => e.key === 'Enter' && handleApplyPromo()} style={{ flex: 1, background: 'var(--bg)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 11px', color: 'var(--text)', fontSize: 13, outline: 'none', fontFamily: "'Barlow', sans-serif" }} />
+                  <button onClick={handleApplyPromo} disabled={!promoInput.trim() || promoLoading} style={{ background: 'var(--bg3)', border: '1.5px solid var(--border-dim)', borderRadius: 7, padding: '9px 14px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer', opacity: (!promoInput.trim() || promoLoading) ? 0.45 : 1 }}>{promoLoading ? '...' : 'Apply'}</button>
+                </div>
+              )}
+              {promoError && <div style={{ marginTop: 5, fontSize: 11, color: '#f87171' }}>{promoError}</div>}
+            </div>
+          )}
+
           {error && <div className="error-box">⚠️ {error}</div>}
 
           <button
@@ -478,7 +541,7 @@ export default function SalvagePage() {
             onClick={handleSubmit}
             disabled={loading}
           >
-            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : `🔨 Pay £${price.toFixed(2)} and Assess`}
+            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : appliedPromo?.discount_type === 'free' ? '🎟 Redeem & Assess' : `🔨 Pay £${price.toFixed(2)} and Assess`}
           </button>
         </div>
 
