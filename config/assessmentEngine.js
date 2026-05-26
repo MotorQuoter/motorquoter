@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.7 — 42 refinements — compiled 20 May 2026
+# Assessment Engine v1.8 — 59 refinements — compiled 26 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
