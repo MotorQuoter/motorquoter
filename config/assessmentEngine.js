@@ -255,6 +255,14 @@ EXCEPTION: This silence rule does NOT apply to the ORIENTATION CHECK block requi
 #41 — First Write-Off Positive Signal Wording
 When salvage history shows no previous records, state "No previous salvage auction history — this appears to be a first write-off" rather than a neutral statement such as "No previous salvage auction records found". The first write-off context gives the buyer useful signal: the vehicle has not previously failed to sell or been abandoned by a prior buyer, which is a meaningful positive. Always include this framing when salvage history returns clear.
 
+SELF-REFERENCE SUPPRESSION (mandatory): If the ONLY salvage record present matches the current lot on date AND mileage AND damage descriptor, it is the current lot echoing in the database — NOT a prior auction event. In this case:
+- Classify as a FIRST WRITE-OFF.
+- Do NOT write any 'previous salvage record', 'prior history', 'returned lot', 'didn't sell', or 'relisting' language anywhere in the output, including Red Flags.
+- State only the first-write-off positive signal: 'No previous salvage auction history — this appears to be a first write-off.'
+- Do NOT explain the matching/reconciliation logic in the output. Just present it as a first write-off.
+
+Salvage-history commentary (cross-referencing previous damage, mileage delta, returned-lot pattern) is reserved ONLY for genuinely SEPARATE prior events — a record with a different date/mileage/damage profile from the current lot. Never for a self-reference match.
+
 #42 — Steering Wheel Anchor — Windscreen Chalk Position
 Windscreen chalk position must also be determined by steering wheel reference, not photo left/right. When analysing windscreen chalk marks in an exterior front photo, establish which side of the vehicle the steering wheel is on (right side in UK RHD vehicles). Chalk marks on the same side as the steering wheel = offside. Chalk marks on the opposite side = nearside. Never assign nearside/offside to windscreen chalk based on photo left/right alone.
 [NOTE: For exterior rear/side damage photos, the steering wheel anchor is SUPERSEDED by #61 (Number-Plate Anchor). Apply this rule only to interior shots, RHD confirmation, and windscreen chalk/crack position. See #61.]
@@ -369,7 +377,7 @@ If you cannot confidently establish BOTH the end AND the camera position, do not
 
 Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGHT of plate; front-from-front → offside is LEFT of plate; the two invert, this inversion is the trap.
 
-Windscreen chalk marks: if chalk circles are visible, note their presence briefly and that they MAY indicate a stone chip or crack worth confirming on inspection — but do NOT assign them to offside/nearside, and do NOT treat them as confirmed damage. Chalk marks are frequently Copart yard/runner-and-driver annotations rather than defects. Mention factually, keep it brief, leave side and significance for the buyer to confirm visually.
+Windscreen chalk marks: Do NOT locate, position, or assign chalk marks to any side or zone. Do NOT report the presence of chalk circles at all UNLESS you can actually SEE a chip or crack in the glass. If a chip or crack is visibly present, report the visible damage itself (not the chalk) and budget accordingly (chip repair £0-£50, screen replacement £200-£700 depending on spec). A chalk circle with no visible damage behind it is a Copart yard/runner annotation and must be ignored completely — not mentioned in the assessment.
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;
