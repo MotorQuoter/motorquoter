@@ -62,6 +62,18 @@ function parseAssessment(text) {
   return result;
 }
 
+function catLetter(s) {
+  if (!s) return null;
+  const t = s.trim().toLowerCase();
+  let m = t.match(/^cat(?:egory)?\s+([snabcd])\b/);
+  if (m) return m[1];
+  m = t.match(/^([snabcd])\s+repairable/);
+  if (m) return m[1];
+  m = t.match(/^([snabcd])$/);
+  if (m) return m[1];
+  return null;
+}
+
 function tagSelfReference(shResult, vd) {
   if (!shResult) return;
   const records = shResult.salvage_auction_records || [];
@@ -77,8 +89,9 @@ function tagSelfReference(shResult, vd) {
   const mileageMatch = currentMileage != null && rec.mileage != null
     ? Math.abs(rec.mileage - currentMileage) <= 50
     : null;
-  const categoryMatch = vd.category != null && rec.salvage_auction_lot_desc != null
-    && rec.salvage_auction_lot_desc.toLowerCase().trim() === vd.category.toLowerCase().trim();
+  const recCat = catLetter(rec.salvage_auction_lot_desc);
+  const curCat = catLetter(vd.category);
+  const categoryMatch = recCat != null && curCat != null && recCat === curCat;
   const damageMatch = vd.primaryDamage != null && rec.primary_damage_desc != null
     && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
   shResult.isSelfReferenceFirstWriteOff =
