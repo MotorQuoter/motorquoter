@@ -43,7 +43,7 @@ function parseFromRaw(rawText) {
   for (const field of ASSESSMENT_FIELDS) {
     const patterns = [
       new RegExp('^#{1,6}\\s*' + esc(field) + '\\s*$', 'im'),
-      new RegExp(esc(field) + '\\s*:', 'i'),
+      new RegExp('^\\s*' + esc(field) + '\\s*:', 'im'),
     ];
     for (const rx of patterns) {
       const m = clean.match(rx);
