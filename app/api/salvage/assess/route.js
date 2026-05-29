@@ -455,7 +455,7 @@ export async function GET(request) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: 8000,
         system: ASSESSMENT_ENGINE_PROMPT,
         messages: [{ role: 'user', content: userContent }],
       }),
