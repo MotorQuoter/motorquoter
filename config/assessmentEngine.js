@@ -353,6 +353,21 @@ CORROBORATION — use where visible to confirm the plate-based assignment:
 • Exhaust exit: less reliable, but a single exhaust exiting clearly to one side on a symmetric car can corroborate.
 
 UNCERTAINTY VALVE: If you cannot confidently establish BOTH the end of the car AND the camera position from the available photos, do NOT assign offside or nearside. Describe damage as "on the left/right as viewed in the photo" and append: "offside/nearside not confirmed from photos — verify on inspection." Apply this valve when the photo angle is heavily oblique, cropped, or shows neither a number plate nor clear end-of-vehicle identification.
+
+MANDATORY ORIENTATION BLOCK — output this verbatim and fully completed BEFORE writing the Visible Damage Summary. Do not describe any exterior rear or side damage until every line is filled in from the photos:
+
+ORIENTATION CHECK:
+- End visible in primary damage photo: [front / rear]
+- How established: [number plate / headlights+grille / reversing lights+rear fog+high-level brake light / badge]
+- Camera position relative to that end: [in front of car, facing it / behind car, facing it / down the side]
+- Offside (driver's side) therefore appears on: [LEFT / RIGHT] of this photo
+- Corroborating in-frame reference: [exhaust tailpipe side / fuel filler side / rear fog lamp position / none available]
+- Damage is on the: [offside / nearside] [front / rear]
+
+If you cannot confidently establish BOTH the end AND the camera position, do not assign offside/nearside. Instead write the damage location as "on the [left/right] as viewed in the photo" and flag: "offside/nearside not confirmed from photos — verify on inspection."
+
+Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGHT of plate; front-from-front → offside is LEFT of plate; the two invert, this inversion is the trap.
+
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;
 
