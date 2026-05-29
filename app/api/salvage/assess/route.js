@@ -6,7 +6,7 @@ import { getAllCopartFeeBands } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 function getSupabase() {
   return createClient(

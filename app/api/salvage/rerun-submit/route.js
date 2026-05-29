@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export const maxDuration = 30;
+export const maxDuration = 300;
 
 function getSupabase() {
   return createClient(
