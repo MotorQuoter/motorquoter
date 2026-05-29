@@ -356,6 +356,7 @@ export async function GET(request) {
         if (m) { mediaType = m[1]; data = m[2]; }
         return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
       });
+      console.log('[HAIKU ODO] calling, image count:', preExtractBlocks.length);
       const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -375,8 +376,11 @@ export async function GET(request) {
         const raw = (haikuData.content?.[0]?.text || '').trim();
         const parsed = parseInt(raw.replace(/,/g, ''), 10);
         if (!isNaN(parsed) && parsed >= 1 && parsed <= 999999) photoOdometer = parsed;
+        console.log('[HAIKU ODO] raw:', JSON.stringify(raw), '| parsed photoOdometer:', photoOdometer);
+      } else {
+        console.log('[HAIKU ODO] HTTP not ok:', haikuRes.status);
       }
-    } catch {}
+    } catch (e) { console.log('[HAIKU ODO] threw:', e?.message || String(e)); }
 
     if (photoOdometer !== null) {
       const listedMileage = enrichedVd.copartListedMileage != null
