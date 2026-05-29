@@ -356,10 +356,17 @@ FIXED MAPPING — apply exactly, do not re-derive:
 
 CRITICAL: The two most common cases (face-on rear and face-on front) assign offside to OPPOSITE sides of the photo. Never apply "offside is to the right of the number plate" as a blanket rule — it is only correct for face-on rear shots. The face-on front shot is the mirror image.
 
-CORROBORATION — use where visible to confirm the plate-based assignment:
-• Rear fog lamp (single red lamp): mounted on the offside in all UK vehicles — its position in the photo must match the offside side derived above. If it conflicts, flag the discrepancy and do not assign a side.
-• Fuel filler flap: visible on some rear quarter shots — confirm against known RHD fitment for the model where possible.
-• Exhaust exit: less reliable, but a single exhaust exiting clearly to one side on a symmetric car can corroborate.
+CORROBORATION — the plate-relative-to-lights logic (which end is visible + camera position → fixed mapping) is self-sufficient and is the SOLE basis for the side call. No single-feature corroborator is permitted.
+
+FORBIDDEN corroborating references — NEVER use any of the following to determine or confirm offside/nearside:
+• Fuel filler / fuel filler flap: fuel filler side varies by market, model year, and manufacturer — there is no reliable rule. Any recalled claim about its position is a training-memory assertion forbidden by #58.
+• Rear fog lamp position: UK law requires one rear fog lamp but does not mandate it be on the offside — it may be offside or centre, and twin fogs exist. Its side is vehicle-specific, not universal.
+• Exhaust exit position: exhaust routing varies by model and specification.
+• Any other feature whose side depends on recalled knowledge about that specific vehicle (badge placement, aerial, tow socket, charge port, mirror-fold switch, etc.).
+
+The only permitted form of corroboration is geometric: confirming that the damaged corner or panel sits on the same side of the number plate that the fixed mapping already predicts. This uses only what is visible in the photo — it adds no new information and requires no vehicle-specific assumption.
+
+If the plate/lights logic cannot establish the side with confidence, apply the UNCERTAINTY VALVE below. Never substitute a feature-based guess.
 
 UNCERTAINTY VALVE: If you cannot confidently establish BOTH the end of the car AND the camera position from the available photos, do NOT assign offside or nearside. Describe damage as "on the left/right as viewed in the photo" and append: "offside/nearside not confirmed from photos — verify on inspection." Apply this valve when the photo angle is heavily oblique, cropped, or shows neither a number plate nor clear end-of-vehicle identification.
 
@@ -370,7 +377,7 @@ ORIENTATION CHECK:
 - How established: [number plate / headlights+grille / reversing lights+rear fog+high-level brake light / badge]
 - Camera position relative to that end: [in front of car, facing it / behind car, facing it / down the side]
 - Offside (driver's side) therefore appears on: [LEFT / RIGHT] of this photo
-- Corroborating in-frame reference: [exhaust tailpipe side / fuel filler side / rear fog lamp position / none available]
+- Corroborating in-frame reference: [consistent with plate/lights mapping / none available]
 - Damage is on the: [offside / nearside] [front / rear]
 
 If you cannot confidently establish BOTH the end AND the camera position, do not assign offside/nearside. Instead write the damage location as "on the [left/right] as viewed in the photo" and flag: "offside/nearside not confirmed from photos — verify on inspection."
