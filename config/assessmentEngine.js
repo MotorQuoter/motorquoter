@@ -256,6 +256,7 @@ When salvage history shows no previous records, state "No previous salvage aucti
 
 #42 — Steering Wheel Anchor — Windscreen Chalk Position
 Windscreen chalk position must also be determined by steering wheel reference, not photo left/right. When analysing windscreen chalk marks in an exterior front photo, establish which side of the vehicle the steering wheel is on (right side in UK RHD vehicles). Chalk marks on the same side as the steering wheel = offside. Chalk marks on the opposite side = nearside. Never assign nearside/offside to windscreen chalk based on photo left/right alone.
+[NOTE: For exterior rear/side damage photos, the steering wheel anchor is SUPERSEDED by #61 (Number-Plate Anchor). Apply this rule only to interior shots, RHD confirmation, and windscreen chalk/crack position. See #61.]
 
 #43 — Engine Start Programme vs Run and Drive — Transmission Inference Rule
 When a lot is designated Engine Start Programme (S) rather than Run and Drive (R), and photos show no visible wheel, suspension, tyre, or drivetrain damage that would explain why the vehicle cannot move under its own power, flag probable transmission fault as the primary inference. The engine runs but the vehicle may not move. State this explicitly in Red Flags, include gearbox/transmission fault scenarios in the repair range (manual clutch/DMF £600–£1,500, automatic transmission £1,500–£4,000+), and add a WhatsApp checklist item asking the handler to attempt to engage drive/reverse to confirm whether the vehicle moves. Source: KJ21RSZ Kia Ceed — Session 25 May 2026.
@@ -289,6 +290,7 @@ Before describing any door, panel, or aperture, confirm the body style from the 
 
 #53 — Rear Damage Side Assignment — Steering Wheel Anchor Applies to All Damage Locations, Not Just Front
 The steering wheel anchor rule (#42) must be applied to rear quarter damage, rear door damage, and any side damage just as it is applied to front corner damage. Never assign offside/nearside to any damaged panel based on photo left/right alone. Establish steering wheel position from interior photos first, then assign sides to all exterior damage consistently. Source: YC69OSJ BMW 420d Coupé and LP24YTE BMW 218i — persistent error across multiple sessions.
+[NOTE: SUPERSEDED for side assignment. The steering-wheel METHOD described in this rule is replaced by #61 (Number-Plate Anchor) for all exterior rear/side damage. The surviving principle of #53 still holds: never assign offside/nearside from photo left/right alone — you must establish vehicle orientation first. #61 is now HOW you establish it for exterior shots. See #61.]
 
 #54 — Theft Entry Door Handle — Default to Offside Front (Driver's Door) Unless Photos Clearly Show Otherwise
 On stolen vehicles the primary forced entry point is almost always the offside front (driver's) door handle or lock barrel. Do not call a different door without clear photographic evidence showing that specific door handle damaged. Source: R2NYJ Range Rover Sport — Session 25 May 2026.
@@ -320,5 +322,37 @@ The Estimated Retail Value is Copart's own commercial target sale price — it i
 General rule — applies to all suffix types:
 The Copart Estimated Retail Value is never used as the primary exit value calculation base regardless of vendor type. The authoritative exit value reference is Brego retail_average from live market valuation (when available). The Cat N/S discount (20–35%) is applied to Brego retail_average, not to the Copart ERV. When both figures are present, display both in the report with their respective vendor-type context so the buyer understands the difference. This rule supersedes any prior wording suggesting the Copart ERV can serve as a valuation reference.
 Source: Vincent direct experience (X/P insight) + logical analysis (Q-suffix carve-out) — Session 26 May 2026.
+
+#61 — Number-Plate Anchor for Exterior Rear/Side Damage — Supersedes Steering Wheel Anchor for Exterior Shots
+
+SCOPE: This rule supersedes the steering wheel anchor (#42 and #53) for exterior rear and side damage photographs. The steering wheel anchor remains the primary method for interior photographs (RHD confirmation and side assignment from cabin shots) and for windscreen chalk/crack position (#42, #56). For any exterior photo where a number plate or clear end-of-vehicle identification is visible, use this rule instead.
+
+Before assigning any offside/nearside label to exterior damage, complete two mandatory steps in order:
+
+STEP 1 — Identify which end of the car is visible:
+Front indicators: headlights, front grille, bonnet profile, driving/fog lights.
+Rear indicators: reversing lights (white lamps), single rear fog lamp (red), high-level brake light (centre rear screen or spoiler), boot/tailgate profile.
+
+STEP 2 — Identify where the camera is positioned relative to the car:
+Camera behind car, facing forward = face-on to rear.
+Camera in front of car, facing rearward = face-on to grille/front.
+Camera in front but rear is visible = camera is forward of the car.
+Camera behind but front is visible = camera is behind the car.
+
+FIXED MAPPING — apply exactly, do not re-derive:
+• Rear visible + camera behind (face-on to rear): offside is on the RIGHT of the photo — right of the rear number plate.
+• Front visible + camera in front (face-on to grille): offside is on the LEFT of the photo — left of the front number plate.
+• Rear visible + camera in front of car: offside is on the LEFT of the photo.
+• Front visible + camera behind car: offside is on the RIGHT of the photo.
+
+CRITICAL: The two most common cases (face-on rear and face-on front) assign offside to OPPOSITE sides of the photo. Never apply "offside is to the right of the number plate" as a blanket rule — it is only correct for face-on rear shots. The face-on front shot is the mirror image.
+
+CORROBORATION — use where visible to confirm the plate-based assignment:
+• Rear fog lamp (single red lamp): mounted on the offside in all UK vehicles — its position in the photo must match the offside side derived above. If it conflicts, flag the discrepancy and do not assign a side.
+• Fuel filler flap: visible on some rear quarter shots — confirm against known RHD fitment for the model where possible.
+• Exhaust exit: less reliable, but a single exhaust exiting clearly to one side on a symmetric car can corroborate.
+
+UNCERTAINTY VALVE: If you cannot confidently establish BOTH the end of the car AND the camera position from the available photos, do NOT assign offside or nearside. Describe damage as "on the left/right as viewed in the photo" and append: "offside/nearside not confirmed from photos — verify on inspection." Apply this valve when the photo angle is heavily oblique, cropped, or shows neither a number plate nor clear end-of-vehicle identification.
+Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;
 
