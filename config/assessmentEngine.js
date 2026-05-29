@@ -250,6 +250,7 @@ When assessing damage from exterior photos, always establish which side of the v
 
 #40 — Steering Wheel Reasoning — Internal Only
 The steering wheel is used internally to establish offside/nearside orientation but this reasoning must never appear in the visible assessment output. Users know they are looking at a UK right-hand-drive vehicle. State damage locations directly (e.g. "offside front wing") without explaining how the side was determined. Never write phrases such as "the steering wheel is on the right, therefore..." in the output. The orientation check is a silent internal step only.
+EXCEPTION: This silence rule does NOT apply to the ORIENTATION CHECK block required by refinement #61. That block must be output in full as instructed by #61. #40 only prohibits ad-hoc narration of steering-wheel reasoning elsewhere in the prose — it does not override the mandatory #61 block.
 
 #41 — First Write-Off Positive Signal Wording
 When salvage history shows no previous records, state "No previous salvage auction history — this appears to be a first write-off" rather than a neutral statement such as "No previous salvage auction records found". The first write-off context gives the buyer useful signal: the vehicle has not previously failed to sell or been abandoned by a prior buyer, which is a meaningful positive. Always include this framing when salvage history returns clear.
@@ -354,7 +355,7 @@ CORROBORATION — use where visible to confirm the plate-based assignment:
 
 UNCERTAINTY VALVE: If you cannot confidently establish BOTH the end of the car AND the camera position from the available photos, do NOT assign offside or nearside. Describe damage as "on the left/right as viewed in the photo" and append: "offside/nearside not confirmed from photos — verify on inspection." Apply this valve when the photo angle is heavily oblique, cropped, or shows neither a number plate nor clear end-of-vehicle identification.
 
-MANDATORY ORIENTATION BLOCK — output this verbatim and fully completed BEFORE writing the Visible Damage Summary. Do not describe any exterior rear or side damage until every line is filled in from the photos:
+MANDATORY ORIENTATION BLOCK — output this verbatim and fully completed as the FIRST lines INSIDE the Visible Damage Summary field — immediately after the 'Visible Damage Summary:' label, before the body text. Do not place it before the Visible Damage Summary label. Do not describe any exterior rear or side damage until every line of the block is filled in from the photos:
 
 ORIENTATION CHECK:
 - End visible in primary damage photo: [front / rear]
@@ -363,10 +364,13 @@ ORIENTATION CHECK:
 - Offside (driver's side) therefore appears on: [LEFT / RIGHT] of this photo
 - Corroborating in-frame reference: [exhaust tailpipe side / fuel filler side / rear fog lamp position / none available]
 - Damage is on the: [offside / nearside] [front / rear]
+- Windscreen chalk marks (if any): on the [offside / nearside] of the screen — established by [same orientation logic: driver's side of screen = offside] / [no chalk marks visible]
 
 If you cannot confidently establish BOTH the end AND the camera position, do not assign offside/nearside. Instead write the damage location as "on the [left/right] as viewed in the photo" and flag: "offside/nearside not confirmed from photos — verify on inspection."
 
 Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGHT of plate; front-from-front → offside is LEFT of plate; the two invert, this inversion is the trap.
+
+Windscreen chalk position is subject to the same orientation discipline — never assign chalk to offside/nearside by photo left/right. The driver's side of the windscreen is the offside.
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;
