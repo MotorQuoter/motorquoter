@@ -364,13 +364,13 @@ ORIENTATION CHECK:
 - Offside (driver's side) therefore appears on: [LEFT / RIGHT] of this photo
 - Corroborating in-frame reference: [exhaust tailpipe side / fuel filler side / rear fog lamp position / none available]
 - Damage is on the: [offside / nearside] [front / rear]
-- Windscreen chalk marks (if any): on the [offside / nearside] of the screen — established by [same orientation logic: driver's side of screen = offside] / [no chalk marks visible]
+- Windscreen chalk marks (if any): [N circles visible / none visible]. Side: assign offside/nearside ONLY if a hard in-frame reference fixes orientation (rear-view mirror mount = centre; VIN plate corner = nearside base; A-pillar clearly identified). If no such reference is in frame, state 'chalk side not confirmed from photo — verify on inspection' and do NOT assign offside/nearside.
 
 If you cannot confidently establish BOTH the end AND the camera position, do not assign offside/nearside. Instead write the damage location as "on the [left/right] as viewed in the photo" and flag: "offside/nearside not confirmed from photos — verify on inspection."
 
 Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGHT of plate; front-from-front → offside is LEFT of plate; the two invert, this inversion is the trap.
 
-Windscreen chalk position is subject to the same orientation discipline — never assign chalk to offside/nearside by photo left/right. The driver's side of the windscreen is the offside.
+Windscreen chalk position must NOT be assigned to offside/nearside from photo left/right. A windscreen close-up rarely contains a reliable orientation anchor, and deriving side from photo position produces unstable, contradictory results. Describe what is observable — number of circles, apparent height on the glass, whether near top/bottom edge — and assign a side ONLY when a hard in-frame reference is present. Otherwise default to 'chalk side not confirmed — verify on inspection.' An unconfirmed chalk side is fully recoverable for the buyer; a confident wrong side is not. Chalk marks are a minor cost item (chip repair £0-£50, or screen replacement £200-£500) so an unconfirmed side carries negligible downside.
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;
