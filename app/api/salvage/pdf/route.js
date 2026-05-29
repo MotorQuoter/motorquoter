@@ -383,7 +383,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   if (bregoData) {
     const fmtP = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
     const src = bregoData._mileageSource;
-    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : 'default (50k miles)';
+    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : src === 'photo_odometer' ? 'Odometer read from photos' : 'default (50k miles)';
     const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     sectionTitle(`Live Market Valuation (Brego, ${monthYear})`);
     checkPage(36);
@@ -419,10 +419,16 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
       doc.text(`Copart ERV: ${str(vd.estimatedRetail)} — vendor-type interpretation in assessment`, MARGIN, y); y += 6;
     }
-    if (src !== 'copart_listed') {
+    if (src !== 'copart_listed' && src !== 'photo_odometer') {
       checkPage(8);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 100, 0);
       doc.text(`Note: mileage from ${srcLabel} — engine applied 5-10% downward caution to retail figures.`, MARGIN, y); y += 7;
+    }
+    if (vd.photoMileageFlag) {
+      checkPage(10);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 100, 0);
+      const flagLines = doc.splitTextToSize(str(vd.photoMileageFlag), CONTENT_W);
+      doc.text(flagLines, MARGIN, y); y += flagLines.length * 4 + 3;
     }
     y += 2;
   }

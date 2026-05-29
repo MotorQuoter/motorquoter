@@ -506,7 +506,7 @@ export default function SalvageSuccessPage() {
                   const rowLabelSt = { fontSize: 12, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase', padding: '6px 0', borderTop: '1px solid var(--border-dim)' };
                   if (bregoData) {
                     const src = bregoData._mileageSource;
-                    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : 'default (50k)';
+                    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : src === 'photo_odometer' ? 'Odometer read from photos' : 'default (50k)';
                     return (
                       <div className="field-row">
                         <div className="field-key">
@@ -544,9 +544,14 @@ export default function SalvageSuccessPage() {
                             Copart ERV: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{vehicleDetails.estimatedRetail}</span> — vendor-type interpretation in assessment above
                           </div>
                         )}
-                        {src !== 'copart_listed' && (
+                        {src !== 'copart_listed' && src !== 'photo_odometer' && (
                           <div style={{ marginTop: 6, fontSize: 12, color: '#f5c842' }}>
                             ⚠️ Mileage from {src === 'dvsa_mot' ? 'DVSA last MOT — may be understated if driven since' : 'default (50,000 miles) — actual mileage unknown'}. Engine applies 5–10% downward caution.
+                          </div>
+                        )}
+                        {vehicleDetails?.photoMileageFlag && (
+                          <div style={{ marginTop: 6, fontSize: 12, color: '#f5c842' }}>
+                            ⚠️ {vehicleDetails.photoMileageFlag}
                           </div>
                         )}
                       </div>

@@ -346,8 +346,53 @@ export async function GET(request) {
 
     if (roiData) enrichedVd.roiData = roiData;
 
+    // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
+    let photoOdometer = null;
+    try {
+      const preExtractBlocks = session.images.map((img) => {
+        let mediaType = 'image/jpeg';
+        let data = img;
+        const m = img.match(/^data:([^;]+);base64,(.+)$/);
+        if (m) { mediaType = m[1]; data = m[2]; }
+        return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+      });
+      const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 100,
+          system: 'You are reading vehicle auction photos. Find the dashboard instrument cluster / odometer. Return ONLY the total mileage as a plain integer (no commas, no text). If no odometer reading is clearly visible in any photo, return exactly: null',
+          messages: [{ role: 'user', content: preExtractBlocks }],
+        }),
+      });
+      if (haikuRes.ok) {
+        const haikuData = await haikuRes.json();
+        const raw = (haikuData.content?.[0]?.text || '').trim();
+        const parsed = parseInt(raw.replace(/,/g, ''), 10);
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 999999) photoOdometer = parsed;
+      }
+    } catch {}
+
+    if (photoOdometer !== null) {
+      const listedMileage = enrichedVd.copartListedMileage != null
+        ? parseInt(String(enrichedVd.copartListedMileage).replace(/,/g, ''), 10)
+        : NaN;
+      if (!isNaN(listedMileage) && listedMileage >= 1) {
+        const diff = Math.abs(photoOdometer - listedMileage);
+        if (diff > 500) {
+          enrichedVd.photoMileageFlag = `Photo odometer reads ${photoOdometer.toLocaleString()} miles; Copart listing entry shows ${listedMileage.toLocaleString()} miles — a discrepancy of ${diff.toLocaleString()} miles. Photo reading used for valuation; verify before bidding.`;
+        }
+      }
+    }
+
     // Determine mileage for Brego valuation
     const { mileage: brMileage, source: brMileageSource } = getMileageForValuation({
+      photoOdometer,
       formMileage: enrichedVd.copartListedMileage ?? null,
       dvsaMileage: enrichedVd.lastMotMileage ?? null,
     });
@@ -418,6 +463,7 @@ export async function GET(request) {
       enrichedVd.motStatus && `MOT Status: ${enrichedVd.motStatus}`,
       enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
       enrichedVd.motMileageFlag && `MILEAGE DISCREPANCY FLAG: ${enrichedVd.motMileageFlag}`,
+      enrichedVd.photoMileageFlag && `PHOTO MILEAGE DISCREPANCY: ${enrichedVd.photoMileageFlag}`,
       `Market: ${market}`,
       market === 'IE' && enrichedVd.motStatus && `NCT Status: ${enrichedVd.motStatus}`,
       market === 'IE' && enrichedVd.motExpiryDate && `NCT Expiry: ${enrichedVd.motExpiryDate}`,
