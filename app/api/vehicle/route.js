@@ -531,6 +531,9 @@ const dvla = await safeJson(dvlaRes);
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,
         valuationMileageSource: needsValuation ? bregoMileageSource : null,
+        valuationMileageDate: (needsValuation && bregoMileageSource === 'dvsa_mot') ? (latestMot?.completedDate || null) : null,
+        dvsaLastMileage: latestMot?.odometerValue || null,
+        dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);

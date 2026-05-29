@@ -23,6 +23,17 @@ function fmtDate(str) {
   return str;
 }
 
+function fmtMotDate(str) {
+  if (!str) return null;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const parts = str.split('/');
+  if (parts.length === 3) {
+    const m = MONTHS[parseInt(parts[1], 10) - 1];
+    return m ? `${m} ${parts[2]}` : null;
+  }
+  return null;
+}
+
 function fmtCurrency(val, currency = 'GBP') {
   if (val == null) return null;
   const sym = currency === 'EUR' ? '€' : '£';
@@ -81,18 +92,36 @@ function IdentitySection({ result }) {
         {!isIE && result.valuationMileage != null && (() => {
           const src = result.valuationMileageSource;
           const fmtMi = Number(result.valuationMileage).toLocaleString('en-GB');
+          const dvsaFmtMi = result.dvsaLastMileage != null
+            ? Number(result.dvsaLastMileage).toLocaleString('en-GB')
+            : null;
+          const motDateVal  = fmtMotDate(result.valuationMileageDate);
+          const motDateLast = fmtMotDate(result.dvsaLastMileageDate);
+          const showDiscrepancy = src === 'user_entered'
+            && result.dvsaLastMileage != null
+            && (result.dvsaLastMileage - result.valuationMileage) > 500;
           const display = src === 'default_fallback' ? `${fmtMi} assumed` : fmtMi;
-          const sub = src === 'user_entered'      ? '(as entered)'
-            : src === 'dvsa_mot'        ? '(from last MOT)'
-            : src === 'default_fallback' ? '(no mileage provided)'
+          const sub = src === 'user_entered'
+            ? '(as you entered)'
+            : src === 'dvsa_mot'
+            ? (motDateVal
+                ? `No mileage entered — we've used the most recent MOT reading (${motDateVal}). Enter exact mileage for a sharper valuation.`
+                : `No mileage entered — we've used the most recent MOT reading. Enter exact mileage for a sharper valuation.`)
+            : src === 'default_fallback'
+            ? `No MOT mileage on record. Enter mileage for an accurate valuation.`
             : null;
           return (
-            <div className="info-cell">
+            <div className="info-cell" style={showDiscrepancy ? { gridColumn: '1 / -1' } : undefined}>
               <div className="info-key">Mileage</div>
               <div className="info-val">
                 {display}
-                {sub && <span style={{display:'block', fontSize:11, color:'var(--text-dim)', fontWeight:400}}>{sub}</span>}
+                {sub && <span style={{display:'block', fontSize:11, color:'var(--text-dim)', fontWeight:400, marginTop:2, lineHeight:1.5}}>{sub}</span>}
               </div>
+              {showDiscrepancy && (
+                <div style={{marginTop:8, padding:'10px 12px', background:'rgba(245,200,66,0.08)', border:'1.5px solid rgba(245,200,66,0.3)', borderRadius:8, fontSize:12, color:'var(--yellow)', lineHeight:1.6}}>
+                  ⚠️ Please double-check your mileage. You entered {fmtMi}, but the last recorded MOT{motDateLast ? ` (${motDateLast})` : ''} shows {dvsaFmtMi} miles. Vehicle mileage normally only increases, so this is worth verifying — it may be a typo, or worth checking against the V5 and service history before relying on this valuation.
+                </div>
+              )}
             </div>
           );
         })()}
