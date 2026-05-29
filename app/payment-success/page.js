@@ -521,7 +521,7 @@ function RoiValuationSection({ result }) {
   const fmtEur = v => `€${Number(v).toLocaleString('en-IE')}`;
   return (
     <div className="card">
-      <SectionTitle>Cartell Valuation</SectionTitle>
+      <SectionTitle>Market Valuation</SectionTitle>
       <div className="bid-grid">
         {retail != null && <div className="bid-card"><div className="bid-label">Current Retail</div><div className="bid-value bid-green">{fmtEur(retail)}</div></div>}
         {trade  != null && <div className="bid-card"><div className="bid-label">Trade Value</div><div className="bid-value">{fmtEur(trade)}</div></div>}

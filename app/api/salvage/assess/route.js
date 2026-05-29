@@ -476,8 +476,8 @@ export async function GET(request) {
       market === 'IE' && enrichedVd.motStatus && `NCT Status: ${enrichedVd.motStatus}`,
       market === 'IE' && enrichedVd.motExpiryDate && `NCT Expiry: ${enrichedVd.motExpiryDate}`,
       market === 'IE' && enrichedVd.monthOfFirstRegistration && `First Registered in Ireland: ${enrichedVd.monthOfFirstRegistration}`,
-      market === 'IE' && roiData?.valuation?.current?.retail && `Current Retail Valuation (Brego IE): €${roiData.valuation.current.retail}`,
-      market === 'IE' && roiData?.valuation?.future?.retail && `Future Retail Valuation (Brego IE): €${roiData.valuation.future.retail}`,
+      market === 'IE' && roiData?.valuation?.current?.retail && `Current Retail Valuation (IE): €${roiData.valuation.current.retail}`,
+      market === 'IE' && roiData?.valuation?.future?.retail && `Future Retail Valuation (IE): €${roiData.valuation.future.retail}`,
       auctionSource !== 'copart' && `Auction Source: ${AUCTION_SOURCE_LABELS[auctionSource] || auctionSource}`,
       feeRef,
       enrichedVd.vatOnSale && `VAT on Sale: ${enrichedVd.vatOnSale}`,
@@ -510,7 +510,7 @@ export async function GET(request) {
         const fmt = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
         const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
         return [
-          `Live market valuation data (Brego, ${monthYear}):`,
+          `Live market valuation data (${monthYear}):`,
           `- Retail low (poor condition): ${fmt(bregoData.retail_low_valuation)}`,
           `- Retail average (average condition): ${fmt(bregoData.retail_average_valuation)}`,
           `- Retail high (excellent condition): ${fmt(bregoData.retail_high_valuation)}`,

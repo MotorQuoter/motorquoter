@@ -512,7 +512,7 @@ export default function SalvageSuccessPage() {
                         <div className="field-key">
                           Live Market Valuation
                           <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow', sans-serif", textTransform: 'none', letterSpacing: 0, fontWeight: 400, marginTop: 2 }}>
-                            Brego · {monthYear} · {Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles ({srcLabel})
+                            Live data · {monthYear} · {Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles ({srcLabel})
                           </span>
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>

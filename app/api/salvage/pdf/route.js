@@ -385,7 +385,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const src = bregoData._mileageSource;
     const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : src === 'photo_odometer' ? 'Odometer read from photos' : 'default (50k miles)';
     const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-    sectionTitle(`Live Market Valuation (Brego, ${monthYear})`);
+    sectionTitle(`Live Market Valuation (${monthYear})`);
     checkPage(36);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
     doc.text(`Mileage: ${Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles (source: ${srcLabel})`, MARGIN, y); y += 5;
