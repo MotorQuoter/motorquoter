@@ -377,7 +377,7 @@ If you cannot confidently establish BOTH the end AND the camera position, do not
 
 Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGHT of plate; front-from-front → offside is LEFT of plate; the two invert, this inversion is the trap.
 
-Windscreen chalk marks: Do NOT locate, position, or assign chalk marks to any side or zone. Do NOT report the presence of chalk circles at all UNLESS you can actually SEE a chip or crack in the glass. If a chip or crack is visibly present, report the visible damage itself (not the chalk) and budget accordingly (chip repair £0-£50, screen replacement £200-£700 depending on spec). A chalk circle with no visible damage behind it is a Copart yard/runner annotation and must be ignored completely — not mentioned in the assessment.
+Windscreen chalk marks: Chalk circles/marks on glass are Copart yard annotations and their position is irrelevant. Do NOT mention chalk marks at all — not their presence, location, side, or that you are disregarding them. The ONLY exception: if an actual chip or crack is clearly visible in the glass, report the visible chip/crack itself (never the chalk) with a repair/replacement budget. Absent visible glass damage, say nothing whatsoever about the windscreen or any marks on it.
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 `;

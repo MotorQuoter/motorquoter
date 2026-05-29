@@ -405,6 +405,7 @@ export default function SalvageSuccessPage() {
               if (!sh) return null;
               const found = sh.salvage_auction_record_found === true;
               const records = sh.salvage_auction_records || [];
+              const isSelfRef = sh.isSelfReferenceFirstWriteOff === true;
               return (
                 <div className="section">
                   <div className="section-title">Salvage History Check</div>
@@ -413,6 +414,30 @@ export default function SalvageSuccessPage() {
                       <div className="field-row">
                         <div className="field-val" style={{ color: '#4ade80' }}>✓ No previous salvage auction records found</div>
                       </div>
+                    ) : isSelfRef ? (
+                      <>
+                        <div className="field-row">
+                          <div className="field-val" style={{ color: '#4ade80' }}>✓ First write-off — no prior salvage auction history</div>
+                        </div>
+                        {records.map((rec, i) => (
+                          <div className="field-row" key={i}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 800, color: 'var(--text)' }}>
+                                {rec.salvage_auction_lot_date ? rec.salvage_auction_lot_date.split('T')[0].split('-').reverse().join('/') : '—'}
+                              </span>
+                              {rec.salvage_auction_lot_desc && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-dim)', borderRadius: 4, padding: '2px 8px' }}>
+                                  {rec.salvage_auction_lot_desc}
+                                </span>
+                              )}
+                            </div>
+                            {rec.mileage != null          && <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 2 }}>{Number(rec.mileage).toLocaleString('en-GB')} miles at sale</div>}
+                            {rec.primary_damage_desc      && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Primary: {rec.primary_damage_desc}</div>}
+                            {rec.secondary_damage_desc    && <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>Secondary: {rec.secondary_damage_desc}</div>}
+                            {rec.salvage_auction_location && <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{rec.salvage_auction_location}</div>}
+                          </div>
+                        ))}
+                      </>
                     ) : (
                       <>
                         <div className="field-row" style={{ background: 'rgba(248,113,113,0.07)', borderRadius: 8, padding: '10px 12px', marginBottom: 4 }}>

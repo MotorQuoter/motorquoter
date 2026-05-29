@@ -62,6 +62,30 @@ function parseAssessment(text) {
   return result;
 }
 
+function tagSelfReference(shResult, vd) {
+  if (!shResult) return;
+  const records = shResult.salvage_auction_records || [];
+  if (records.length !== 1) { shResult.isSelfReferenceFirstWriteOff = false; return; }
+  const rec = records[0];
+  let currentMileage = null;
+  if (vd.copartListedMileage != null) {
+    currentMileage = Number(vd.copartListedMileage);
+  } else if (vd.odometer != null) {
+    const n = parseInt(String(vd.odometer).replace(/[^0-9]/g, ''), 10);
+    if (!isNaN(n)) currentMileage = n;
+  }
+  const mileageMatch = currentMileage != null && rec.mileage != null
+    ? Math.abs(rec.mileage - currentMileage) <= 50
+    : null;
+  const categoryMatch = vd.category != null && rec.salvage_auction_lot_desc != null
+    && rec.salvage_auction_lot_desc.toLowerCase().trim() === vd.category.toLowerCase().trim();
+  const damageMatch = vd.primaryDamage != null && rec.primary_damage_desc != null
+    && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
+  shResult.isSelfReferenceFirstWriteOff =
+    (mileageMatch === true && categoryMatch && damageMatch) ||
+    (mileageMatch === null && categoryMatch && damageMatch);
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
@@ -141,6 +165,7 @@ export async function GET(request) {
           const shRaw = shText ? JSON.parse(shText) : null;
           const shResult = shRaw?.result ?? shRaw;
           if (shResult && !shResult.error) {
+            tagSelfReference(shResult, vd);
             vd.salvageHistory = shResult;
             await supabase
               .from('salvage_sessions')
@@ -330,7 +355,10 @@ export async function GET(request) {
         const shText = await shRes?.text();
         const shRaw = shText ? JSON.parse(shText) : null;
         const shResult = shRaw?.result ?? shRaw;
-        if (shResult && !shResult.error) enrichedVd.salvageHistory = shResult;
+        if (shResult && !shResult.error) {
+          tagSelfReference(shResult, enrichedVd);
+          enrichedVd.salvageHistory = shResult;
+        }
       } catch {}
 
       try {
