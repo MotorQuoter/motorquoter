@@ -92,6 +92,34 @@ export async function GET(request) {
       }
     }
 
+    if (promoToken) {
+      const { data: claimed } = await supabase
+        .from('salvage_sessions')
+        .update({ status: 'processing' })
+        .eq('id', salvageId)
+        .eq('status', 'promo_redeemed')
+        .select('id');
+
+      if (!claimed?.length) {
+        const { data: current } = await supabase
+          .from('salvage_sessions')
+          .select('status, assessment, vehicle_details, market, rerun_count')
+          .eq('id', salvageId)
+          .single();
+        if (current?.assessment) {
+          const vd = current.vehicle_details || {};
+          return NextResponse.json({
+            assessment: current.assessment,
+            vehicleDetails: vd,
+            market: current.market,
+            rerunCount: current.rerun_count ?? 0,
+            bregoData: vd.bregoValuation ?? null,
+          });
+        }
+        return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
+      }
+    }
+
     // Check for cached assessment first (without fetching images)
     const { data: check } = await supabase
       .from('salvage_sessions')
@@ -141,9 +169,11 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const sessionUpdate = { status: 'processing' };
-    if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
-    await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
+    if (!promoToken) {
+      const sessionUpdate = { status: 'processing' };
+      if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
+      await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
+    }
 
     const vd = session.vehicle_details || {};
     const market = session.market || 'GB';
@@ -451,6 +481,13 @@ export async function GET(request) {
 
   } catch (err) {
     console.error('Salvage assess error:', err);
+    if (promoToken) {
+      await supabase
+        .from('salvage_sessions')
+        .update({ status: 'promo_redeemed' })
+        .eq('id', salvageId)
+        .eq('status', 'processing');
+    }
     return NextResponse.json({ error: err.message || 'Assessment failed' }, { status: 500 });
   }
 }
