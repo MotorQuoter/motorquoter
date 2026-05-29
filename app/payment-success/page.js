@@ -78,6 +78,24 @@ function IdentitySection({ result }) {
         {result.motStatus       && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: result.motStatus === 'Valid' ? '#4ade80' : '#f5c842'}}>{result.motStatus}</div></div>}
         {result.nctExpiryDate   && <div className="info-cell"><div className="info-key">NCT Expiry</div><div className="info-val">{fmtDate(result.nctExpiryDate) || result.nctExpiryDate}</div></div>}
         {result.dateOfLastV5CIssued && <div className="info-cell"><div className="info-key">Last V5C</div><div className="info-val">{fmtDate(result.dateOfLastV5CIssued)}</div></div>}
+        {!isIE && result.valuationMileage != null && (() => {
+          const src = result.valuationMileageSource;
+          const fmtMi = Number(result.valuationMileage).toLocaleString('en-GB');
+          const display = src === 'default_fallback' ? `${fmtMi} assumed` : fmtMi;
+          const sub = src === 'user_entered'      ? '(as entered)'
+            : src === 'dvsa_mot'        ? '(from last MOT)'
+            : src === 'default_fallback' ? '(no mileage provided)'
+            : null;
+          return (
+            <div className="info-cell">
+              <div className="info-key">Mileage</div>
+              <div className="info-val">
+                {display}
+                {sub && <span style={{display:'block', fontSize:11, color:'var(--text-dim)', fontWeight:400}}>{sub}</span>}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

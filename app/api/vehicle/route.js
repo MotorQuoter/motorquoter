@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
 import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
 import { logEvent } from '@/lib/analytics';
+import { getMileageForValuation } from '@/lib/getMileageForValuation';
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
@@ -105,8 +106,7 @@ function checkFreeRateLimit(request) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
-  const mileage = searchParams.get('mileage') || '50000';
-  const cleanMileage = mileage.replace(/,/g, '');
+  const mileage = searchParams.get('mileage') || '';
   const market = (searchParams.get('market') || 'GB').toUpperCase();
   const tier = searchParams.get('tier');
   const isVerified = searchParams.get('verified') === 'true';
@@ -441,12 +441,29 @@ const dvla = await safeJson(dvlaRes);
           )
         : Promise.resolve(null);
 
+      // ── Brego mileage: user-entered → DVSA last MOT → 50,000 default ────────────
+      const userMileageRaw = mileage.replace(/,/g, '');
+      const userMileageNum = parseInt(userMileageRaw, 10);
+      const userMileageValid = !isNaN(userMileageNum) && userMileageNum >= 1 && userMileageNum <= 999999;
+      const needsDvsaFirst = needsValuation && !userMileageValid;
+
+      let earlyDvsaData = null;
+      if (needsDvsaFirst) {
+        earlyDvsaData = await getDvsaMotHistory(cleanVrm).catch(() => null);
+      }
+
+      const { mileage: bregoMileage, source: bregoMileageSource } = getMileageForValuation({
+        formMileage: userMileageValid ? userMileageNum : null,
+        dvsaMileage: earlyDvsaData?.motTests?.[0]?.odometerValue ?? null,
+        formMileageSource: 'user_entered',
+      });
+
       const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes] = await Promise.all([
         needsAutocheck
           ? fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${cleanMileage}`, { headers: oneAutoHeaders() })
+          ? fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${bregoMileage}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
         needsPreviousAdverts
           ? fetch(`${ONE_AUTO_BASE}/percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
@@ -454,7 +471,7 @@ const dvla = await safeJson(dvlaRes);
         needsMarketDemand
           ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
-        needsMot ? getDvsaMotHistory(cleanVrm) : Promise.resolve(null),
+        (needsMot && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
         needsSalvageHistory
           ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -512,6 +529,8 @@ const dvla = await safeJson(dvlaRes);
         serviceHistoryRefunded,
         market: 'GB',
         checks,
+        valuationMileage: needsValuation ? bregoMileage : null,
+        valuationMileageSource: needsValuation ? bregoMileageSource : null,
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
