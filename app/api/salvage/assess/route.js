@@ -366,16 +366,20 @@ export async function GET(request) {
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 100,
-          system: 'You are reading vehicle auction photos. Find the dashboard instrument cluster / odometer. Return ONLY the total mileage as a plain integer (no commas, no text). If no odometer reading is clearly visible in any photo, return exactly: null',
+          max_tokens: 200,
+          system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
           messages: [{ role: 'user', content: preExtractBlocks }],
         }),
       });
       if (haikuRes.ok) {
         const haikuData = await haikuRes.json();
         const raw = (haikuData.content?.[0]?.text || '').trim();
-        const parsed = parseInt(raw.replace(/,/g, ''), 10);
-        if (!isNaN(parsed) && parsed >= 1 && parsed <= 999999) photoOdometer = parsed;
+        const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
+          .map(n => parseInt(n, 10))
+          .filter(n => n >= 1 && n <= 999999);
+        const uniq = [...new Set(nums)];
+        const parsed = uniq.length === 1 ? uniq[0] : NaN;
+        if (!isNaN(parsed)) photoOdometer = parsed;
         console.log('[HAIKU ODO] raw:', JSON.stringify(raw), '| parsed photoOdometer:', photoOdometer);
       } else {
         console.log('[HAIKU ODO] HTTP not ok:', haikuRes.status);
