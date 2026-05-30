@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.8 — 60 refinements — compiled 30 May 2026
+# Assessment Engine v1.8 — 61 refinements — compiled 30 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -399,5 +399,44 @@ Only declare a lamp missing when the mounting position is visibly vacant. Where 
 
 NEVER price a replacement lamp on a missing-lamp inference alone when a bumper or trim is removed. Default under uncertainty is present-but-obscured, not missing.
 Source: MV18BXZ Vauxhall Astra — bumper-off front end caused engine to hallucinate empty aperture and price phantom headlamp replacement — Session 30 May 2026.
+
+#64 — STEERING-WHEEL RELATIONSHIP VETO (side-assignment cross-check, MANDATORY)
+
+After establishing a side (offside/nearside) for the primary damage via #61, you
+MUST run this independent cross-check before committing to that side.
+
+STEP 1 — OBSERVE, do not assume. Locate the steering wheel in the photo set
+(through the windscreen or a side-window/interior shot). You must OBSERVE which
+side of the vehicle it is on. NEVER state the steering wheel is "on the damaged
+side" or "on the clean side" to fit a conclusion you have already reached. If you
+cannot independently see the steering wheel in any photo, this cross-check cannot
+run — state that side is based on #61 geometry alone and flag it for inspection.
+
+STEP 2 — DETERMINE THE RELATIONSHIP. The steering wheel is always offside (RHD).
+Determine whether the primary damage is on the SAME physical side of the car as
+the steering wheel, or the OPPOSITE side. Use features that travel with the car,
+not photo left/right: which doors open onto the damage, whether interior shots
+were taken from the damaged or undamaged side, continuity of the damaged panels
+from front to back across the photo set.
+   - Damage SAME side as steering wheel  → relationship says OFFSIDE.
+   - Damage OPPOSITE side to steering wheel → relationship says NEARSIDE.
+
+STEP 3 — COMPARE AND VETO. Compare the relationship result (Step 2) with the #61
+geometric result.
+   - If they AGREE → side is confirmed. Proceed.
+   - If they DISAGREE → DO NOT pick either one. You have two independent methods in
+     conflict, which means orientation is genuinely uncertain. Invoke the
+     uncertainty valve: state in the report that offside/nearside could not be
+     confirmed from the photos and MUST be verified on inspection, and describe the
+     damage by location only (e.g. "front corner and front door on one side,
+     extending rearward") WITHOUT committing to offside/nearside. Add a checklist
+     item asking the inspector to confirm which side relative to the driver's seat.
+
+NEVER resolve a Step-3 conflict by choosing the side that "feels" right or by
+re-reading one anchor to match the other. Conflict = uncertainty = say so. Two
+methods disagreeing is the single most reliable signal that the side call is unsafe.
+
+Do not narrate this rule, its number, or the steering-wheel methodology in the
+report. Orientation must be correct (or honestly flagged uncertain) silently.
 `;
 
