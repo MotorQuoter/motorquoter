@@ -356,7 +356,6 @@ export async function GET(request) {
         if (m) { mediaType = m[1]; data = m[2]; }
         return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
       });
-      console.log('[HAIKU ODO] calling, image count:', preExtractBlocks.length);
       const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -380,11 +379,22 @@ export async function GET(request) {
         const uniq = [...new Set(nums)];
         const parsed = uniq.length === 1 ? uniq[0] : NaN;
         if (!isNaN(parsed)) photoOdometer = parsed;
-        console.log('[HAIKU ODO] raw:', JSON.stringify(raw), '| parsed photoOdometer:', photoOdometer);
       } else {
-        console.log('[HAIKU ODO] HTTP not ok:', haikuRes.status);
+        // non-2xx from Haiku — photoOdometer stays null, downstream hierarchy takes over
       }
-    } catch (e) { console.log('[HAIKU ODO] threw:', e?.message || String(e)); }
+    } catch { /* Haiku threw — photoOdometer stays null */ }
+
+    // Sanity-check photo read against last DVSA MOT mileage (valuation hygiene only).
+    // Must run before photoMileageFlag so a nulled-out read doesn't produce a misleading flag.
+    if (photoOdometer !== null) {
+      const lastMot = parseInt(String(enrichedVd.lastMotMileage || '').replace(/,/g, ''), 10);
+      if (lastMot >= 1 && photoOdometer < lastMot) {
+        const gap = lastMot - photoOdometer;
+        console.log(`[HAIKU ODO SANITY] photo ${photoOdometer} < last MOT ${lastMot}, gap ${gap}, falling back`);
+        photoOdometer = null;
+      }
+      // If lastMot is missing/0/unparseable: no baseline — keep photoOdometer as-is
+    }
 
     if (photoOdometer !== null) {
       const listedMileage = enrichedVd.copartListedMileage != null
