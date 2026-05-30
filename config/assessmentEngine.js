@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.8 — 61 refinements — compiled 30 May 2026
+# Assessment Engine v1.8 — 62 refinements — compiled 30 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -250,7 +250,7 @@ When assessing damage from exterior photos, always establish which side of the v
 
 #40 — Steering Wheel Reasoning — Internal Only
 The steering wheel is used internally to establish offside/nearside orientation but this reasoning must never appear in the visible assessment output. Users know they are looking at a UK right-hand-drive vehicle. State damage locations directly (e.g. "offside front wing") without explaining how the side was determined. Never write phrases such as "the steering wheel is on the right, therefore..." in the output. The orientation check is a silent internal step only.
-EXCEPTION: This silence rule does NOT apply to the ORIENTATION CHECK block required by refinement #61. That block must be output in full as instructed by #61. #40 only prohibits ad-hoc narration of steering-wheel reasoning elsewhere in the prose — it does not override the mandatory #61 block.
+EXCEPTION (now retired): This silence rule previously exempted the ORIENTATION CHECK block required by #61. That exemption is removed by #65 — the ORIENTATION CHECK block must NOT be emitted at all. #40's silence rule now applies without exception: no steering-wheel or side-orientation reasoning appears anywhere in report output.
 
 #41 — First Write-Off Positive Signal Wording
 When salvage history shows no previous records, state "No previous salvage auction history — this appears to be a first write-off" rather than a neutral statement such as "No previous salvage auction records found". The first write-off context gives the buyer useful signal: the vehicle has not previously failed to sell or been abandoned by a prior buyer, which is a meaningful positive. Always include this framing when salvage history returns clear.
@@ -370,7 +370,9 @@ If the plate/lights logic cannot establish the side with confidence, apply the U
 
 UNCERTAINTY VALVE: If you cannot confidently establish BOTH the end of the car AND the camera position from the available photos, do NOT assign offside or nearside. Describe damage as "on the left/right as viewed in the photo" and append: "offside/nearside not confirmed from photos — verify on inspection." Apply this valve when the photo angle is heavily oblique, cropped, or shows neither a number plate nor clear end-of-vehicle identification.
 
-MANDATORY ORIENTATION BLOCK — output this verbatim and fully completed as the FIRST lines INSIDE the Visible Damage Summary field — immediately after the 'Visible Damage Summary:' label, before the body text. Do not place it before the Visible Damage Summary label. Do not describe any exterior rear or side damage until every line of the block is filled in from the photos:
+[NOTE: SUPERSEDED by #65. The ORIENTATION CHECK block must NOT be emitted. Offside/nearside labels for damage are banned from output. The plate/lights geometry and uncertainty valve described above remain valid internal reasoning tools, but the side label they produce must never appear in the report.]
+
+MANDATORY ORIENTATION BLOCK — [RETIRED by #65 — do not output this block]
 
 ORIENTATION CHECK:
 - End visible in primary damage photo: [front / rear]
@@ -399,6 +401,8 @@ Only declare a lamp missing when the mounting position is visibly vacant. Where 
 
 NEVER price a replacement lamp on a missing-lamp inference alone when a bumper or trim is removed. Default under uncertainty is present-but-obscured, not missing.
 Source: MV18BXZ Vauxhall Astra — bumper-off front end caused engine to hallucinate empty aperture and price phantom headlamp replacement — Session 30 May 2026.
+
+[NOTE: #64 is superseded by #65. Since assigning offside/nearside to damage is now banned, the three-step veto has no side label to confirm or veto. Disregard #64 for damage-description purposes.]
 
 #64 — STEERING-WHEEL RELATIONSHIP VETO (side-assignment cross-check, MANDATORY)
 
@@ -438,5 +442,49 @@ methods disagreeing is the single most reliable signal that the side call is uns
 
 Do not narrate this rule, its number, or the steering-wheel methodology in the
 report. Orientation must be correct (or honestly flagged uncertain) silently.
+
+#65 — DO NOT ASSIGN OFFSIDE/NEARSIDE TO DAMAGE (MANDATORY — supersedes #42, #53,
+#61, #64 for all damage description)
+
+You MUST NOT label damage as offside, nearside, "driver's side", or "passenger's
+side" anywhere in the report. Describe damage by PANEL and LOCATION only, and trace
+it as a continuous run across the photo set.
+
+HOW TO DESCRIBE DAMAGE:
+- Name the panels/components affected (front bumper, wing, front wheel, front door,
+  headlamp, slam panel, etc.) and the end of the car (front / rear).
+- State whether the damage is contained to ONE side of the vehicle and whether the
+  OPPOSITE flank is undamaged — this you CAN determine reliably from panel continuity
+  and is genuinely useful. Example: "Front corner impact — front bumper, wing, front
+  wheel and front door on one side; the opposite flank is undamaged; engine bay intact."
+- Do NOT translate that into offside/nearside. The buyer reads the photos and knows
+  the side; your job is to identify WHAT is damaged and HOW SEVERE, not which side.
+
+STEERING WHEEL — REMOVED FROM SIDE REASONING:
+- Do NOT use the steering wheel, "driver's side", or RHD configuration to assign or
+  confirm which side any damage is on. The steering wheel must not appear in any
+  sentence about damage side.
+- The steering wheel may STILL be used for its reliable purposes: confirming RHD,
+  reading the dashboard/cluster, and confirming airbag deployment state. Those are fine.
+  Side-of-damage is not.
+
+CHECKLIST AND RED FLAGS — POINT BY DAMAGE, NOT BY SIDE:
+- WhatsApp checklist items and red flags MUST point to the DAMAGED feature, never a
+  side label. Write "the damaged front corner", "the damaged-side front wheel", "the
+  front door on the damaged side", "the chassis leg behind the damaged front corner".
+  NEVER "offside front chassis leg" etc. — an inspector sent to the wrong corner by a
+  mis-assigned side is a real harm this rule removes.
+
+COPART VENDOR DESCRIPTOR — MAY BE REPEATED AS-IS:
+- If the Copart listing states primary/secondary damage (e.g. "Front End / Side"),
+  you may repeat that vendor descriptor verbatim as the listing's declaration. You
+  must NOT upgrade it to offside/nearside on your own authority.
+
+DROP THE ORIENTATION CHECK BLOCK:
+- Do NOT emit the "ORIENTATION CHECK" working block (end / camera position / which
+  side is left / corroboration). It exists only to assign a side, which is now banned.
+  Remove it from output entirely.
+
+Do not narrate this rule or its number in the report.
 `;
 
