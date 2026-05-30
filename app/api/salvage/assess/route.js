@@ -397,23 +397,29 @@ export async function GET(request) {
     }
 
     if (photoOdometer !== null) {
-      const listedMileage = enrichedVd.copartListedMileage != null
-        ? parseInt(String(enrichedVd.copartListedMileage).replace(/,/g, ''), 10)
+      const listedRaw = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
+      const listedMileage = listedRaw != null
+        ? (() => { const m = String(listedRaw).replace(/,/g, '').match(/\d+/); return m ? parseInt(m[0], 10) : NaN; })()
         : NaN;
       if (!isNaN(listedMileage) && listedMileage >= 1) {
         const diff = Math.abs(photoOdometer - listedMileage);
         if (diff > 500) {
-          enrichedVd.photoMileageFlag = `Photo odometer reads ${photoOdometer.toLocaleString()} miles; Copart listing entry shows ${listedMileage.toLocaleString()} miles — a discrepancy of ${diff.toLocaleString()} miles. Photo reading used for valuation; verify before bidding.`;
+          enrichedVd.photoMileageFlag = `Photo odometer reads ${photoOdometer.toLocaleString()} miles; listing shows ${listedMileage.toLocaleString()} miles — discrepancy of ${diff.toLocaleString()} miles. Verify before bidding.`;
         }
       }
     }
 
     // Determine mileage for Brego valuation
-    const { mileage: brMileage, source: brMileageSource } = getMileageForValuation({
+    const { mileage: brMileage, source: brMileageSource, ageYears: brAgeYears } = getMileageForValuation({
       photoOdometer,
       formMileage: enrichedVd.copartListedMileage ?? null,
+      listingOdometer: enrichedVd.odometer ?? null,
       dvsaMileage: enrichedVd.lastMotMileage ?? null,
+      vehicleYear: enrichedVd.year ?? null,
     });
+    if (brMileageSource === 'age_anomaly') {
+      console.log(`[MILEAGE ANOMALY] vrm=${enrichedVd.vrm || 'unknown'} year=${enrichedVd.year || '?'} age=${brAgeYears ?? '?'}yr no listing/photo/DVSA mileage available, estimating ${brMileage} miles from age`);
+    }
 
     // Fetch salvage history + Brego valuation in parallel (GB/NI only)
     let bregoData = null;
@@ -519,7 +525,11 @@ export async function GET(request) {
         if (!bregoData) return 'Live market valuation data: UNAVAILABLE — proceed with assessment but flag exit value as low confidence.';
         const fmt = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
         const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
-        return [
+        // Map new source codes to strings the engine's mileage-source rules already know
+        const engineSrc = brMileageSource === 'listing_odometer' ? 'copart_listed'
+          : (brMileageSource === 'age_estimate' || brMileageSource === 'age_anomaly') ? 'default_fallback'
+          : brMileageSource;
+        const lines = [
           `Live market valuation data (${monthYear}):`,
           `- Retail low (poor condition): ${fmt(bregoData.retail_low_valuation)}`,
           `- Retail average (average condition): ${fmt(bregoData.retail_average_valuation)}`,
@@ -529,8 +539,15 @@ export async function GET(request) {
           `- Trade high (excellent condition): ${fmt(bregoData.trade_high_valuation)}`,
           bregoData.vehicle_desc ? `- Vehicle: ${bregoData.vehicle_desc}` : null,
           `- Mileage used for valuation: ${bregoData._mileageUsed} miles`,
-          `- Mileage source: ${bregoData._mileageSource}`,
-        ].filter(Boolean).join('\n');
+          `- Mileage source: ${engineSrc}`,
+        ];
+        if (brMileageSource === 'age_estimate') {
+          lines.push(`⚠️ MILEAGE ESTIMATE — MUST FLAG IN REPORT: No actual mileage was available from the listing, dashboard photos, or DVSA. The valuation mileage of ${Number(bregoData._mileageUsed).toLocaleString()} miles is estimated from vehicle age only. Label it as "ESTIMATED from age — actual mileage NOT confirmed". State that the valuation, exit value, and margin all depend on this unverified figure. Add a "Confirm actual mileage before bidding" item to the WhatsApp checklist. Reduce Confidence Level by one tier.`);
+        }
+        if (brMileageSource === 'age_anomaly') {
+          lines.push(`⚠️ MILEAGE ANOMALY — MUST FLAG IN REPORT: The vehicle is over 4 years old but no mileage data could be retrieved from the listing, dashboard photos, or DVSA. The figure of ${Number(bregoData._mileageUsed).toLocaleString()} miles is a rough age-based estimate and is highly uncertain. State explicitly in the report that no mileage data was available, the valuation is unreliable without confirmed mileage, and the buyer MUST verify actual mileage before bidding. Set Confidence Level: Low.`);
+        }
+        return lines.filter(Boolean).join('\n');
       })(),
     ].filter(Boolean).join('\n');
 

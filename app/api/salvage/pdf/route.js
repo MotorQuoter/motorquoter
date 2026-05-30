@@ -383,7 +383,13 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   if (bregoData) {
     const fmtP = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
     const src = bregoData._mileageSource;
-    const srcLabel = src === 'copart_listed' ? 'Copart listing' : src === 'dvsa_mot' ? 'DVSA last MOT' : src === 'photo_odometer' ? 'Odometer read from photos' : 'default (50k miles)';
+    const srcLabel = src === 'copart_listed' ? 'Copart listing'
+      : src === 'listing_odometer' ? 'Copart listing (parsed)'
+      : src === 'dvsa_mot' ? 'DVSA last MOT'
+      : src === 'photo_odometer' ? 'Odometer read from photos'
+      : src === 'age_estimate' ? 'Age-based estimate'
+      : src === 'age_anomaly' ? 'Age-based estimate (no data found)'
+      : 'default (50k miles)';
     const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
     sectionTitle(`Live Market Valuation (${monthYear})`);
     checkPage(36);
@@ -419,10 +425,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
       doc.text(`Copart ERV: ${str(vd.estimatedRetail)} — vendor-type interpretation in assessment`, MARGIN, y); y += 6;
     }
-    if (src !== 'copart_listed' && src !== 'photo_odometer') {
-      checkPage(8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 100, 0);
-      doc.text(`Note: mileage from ${srcLabel} — engine applied 5-10% downward caution to retail figures.`, MARGIN, y); y += 7;
+    if (src === 'age_estimate' || src === 'age_anomaly') {
+      checkPage(12);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(180, 0, 0);
+      const estimateWarning = src === 'age_anomaly'
+        ? `ESTIMATED mileage — vehicle over 4 years old, no listing/photo/DVSA mileage available. Valuation, exit value and margin depend on an unverified estimate. Confirm actual mileage before bidding.`
+        : `ESTIMATED mileage — no actual mileage confirmed from listing, photos, or DVSA. Valuation, exit value and margin depend on this assumed figure. Confirm actual mileage before bidding.`;
+      const warnLines = doc.splitTextToSize(estimateWarning, CONTENT_W);
+      doc.text(warnLines, MARGIN, y); y += warnLines.length * 4 + 4;
     }
     if (vd.photoMileageFlag) {
       checkPage(10);
