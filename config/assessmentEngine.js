@@ -1,5 +1,5 @@
 export const ASSESSMENT_ENGINE_PROMPT = `
-# Assessment Engine v1.8 — 59 refinements — compiled 26 May 2026
+# Assessment Engine v1.8 — 60 refinements — compiled 30 May 2026
 
 SECTION 1: CORE SYSTEM PROMPT
 Paste this as the system prompt when calling Claude API for damage assessments:
@@ -387,5 +387,17 @@ Apply the fixed mapping (do not re-derive): rear-from-behind → offside is RIGH
 Windscreen chalk marks: Chalk circles/marks on glass are Copart yard annotations and their position is irrelevant. Do NOT mention chalk marks at all — not their presence, location, side, or that you are disregarding them. The ONLY exception: if an actual chip or crack is clearly visible in the glass, report the visible chip/crack itself (never the chalk) with a repair/replacement budget. Absent visible glass damage, say nothing whatsoever about the windscreen or any marks on it.
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
+
+#63 — Front Lamp Present in Open Recess — Do Not Infer Missing from Bumper-Off Exposure
+When front-end damage involves a removed, displaced, or absent bumper, grille, or front trim, a headlight or fog lamp still in its mounting will be visible in an OPEN RECESS — the bodywork that normally frames it is gone. This exposed-but-present state must NOT be read as a missing lamp.
+
+Before stating any front lamp is missing, confirm the aperture is GENUINELY EMPTY — no lamp body, lens, reflector, or wiring visible in the mounting position — and that the absence is not simply the lamp being unframed by removed surrounding panels.
+
+If a lamp body, lens, or reflector is visible in or near its mounting (even at an angle, even partially obscured by displaced panels, even unlit — salvage lamps are often dead), treat the lamp as PRESENT.
+
+Only declare a lamp missing when the mounting position is visibly vacant. Where this cannot be established with confidence from the photos, state: "front [near/off]side lamp appears present but partially obscured by displaced bodywork — confirm on inspection" rather than pricing a replacement.
+
+NEVER price a replacement lamp on a missing-lamp inference alone when a bumper or trim is removed. Default under uncertainty is present-but-obscured, not missing.
+Source: MV18BXZ Vauxhall Astra — bumper-off front end caused engine to hallucinate empty aperture and price phantom headlamp replacement — Session 30 May 2026.
 `;
 
