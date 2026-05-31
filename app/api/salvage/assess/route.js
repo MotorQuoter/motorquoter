@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
-import { getAllCopartFeeBands } from '@/lib/copartFees';
+import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 
@@ -463,15 +463,9 @@ export async function GET(request) {
 
     const auctionSource = enrichedVd.auctionSource || 'copart';
 
-    const feeRef = auctionSource === 'copart' ? (() => {
-      const rows = getAllCopartFeeBands().map(f => {
-        if (f.buyersFee === null) {
-          return `  Hammer ${f.band} → Buyer's Fee TBC (confirm with Copart) + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee}`;
-        }
-        return `  Hammer ${f.band} → Buyer's Fee £${f.buyersFee} + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee} = £${f.totalExVat} ex. VAT / £${f.totalIncVat} inc. VAT`;
-      });
-      return `Copart Fees (online bidding, all bands):\n${rows.join('\n')}\nMatch the actual hammer price to the correct band for Margin Calculation.`;
-    })() : null;
+    const feeRef = auctionSource === 'copart'
+      ? 'Copart fees: Call the computeCopartFees tool with each hypothetical hammer price before writing the Margin Calculation. Do not estimate or calculate fees yourself — the tool returns the exact breakdown.'
+      : null;
 
     const contextLines = [
       enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
@@ -568,29 +562,128 @@ export async function GET(request) {
       ...imageBlocks,
     ];
 
-    const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+    const COPART_FEES_TOOL = {
+      name: 'computeCopartFees',
+      description: 'Returns the exact Copart UK fee stack for a given hammer price. Call this for every hypothetical hammer price before writing the Margin Calculation. Do not estimate or calculate fees yourself.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hammer: { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
+        },
+        required: ['hammer'],
       },
-      body: JSON.stringify({
-        model: 'claude-opus-4-8',
-        max_tokens: 8000,
-        system: ASSESSMENT_ENGINE_PROMPT,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
+    };
 
-    const apiData = await apiResponse.json();
-    console.log('[TOKEN LOG] Input tokens:', apiData.usage?.input_tokens, '| Output tokens:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
-    if (!apiResponse.ok) throw new Error(apiData.error?.message || 'Claude API error');
+    const MAX_TOOL_ITERATIONS = 3;
+    const claudeTools = auctionSource === 'copart' ? [COPART_FEES_TOOL] : [];
+    const messages = [{ role: 'user', content: userContent }];
 
-    const rawText = apiData.content?.[0]?.text || '';
+    let rawText = '';
+    let toolCallCount = 0;
+    let capHit = false;
+
+    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8',
+          max_tokens: 8000,
+          system: ASSESSMENT_ENGINE_PROMPT,
+          messages,
+          ...(claudeTools.length ? { tools: claudeTools } : {}),
+        }),
+      });
+
+      const apiData = await apiRes.json();
+      console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      if (!apiRes.ok) throw new Error(apiData.error?.message || 'Claude API error');
+
+      const content = apiData.content || [];
+
+      if (apiData.stop_reason === 'end_turn') {
+        rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
+        break;
+      }
+
+      if (apiData.stop_reason === 'tool_use') {
+        const toolResults = content
+          .filter(c => c.type === 'tool_use')
+          .map(block => {
+            if (block.name === 'computeCopartFees') {
+              const hammer = Number(block.input?.hammer);
+              if (!Number.isFinite(hammer) || hammer <= 0) {
+                console.warn('[FEE TOOL] Invalid hammer from model:', block.input?.hammer);
+                return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Invalid hammer — must be a positive number' }) };
+              }
+              const fees = feeStack(hammer);
+              toolCallCount++;
+              console.log(`[FEE TOOL] computeCopartFees(${hammer}) →`, fees);
+              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(fees) };
+            }
+            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
+          });
+
+        messages.push({ role: 'assistant', content });
+        messages.push({ role: 'user', content: toolResults });
+        continue;
+      }
+
+      // Unexpected stop reason — take whatever text exists and break
+      rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
+      break;
+    }
+
+    // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
+    if (!rawText && messages[messages.length - 1].role === 'user') {
+      capHit = true;
+      console.warn('[FEE TOOL] Iteration cap hit — forcing final response without tools');
+      const finalRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8',
+          max_tokens: 8000,
+          system: ASSESSMENT_ENGINE_PROMPT,
+          messages,
+        }),
+      });
+      const finalData = await finalRes.json();
+      console.log('[TOKEN LOG] cap-fallback Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens);
+      if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (cap fallback)');
+      rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    }
+
+    // DETERMINISTIC FALLBACK: model bypassed the tool entirely — inject server-computed fee
+    if (auctionSource === 'copart' && toolCallCount === 0) {
+      console.warn('[FEE TOOL] Tool never called — activating server-side fee fallback');
+      const hammerMatch = rawText.match(
+        /hammer\s*(?:price\s*)?(?:of\s*)?£\s*([\d,]+)|£\s*([\d,]+)\s*hammer/i
+      );
+      if (hammerMatch) {
+        const hammerStr = (hammerMatch[1] || hammerMatch[2]).replace(/,/g, '');
+        const hammer = parseInt(hammerStr, 10);
+        if (!isNaN(hammer) && hammer > 0) {
+          const fees = feeStack(hammer);
+          console.log('[FEE TOOL] Fallback fees at hammer', hammer, ':', fees);
+          rawText += `\n\n[Server-computed Copart fees (fallback) — hammer £${hammer.toLocaleString('en-GB')}: Buyer £${fees.buyerFee} + Bid £${fees.bidFee} + Retrieval £${fees.retrieval} + VAT £${fees.vatAmount} = £${fees.totalIncVat} inc. VAT]`;
+        }
+      }
+    }
+
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
+    if (capHit) assessment._feeCapHit = true;
+    if (auctionSource === 'copart' && toolCallCount === 0) assessment._feeFallbackUsed = true;
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
