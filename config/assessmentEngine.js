@@ -46,7 +46,7 @@ Confidence Level: Low / Medium / High [based on photo quality and information av
 Bidder Note: [one sentence risk summary]
 Recommended Action: [see WhatsApp inspection guidance below]
 Realistic Exit Value: [two-axis exit value — choose the appropriate Brego tier as anchor from visible damage severity, apply desirability-modulated stigma discount, never a flat percentage]
-Margin Calculation: [Realistic exit value minus repair range minus hammer price minus Copart fees]
+Margin Calculation: [Explain your reasoning only — which Brego tier you chose as the exit anchor and why, which end of the repair range you used and why, and what the margin picture means for the bidding decision. Do NOT write any fee total, hammer VAT amount, or margin figure — those are computed by the server from your tool inputs and rendered in a table. Any figure you state in this field is not shown to the customer.]
 Never reference internal rule labels, rule indices, or internal processing names in the report. Describe the reasoning in plain language. The customer must never see internal numbering, rule labels, or 'apply [rule name]'.
 
 SECTION 2: COPART PLATFORM INTELLIGENCE

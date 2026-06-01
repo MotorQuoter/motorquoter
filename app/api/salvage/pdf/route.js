@@ -480,6 +480,83 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   sectionTitle('Valuation & Bidding');
   fieldBlock('Realistic Exit Value', assessment['Realistic Exit Value'], { bold: true });
   fieldBlock('Margin Calculation',   assessment['Margin Calculation']);
+
+  // Margin table — server-computed from tool inputs
+  if (Array.isArray(assessment._marginScenarios) && assessment._marginScenarios.length > 0) {
+    const msc       = assessment._marginScenarios;
+    const fmtM      = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
+    const carExit   = msc[0].exit_value;
+    const carRepair = msc[0].repair;
+    const hasVat    = msc.some(s => s.hammerVat > 0);
+    const hasMargin = msc.some(s => s.margin !== null);
+
+    // Car-level rows (exit + repair)
+    const carRows = [
+      carExit   != null ? ['Exit value',  fmtM(carExit),   [0, 130, 0]]  : null,
+      carRepair != null ? ['Repair cost', fmtM(carRepair), [170, 0, 0]]  : null,
+    ].filter(Boolean);
+    for (const [label, value, rgb] of carRows) {
+      checkPage(7);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(60, 60, 60);
+      doc.text(label, MARGIN, y);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+      doc.text(value, PAGE_W - MARGIN, y, { align: 'right' });
+      y += 5;
+      doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    if (carRows.length > 0) y += 2;
+
+    // Column layout: hammer label takes left 35%, data columns split right 65%
+    const numDataCols = (hasVat ? 1 : 0) + 1 + (hasMargin ? 1 : 0);
+    const HAMMER_W    = CONTENT_W * 0.35;
+    const dataColW    = (CONTENT_W - HAMMER_W) / numDataCols;
+    const dataXPos    = (i) => MARGIN + HAMMER_W + (i + 1) * dataColW;
+    const colLabels   = [...(hasVat ? ['Hammer VAT'] : []), 'Copart Fees', ...(hasMargin ? ['Margin'] : [])];
+
+    // Header row
+    checkPage(8);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+    doc.text('HAMMER', MARGIN, y);
+    colLabels.forEach((h, i) => doc.text(h.toUpperCase(), dataXPos(i), y, { align: 'right' }));
+    y += 3;
+    doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.2);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 3;
+
+    // Scenario rows
+    for (const s of msc) {
+      checkPage(7);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(fmtM(s.hammer), MARGIN, y);
+      let ci = 0;
+      if (hasVat) {
+        if (s.hammerVat > 0) {
+          doc.setTextColor(170, 0, 0); doc.text(fmtM(s.hammerVat), dataXPos(ci), y, { align: 'right' });
+        } else {
+          doc.setTextColor(150, 150, 150); doc.text('-', dataXPos(ci), y, { align: 'right' });
+        }
+        ci++;
+      }
+      doc.setTextColor(170, 0, 0); doc.text(fmtM(s.totalIncVat), dataXPos(ci), y, { align: 'right' });
+      ci++;
+      if (hasMargin) {
+        if (s.margin !== null) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(s.margin >= 0 ? 0 : 170, s.margin >= 0 ? 130 : 0, 0);
+          doc.text(fmtM(s.margin), dataXPos(ci), y, { align: 'right' });
+        } else {
+          doc.setFont('helvetica', 'normal'); doc.setTextColor(150, 150, 150);
+          doc.text('-', dataXPos(ci), y, { align: 'right' });
+        }
+      }
+      y += 5;
+      doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    y += 2;
+  }
+
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Fix 5: keep existing colour logic for Recommended Action

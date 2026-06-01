@@ -311,6 +311,10 @@ export async function GET(request) {
       lotNumber:        cleanedVd.lotNumber        || parsed.lotNumber || vd.lotNumber,
     };
 
+    if (!enrichedVd.vatOnSale && /VAT\s+to\s+be\s+added/i.test(vd.damageDescription || '')) {
+      console.warn('[VAT PARSE] possible missed VAT flag: "VAT to be added" found in listing but vatOnSale parsed as null');
+    }
+
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
     if (market === 'IE' && roiTier !== 'roi_free' && enrichedVd.vrm) {
@@ -464,7 +468,7 @@ export async function GET(request) {
     const auctionSource = enrichedVd.auctionSource || 'copart';
 
     const feeRef = auctionSource === 'copart'
-      ? 'Copart fees: Call the computeCopartFees tool with each hypothetical hammer price before writing the Margin Calculation. Do not estimate or calculate fees yourself — the tool returns the exact breakdown.'
+      ? 'Copart fees: Call the computeCopartFees tool for every hammer scenario you are evaluating, before writing the Margin Calculation. Pass your judged exit_value (single GBP integer — your chosen realistic exit price for this vehicle) and repair (single GBP integer — your chosen repair cost from within your stated range) alongside each hammer. Both are car-level constants: pass identical values across all your hammer calls. The server computes all fees, hammer VAT, and the full margin. Your Margin Calculation prose must explain WHY you chose that exit anchor and that repair figure — it must NOT state any fee amount, hammer VAT amount, or margin figure.'
       : null;
 
     const contextLines = [
@@ -564,19 +568,23 @@ export async function GET(request) {
 
     const COPART_FEES_TOOL = {
       name: 'computeCopartFees',
-      description: 'Returns the exact Copart UK fee stack for a given hammer price. Call this for every hypothetical hammer price before writing the Margin Calculation. Do not estimate or calculate fees yourself.',
+      description: 'Returns the exact Copart UK fee stack for a given hammer price. Call this for every hypothetical hammer scenario before writing the Margin Calculation. Pass your judged exit_value and repair alongside each hammer — both are car-level constants, pass identical values for every hammer call. Do not estimate or calculate fees or margins yourself; the server computes and displays all figures.',
       input_schema: {
         type: 'object',
         properties: {
-          hammer: { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
+          hammer:     { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
+          exit_value: { type: 'number', description: 'Your chosen realistic exit price for this vehicle in GBP — constant across all hammer scenarios' },
+          repair:     { type: 'number', description: 'Your chosen repair cost for this vehicle in GBP (single figure from within your estimated range) — constant across all hammer scenarios' },
         },
-        required: ['hammer'],
+        required: ['hammer', 'exit_value', 'repair'],
       },
     };
 
     const MAX_TOOL_ITERATIONS = 3;
     const claudeTools = auctionSource === 'copart' ? [COPART_FEES_TOOL] : [];
     const messages = [{ role: 'user', content: userContent }];
+    const marginScenarios = [];
+    const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     let rawText = '';
     let toolCallCount = 0;
@@ -615,15 +623,28 @@ export async function GET(request) {
           .filter(c => c.type === 'tool_use')
           .map(block => {
             if (block.name === 'computeCopartFees') {
-              const hammer = Number(block.input?.hammer);
+              const hammer     = Number(block.input?.hammer);
+              const exitValue  = Number(block.input?.exit_value);
+              const repair     = Number(block.input?.repair);
               if (!Number.isFinite(hammer) || hammer <= 0) {
                 console.warn('[FEE TOOL] Invalid hammer from model:', block.input?.hammer);
                 return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Invalid hammer — must be a positive number' }) };
               }
-              const fees = feeStack(hammer);
+              const fees            = feeStack(hammer);
+              const hammerVat       = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
+              const hasMarginInputs = Number.isFinite(exitValue) && exitValue > 0 &&
+                                      Number.isFinite(repair) && repair >= 0;
+              const margin          = hasMarginInputs
+                ? Math.round((exitValue - repair - hammer - hammerVat - fees.totalIncVat) * 100) / 100
+                : null;
+              marginScenarios.push({
+                hammer, exit_value: hasMarginInputs ? exitValue : null,
+                repair: hasMarginInputs ? repair : null,
+                hammerVat, ...fees, margin,
+              });
               toolCallCount++;
-              console.log(`[FEE TOOL] computeCopartFees(${hammer}) →`, fees);
-              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(fees) };
+              console.log(`[FEE TOOL] computeCopartFees(${hammer}) exit=${exitValue} repair=${repair} hammerVat=${hammerVat} →`, { ...fees, margin });
+              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ ...fees, hammerVat, margin }) };
             }
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
           });
@@ -636,6 +657,29 @@ export async function GET(request) {
       // Unexpected stop reason — take whatever text exists and break
       rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
       break;
+    }
+
+    // Car-level enforcement: exit_value and repair must be identical across all scenarios
+    if (marginScenarios.length > 1) {
+      const firstValid = marginScenarios.find(s => s.exit_value != null && s.repair != null);
+      if (firstValid) {
+        const canonicalExit   = firstValid.exit_value;
+        const canonicalRepair = firstValid.repair;
+        const exitDiverged    = marginScenarios.some(s => s.exit_value != null && s.exit_value !== canonicalExit);
+        const repairDiverged  = marginScenarios.some(s => s.repair   != null && s.repair   !== canonicalRepair);
+        if (exitDiverged || repairDiverged) {
+          console.warn('[MARGIN] exit_value or repair diverged across scenarios — normalising to first valid values', { canonicalExit, canonicalRepair });
+          for (let i = 0; i < marginScenarios.length; i++) {
+            const s = marginScenarios[i];
+            marginScenarios[i] = {
+              ...s,
+              exit_value: canonicalExit,
+              repair:     canonicalRepair,
+              margin:     Math.round((canonicalExit - canonicalRepair - s.hammer - s.hammerVat - s.totalIncVat) * 100) / 100,
+            };
+          }
+        }
+      }
     }
 
     // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
@@ -662,28 +706,15 @@ export async function GET(request) {
       rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
     }
 
-    // DETERMINISTIC FALLBACK: model bypassed the tool entirely — inject server-computed fee
     if (auctionSource === 'copart' && toolCallCount === 0) {
-      console.warn('[FEE TOOL] Tool never called — activating server-side fee fallback');
-      const hammerMatch = rawText.match(
-        /hammer\s*(?:price\s*)?(?:of\s*)?£\s*([\d,]+)|£\s*([\d,]+)\s*hammer/i
-      );
-      if (hammerMatch) {
-        const hammerStr = (hammerMatch[1] || hammerMatch[2]).replace(/,/g, '');
-        const hammer = parseInt(hammerStr, 10);
-        if (!isNaN(hammer) && hammer > 0) {
-          const fees = feeStack(hammer);
-          console.log('[FEE TOOL] Fallback fees at hammer', hammer, ':', fees);
-          rawText += `\n\n[Server-computed Copart fees (fallback) — hammer £${hammer.toLocaleString('en-GB')}: Buyer £${fees.buyerFee} + Bid £${fees.bidFee} + Retrieval £${fees.retrieval} + VAT £${fees.vatAmount} = £${fees.totalIncVat} inc. VAT]`;
-        }
-      }
+      console.warn('[FEE TOOL] Tool never called — no margin table will be shown');
     }
 
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
     if (capHit) assessment._feeCapHit = true;
-    if (auctionSource === 'copart' && toolCallCount === 0) assessment._feeFallbackUsed = true;
+    if (marginScenarios.length > 0) assessment._marginScenarios = marginScenarios;
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 

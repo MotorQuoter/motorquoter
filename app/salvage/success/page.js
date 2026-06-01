@@ -579,10 +579,68 @@ export default function SalvageSuccessPage() {
                     <div className="field-val" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 800 }}>{assessment['Realistic Exit Value']}</div>
                   </div>
                 )}
-                {assessment['Margin Calculation'] && (
+                {(assessment['Margin Calculation'] || assessment._marginScenarios?.length > 0) && (
                   <div className="field-row">
                     <div className="field-key">Margin Calculation</div>
-                    <div className="field-val">{assessment['Margin Calculation']}</div>
+                    {assessment['Margin Calculation'] && (
+                      <div className="field-val" style={{ marginBottom: assessment._marginScenarios?.length > 0 ? 10 : 0 }}>{assessment['Margin Calculation']}</div>
+                    )}
+                    {(() => {
+                      const scenarios = assessment._marginScenarios;
+                      if (!scenarios?.length) return null;
+                      const carExit   = scenarios[0].exit_value;
+                      const carRepair = scenarios[0].repair;
+                      const hasVat    = scenarios.some(s => s.hammerVat > 0);
+                      const hasMargin = scenarios.some(s => s.margin !== null);
+                      const fmtGbp    = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                      const headSt    = { fontSize: 11, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase', textAlign: 'right', paddingBottom: 4 };
+                      const cellSt    = (bold, color) => ({ fontSize: 13, fontWeight: bold ? 800 : 500, color: color || 'var(--text)', textAlign: 'right', padding: '5px 0', borderTop: '1px solid var(--border-dim)' });
+                      const lblRowSt  = { fontSize: 12, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase' };
+                      return (
+                        <div style={{ marginTop: 4 }}>
+                          {(carExit != null || carRepair != null) && (
+                            <div style={{ marginBottom: 8 }}>
+                              {carExit != null && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border-dim)' }}>
+                                  <span style={lblRowSt}>Exit value</span>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>{fmtGbp(carExit)}</span>
+                                </div>
+                              )}
+                              {carRepair != null && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border-dim)' }}>
+                                  <span style={lblRowSt}>Repair cost</span>
+                                  <span style={{ fontSize: 13, fontWeight: 500, color: '#f87171' }}>{fmtGbp(carRepair)}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...headSt, textAlign: 'left' }}>Hammer</th>
+                                {hasVat && <th style={headSt}>Hammer VAT</th>}
+                                <th style={headSt}>Copart fees</th>
+                                {hasMargin && <th style={headSt}>Margin</th>}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {scenarios.map((s, i) => (
+                                <tr key={i}>
+                                  <td style={{ ...cellSt(false), textAlign: 'left' }}>{fmtGbp(s.hammer)}</td>
+                                  {hasVat && <td style={cellSt(false, s.hammerVat > 0 ? '#f87171' : 'var(--text-dim)')}>{s.hammerVat > 0 ? fmtGbp(s.hammerVat) : '—'}</td>}
+                                  <td style={cellSt(false, '#f87171')}>{fmtGbp(s.totalIncVat)}</td>
+                                  {hasMargin && (
+                                    <td style={cellSt(true, s.margin == null ? 'var(--text-dim)' : s.margin >= 0 ? '#4ade80' : '#f87171')}>
+                                      {s.margin !== null ? fmtGbp(s.margin) : '—'}
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {assessment['Bidder Note'] && (
