@@ -412,7 +412,7 @@ export default function SalvagePage() {
                     <div style={{ marginTop: 4, paddingLeft: 2 }}>
                       {dvlaData.motHistory.slice(0, 4).map((test, i) => {
                         const pass = test.testResult?.toUpperCase() === 'PASSED';
-                        const advisories = test.rfrAndComments?.filter(c => c.type === 'ADVISORY') || [];
+                        const advisories = test.defects?.filter(d => d.type === 'ADVISORY' || d.type === 'PRS') || [];
                         return (
                           <div key={i} style={{ marginBottom: 3 }}>
                             <div style={{ fontSize: 11, display: 'flex', gap: 6 }}>

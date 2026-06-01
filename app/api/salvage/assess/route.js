@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
-import { getAllCopartFeeBands } from '@/lib/copartFees';
+import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 
@@ -311,6 +311,10 @@ export async function GET(request) {
       lotNumber:        cleanedVd.lotNumber        || parsed.lotNumber || vd.lotNumber,
     };
 
+    if (!enrichedVd.vatOnSale && /VAT\s+to\s+be\s+added/i.test(vd.damageDescription || '')) {
+      console.warn('[VAT PARSE] possible missed VAT flag: "VAT to be added" found in listing but vatOnSale parsed as null');
+    }
+
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
     if (market === 'IE' && roiTier !== 'roi_free' && enrichedVd.vrm) {
@@ -463,15 +467,9 @@ export async function GET(request) {
 
     const auctionSource = enrichedVd.auctionSource || 'copart';
 
-    const feeRef = auctionSource === 'copart' ? (() => {
-      const rows = getAllCopartFeeBands().map(f => {
-        if (f.buyersFee === null) {
-          return `  Hammer ${f.band} → Buyer's Fee TBC (confirm with Copart) + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee}`;
-        }
-        return `  Hammer ${f.band} → Buyer's Fee £${f.buyersFee} + Internet Bid £${f.internetBidFee} + Lot Retrieval £${f.lotRetrievalFee} = £${f.totalExVat} ex. VAT / £${f.totalIncVat} inc. VAT`;
-      });
-      return `Copart Fees (online bidding, all bands):\n${rows.join('\n')}\nMatch the actual hammer price to the correct band for Margin Calculation.`;
-    })() : null;
+    const feeRef = auctionSource === 'copart'
+      ? 'Copart fees: Call the computeCopartFees tool for every hammer scenario you are evaluating, before writing the Margin Calculation. Pass your judged exit_value (single GBP integer — your chosen realistic exit price for this vehicle) and repair (single GBP integer — your chosen repair cost from within your stated range) alongside each hammer. Both are car-level constants: pass identical values across all your hammer calls. The server computes all fees, hammer VAT, and the full margin. Your Margin Calculation prose must explain WHY you chose that exit anchor and that repair figure — it must NOT state any fee amount, hammer VAT amount, or margin figure.'
+      : null;
 
     const contextLines = [
       enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
@@ -486,6 +484,20 @@ export async function GET(request) {
       enrichedVd.taxStatus && `Tax Status: ${enrichedVd.taxStatus}`,
       enrichedVd.motStatus && `MOT Status: ${enrichedVd.motStatus}`,
       enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
+      (() => {
+        const mh = enrichedVd.motHistory;
+        if (!Array.isArray(mh) || mh.length === 0) return null;
+        const lines = mh.slice(0, 15).map(t => {
+          const result  = (t.testResult || '').toUpperCase() === 'PASSED' ? 'PASS' : 'FAIL';
+          const odo     = t.odometerValue != null ? `${Number(t.odometerValue).toLocaleString('en-GB')}mi` : '';
+          const remarks = (t.defects || [])
+            .slice(0, 4)
+            .map(d => `${(d.type || 'ADVISORY').toUpperCase()}: ${(d.text || '').slice(0, 60)}`)
+            .join('; ');
+          return [t.completedDate, result, odo, remarks ? `[${remarks}]` : ''].filter(Boolean).join(' ');
+        });
+        return `DVSA MOT History (most recent first):\n${lines.join('\n')}`;
+      })(),
       enrichedVd.motMileageFlag && `MILEAGE DISCREPANCY FLAG: ${enrichedVd.motMileageFlag}`,
       enrichedVd.photoMileageFlag && `PHOTO MILEAGE DISCREPANCY: ${enrichedVd.photoMileageFlag}`,
       `Market: ${market}`,
@@ -568,29 +580,155 @@ export async function GET(request) {
       ...imageBlocks,
     ];
 
-    const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+    const COPART_FEES_TOOL = {
+      name: 'computeCopartFees',
+      description: 'Returns the exact Copart UK fee stack for a given hammer price. Call this for every hypothetical hammer scenario before writing the Margin Calculation. Pass your judged exit_value and repair alongside each hammer — both are car-level constants, pass identical values for every hammer call. Do not estimate or calculate fees or margins yourself; the server computes and displays all figures.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hammer:     { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
+          exit_value: { type: 'number', description: 'Your chosen realistic exit price for this vehicle in GBP — constant across all hammer scenarios' },
+          repair:     { type: 'number', description: 'Your chosen repair cost for this vehicle in GBP (single figure from within your estimated range) — constant across all hammer scenarios' },
+        },
+        required: ['hammer', 'exit_value', 'repair'],
       },
-      body: JSON.stringify({
-        model: 'claude-opus-4-7',
-        max_tokens: 8000,
-        system: ASSESSMENT_ENGINE_PROMPT,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
+    };
 
-    const apiData = await apiResponse.json();
-    console.log('[TOKEN LOG] Input tokens:', apiData.usage?.input_tokens, '| Output tokens:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
-    if (!apiResponse.ok) throw new Error(apiData.error?.message || 'Claude API error');
+    const MAX_TOOL_ITERATIONS = 3;
+    const claudeTools = auctionSource === 'copart' ? [COPART_FEES_TOOL] : [];
+    const messages = [{ role: 'user', content: userContent }];
+    const marginScenarios = [];
+    const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
-    const rawText = apiData.content?.[0]?.text || '';
+    let rawText = '';
+    let toolCallCount = 0;
+    let capHit = false;
+
+    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8',
+          max_tokens: 8000,
+          system: ASSESSMENT_ENGINE_PROMPT,
+          messages,
+          ...(claudeTools.length ? { tools: claudeTools } : {}),
+        }),
+      });
+
+      const apiData = await apiRes.json();
+      console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      if (!apiRes.ok) throw new Error(apiData.error?.message || 'Claude API error');
+
+      const content = apiData.content || [];
+
+      if (apiData.stop_reason === 'end_turn') {
+        rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
+        break;
+      }
+
+      if (apiData.stop_reason === 'tool_use') {
+        const toolResults = content
+          .filter(c => c.type === 'tool_use')
+          .map(block => {
+            if (block.name === 'computeCopartFees') {
+              const hammer     = Number(block.input?.hammer);
+              const exitValue  = Number(block.input?.exit_value);
+              const repair     = Number(block.input?.repair);
+              if (!Number.isFinite(hammer) || hammer <= 0) {
+                console.warn('[FEE TOOL] Invalid hammer from model:', block.input?.hammer);
+                return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Invalid hammer — must be a positive number' }) };
+              }
+              const fees            = feeStack(hammer);
+              const hammerVat       = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
+              const hasMarginInputs = Number.isFinite(exitValue) && exitValue > 0 &&
+                                      Number.isFinite(repair) && repair >= 0;
+              const margin          = hasMarginInputs
+                ? Math.round((exitValue - repair - hammer - hammerVat - fees.totalIncVat) * 100) / 100
+                : null;
+              marginScenarios.push({
+                hammer, exit_value: hasMarginInputs ? exitValue : null,
+                repair: hasMarginInputs ? repair : null,
+                hammerVat, ...fees, margin,
+              });
+              toolCallCount++;
+              console.log(`[FEE TOOL] computeCopartFees(${hammer}) exit=${exitValue} repair=${repair} hammerVat=${hammerVat} →`, { ...fees, margin });
+              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ ...fees, hammerVat, margin }) };
+            }
+            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
+          });
+
+        messages.push({ role: 'assistant', content });
+        messages.push({ role: 'user', content: toolResults });
+        continue;
+      }
+
+      // Unexpected stop reason — take whatever text exists and break
+      rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
+      break;
+    }
+
+    // Car-level enforcement: exit_value and repair must be identical across all scenarios
+    if (marginScenarios.length > 1) {
+      const firstValid = marginScenarios.find(s => s.exit_value != null && s.repair != null);
+      if (firstValid) {
+        const canonicalExit   = firstValid.exit_value;
+        const canonicalRepair = firstValid.repair;
+        const exitDiverged    = marginScenarios.some(s => s.exit_value != null && s.exit_value !== canonicalExit);
+        const repairDiverged  = marginScenarios.some(s => s.repair   != null && s.repair   !== canonicalRepair);
+        if (exitDiverged || repairDiverged) {
+          console.warn('[MARGIN] exit_value or repair diverged across scenarios — normalising to first valid values', { canonicalExit, canonicalRepair });
+          for (let i = 0; i < marginScenarios.length; i++) {
+            const s = marginScenarios[i];
+            marginScenarios[i] = {
+              ...s,
+              exit_value: canonicalExit,
+              repair:     canonicalRepair,
+              margin:     Math.round((canonicalExit - canonicalRepair - s.hammer - s.hammerVat - s.totalIncVat) * 100) / 100,
+            };
+          }
+        }
+      }
+    }
+
+    // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
+    if (!rawText && messages[messages.length - 1].role === 'user') {
+      capHit = true;
+      console.warn('[FEE TOOL] Iteration cap hit — forcing final response without tools');
+      const finalRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8',
+          max_tokens: 8000,
+          system: ASSESSMENT_ENGINE_PROMPT,
+          messages,
+        }),
+      });
+      const finalData = await finalRes.json();
+      console.log('[TOKEN LOG] cap-fallback Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens);
+      if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (cap fallback)');
+      rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    }
+
+    if (auctionSource === 'copart' && toolCallCount === 0) {
+      console.warn('[FEE TOOL] Tool never called — no margin table will be shown');
+    }
+
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
+    if (capHit) assessment._feeCapHit = true;
+    if (marginScenarios.length > 0) assessment._marginScenarios = marginScenarios;
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
