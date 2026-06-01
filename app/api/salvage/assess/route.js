@@ -484,6 +484,20 @@ export async function GET(request) {
       enrichedVd.taxStatus && `Tax Status: ${enrichedVd.taxStatus}`,
       enrichedVd.motStatus && `MOT Status: ${enrichedVd.motStatus}`,
       enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
+      (() => {
+        const mh = enrichedVd.motHistory;
+        if (!Array.isArray(mh) || mh.length === 0) return null;
+        const lines = mh.slice(0, 15).map(t => {
+          const result  = (t.testResult || '').toUpperCase() === 'PASSED' ? 'PASS' : 'FAIL';
+          const odo     = t.odometerValue != null ? `${Number(t.odometerValue).toLocaleString('en-GB')}mi` : '';
+          const remarks = (t.rfrAndComments || [])
+            .slice(0, 4)
+            .map(c => `${c.type === 'FAIL' ? 'fail' : 'adv'}: ${(c.text || '').slice(0, 60)}`)
+            .join('; ');
+          return [t.completedDate, result, odo, remarks ? `[${remarks}]` : ''].filter(Boolean).join(' ');
+        });
+        return `DVSA MOT History (most recent first):\n${lines.join('\n')}`;
+      })(),
       enrichedVd.motMileageFlag && `MILEAGE DISCREPANCY FLAG: ${enrichedVd.motMileageFlag}`,
       enrichedVd.photoMileageFlag && `PHOTO MILEAGE DISCREPANCY: ${enrichedVd.photoMileageFlag}`,
       `Market: ${market}`,

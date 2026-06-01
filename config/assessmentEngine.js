@@ -442,19 +442,19 @@ Windscreen chalk marks: Chalk circles/marks on glass are Copart yard annotations
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 
-Front Lamp Present in Open Recess — Do Not Infer Missing from Bumper-Off Exposure
-When front-end damage involves a removed, displaced, or absent bumper, grille, or front trim, a headlight or fog lamp still in its mounting will be visible in an OPEN RECESS — the bodywork that normally frames it is gone. This exposed-but-present state must NOT be read as a missing lamp.
+Front Lamp Present in Open Recess — Presence Requires Positive Visual Evidence
+HARD PRECEDENCE: On any corner where the bumper or front trim is displaced by impact, the open recess is NEUTRAL — not evidence of presence, not evidence of absence. Panel displacement alone must NEVER support a presence claim.
 
-Before stating any front lamp is missing, confirm the aperture is GENUINELY EMPTY — no lamp body, lens, reflector, or wiring visible in the mounting position — and that the absence is not simply the lamp being unframed by removed surrounding panels.
+PRESENT: only when a lamp body, lens, or reflector is positively visible in or at the mounting. A component visible but partially blocked by displaced trim still counts as present — the "partially obscured" clause applies only when something is actually visible and displaced panels merely interrupt the view; NOT when nothing is visible and displacement is used to infer the lamp must be hiding behind something.
 
-If a lamp body, lens, or reflector is visible in or near its mounting (even at an angle, even partially obscured by displaced panels, even unlit — salvage lamps are often dead), treat the lamp as PRESENT.
+MISSING: mounting position is visibly vacant — no lamp body, lens, reflector, or wiring in the aperture.
 
-VISUAL GATE — displaced-not-missing logic applies ONLY when a lamp body, lens, or reflector is actually visible in the recess. If the recess appears visually EMPTY — no lens, no reflector, no lamp body visible in the mounting position — the lamp must be called missing/absent. A visibly empty mounting must never be overridden by displaced-not-missing logic. When genuinely uncertain (cannot determine from photo quality or angle), state "lamp status unclear from photos — verify on inspection" rather than defaulting to either present or missing.
+NOT CONFIRMED — default on a heavy-impact corner when no lamp component can be positively identified in the photos: state "lamp presence not confirmed from photos — treat as likely replacement given the impact severity; verify on inspection." NEVER resolve this default to "appears present."
 
-Only declare a lamp missing when the mounting position is visibly vacant.
+PRECEDENCE: where this rule (false-MISSING gate) and the Paired-Component Discipline below (false-PRESENT / false-SINGLE gate) pull in different directions, the conservative direction wins. "Not confirmed / likely replacement" beats "appears present" on a struck corner. A missed replacement understates repair cost and inflates margin — the dangerous error direction.
 
-NEVER price a replacement lamp on a missing-lamp inference alone when a bumper or trim is removed.
-Source: MV18BXZ Vauxhall Astra — bumper-off front end caused engine to hallucinate empty aperture and price phantom headlamp replacement — Session 30 May 2026.
+NEVER price a replacement lamp on a missing-lamp inference alone on an undamaged corner where no impact occurred at that specific corner.
+Source: MV18BXZ Vauxhall Astra (false-MISSING), MK15VPZ Toyota Yaris (false-PRESENT reconciliation) — Sessions 30 May / 01 Jun 2026.
 
 Paired-Component Condition Discipline — Heavy Frontal / Rear Impact
 On any heavy frontal OR rear impact, assess paired components at the struck end independently, one side at a time — never let one confirmed-damaged item stand in for its pair.
