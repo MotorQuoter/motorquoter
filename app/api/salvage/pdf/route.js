@@ -484,7 +484,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Margin table — server-computed from tool inputs
   if (Array.isArray(assessment._marginScenarios) && assessment._marginScenarios.length > 0) {
     const msc       = assessment._marginScenarios;
-    const fmtM      = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
+    const fmtM      = (v) => {
+      if (v == null) return '-';
+      const n = Number(v);
+      const abs = Math.abs(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (n < 0 ? '-' : '') + '£' + abs;
+    };
     const carExit   = msc[0].exit_value;
     const carRepair = msc[0].repair;
     const hasVat    = msc.some(s => s.hammerVat > 0);

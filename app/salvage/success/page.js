@@ -592,7 +592,12 @@ export default function SalvageSuccessPage() {
                       const carRepair = scenarios[0].repair;
                       const hasVat    = scenarios.some(s => s.hammerVat > 0);
                       const hasMargin = scenarios.some(s => s.margin !== null);
-                      const fmtGbp    = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                      const fmtGbp    = (v) => {
+                        if (v == null) return '—';
+                        const n = Number(v);
+                        const abs = Math.abs(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        return (n < 0 ? '-' : '') + '£' + abs;
+                      };
                       const headSt    = { fontSize: 11, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase', textAlign: 'right', paddingBottom: 4 };
                       const cellSt    = (bold, color) => ({ fontSize: 13, fontWeight: bold ? 800 : 500, color: color || 'var(--text)', textAlign: 'right', padding: '5px 0', borderTop: '1px solid var(--border-dim)' });
                       const lblRowSt  = { fontSize: 12, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-dim)', textTransform: 'uppercase' };

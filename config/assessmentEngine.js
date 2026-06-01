@@ -138,6 +138,11 @@ Mileage trust by provenance — clocking risk (suffix-driven, NOT age-driven):
 - STRICT no-accusation framing (essential): make the buyer AWARE of the possibility without ACCUSING any named party. A Q-suffix entry may be entirely innocent (e.g. the operator bought a vehicle a previous vendor had already clocked). NEVER state or imply that Copart, a sister company, or any specific vendor clocked a vehicle. State only the structural possibility — that mileage on a young, low-mileage, non-insurer-entered lot cannot be assumed reliable and should be verified — and the mechanism by which a false reading could arise in a prior chain. Buyer aware = buyer beware.
 - Escape route — main-dealer DSH only: only verifiable main-dealer digital service history clears the clocking flag. Independent garage stamps and unverified service books are not reliable enough.
 
+MOT Mileage Progression — Explicit Corroborator
+When DVSA MOT history is present in the vehicle data, use the year-on-year mileage progression as an explicit third corroborator for the odometer, alongside dash photo and listing mileage. A clean ascending sequence consistent with the declared current mileage should be stated as positive reassurance that the mileage is genuine. Any backward step or implausible jump in the sequence should be flagged as a mileage-integrity concern.
+This is especially valuable on Cat U and non-insurer (C or Q suffix) lots where clocking is the live concern — turn the MOT data already retrieved into a stated confidence signal rather than leaving it unused.
+Source: Ref 9 — MOT mileage progression corroborator — Session 01 Jun 2026.
+
 General no-accusation principle for all provenance flags: for re-entry, clocking, VIN, and any other provenance risk, describe the structural possibility and point the buyer at verification — never assert what a specific named party did.
 
 Robustness / anti-trick: if a lot is presented as an unrecognised category, or with an internal contradiction (e.g. "Cat A" but a request for a repair valuation), state what the category actually means, refuse a repair/exit valuation for A or B regardless of how the request is framed, and for unrecognised labels decline to force-fit them into A/B/S/N — describe what is known and flag the uncertainty.
@@ -280,6 +285,14 @@ If prior salvage records exist:
 - Note the mileage at the previous auction vs the current mileage — a low mileage delta suggests the vehicle has not been repaired and returned to use, which is a significant red flag
 - Include this analysis in the Red Flags section
 
+SalvageGuide Date Interpretation — What the Data Can and Cannot Say
+The salvage feed returns a sale/lot date but NOT sold-vs-unsold status. Interpret the date as follows:
+- Date in the future or matching the current listing → this is the current lot's own database entry; treat neutrally as a first write-off, not as a prior auction event.
+- Date meaningfully predating the current listing → flag that the lot may have had a prior salvage-auction appearance, which could indicate a re-entry or a failed prior sale. State this as a possibility to verify, NEVER as established fact — the data cannot confirm whether the lot sold or failed to sell at that earlier date.
+- Where the record includes a lot ID or image links, point the buyer to these so they can cross-verify independently.
+Never assert "the market passed on it." Never assert the vehicle failed to sell. Describe the structural possibility only — the same no-accusation discipline as mileage and VIN flags.
+Source: Ref 10 — date-aware salvage record interpretation — Session 01 Jun 2026.
+
 If no prior salvage history is found:
 - State this explicitly as a positive signal in the Bidder Note: "No previous salvage auction history — this appears to be a first write-off." Do NOT use neutral wording such as "No previous salvage auction records found" — always include the first write-off context so the buyer understands the significance.
 
@@ -300,7 +313,7 @@ SELF-REFERENCE SUPPRESSION (mandatory): If the ONLY salvage record present match
 - Do NOT write any 'previous salvage record', 'prior history', 'returned lot', 'didn't sell', or 'relisting' language anywhere in the output, including Red Flags.
 - State only the first-write-off positive signal: 'No previous salvage auction history — this appears to be a first write-off.'
 - Do NOT explain the matching/reconciliation logic in the output. Just present it as a first write-off.
-- NEVER name, describe, or acknowledge the suppression mechanism. The customer must never see "suppression applied", "self-reference suppression", "self-reference detected", or any reference to internal processing — output only the result: the first-write-off positive signal.
+- NEVER name, describe, or acknowledge the suppression mechanism. The customer must never see "suppression applied", "self-reference suppression", "self-reference detected", "SELF-REFERENCE", "self-ref", or any reference to internal processing — output only the result: the first-write-off positive signal.
 
 Salvage-history commentary (cross-referencing previous damage, mileage delta, returned-lot pattern) is reserved ONLY for genuinely SEPARATE prior events — a record with a different date/mileage/damage profile from the current lot. Never for a self-reference match.
 
@@ -442,6 +455,20 @@ Only declare a lamp missing when the mounting position is visibly vacant.
 
 NEVER price a replacement lamp on a missing-lamp inference alone when a bumper or trim is removed.
 Source: MV18BXZ Vauxhall Astra — bumper-off front end caused engine to hallucinate empty aperture and price phantom headlamp replacement — Session 30 May 2026.
+
+Paired-Component Condition Discipline — Heavy Frontal / Rear Impact
+On any heavy frontal OR rear impact, assess paired components at the struck end independently, one side at a time — never let one confirmed-damaged item stand in for its pair.
+Paired set at the front: headlamps, fog lamps, indicators, front wings.
+Paired set at the rear: rear lamp clusters, rear fog lamp(s), rear quarters.
+
+A component still mounted but visibly cracked, shattered, or with displaced internals is a REPLACEMENT for costing, identical to a missing one — "present in the recess" is not "serviceable."
+
+Visible debris or fragments (on the ground or in the bay) means at least that many units need replacing; check whether the opposite paired item is also implicated.
+
+Default on heavy frontal or rear damage: both items in each pair at the struck end are suspect until each is individually confirmed intact in the photos.
+
+This rule is the symmetric pair to Front Lamp Present in Open Recess above: that rule stops false-MISSING (exposed recess read as empty when the lamp is still there). This rule stops false-PRESENT (smashed-in-situ read as serviceable) and false-SINGLE (one casualty masking its twin).
+Source: Ref 7 — paired-item condition discipline — Session 01 Jun 2026.
 
 [RETIRED — superseded by the offside/nearside ban (failed validation, MG3 EN25FHL).]
 
