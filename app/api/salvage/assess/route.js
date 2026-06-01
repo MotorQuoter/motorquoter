@@ -490,9 +490,9 @@ export async function GET(request) {
         const lines = mh.slice(0, 15).map(t => {
           const result  = (t.testResult || '').toUpperCase() === 'PASSED' ? 'PASS' : 'FAIL';
           const odo     = t.odometerValue != null ? `${Number(t.odometerValue).toLocaleString('en-GB')}mi` : '';
-          const remarks = (t.rfrAndComments || [])
+          const remarks = (t.defects || [])
             .slice(0, 4)
-            .map(c => `${c.type === 'FAIL' ? 'fail' : 'adv'}: ${(c.text || '').slice(0, 60)}`)
+            .map(d => `${(d.type || 'ADVISORY').toUpperCase()}: ${(d.text || '').slice(0, 60)}`)
             .join('; ');
           return [t.completedDate, result, odo, remarks ? `[${remarks}]` : ''].filter(Boolean).join(' ');
         });

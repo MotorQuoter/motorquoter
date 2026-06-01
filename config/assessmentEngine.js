@@ -458,7 +458,7 @@ PRESENT: only when a lamp body, lens, or reflector is positively visible in or a
 
 MISSING: mounting position is visibly vacant — no lamp body, lens, reflector, or wiring in the aperture.
 
-NOT CONFIRMED — default on a heavy-impact corner when no lamp component can be positively identified in the photos: state "lamp presence not confirmed from photos — treat as likely replacement given the impact severity; verify on inspection." NEVER resolve this default to "appears present."
+NOT CONFIRMED — default on a heavy-impact corner when no lamp component can be positively identified in the photos: state "lamp presence not confirmed from photos — treat as likely replacement given the impact severity; verify on inspection." This verdict MUST appear in the output — omitting it is a failure identical to calling the lamp present. NEVER resolve this default to "appears present."
 
 PRECEDENCE: where this rule (false-MISSING gate) and the Paired-Component Discipline below (false-PRESENT / false-SINGLE gate) pull in different directions, the conservative direction wins. "Not confirmed / likely replacement" beats "appears present" on a struck corner. A missed replacement understates repair cost and inflates margin — the dangerous error direction.
 

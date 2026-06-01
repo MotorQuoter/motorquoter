@@ -286,8 +286,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     sectionTitle('MOT History');
     for (const test of motHistory) {
       const pass = (test.testResult || '').toUpperCase() === 'PASSED';
-      const failures   = (test.rfrAndComments || []).filter(c => c.type === 'FAIL');
-      const advisories = (test.rfrAndComments || []).filter(c => c.type === 'ADVISORY');
+      const failures   = (test.defects || []).filter(d => d.type === 'MAJOR');
+      const advisories = (test.defects || []).filter(d => d.type === 'ADVISORY' || d.type === 'PRS');
       checkPage(10);
       const testLine = [
         test.testResult,
