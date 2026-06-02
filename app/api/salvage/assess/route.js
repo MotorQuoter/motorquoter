@@ -102,25 +102,19 @@ function tagSelfReference(shResult, vd) {
 }
 
 function computeLampResult(struckSide, apertureExposed) {
+  // struckSide is kept as an internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
-  const both = side === 'central';
 
-  const tier1Line = both
-    ? 'Front lamps (both sides): confirm both serviceable on inspection.'
-    : `Struck-corner front lamp (${side}): confirm serviceable on inspection.`;
+  const tier1Line = 'Struck front corner — confirm a serviceable front lamp on inspection.';
 
   if (!apertureExposed) {
     return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampAllowance: 0 };
   }
 
-  const sideLabel   = both ? 'both sides' : side;
-  const apertureRef = both ? 'front lamp apertures' : `${side} front lamp aperture`;
-  const confirmRef  = both ? 'serviceable lamps are' : 'a serviceable lamp is';
-
-  const verdictLine    = `Struck-corner front lamp (${sideLabel}): presence and serviceability cannot be reliably determined from the supplied photos. The front bumper is displaced on this corner and the lamp aperture is exposed; an exposed aperture can make an empty or damaged recess appear to hold a lamp, so no presence call is made from the photos. Budgeted as a likely replacement; confirm on inspection.`;
-  const costDriverEntry = `Struck-corner front lamp — replacement budgeted; presence not photo-confirmable with the bumper displaced.`;
-  const checklistEntry  = `Show the ${apertureRef} with the bumper pulled clear — confirm whether ${confirmRef} actually fitted, not just an exposed recess.`;
-  const lampAllowance   = STRUCK_CORNER_LAMP_ALLOWANCE_GBP * (both ? 2 : 1);
+  const verdictLine     = 'Struck front corner — lamp presence and serviceability cannot be reliably determined from the supplied photos. The front bumper is displaced on the struck corner and the lamp aperture is exposed; an exposed aperture can make an empty or damaged recess appear to hold a lamp, so no presence call is made from the photos. Budgeted as a likely replacement; confirm on inspection.';
+  const costDriverEntry = 'Struck front corner lamp — replacement budgeted; presence not photo-confirmable with the bumper displaced.';
+  const checklistEntry  = 'Show the struck-side front lamp aperture with the bumper pulled clear — confirm whether a serviceable lamp is actually fitted, not just an exposed recess.';
+  const lampAllowance   = STRUCK_CORNER_LAMP_ALLOWANCE_GBP;
 
   return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampAllowance };
 }
