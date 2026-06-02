@@ -1154,29 +1154,20 @@ export async function GET(request) {
     }
     assessment._reconciledParts = reconciledParts;
 
-    // Apply lamp delta to margin scenarios
-    if (lamp_delta !== 0 && assessment._marginScenarios?.length > 0) {
+    // Option A: parts_sum is the sole authoritative repair figure.
+    // Replace the model's holistic entirely — every margin row recomputed from parts_sum.
+    if (parts_sum > 0 && assessment._marginScenarios?.length > 0) {
       assessment._marginScenarios = assessment._marginScenarios.map(s => ({
         ...s,
-        repair:         (s.repair ?? 0) + lamp_delta,
-        _lampAllowance: lampResult?.lampAllowance ?? 0,
-        margin:         s.margin != null ? Math.round((s.margin - lamp_delta) * 100) / 100 : null,
+        repair: parts_sum,
+        margin: s.exit_value != null
+          ? Math.round((s.exit_value - parts_sum - s.hammer - (s.hammerVat ?? 0) - s.totalIncVat) * 100) / 100
+          : null,
       }));
-      console.log(`[PARTS] lamp delta applied: lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted} band=£${lampResult?.lampAllowance} scenarios=${assessment._marginScenarios.length}`);
+      console.log(`[PARTS] repair=£${parts_sum} (parts_sum authoritative) lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted}`);
     }
 
-    // Divergence check: parts_sum vs reconciled_holistic (lamp nets out — see design notes)
-    const reconciled_holistic = assessment._marginScenarios?.length > 0 ? assessment._marginScenarios[0].repair : null;
-    const partsReconciliation = { parts_sum, reconciled_holistic, lamp_delta, lamp_inserted };
-    if (reconciled_holistic != null && reconciled_holistic > 0) {
-      const ratio = Math.abs(parts_sum - reconciled_holistic) / reconciled_holistic;
-      partsReconciliation.diverged = ratio > 0.20;
-      partsReconciliation.divergence_pct = Math.round(ratio * 100);
-      if (partsReconciliation.diverged) {
-        console.warn(`[PARTS] divergence: parts_sum=£${parts_sum} reconciled_holistic=£${reconciled_holistic} ratio=${partsReconciliation.divergence_pct}%`);
-      }
-    }
-    assessment._partsReconciliation = partsReconciliation;
+    assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted };
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
