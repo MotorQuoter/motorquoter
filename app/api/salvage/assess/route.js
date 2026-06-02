@@ -1108,44 +1108,6 @@ export async function GET(request) {
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
 
-    // Post-loop: Parts Breakdown reconciliation + lamp floor
-    const rawParts = parseParts(assessment['Parts Breakdown'] || '');
-    const { parts: reconciledParts, lamp_delta, lamp_inserted } = reconcileParts(rawParts, lampResult);
-    const parts_sum = sumPartsRealistic(reconciledParts);
-
-    // Rebuild Parts Breakdown text from reconciled lines
-    if (reconciledParts.length > 0) {
-      assessment['Parts Breakdown'] = renderParts(reconciledParts);
-    }
-    assessment._reconciledParts = reconciledParts;
-
-    // Apply lamp delta to margin scenarios (unconditional on frontStruck+apertureExposed — lamp_delta=0 otherwise)
-    if (lamp_delta !== 0 && marginScenarios.length > 0) {
-      for (let i = 0; i < marginScenarios.length; i++) {
-        const s = marginScenarios[i];
-        marginScenarios[i] = {
-          ...s,
-          repair:         (s.repair ?? 0) + lamp_delta,
-          _lampAllowance: lampResult?.lampAllowance ?? 0,
-          margin:         s.margin != null ? Math.round((s.margin - lamp_delta) * 100) / 100 : null,
-        };
-      }
-      console.log(`[PARTS] lamp delta applied: lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted} band=£${lampResult?.lampAllowance} scenarios=${marginScenarios.length}`);
-    }
-
-    // Divergence check: parts_sum vs reconciled_holistic (lamp nets out — see design notes)
-    const reconciled_holistic = marginScenarios.length > 0 ? marginScenarios[0].repair : null;
-    const partsReconciliation = { parts_sum, reconciled_holistic, lamp_delta, lamp_inserted };
-    if (reconciled_holistic != null && reconciled_holistic > 0) {
-      const ratio = Math.abs(parts_sum - reconciled_holistic) / reconciled_holistic;
-      partsReconciliation.diverged = ratio > 0.20;
-      partsReconciliation.divergence_pct = Math.round(ratio * 100);
-      if (partsReconciliation.diverged) {
-        console.warn(`[PARTS] divergence: parts_sum=£${parts_sum} reconciled_holistic=£${reconciled_holistic} ratio=${partsReconciliation.divergence_pct}%`);
-      }
-    }
-    assessment._partsReconciliation = partsReconciliation;
-
     // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
     if (!rawText && messages[messages.length - 1].role === 'user') {
       capHit = true;
@@ -1180,6 +1142,41 @@ export async function GET(request) {
     if (capHit) assessment._feeCapHit = true;
     if (marginScenarios.length > 0) assessment._marginScenarios = marginScenarios;
     if (lampResult) assessment._lampResult = lampResult;
+
+    // Post-loop: Parts Breakdown reconciliation + lamp floor
+    // Must run after assessment is declared and marginScenarios attached
+    const rawParts = parseParts(assessment['Parts Breakdown'] || '');
+    const { parts: reconciledParts, lamp_delta, lamp_inserted } = reconcileParts(rawParts, lampResult);
+    const parts_sum = sumPartsRealistic(reconciledParts);
+
+    if (reconciledParts.length > 0) {
+      assessment['Parts Breakdown'] = renderParts(reconciledParts);
+    }
+    assessment._reconciledParts = reconciledParts;
+
+    // Apply lamp delta to margin scenarios
+    if (lamp_delta !== 0 && assessment._marginScenarios?.length > 0) {
+      assessment._marginScenarios = assessment._marginScenarios.map(s => ({
+        ...s,
+        repair:         (s.repair ?? 0) + lamp_delta,
+        _lampAllowance: lampResult?.lampAllowance ?? 0,
+        margin:         s.margin != null ? Math.round((s.margin - lamp_delta) * 100) / 100 : null,
+      }));
+      console.log(`[PARTS] lamp delta applied: lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted} band=£${lampResult?.lampAllowance} scenarios=${assessment._marginScenarios.length}`);
+    }
+
+    // Divergence check: parts_sum vs reconciled_holistic (lamp nets out — see design notes)
+    const reconciled_holistic = assessment._marginScenarios?.length > 0 ? assessment._marginScenarios[0].repair : null;
+    const partsReconciliation = { parts_sum, reconciled_holistic, lamp_delta, lamp_inserted };
+    if (reconciled_holistic != null && reconciled_holistic > 0) {
+      const ratio = Math.abs(parts_sum - reconciled_holistic) / reconciled_holistic;
+      partsReconciliation.diverged = ratio > 0.20;
+      partsReconciliation.divergence_pct = Math.round(ratio * 100);
+      if (partsReconciliation.diverged) {
+        console.warn(`[PARTS] divergence: parts_sum=£${parts_sum} reconciled_holistic=£${reconciled_holistic} ratio=${partsReconciliation.divergence_pct}%`);
+      }
+    }
+    assessment._partsReconciliation = partsReconciliation;
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
