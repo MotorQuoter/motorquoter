@@ -15,6 +15,8 @@ function getSupabase() {
   );
 }
 
+const STRUCK_CORNER_LAMP_ALLOWANCE_GBP = 150; // tunable: conservative mid-aftermarket supermini, bundled fit
+
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
   'Estimated Repair Range',
@@ -97,6 +99,30 @@ function tagSelfReference(shResult, vd) {
   shResult.isSelfReferenceFirstWriteOff =
     (mileageMatch === true && categoryMatch && damageMatch) ||
     (mileageMatch === null && categoryMatch && damageMatch);
+}
+
+function computeLampResult(struckSide, apertureExposed) {
+  const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
+  const both = side === 'central';
+
+  const tier1Line = both
+    ? 'Front lamps (both sides): confirm both serviceable on inspection.'
+    : `Struck-corner front lamp (${side}): confirm serviceable on inspection.`;
+
+  if (!apertureExposed) {
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampAllowance: 0 };
+  }
+
+  const sideLabel   = both ? 'both sides' : side;
+  const apertureRef = both ? 'front lamp apertures' : `${side} front lamp aperture`;
+  const confirmRef  = both ? 'serviceable lamps are' : 'a serviceable lamp is';
+
+  const verdictLine    = `Struck-corner front lamp (${sideLabel}): presence and serviceability cannot be reliably determined from the supplied photos. The front bumper is displaced on this corner and the lamp aperture is exposed; an exposed aperture can make an empty or damaged recess appear to hold a lamp, so no presence call is made from the photos. Budgeted as a likely replacement; confirm on inspection.`;
+  const costDriverEntry = `Struck-corner front lamp — replacement budgeted; presence not photo-confirmable with the bumper displaced.`;
+  const checklistEntry  = `Show the ${apertureRef} with the bumper pulled clear — confirm whether ${confirmRef} actually fitted, not just an exposed recess.`;
+  const lampAllowance   = STRUCK_CORNER_LAMP_ALLOWANCE_GBP * (both ? 2 : 1);
+
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampAllowance };
 }
 
 export async function GET(request) {
@@ -588,16 +614,42 @@ export async function GET(request) {
         properties: {
           hammer:     { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
           exit_value: { type: 'number', description: 'Your chosen realistic exit price for this vehicle in GBP — constant across all hammer scenarios' },
-          repair:     { type: 'number', description: 'Your chosen repair cost for this vehicle in GBP (single figure from within your estimated range) — constant across all hammer scenarios' },
+          repair:     { type: 'number', description: 'Your chosen repair cost for this vehicle in GBP (single figure from within your estimated range, EXCLUDING any struck-corner lamp — the engine adds that) — constant across all hammer scenarios' },
         },
         required: ['hammer', 'exit_value', 'repair'],
       },
     };
 
+    const LAMP_OBS_TOOL = {
+      name: 'recordLampObservation',
+      description: 'Call exactly once on any front-struck lot, BEFORE computeCopartFees. Pass your plate-anchor side determination and the bumper displacement observation. The engine renders the lamp verdict and adds the replacement allowance — exclude the lamp from your repair figure and do not describe lamp presence/absence anywhere in your report.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          struckSide: {
+            type: 'string',
+            enum: ['offside', 'nearside', 'central'],
+            description: 'Struck side from plate-relative-to-lights internal reasoning. Use "central" if side is not confidently determinable.',
+          },
+          apertureExposed: {
+            type: 'boolean',
+            description: 'True if the front bumper is visibly displaced or removed on the struck corner, exposing the lamp mounting recess.',
+          },
+        },
+        required: ['struckSide', 'apertureExposed'],
+      },
+    };
+
+    const frontStruck = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
+
     const MAX_TOOL_ITERATIONS = 3;
-    const claudeTools = auctionSource === 'copart' ? [COPART_FEES_TOOL] : [];
+    const claudeTools = [
+      ...(auctionSource === 'copart' ? [COPART_FEES_TOOL] : []),
+      ...(frontStruck ? [LAMP_OBS_TOOL] : []),
+    ];
     const messages = [{ role: 'user', content: userContent }];
     const marginScenarios = [];
+    let lampResult = null;
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     let rawText = '';
@@ -633,9 +685,25 @@ export async function GET(request) {
       }
 
       if (apiData.stop_reason === 'tool_use') {
-        const toolResults = content
-          .filter(c => c.type === 'tool_use')
+        // Sort: process recordLampObservation before computeCopartFees within a single response
+        // (Item 2 within-response ordering guarantee — cross-iteration ordering handled post-loop)
+        const toolUseBlocks = [
+          ...content.filter(c => c.type === 'tool_use' && c.name === 'recordLampObservation'),
+          ...content.filter(c => c.type === 'tool_use' && c.name !== 'recordLampObservation'),
+        ];
+        const toolResults = toolUseBlocks
           .map(block => {
+            if (block.name === 'recordLampObservation') {
+              const struckSide      = block.input?.struckSide || 'central';
+              const apertureExposed = Boolean(block.input?.apertureExposed);
+              lampResult = computeLampResult(struckSide, apertureExposed);
+              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} → tier=${lampResult.tier}`);
+              return {
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: JSON.stringify({ recorded: true, tier: lampResult.tier, note: 'Lamp verdict and allowance are engine-rendered. Exclude lamp from your repair figure and do not describe lamp presence/absence in your report.' }),
+              };
+            }
             if (block.name === 'computeCopartFees') {
               const hammer     = Number(block.input?.hammer);
               const exitValue  = Number(block.input?.exit_value);
@@ -696,6 +764,28 @@ export async function GET(request) {
       }
     }
 
+    // Item 1: guarantee _lampResult is always populated for frontStruck lots regardless of tool co-operation
+    if (frontStruck && !lampResult) {
+      lampResult = computeLampResult('central', false);
+      console.log('[LAMP] no tool call on frontStruck lot — Tier 1 floor applied (central, apertureExposed=false)');
+    }
+
+    // Item 2: post-loop margin finalisation — apply lamp allowance after both lampResult and fee inputs are settled.
+    // Running here (not inside the fee handler) prevents cross-iteration ordering from dropping the allowance.
+    if (lampResult?.tier2Fired && marginScenarios.length > 0) {
+      const lampAdj = lampResult.lampAllowance;
+      for (let i = 0; i < marginScenarios.length; i++) {
+        const s = marginScenarios[i];
+        marginScenarios[i] = {
+          ...s,
+          repair:         (s.repair ?? 0) + lampAdj,
+          _lampAllowance: lampAdj,
+          margin:         s.margin != null ? Math.round((s.margin - lampAdj) * 100) / 100 : null,
+        };
+      }
+      console.log(`[LAMP] post-loop margin finalisation: +£${lampAdj} lamp allowance applied to ${marginScenarios.length} scenario(s)`);
+    }
+
     // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
     if (!rawText && messages[messages.length - 1].role === 'user') {
       capHit = true;
@@ -729,6 +819,7 @@ export async function GET(request) {
     assessment._market = market;
     if (capHit) assessment._feeCapHit = true;
     if (marginScenarios.length > 0) assessment._marginScenarios = marginScenarios;
+    if (lampResult) assessment._lampResult = lampResult;
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
