@@ -473,10 +473,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const lampText = assessment._lampResult.tier2Fired
       ? assessment._lampResult.verdictLine
       : assessment._lampResult.tier1Line;
-    fieldBlock('Struck-Corner Front Lamp', lampText,
+    fieldBlock('Struck-Corner Front Headlamp', lampText,
       assessment._lampResult.tier2Fired ? { color: [180, 80, 0] } : {});
     if (assessment._lampResult.tier2Fired && assessment._lampResult.costDriverEntry) {
-      fieldBlock('Cost Driver — Lamp', assessment._lampResult.costDriverEntry);
+      fieldBlock('Cost Driver — Headlamp', assessment._lampResult.costDriverEntry);
     }
   }
 
@@ -511,7 +511,11 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const carRows = [
       carExit   != null ? ['Exit value',  fmtM(carExit),   [0, 130, 0]]  : null,
       carRepair != null ? [
-        msc[0]._lampAllowance > 0 ? `Repair cost (incl. £${msc[0]._lampAllowance} lamp allowance)` : 'Repair cost',
+        msc[0]._lampAllowance > 0
+          ? (assessment._lampResult?.lampTypeAssumed
+              ? `Repair cost (incl. £${msc[0]._lampAllowance} headlamp, assumed ${assessment._lampResult?.lampType})`
+              : `Repair cost (incl. £${msc[0]._lampAllowance} headlamp, ${assessment._lampResult?.lampType})`)
+          : 'Repair cost',
         fmtM(carRepair), [170, 0, 0],
       ] : null,
     ].filter(Boolean);

@@ -15,7 +15,12 @@ function getSupabase() {
   );
 }
 
-const STRUCK_CORNER_LAMP_ALLOWANCE_GBP = 150; // tunable: conservative mid-aftermarket supermini, bundled fit
+const HEADLAMP_BANDS = {
+  halogen: 150, // S/H unit + fitted, GBP
+  hid:     250, // HID / projector unit + fitted
+  led:     350, // LED / adaptive / matrix unit + fitted
+};
+const HEADLAMP_BAND_DEFAULT = 'led'; // conservative high — indeterminate spec always defaults here
 
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
@@ -101,22 +106,156 @@ function tagSelfReference(shResult, vd) {
     (mileageMatch === null && categoryMatch && damageMatch);
 }
 
-function computeLampResult(struckSide, apertureExposed) {
+function deriveLampType(vd) {
+  const make     = (vd.make  || '').toLowerCase().replace(/[-\s]/g, '');
+  const model    = (vd.model || '').toLowerCase();
+  const year     = parseInt(vd.year, 10) || 0;
+  const specText = [vd.model, vd.engineSize, vd.bodyStyle, vd.damageDescription]
+    .filter(Boolean).join(' ').toLowerCase();
+
+  // Explicit lamp-type markers in spec text override derivation
+  if (/\b(full[\s-]?led|matrix[\s-]?led|adaptive[\s-]?led|laser[\s-]?headlamp)\b/.test(specText)) return 'led';
+  if (/\bxenon\b|\bbi[\s-]?xenon\b|\bhid\b/.test(specText)) return 'hid';
+
+  // Tesla — always LED
+  if (make === 'tesla') return 'led';
+
+  // Lexus — LED standard on recent models
+  if (make === 'lexus' && year >= 2016) return 'led';
+
+  // Toyota
+  if (make === 'toyota') {
+    // Yaris Gen3 (2011-2019) — halogen across all trims; GR Yaris starts 2020
+    if (model.includes('yaris') && year >= 2011 && year <= 2019) return 'halogen';
+    // Aygo (2014-2021) — halogen
+    if (model.includes('aygo') && year >= 2014 && year <= 2021) return 'halogen';
+    // GT86 (2012-2021) — halogen
+    if ((model.includes('gt86') || model.includes('gt 86')) && year >= 2012 && year <= 2021) return 'halogen';
+  }
+
+  // Ford
+  if (make === 'ford') {
+    // Fiesta Mk7/7.5/8 (2012-2022) — halogen standard; LED optional pack, not pinnable without trim
+    if (model.includes('fiesta') && year >= 2012 && year <= 2022) return 'halogen';
+    // Focus Mk3 (2011-2018) — halogen standard
+    if (model.includes('focus') && year >= 2011 && year <= 2018) return 'halogen';
+    // Ka/Ka+ (2008-2021) — halogen
+    if (model.includes('ka') && year >= 2008 && year <= 2021) return 'halogen';
+  }
+
+  // Vauxhall / Opel
+  if (make === 'vauxhall' || make === 'opel') {
+    // Corsa D (2006-2014) and E (2014-2019) — halogen
+    if (model.includes('corsa') && year >= 2006 && year <= 2019) return 'halogen';
+    // Astra K (2015-2021) — halogen standard
+    if (model.includes('astra') && year >= 2015 && year <= 2021) return 'halogen';
+    // Adam — halogen
+    if (model.includes('adam') && year >= 2012 && year <= 2019) return 'halogen';
+  }
+
+  // Volkswagen
+  if (make === 'volkswagen' || make === 'vw') {
+    // Polo (6R 2009-2017 / AW 2018-2022) — halogen standard across trims
+    if (model.includes('polo') && year >= 2009 && year <= 2022) return 'halogen';
+    // Up! (2012-2019) — halogen
+    if (model.includes('up') && year >= 2012 && year <= 2019) return 'halogen';
+  }
+
+  // Renault
+  if (make === 'renault') {
+    // Clio III/IV (2012-2019) — halogen standard
+    if (model.includes('clio') && year >= 2012 && year <= 2019) return 'halogen';
+    // Megane IV (2016-2022) — halogen standard on most trims
+    if ((model.includes('megane') || model.includes('mégane')) && year >= 2016 && year <= 2022) return 'halogen';
+    // Twingo III (2014-2022) — halogen
+    if (model.includes('twingo') && year >= 2014 && year <= 2022) return 'halogen';
+  }
+
+  // Nissan
+  if (make === 'nissan') {
+    // Micra K13 (2010-2016) — halogen
+    if (model.includes('micra') && year >= 2010 && year <= 2016) return 'halogen';
+    // Juke Mk1 (2010-2019) — halogen standard
+    if (model.includes('juke') && year >= 2010 && year <= 2019) return 'halogen';
+    // Note (2012-2016) — halogen
+    if (model.includes('note') && year >= 2012 && year <= 2016) return 'halogen';
+  }
+
+  // Seat
+  if (make === 'seat') {
+    // Ibiza 5th gen (2017-2021) — halogen standard
+    if (model.includes('ibiza') && year >= 2017 && year <= 2021) return 'halogen';
+    // Mii (2012-2019) — halogen
+    if (model.includes('mii') && year >= 2012 && year <= 2019) return 'halogen';
+  }
+
+  // Skoda
+  if (make === 'skoda') {
+    // Fabia (2014-2021) — halogen standard
+    if (model.includes('fabia') && year >= 2014 && year <= 2021) return 'halogen';
+    // Citigo (2012-2019) — halogen
+    if (model.includes('citigo') && year >= 2012 && year <= 2019) return 'halogen';
+  }
+
+  // Kia / Hyundai — halogen standard on city/supermini models pre-2020
+  if (make === 'kia') {
+    if ((model.includes('rio') || model.includes('picanto') || model.includes('stonic')) && year >= 2011 && year <= 2019) return 'halogen';
+  }
+  if (make === 'hyundai') {
+    if ((model.includes('i10') || model.includes('i20')) && year >= 2013 && year <= 2019) return 'halogen';
+  }
+
+  // Honda
+  if (make === 'honda') {
+    // Jazz Mk3 (2015-2020) — halogen standard
+    if (model.includes('jazz') && year >= 2015 && year <= 2020) return 'halogen';
+    // Civic Mk10 (2017-2022) — halogen standard on entry trims
+    if (model.includes('civic') && year >= 2017 && year <= 2019) return 'halogen';
+  }
+
+  // Fiat
+  if (make === 'fiat') {
+    // 500 (2007-2023) — halogen standard
+    if (model.includes('500') && year >= 2007 && year <= 2022) return 'halogen';
+    // Panda (2012-2021) — halogen
+    if (model.includes('panda') && year >= 2012 && year <= 2021) return 'halogen';
+  }
+
+  // Universal floor: pre-2011 vehicles are essentially all halogen
+  if (year > 0 && year <= 2010) return 'halogen';
+
+  return 'indeterminate';
+}
+
+function computeLampResult(struckSide, apertureExposed, lampType) {
   // struckSide is kept as an internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
-  const tier1Line = 'Struck front corner — confirm a serviceable front lamp on inspection.';
+  // Band selection: indeterminate falls back to HEADLAMP_BAND_DEFAULT (high) — never under-budget
+  const assumed      = !HEADLAMP_BANDS[lampType];
+  const resolvedType = assumed ? HEADLAMP_BAND_DEFAULT : lampType;
+  const bandValue    = HEADLAMP_BANDS[resolvedType];
+
+  const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
-    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampAllowance: 0 };
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed: assumed, lampAllowance: 0 };
   }
 
-  const verdictLine     = 'Struck front corner — lamp presence and serviceability cannot be reliably determined from the supplied photos. The front bumper is displaced on the struck corner and the lamp aperture is exposed; an exposed aperture can make an empty or damaged recess appear to hold a lamp, so no presence call is made from the photos. Budgeted as a likely replacement; confirm on inspection.';
-  const costDriverEntry = 'Struck front corner lamp — replacement budgeted; presence not photo-confirmable with the bumper displaced.';
-  const checklistEntry  = 'Show the struck-side front lamp aperture with the bumper pulled clear — confirm whether a serviceable lamp is actually fitted, not just an exposed recess.';
-  const lampAllowance   = STRUCK_CORNER_LAMP_ALLOWANCE_GBP;
+  let verdictLine = `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
+  if (assumed) {
+    verdictLine += ' Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
+  } else {
+    verdictLine += ' Confirm on inspection.';
+  }
 
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampAllowance };
+  const costDriverEntry = assumed
+    ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
+    : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
+
+  const checklistEntry = 'Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
+
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed: assumed, lampAllowance: bandValue };
 }
 
 export async function GET(request) {
@@ -690,8 +829,9 @@ export async function GET(request) {
             if (block.name === 'recordLampObservation') {
               const struckSide      = block.input?.struckSide || 'central';
               const apertureExposed = Boolean(block.input?.apertureExposed);
-              lampResult = computeLampResult(struckSide, apertureExposed);
-              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} → tier=${lampResult.tier}`);
+              const derivedLampType = deriveLampType(enrichedVd);
+              lampResult = computeLampResult(struckSide, apertureExposed, derivedLampType);
+              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} lampType=${derivedLampType} → tier=${lampResult.tier} band=£${lampResult.lampAllowance} assumed=${lampResult.lampTypeAssumed}`);
               return {
                 type: 'tool_result',
                 tool_use_id: block.id,
@@ -760,8 +900,9 @@ export async function GET(request) {
 
     // Item 1: guarantee _lampResult is always populated for frontStruck lots regardless of tool co-operation
     if (frontStruck && !lampResult) {
-      lampResult = computeLampResult('central', false);
-      console.log('[LAMP] no tool call on frontStruck lot — Tier 1 floor applied (central, apertureExposed=false)');
+      const derivedLampType = deriveLampType(enrichedVd);
+      lampResult = computeLampResult('central', false, derivedLampType);
+      console.log(`[LAMP] no tool call on frontStruck lot — Tier 1 floor applied (central, apertureExposed=false, lampType=${derivedLampType})`);
     }
 
     // Item 2: post-loop margin finalisation — apply lamp allowance after both lampResult and fee inputs are settled.

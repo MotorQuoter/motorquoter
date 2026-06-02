@@ -497,7 +497,7 @@ export default function SalvageSuccessPage() {
                 {assessment._lampResult && (
                   <div className="field-row">
                     <div className="field-key" style={assessment._lampResult.tier2Fired ? { color: 'var(--orange)' } : undefined}>
-                      Struck-Corner Front Lamp
+                      Struck-Corner Front Headlamp
                     </div>
                     <div className="field-val">
                       {assessment._lampResult.tier2Fired
@@ -508,7 +508,7 @@ export default function SalvageSuccessPage() {
                 )}
                 {assessment._lampResult?.tier2Fired && (
                   <div className="field-row">
-                    <div className="field-key">Cost Driver — Lamp</div>
+                    <div className="field-key">Cost Driver — Headlamp</div>
                     <div className="field-val" style={{ color: 'var(--text-dim)' }}>{assessment._lampResult.costDriverEntry}</div>
                   </div>
                 )}
@@ -639,7 +639,9 @@ export default function SalvageSuccessPage() {
                                     Repair cost
                                     {scenarios[0]?._lampAllowance > 0 && (
                                       <span style={{ display: 'block', fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)', lineHeight: 1.3 }}>
-                                        incl. £{scenarios[0]._lampAllowance} lamp allowance
+                                        {assessment._lampResult?.lampTypeAssumed
+                                          ? `incl. £${scenarios[0]._lampAllowance} headlamp (assumed ${assessment._lampResult?.lampType})`
+                                          : `incl. £${scenarios[0]._lampAllowance} headlamp (${assessment._lampResult?.lampType})`}
                                       </span>
                                     )}
                                   </span>
