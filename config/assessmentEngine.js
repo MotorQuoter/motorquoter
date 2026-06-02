@@ -451,23 +451,9 @@ Windscreen chalk marks: Chalk circles/marks on glass are Copart yard annotations
 
 Source: RX17OWR Volvo — persistent photo-orientation side-assignment errors — Session 29 May 2026.
 
-Front Lamp Present in Open Recess — Presence Requires Positive Visual Evidence
-HARD PRECEDENCE: On any corner where the bumper or front trim is displaced by impact, the open recess is NEUTRAL — not evidence of presence, not evidence of absence. Panel displacement alone must NEVER support a presence claim.
-
-PRESENT: only when a lamp body, lens, or reflector is positively visible in or at the mounting. A component visible but partially blocked by displaced trim still counts as present — the "partially obscured" clause applies only when something is actually visible and displaced panels merely interrupt the view; NOT when nothing is visible and displacement is used to infer the lamp must be hiding behind something.
-
-MISSING: mounting position is visibly vacant — no lamp body, lens, reflector, or wiring in the aperture.
-
-NOT CONFIRMED — default on a heavy-impact corner when no lamp component can be positively identified in the photos: state "lamp presence not confirmed from photos — treat as likely replacement given the impact severity; verify on inspection." This verdict MUST appear in the output — omitting it is a failure identical to calling the lamp present. NEVER resolve this default to "appears present."
-
-PRECEDENCE: where this rule (false-MISSING gate) and the Paired-Component Discipline below (false-PRESENT / false-SINGLE gate) pull in different directions, the conservative direction wins. "Not confirmed / likely replacement" beats "appears present" on a struck corner. A missed replacement understates repair cost and inflates margin — the dangerous error direction.
-
-NEVER price a replacement lamp on a missing-lamp inference alone on an undamaged corner where no impact occurred at that specific corner.
-Source: MV18BXZ Vauxhall Astra (false-MISSING), MK15VPZ Toyota Yaris (false-PRESENT reconciliation) — Sessions 30 May / 01 Jun 2026.
-
 Paired-Component Condition Discipline — Heavy Frontal / Rear Impact
 On any heavy frontal OR rear impact, assess paired components at the struck end independently, one side at a time — never let one confirmed-damaged item stand in for its pair.
-Paired set at the front: headlamps, fog lamps, indicators, front wings.
+Paired set at the front: fog lamps, indicators, front wings.
 Paired set at the rear: rear lamp clusters, rear fog lamp(s), rear quarters.
 
 A component still mounted but visibly cracked, shattered, or with displaced internals is a REPLACEMENT for costing, identical to a missing one — "present in the recess" is not "serviceable."
@@ -476,7 +462,7 @@ Visible debris or fragments (on the ground or in the bay) means at least that ma
 
 Default on heavy frontal or rear damage: both items in each pair at the struck end are suspect until each is individually confirmed intact in the photos.
 
-This rule is the symmetric pair to Front Lamp Present in Open Recess above: that rule stops false-MISSING (exposed recess read as empty when the lamp is still there). This rule stops false-PRESENT (smashed-in-situ read as serviceable) and false-SINGLE (one casualty masking its twin).
+This rule stops false-PRESENT (smashed-in-situ read as serviceable) and false-SINGLE (one casualty masking its twin).
 Source: Ref 7 — paired-item condition discipline — Session 01 Jun 2026.
 
 Struck-Corner Front Lamp — recordLampObservation Tool
