@@ -468,6 +468,18 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   fieldBlock('Alternative Damage Scenario', assessment['Alternative Damage Scenario']);
   fieldBlock('Airbags',                     assessment['Airbags']);
 
+  // Struck-corner lamp block — code-rendered, never omitted on frontStruck lots
+  if (assessment._lampResult) {
+    const lampText = assessment._lampResult.tier2Fired
+      ? assessment._lampResult.verdictLine
+      : assessment._lampResult.tier1Line;
+    fieldBlock('Struck-Corner Front Lamp', lampText,
+      assessment._lampResult.tier2Fired ? { color: [180, 80, 0] } : {});
+    if (assessment._lampResult.tier2Fired && assessment._lampResult.costDriverEntry) {
+      fieldBlock('Cost Driver — Lamp', assessment._lampResult.costDriverEntry);
+    }
+  }
+
   // Fix 5: keep existing colour logic for Confidence Level
   const confLevel = str(assessment['Confidence Level']);
   const confColor = confLevel.toLowerCase().includes('high')   ? [0, 130, 0]
@@ -498,7 +510,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     // Car-level rows (exit + repair)
     const carRows = [
       carExit   != null ? ['Exit value',  fmtM(carExit),   [0, 130, 0]]  : null,
-      carRepair != null ? ['Repair cost', fmtM(carRepair), [170, 0, 0]]  : null,
+      carRepair != null ? [
+        msc[0]._lampAllowance > 0 ? `Repair cost (incl. £${msc[0]._lampAllowance} lamp allowance)` : 'Repair cost',
+        fmtM(carRepair), [170, 0, 0],
+      ] : null,
     ].filter(Boolean);
     for (const [label, value, rgb] of carRows) {
       checkPage(7);
@@ -573,7 +588,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   fieldBlock('Recommended Action', action, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
-  const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
+  const checklistItems = [
+    ...parseChecklistItems(assessment['WhatsApp Inspection Checklist']),
+    ...(assessment._lampResult?.tier2Fired ? [assessment._lampResult.checklistEntry] : []),
+  ].map(item => str(item));
   if (checklistItems.length > 0) {
     sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');
     doc.setFont('helvetica', 'normal');
