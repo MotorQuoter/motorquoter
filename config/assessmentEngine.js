@@ -479,6 +479,19 @@ Default on heavy frontal or rear damage: both items in each pair at the struck e
 This rule is the symmetric pair to Front Lamp Present in Open Recess above: that rule stops false-MISSING (exposed recess read as empty when the lamp is still there). This rule stops false-PRESENT (smashed-in-situ read as serviceable) and false-SINGLE (one casualty masking its twin).
 Source: Ref 7 — paired-item condition discipline — Session 01 Jun 2026.
 
+Struck-Corner Front Lamp — recordLampObservation Tool
+
+When Primary Damage or Secondary Damage includes a front-end component (e.g. "Front End", "Front Corner"), the recordLampObservation tool will be available. You MUST call it exactly once, before any computeCopartFees calls.
+
+struckSide: your internal plate-relative-to-lights side determination — "offside", "nearside", or "central" (use "central" if the side is not confidently determinable). This is a silent tool parameter; do not write it in the report.
+apertureExposed: true if the front bumper is visibly displaced or removed on the struck corner, exposing the lamp mounting recess; false otherwise.
+
+After calling this tool you MUST:
+Do not reference the struck-corner lamp's presence, absence, or serviceability anywhere in your authored report — not in Visible Damage Summary, Key Cost Drivers, Red Flags, Checklist, or any other field. The engine renders a separate code-owned lamp verdict block.
+Do not include the struck-corner lamp in your repair figure. The engine adds the appropriate replacement allowance — including it yourself will double-count it.
+Do not make any inference about whether a lamp is fitted. An exposed aperture after bumper displacement makes the photo read structurally unreliable; the engine handles the verdict.
+Source: MK15VPZ Toyota Yaris — five-run lamp omission / false-present series — Session 02 Jun 2026.
+
 [RETIRED — superseded by the offside/nearside ban (failed validation, MG3 EN25FHL).]
 
 DO NOT ASSIGN OFFSIDE/NEARSIDE TO DAMAGE (MANDATORY — supersedes all prior damage description side-labelling)
