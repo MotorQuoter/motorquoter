@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { createCanvas, loadImage } from 'canvas';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
@@ -107,6 +108,34 @@ function tagSelfReference(shResult, vd) {
 }
 
 const LAMP_DETECTION_CONFIDENT_WORDING = false; // flip to true after false-positive guard passes (present-but-bumper-off lot)
+
+// Resize a stored base64 image to max 1024px longest edge for Haiku odo call only.
+// Haiku's ceiling is 1568 TOKENS (not pixels); a 1568px image (~2,458 tokens) exceeds
+// it, triggering API-side downsampling + double-JPEG that smears digits. 1024px keeps
+// every image under the token ceiling with a single clean encode.
+async function resizeToHaikuSafe(img) {
+  const MAX = 1024;
+  let mediaType = 'image/jpeg';
+  let src = img;
+  const m = img.match(/^data:([^;]+);base64,(.+)$/);
+  if (m) { mediaType = m[1]; src = m[2]; }
+  try {
+    const loaded = await loadImage(Buffer.from(src, 'base64'));
+    const { width, height } = loaded;
+    if (width <= MAX && height <= MAX) {
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data: src } };
+    }
+    const scale = MAX / Math.max(width, height);
+    const w = Math.round(width * scale);
+    const h = Math.round(height * scale);
+    const canvas = createCanvas(w, h);
+    canvas.getContext('2d').drawImage(loaded, 0, 0, w, h);
+    const data = canvas.toDataURL('image/jpeg', 0.82).split(',')[1];
+    return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } };
+  } catch {
+    return { type: 'image', source: { type: 'base64', media_type: mediaType, data: src } };
+  }
+}
 
 async function runLampDetection(images) {
   try {
@@ -601,13 +630,7 @@ export async function GET(request) {
     // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
     let photoOdometer = null;
     try {
-      const preExtractBlocks = session.images.map((img) => {
-        let mediaType = 'image/jpeg';
-        let data = img;
-        const m = img.match(/^data:([^;]+);base64,(.+)$/);
-        if (m) { mediaType = m[1]; data = m[2]; }
-        return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
-      });
+      const preExtractBlocks = await Promise.all(session.images.map(resizeToHaikuSafe));
       const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
