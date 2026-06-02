@@ -45,7 +45,7 @@ export default function SalvagePage() {
   }, []);
 
   const compressImage = (file) => new Promise((resolve) => {
-    const MAX = 1568;
+    const MAX = 2576;
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -58,7 +58,7 @@ export default function SalvagePage() {
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        resolve({ base64: canvas.toDataURL('image/jpeg', 0.82), name: file.name });
+        resolve({ base64: canvas.toDataURL('image/jpeg', 0.78), name: file.name });
       };
       img.src = e.target.result;
     };
