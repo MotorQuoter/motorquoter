@@ -199,7 +199,10 @@ export default function SalvageSuccessPage() {
     ? (vehicleDetails.vrm || vehicleDetails.lotNumber || [vehicleDetails.make, vehicleDetails.model, vehicleDetails.year].filter(Boolean).join(' ') || 'Assessment')
     : 'Assessment';
 
-  const checklist = parseChecklist(assessment?.['WhatsApp Inspection Checklist']);
+  const checklist = [
+    ...parseChecklist(assessment?.['WhatsApp Inspection Checklist']),
+    ...(assessment?._lampResult?.tier2Fired ? [assessment._lampResult.checklistEntry] : []),
+  ];
 
   return (
     <>
@@ -490,6 +493,25 @@ export default function SalvageSuccessPage() {
                     </div>
                   ) : null
                 ))}
+                {/* Struck-corner lamp block — code-rendered, never omitted on frontStruck lots */}
+                {assessment._lampResult && (
+                  <div className="field-row">
+                    <div className="field-key" style={assessment._lampResult.tier2Fired ? { color: 'var(--orange)' } : undefined}>
+                      Struck-Corner Front Lamp
+                    </div>
+                    <div className="field-val">
+                      {assessment._lampResult.tier2Fired
+                        ? assessment._lampResult.verdictLine
+                        : assessment._lampResult.tier1Line}
+                    </div>
+                  </div>
+                )}
+                {assessment._lampResult?.tier2Fired && (
+                  <div className="field-row">
+                    <div className="field-key">Cost Driver — Lamp</div>
+                    <div className="field-val" style={{ color: 'var(--text-dim)' }}>{assessment._lampResult.costDriverEntry}</div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -613,7 +635,14 @@ export default function SalvageSuccessPage() {
                               )}
                               {carRepair != null && (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border-dim)' }}>
-                                  <span style={lblRowSt}>Repair cost</span>
+                                  <span style={lblRowSt}>
+                                    Repair cost
+                                    {scenarios[0]?._lampAllowance > 0 && (
+                                      <span style={{ display: 'block', fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)', lineHeight: 1.3 }}>
+                                        incl. £{scenarios[0]._lampAllowance} lamp allowance
+                                      </span>
+                                    )}
+                                  </span>
                                   <span style={{ fontSize: 13, fontWeight: 500, color: '#f87171' }}>{fmtGbp(carRepair)}</span>
                                 </div>
                               )}
