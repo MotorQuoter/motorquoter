@@ -470,12 +470,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Struck-corner lamp block — code-rendered, never omitted on frontStruck lots
   if (assessment._lampResult) {
-    const lampText = assessment._lampResult.tier2Fired
+    const lampText = assessment._lampResult.tier === 2
       ? assessment._lampResult.verdictLine
       : assessment._lampResult.tier1Line;
     fieldBlock('Struck-Corner Front Headlamp', lampText,
-      assessment._lampResult.tier2Fired ? { color: [180, 80, 0] } : {});
-    if (assessment._lampResult.tier2Fired && assessment._lampResult.costDriverEntry) {
+      (assessment._lampResult.lampAllowance ?? 0) > 0 ? { color: [180, 80, 0] } : {});
+    if (assessment._lampResult.costDriverEntry) {
       fieldBlock('Cost Driver — Headlamp', assessment._lampResult.costDriverEntry);
     }
   }
@@ -594,7 +594,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = [
     ...parseChecklistItems(assessment['WhatsApp Inspection Checklist']),
-    ...(assessment._lampResult?.tier2Fired ? [assessment._lampResult.checklistEntry] : []),
+    ...(assessment._lampResult?.checklistEntry ? [assessment._lampResult.checklistEntry] : []),
   ].map(item => str(item));
   if (checklistItems.length > 0) {
     sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');

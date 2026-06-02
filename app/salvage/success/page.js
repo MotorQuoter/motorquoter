@@ -201,7 +201,7 @@ export default function SalvageSuccessPage() {
 
   const checklist = [
     ...parseChecklist(assessment?.['WhatsApp Inspection Checklist']),
-    ...(assessment?._lampResult?.tier2Fired ? [assessment._lampResult.checklistEntry] : []),
+    ...(assessment?._lampResult?.checklistEntry ? [assessment._lampResult.checklistEntry] : []),
   ];
 
   return (
@@ -493,20 +493,20 @@ export default function SalvageSuccessPage() {
                     </div>
                   ) : null
                 ))}
-                {/* Struck-corner lamp block — code-rendered, never omitted on frontStruck lots */}
+                {/* Struck-corner headlamp block — code-rendered, never omitted on frontStruck lots */}
                 {assessment._lampResult && (
                   <div className="field-row">
-                    <div className="field-key" style={assessment._lampResult.tier2Fired ? { color: 'var(--orange)' } : undefined}>
+                    <div className="field-key" style={(assessment._lampResult.lampAllowance ?? 0) > 0 ? { color: 'var(--orange)' } : undefined}>
                       Struck-Corner Front Headlamp
                     </div>
                     <div className="field-val">
-                      {assessment._lampResult.tier2Fired
+                      {assessment._lampResult.tier === 2
                         ? assessment._lampResult.verdictLine
                         : assessment._lampResult.tier1Line}
                     </div>
                   </div>
                 )}
-                {assessment._lampResult?.tier2Fired && (
+                {assessment._lampResult?.costDriverEntry && (
                   <div className="field-row">
                     <div className="field-key">Cost Driver — Headlamp</div>
                     <div className="field-val" style={{ color: 'var(--text-dim)' }}>{assessment._lampResult.costDriverEntry}</div>

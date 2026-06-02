@@ -106,6 +106,73 @@ function tagSelfReference(shResult, vd) {
     (mileageMatch === null && categoryMatch && damageMatch);
 }
 
+const LAMP_DETECTION_CONFIDENT_WORDING = false; // flip to true after false-positive guard passes (present-but-bumper-off lot)
+
+async function runLampDetection(images) {
+  try {
+    const imageBlocks = images.slice(0, 20).map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const m = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) { mediaType = m[1]; data = m[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    const userText = `These are photos of the front of a salvage vehicle. For EACH front headlamp position (both corners), determine whether a headlamp unit is physically present in the aperture or the mount is empty. A displaced bumper can expose an empty recess that looks occupied — judge whether an actual lens/reflector/lamp body is present, not just that the recess is visible. Report per corner. Describe each corner by its relation to the body damage (e.g. 'the corner with the major impact damage' / 'the undamaged corner') or as left/right as viewed — do NOT use offside/nearside. Also state the lamp TYPE if determinable (halogen / HID / LED-adaptive).
+
+Respond with a JSON array only — no markdown, no explanation, nothing else:
+[
+  {
+    "corner_descriptor": "brief description identifying the corner",
+    "verdict": "present" | "missing" | "cannot_determine",
+    "lamp_type": "halogen" | "hid" | "led" | "indeterminate",
+    "evidence": "one sentence describing what you can see"
+  }
+]`;
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 600,
+        system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [{ type: 'text', text: userText }, ...imageBlocks] }],
+      }),
+    });
+    if (!res.ok) { console.warn('[LAMP DETECT] API error:', res.status); return null; }
+    const data = await res.json();
+    console.log('[TOKEN LOG] lamp-detect Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Model:', data.model || 'unknown');
+    const raw = (data.content?.[0]?.text || '').trim();
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) { console.warn('[LAMP DETECT] no JSON array in response:', raw.slice(0, 200)); return null; }
+    const parsed = JSON.parse(match[0]);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.warn('[LAMP DETECT] error:', err.message);
+    return null;
+  }
+}
+
+function selectStruckCornerVerdict(corners) {
+  if (!Array.isArray(corners) || corners.length === 0) return null;
+  // A 'missing' verdict is the strongest signal — prefer it
+  const missingCorner = corners.find(c => c.verdict === 'missing');
+  if (missingCorner) return missingCorner;
+  // Look for damage keywords in descriptor or evidence
+  const DAMAGE_MARKERS = /damage|struck|impact|deformed|crushed|displaced bumper|exposed recess|major/i;
+  const damagedCorner = corners.find(c =>
+    DAMAGE_MARKERS.test(c.corner_descriptor || '') ||
+    DAMAGE_MARKERS.test(c.evidence || '')
+  );
+  if (damagedCorner) return damagedCorner;
+  // Single corner reported — use it
+  if (corners.length === 1) return corners[0];
+  return null; // ambiguous — fall back to cannot_determine
+}
+
 function deriveLampType(vd) {
   const make     = (vd.make  || '').toLowerCase().replace(/[-\s]/g, '');
   const model    = (vd.model || '').toLowerCase();
@@ -227,35 +294,55 @@ function deriveLampType(vd) {
   return 'indeterminate';
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType) {
-  // struckSide is kept as an internal field for logging only — never interpolated into rendered strings
+function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null) {
+  // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
-  // Band selection: indeterminate falls back to HEADLAMP_BAND_DEFAULT (high) — never under-budget
-  const assumed      = !HEADLAMP_BANDS[lampType];
-  const resolvedType = assumed ? HEADLAMP_BAND_DEFAULT : lampType;
-  const bandValue    = HEADLAMP_BANDS[resolvedType];
+  // Band selection: take the HIGHER of spec-derived and detection-reported (never under-budget)
+  const LAMP_RANK    = { halogen: 1, hid: 2, led: 3 };
+  const specAssumed      = !HEADLAMP_BANDS[lampType];
+  const resolvedSpecType = specAssumed ? HEADLAMP_BAND_DEFAULT : lampType;
+  const resolvedDetType  = (detectionLampType && HEADLAMP_BANDS[detectionLampType]) ? detectionLampType : null;
+  const resolvedType     = (resolvedDetType && (LAMP_RANK[resolvedDetType] ?? 0) > (LAMP_RANK[resolvedSpecType] ?? 0))
+    ? resolvedDetType : resolvedSpecType;
+  const bandValue       = HEADLAMP_BANDS[resolvedType];
+  const lampTypeAssumed = specAssumed && !resolvedDetType;
 
+  const assumedDisclosure = ' Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
   const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
-    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed: assumed, lampAllowance: 0 };
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0 };
   }
 
-  let verdictLine = `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
-  if (assumed) {
-    verdictLine += ' Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
-  } else {
-    verdictLine += ' Confirm on inspection.';
-  }
-
-  const costDriverEntry = assumed
-    ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
-    : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
+  // Verdict branch: toggle gates confident 'missing' wording; detection is authoritative otherwise
+  const effectiveVerdict = (detectionVerdict === 'missing' && !LAMP_DETECTION_CONFIDENT_WORDING)
+    ? 'cannot_determine'
+    : (detectionVerdict || 'cannot_determine');
 
   const checklistEntry = 'Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
 
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed: assumed, lampAllowance: bandValue };
+  if (effectiveVerdict === 'present') {
+    const verdictLine = 'Struck front corner headlamp — the front headlamp on the damaged corner appears present. Confirm serviceability on inspection; a struck-corner lamp may be cracked or displaced even if visible.';
+    return { tier: 2, tier2Fired: false, struckSide: side, tier1Line, verdictLine, costDriverEntry: null, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, detectionVerdict, effectiveVerdict };
+  }
+
+  if (effectiveVerdict === 'missing') {
+    let verdictLine = `Struck front corner headlamp — the front headlamp on the damaged corner is missing. Replacement costed at £${bandValue} (${resolvedType}).`;
+    verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
+    const costDriverEntry = lampTypeAssumed
+      ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
+      : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`;
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
+  }
+
+  // cannot_determine — default path and toggle-OFF 'missing'
+  let verdictLine = `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
+  verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
+  const costDriverEntry = lampTypeAssumed
+    ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
+    : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
 }
 
 export async function GET(request) {
@@ -775,6 +862,9 @@ export async function GET(request) {
 
     const frontStruck = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
 
+    // Fire lamp detection in parallel with the main assess loop — joins post-loop
+    const lampDetectionPromise = frontStruck ? runLampDetection(session.images) : Promise.resolve(null);
+
     const MAX_TOOL_ITERATIONS = 3;
     const claudeTools = [
       ...(auctionSource === 'copart' ? [COPART_FEES_TOOL] : []),
@@ -783,6 +873,7 @@ export async function GET(request) {
     const messages = [{ role: 'user', content: userContent }];
     const marginScenarios = [];
     let lampResult = null;
+    let lampObs    = null; // raw tool inputs; computeLampResult deferred to post-loop after detection joins
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     let rawText = '';
@@ -829,13 +920,14 @@ export async function GET(request) {
             if (block.name === 'recordLampObservation') {
               const struckSide      = block.input?.struckSide || 'central';
               const apertureExposed = Boolean(block.input?.apertureExposed);
-              const derivedLampType = deriveLampType(enrichedVd);
-              lampResult = computeLampResult(struckSide, apertureExposed, derivedLampType);
-              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} lampType=${derivedLampType} → tier=${lampResult.tier} band=£${lampResult.lampAllowance} assumed=${lampResult.lampTypeAssumed}`);
+              lampObs = { struckSide, apertureExposed };
+              // computeLampResult deferred to post-loop when lamp detection result is available
+              const prelimTier = apertureExposed ? 2 : 1;
+              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} (computeLampResult deferred)`);
               return {
                 type: 'tool_result',
                 tool_use_id: block.id,
-                content: JSON.stringify({ recorded: true, tier: lampResult.tier, note: 'Lamp verdict and allowance are engine-rendered. Exclude lamp from your repair figure and do not describe lamp presence/absence in your report.' }),
+                content: JSON.stringify({ recorded: true, tier: prelimTier, note: 'Lamp verdict and allowance are engine-rendered. Exclude lamp from your repair figure and do not describe lamp presence/absence in your report.' }),
               };
             }
             if (block.name === 'computeCopartFees') {
@@ -898,16 +990,34 @@ export async function GET(request) {
       }
     }
 
-    // Item 1: guarantee _lampResult is always populated for frontStruck lots regardless of tool co-operation
-    if (frontStruck && !lampResult) {
-      const derivedLampType = deriveLampType(enrichedVd);
-      lampResult = computeLampResult('central', false, derivedLampType);
-      console.log(`[LAMP] no tool call on frontStruck lot — Tier 1 floor applied (central, apertureExposed=false, lampType=${derivedLampType})`);
+    // Join lamp detection (ran in parallel with main assess loop)
+    const lampDetectionRaw  = await lampDetectionPromise;
+    const detectedCorner    = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
+    if (frontStruck) {
+      console.log('[LAMP DETECT]', detectedCorner
+        ? `struck corner: verdict=${detectedCorner.verdict} lamp_type=${detectedCorner.lamp_type} evidence="${(detectedCorner.evidence || '').slice(0, 80)}"`
+        : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
     }
 
-    // Item 2: post-loop margin finalisation — apply lamp allowance after both lampResult and fee inputs are settled.
-    // Running here (not inside the fee handler) prevents cross-iteration ordering from dropping the allowance.
-    if (lampResult?.tier2Fired && marginScenarios.length > 0) {
+    // Item 1: guarantee lampObs for every frontStruck lot regardless of tool co-operation
+    if (frontStruck && !lampObs) {
+      lampObs = { struckSide: 'central', apertureExposed: false };
+      console.log('[LAMP] no tool call on frontStruck lot — Tier 1 floor defaults applied');
+    }
+
+    // Single computeLampResult call with all inputs — tool obs + detection result
+    if (lampObs) {
+      const derivedLampType = deriveLampType(enrichedVd);
+      lampResult = computeLampResult(
+        lampObs.struckSide, lampObs.apertureExposed, derivedLampType,
+        detectedCorner?.verdict   || null,
+        detectedCorner?.lamp_type || null
+      );
+      console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
+    }
+
+    // Item 2: post-loop margin finalisation — apply headlamp allowance after both inputs are settled
+    if (lampResult?.lampAllowance > 0 && marginScenarios.length > 0) {
       const lampAdj = lampResult.lampAllowance;
       for (let i = 0; i < marginScenarios.length; i++) {
         const s = marginScenarios[i];
@@ -918,7 +1028,7 @@ export async function GET(request) {
           margin:         s.margin != null ? Math.round((s.margin - lampAdj) * 100) / 100 : null,
         };
       }
-      console.log(`[LAMP] post-loop margin finalisation: +£${lampAdj} lamp allowance applied to ${marginScenarios.length} scenario(s)`);
+      console.log(`[LAMP] post-loop margin finalisation: +£${lampAdj} headlamp allowance applied to ${marginScenarios.length} scenario(s)`);
     }
 
     // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
