@@ -8,6 +8,7 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
   'Estimated Repair Range',
+  'Parts Breakdown',
   'Key Cost Drivers',
   'Red Flags',
   'Alternative Damage Scenario',
@@ -81,6 +82,23 @@ function resolveFields(assessment) {
     return merged;
   }
   return assessment;
+}
+
+function parsePdfParts(text) {
+  if (!text) return [];
+  const result = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    if (!m) continue;
+    const [, name, action, col3, col4] = m;
+    const parseP = s => {
+      if (!s || /^[—\-–]+$|n\/a/i.test(s.trim())) return null;
+      const n = s.replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
+      return n ? Math.round(parseFloat(n[0])) : null;
+    };
+    result.push({ name: name.trim(), action: action.trim(), oem: parseP(col3), used: parseP(col4) });
+  }
+  return result;
 }
 
 function parseChecklistItems(text) {
@@ -462,23 +480,61 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
   sectionTitle('Damage Assessment');
-  fieldBlock('Visible Damage Summary',      assessment['Visible Damage Summary']);
+  fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
+
+  // Parts Breakdown — structured table
+  const pdfParts = assessment._reconciledParts?.length
+    ? assessment._reconciledParts
+    : parsePdfParts(assessment['Parts Breakdown'] || '');
+  if (pdfParts.length > 0) {
+    const fmtPP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+    checkPage(8 + pdfParts.length * 6);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('PARTS BREAKDOWN', MARGIN, y);
+    y += 4;
+    const COL_PART  = CONTENT_W * 0.44;
+    const COL_ACT   = CONTENT_W * 0.14;
+    const COL_OEM   = CONTENT_W * 0.21;
+    const COL_USED  = CONTENT_W * 0.21;
+    const xAct  = MARGIN + COL_PART;
+    const xOem  = xAct + COL_ACT;
+    const xUsed = xOem + COL_OEM;
+    // Header
+    doc.setFontSize(7); doc.setTextColor(140, 140, 140);
+    doc.text('PART',   MARGIN, y);
+    doc.text('ACTION', xAct,   y);
+    doc.text('OEM',    xOem + COL_OEM,   y, { align: 'right' });
+    doc.text('USED/SH', xUsed + COL_USED, y, { align: 'right' });
+    y += 3;
+    doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.15);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 2;
+    for (const p of pdfParts) {
+      checkPage(6);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(str(p.name),   MARGIN, y);
+      doc.setTextColor(130, 130, 130); doc.setFontSize(7.5);
+      doc.text(str(p.action), xAct,   y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(str(fmtPP(p.oem)),  xOem  + COL_OEM,   y, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(str(fmtPP(p.used)), xUsed + COL_USED, y, { align: 'right' });
+      y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    y += 3;
+    doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.15);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 4;
+  }
+
   fieldBlock('Key Cost Drivers',            assessment['Key Cost Drivers']);
   fieldBlock('Red Flags',                   assessment['Red Flags']);
   fieldBlock('Alternative Damage Scenario', assessment['Alternative Damage Scenario']);
   fieldBlock('Airbags',                     assessment['Airbags']);
-
-  // Struck-corner lamp block — code-rendered, never omitted on frontStruck lots
-  if (assessment._lampResult) {
-    const lampText = assessment._lampResult.tier === 2
-      ? assessment._lampResult.verdictLine
-      : assessment._lampResult.tier1Line;
-    fieldBlock('Struck-Corner Front Headlamp', lampText,
-      (assessment._lampResult.lampAllowance ?? 0) > 0 ? { color: [180, 80, 0] } : {});
-    if (assessment._lampResult.costDriverEntry) {
-      fieldBlock('Cost Driver — Headlamp', assessment._lampResult.costDriverEntry);
-    }
-  }
 
   // Fix 5: keep existing colour logic for Confidence Level
   const confLevel = str(assessment['Confidence Level']);
@@ -510,14 +566,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     // Car-level rows (exit + repair)
     const carRows = [
       carExit   != null ? ['Exit value',  fmtM(carExit),   [0, 130, 0]]  : null,
-      carRepair != null ? [
-        msc[0]._lampAllowance > 0
-          ? (assessment._lampResult?.lampTypeAssumed
-              ? `Repair cost (incl. £${msc[0]._lampAllowance} headlamp, assumed ${assessment._lampResult?.lampType})`
-              : `Repair cost (incl. £${msc[0]._lampAllowance} headlamp, ${assessment._lampResult?.lampType})`)
-          : 'Repair cost',
-        fmtM(carRepair), [170, 0, 0],
-      ] : null,
+      carRepair != null ? ['Repair cost', fmtM(carRepair), [170, 0, 0]] : null,
     ].filter(Boolean);
     for (const [label, value, rgb] of carRows) {
       checkPage(7);
@@ -592,10 +641,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   fieldBlock('Recommended Action', action, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
-  const checklistItems = [
-    ...parseChecklistItems(assessment['WhatsApp Inspection Checklist']),
-    ...(assessment._lampResult?.checklistEntry ? [assessment._lampResult.checklistEntry] : []),
-  ].map(item => str(item));
+  const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
   if (checklistItems.length > 0) {
     sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');
     doc.setFont('helvetica', 'normal');

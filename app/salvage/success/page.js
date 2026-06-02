@@ -17,6 +17,7 @@ const LOADING_MESSAGES = [
 const FIELD_ORDER = [
   'Visible Damage Summary',
   'Estimated Repair Range',
+  'Parts Breakdown',
   'Key Cost Drivers',
   'Red Flags',
   'Alternative Damage Scenario',
@@ -27,6 +28,23 @@ const FIELD_ORDER = [
   'Realistic Exit Value',
   'Margin Calculation',
 ];
+
+function parseParts(text) {
+  if (!text) return [];
+  const result = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    if (!m) continue;
+    const [, name, action, col3, col4] = m;
+    const parseP = s => {
+      if (!s || /^[—\-–]+$|n\/a/i.test(s.trim())) return null;
+      const n = s.replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
+      return n ? Math.round(parseFloat(n[0])) : null;
+    };
+    result.push({ name: name.trim(), action: action.trim(), oem: parseP(col3), used: parseP(col4) });
+  }
+  return result;
+}
 
 function parseChecklist(text) {
   if (!text) return [];
@@ -199,10 +217,7 @@ export default function SalvageSuccessPage() {
     ? (vehicleDetails.vrm || vehicleDetails.lotNumber || [vehicleDetails.make, vehicleDetails.model, vehicleDetails.year].filter(Boolean).join(' ') || 'Assessment')
     : 'Assessment';
 
-  const checklist = [
-    ...parseChecklist(assessment?.['WhatsApp Inspection Checklist']),
-    ...(assessment?._lampResult?.checklistEntry ? [assessment._lampResult.checklistEntry] : []),
-  ];
+  const checklist = parseChecklist(assessment?.['WhatsApp Inspection Checklist']);
 
   return (
     <>
@@ -485,7 +500,56 @@ export default function SalvageSuccessPage() {
             <div className="section">
               <div className="section-title">Damage Assessment</div>
               <div className="section-body">
-                {['Visible Damage Summary', 'Key Cost Drivers', 'Red Flags', 'Alternative Damage Scenario', 'Airbags'].map(field => (
+                {assessment['Visible Damage Summary'] && (
+                  <div className="field-row">
+                    <div className="field-key">Visible Damage Summary</div>
+                    <div className="field-val">{assessment['Visible Damage Summary']}</div>
+                  </div>
+                )}
+                {/* Parts Breakdown — structured line-per-item table */}
+                {(() => {
+                  const parts = assessment._reconciledParts?.length
+                    ? assessment._reconciledParts
+                    : parseParts(assessment['Parts Breakdown'] || '');
+                  if (!parts.length) return null;
+                  const fmtP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                  const colSt = (align = 'left', bold = false) => ({
+                    fontSize: 12, fontWeight: bold ? 700 : 400,
+                    color: 'var(--text)', textAlign: align,
+                    padding: '5px 4px', borderTop: '1px solid var(--border-dim)',
+                  });
+                  const headSt = (align = 'left') => ({
+                    fontSize: 10, fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700,
+                    letterSpacing: '0.1em', color: 'var(--text-dim)', textTransform: 'uppercase',
+                    textAlign: align, paddingBottom: 4,
+                  });
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">Parts Breakdown</div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6 }}>
+                        <thead>
+                          <tr>
+                            <th style={headSt('left')}>Part</th>
+                            <th style={headSt('center')}>Action</th>
+                            <th style={headSt('right')}>OEM</th>
+                            <th style={headSt('right')}>Used/SH</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parts.map((p, i) => (
+                            <tr key={i}>
+                              <td style={colSt('left')}>{p.name}</td>
+                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11 }}>{p.action}</td>
+                              <td style={colSt('right')}>{fmtP(p.oem)}</td>
+                              <td style={colSt('right', true)}>{fmtP(p.used)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+                {['Key Cost Drivers', 'Red Flags', 'Alternative Damage Scenario', 'Airbags'].map(field => (
                   assessment[field] ? (
                     <div className="field-row" key={field}>
                       <div className="field-key">{field}</div>
@@ -493,25 +557,6 @@ export default function SalvageSuccessPage() {
                     </div>
                   ) : null
                 ))}
-                {/* Struck-corner headlamp block — code-rendered, never omitted on frontStruck lots */}
-                {assessment._lampResult && (
-                  <div className="field-row">
-                    <div className="field-key" style={(assessment._lampResult.lampAllowance ?? 0) > 0 ? { color: 'var(--orange)' } : undefined}>
-                      Struck-Corner Front Headlamp
-                    </div>
-                    <div className="field-val">
-                      {assessment._lampResult.tier === 2
-                        ? assessment._lampResult.verdictLine
-                        : assessment._lampResult.tier1Line}
-                    </div>
-                  </div>
-                )}
-                {assessment._lampResult?.costDriverEntry && (
-                  <div className="field-row">
-                    <div className="field-key">Cost Driver — Headlamp</div>
-                    <div className="field-val" style={{ color: 'var(--text-dim)' }}>{assessment._lampResult.costDriverEntry}</div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -635,16 +680,7 @@ export default function SalvageSuccessPage() {
                               )}
                               {carRepair != null && (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border-dim)' }}>
-                                  <span style={lblRowSt}>
-                                    Repair cost
-                                    {scenarios[0]?._lampAllowance > 0 && (
-                                      <span style={{ display: 'block', fontSize: 10, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-dim)', lineHeight: 1.3 }}>
-                                        {assessment._lampResult?.lampTypeAssumed
-                                          ? `incl. £${scenarios[0]._lampAllowance} headlamp (assumed ${assessment._lampResult?.lampType})`
-                                          : `incl. £${scenarios[0]._lampAllowance} headlamp (${assessment._lampResult?.lampType})`}
-                                      </span>
-                                    )}
-                                  </span>
+                                  <span style={lblRowSt}>Repair cost</span>
                                   <span style={{ fontSize: 13, fontWeight: 500, color: '#f87171' }}>{fmtGbp(carRepair)}</span>
                                 </div>
                               )}

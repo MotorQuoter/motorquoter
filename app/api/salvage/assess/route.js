@@ -26,6 +26,7 @@ const HEADLAMP_BAND_DEFAULT = 'led'; // conservative high — indeterminate spec
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
   'Estimated Repair Range',
+  'Parts Breakdown',
   'Key Cost Drivers',
   'Red Flags',
   'Alternative Damage Scenario',
@@ -380,6 +381,66 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
     : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
   return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
+}
+
+// ── Parts Breakdown helpers ──────────────────────────────────────────────────
+
+function parsePrice(s) {
+  if (!s || /^[—\-–]+$|n\/a|nil|none/i.test(s.trim())) return null;
+  const m = s.replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
+  return m ? Math.round(parseFloat(m[0])) : null;
+}
+
+function parseParts(text) {
+  if (!text) return [];
+  const result = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    if (!m) continue;
+    const [, name, action, col3, col4] = m;
+    result.push({ name: name.trim(), action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
+  }
+  return result;
+}
+
+function isLampLine(name) {
+  return /\bhead[\s-]?lamp\b|\bheadlight\b|\bfront\s+lamp\b/i.test(name);
+}
+
+function reconcileParts(parts, lampResult) {
+  if (!lampResult?.tier2Fired || !lampResult.lampAllowance) {
+    return { parts, lamp_delta: 0, lamp_inserted: false };
+  }
+  const band = lampResult.lampAllowance;
+  const idx = parts.findIndex(p => isLampLine(p.name));
+  let lamp_delta, lamp_inserted = false;
+
+  if (idx >= 0) {
+    const model_lamp_cost = parts[idx].used ?? parts[idx].oem ?? 0;
+    lamp_delta = band - model_lamp_cost;
+    // FIX: one authoritative cost — band in used col, OEM col cleared (not a mismatched pair)
+    parts = parts.map((item, i) => i === idx ? { ...item, oem: null, used: band } : item);
+  } else {
+    lamp_delta = band;
+    lamp_inserted = true;
+    // Insert before labour/paint line, or at end
+    const labourIdx = parts.findIndex(p => /labour|paint|prep/i.test(p.name));
+    const at = labourIdx >= 0 ? labourIdx : parts.length;
+    parts = [...parts.slice(0, at), { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true }, ...parts.slice(at)];
+  }
+  return { parts, lamp_delta, lamp_inserted };
+}
+
+function sumPartsRealistic(parts) {
+  return parts.reduce((acc, p) => acc + (p.used ?? p.oem ?? 0), 0);
+}
+
+function renderParts(parts) {
+  return parts.map((p, i) => {
+    const oem  = p.oem  != null ? `£${p.oem}`  : '—';
+    const used = p.used != null ? `£${p.used}` : '—';
+    return `${i + 1}. ${p.name} | ${p.action} | ${oem} | ${used}`;
+  }).join('\n');
 }
 
 export async function GET(request) {
@@ -745,7 +806,7 @@ export async function GET(request) {
     const auctionSource = enrichedVd.auctionSource || 'copart';
 
     const feeRef = auctionSource === 'copart'
-      ? 'Copart fees: Call the computeCopartFees tool for every hammer scenario you are evaluating, before writing the Margin Calculation. Pass your judged exit_value (single GBP integer — your chosen realistic exit price for this vehicle) and repair (single GBP integer — your chosen repair cost from within your stated range) alongside each hammer. Both are car-level constants: pass identical values across all your hammer calls. The server computes all fees, hammer VAT, and the full margin. Your Margin Calculation prose must explain WHY you chose that exit anchor and that repair figure — it must NOT state any fee amount, hammer VAT amount, or margin figure.'
+      ? 'Copart fees: Call the computeCopartFees tool for every hammer scenario you are evaluating, before writing the Margin Calculation. Pass your judged exit_value (single GBP integer — your chosen realistic exit price for this vehicle) and repair (single GBP integer — sum of your Parts Breakdown used-where-available column, including the front headlamp at your estimated cost) alongside each hammer. Both are car-level constants: pass identical values across all your hammer calls. The server computes all fees, hammer VAT, and the full margin. Your Margin Calculation prose must explain WHY you chose that exit anchor and that repair figure — it must NOT state any fee amount, hammer VAT amount, or margin figure.'
       : null;
 
     const contextLines = [
@@ -865,7 +926,7 @@ export async function GET(request) {
         properties: {
           hammer:     { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
           exit_value: { type: 'number', description: 'Your chosen realistic exit price for this vehicle in GBP — constant across all hammer scenarios' },
-          repair:     { type: 'number', description: 'Your chosen repair cost for this vehicle in GBP (single figure from within your estimated range, EXCLUDING any struck-corner lamp — the engine adds that) — constant across all hammer scenarios' },
+          repair:     { type: 'number', description: 'Sum of your Parts Breakdown used-where-available column (used price where available, OEM price where not) — your holistic repair figure. Include the front headlamp at your estimated cost; the engine reconciles it to the authoritative band. Constant across all hammer scenarios.' },
         },
         required: ['hammer', 'exit_value', 'repair'],
       },
@@ -873,7 +934,7 @@ export async function GET(request) {
 
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
-      description: 'Call exactly once on any front-struck lot, BEFORE computeCopartFees. Pass your plate-anchor side determination and the bumper displacement observation. The engine renders the lamp verdict and adds the replacement allowance — exclude the lamp from your repair figure and do not describe lamp presence/absence anywhere in your report.',
+      description: 'Call exactly once on any front-struck lot, BEFORE computeCopartFees. Pass your plate-anchor side determination and the bumper displacement observation. After calling, include the front headlamp as a normal Parts Breakdown line with your best cost estimate. The engine reconciles the cost to the authoritative band — do NOT pre-adjust your repair figure for this. Do not write lamp commentary outside the Parts Breakdown line.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1047,20 +1108,43 @@ export async function GET(request) {
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
 
-    // Item 2: post-loop margin finalisation — apply headlamp allowance after both inputs are settled
-    if (lampResult?.lampAllowance > 0 && marginScenarios.length > 0) {
-      const lampAdj = lampResult.lampAllowance;
+    // Post-loop: Parts Breakdown reconciliation + lamp floor
+    const rawParts = parseParts(assessment['Parts Breakdown'] || '');
+    const { parts: reconciledParts, lamp_delta, lamp_inserted } = reconcileParts(rawParts, lampResult);
+    const parts_sum = sumPartsRealistic(reconciledParts);
+
+    // Rebuild Parts Breakdown text from reconciled lines
+    if (reconciledParts.length > 0) {
+      assessment['Parts Breakdown'] = renderParts(reconciledParts);
+    }
+    assessment._reconciledParts = reconciledParts;
+
+    // Apply lamp delta to margin scenarios (unconditional on frontStruck+apertureExposed — lamp_delta=0 otherwise)
+    if (lamp_delta !== 0 && marginScenarios.length > 0) {
       for (let i = 0; i < marginScenarios.length; i++) {
         const s = marginScenarios[i];
         marginScenarios[i] = {
           ...s,
-          repair:         (s.repair ?? 0) + lampAdj,
-          _lampAllowance: lampAdj,
-          margin:         s.margin != null ? Math.round((s.margin - lampAdj) * 100) / 100 : null,
+          repair:         (s.repair ?? 0) + lamp_delta,
+          _lampAllowance: lampResult?.lampAllowance ?? 0,
+          margin:         s.margin != null ? Math.round((s.margin - lamp_delta) * 100) / 100 : null,
         };
       }
-      console.log(`[LAMP] post-loop margin finalisation: +£${lampAdj} headlamp allowance applied to ${marginScenarios.length} scenario(s)`);
+      console.log(`[PARTS] lamp delta applied: lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted} band=£${lampResult?.lampAllowance} scenarios=${marginScenarios.length}`);
     }
+
+    // Divergence check: parts_sum vs reconciled_holistic (lamp nets out — see design notes)
+    const reconciled_holistic = marginScenarios.length > 0 ? marginScenarios[0].repair : null;
+    const partsReconciliation = { parts_sum, reconciled_holistic, lamp_delta, lamp_inserted };
+    if (reconciled_holistic != null && reconciled_holistic > 0) {
+      const ratio = Math.abs(parts_sum - reconciled_holistic) / reconciled_holistic;
+      partsReconciliation.diverged = ratio > 0.20;
+      partsReconciliation.divergence_pct = Math.round(ratio * 100);
+      if (partsReconciliation.diverged) {
+        console.warn(`[PARTS] divergence: parts_sum=£${parts_sum} reconciled_holistic=£${reconciled_holistic} ratio=${partsReconciliation.divergence_pct}%`);
+      }
+    }
+    assessment._partsReconciliation = partsReconciliation;
 
     // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
     if (!rawText && messages[messages.length - 1].role === 'user') {
