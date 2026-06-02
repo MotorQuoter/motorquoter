@@ -117,7 +117,9 @@ async function runLampDetection(images) {
       if (m) { mediaType = m[1]; data = m[2]; }
       return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     });
-    const userText = `These are photos of the front of a salvage vehicle. For EACH front headlamp position (both corners), determine whether a headlamp unit is physically present in the aperture or the mount is empty. A displaced bumper can expose an empty recess that looks occupied — judge whether an actual lens/reflector/lamp body is present, not just that the recess is visible. Report per corner. Describe each corner by its relation to the body damage (e.g. 'the corner with the major impact damage' / 'the undamaged corner') or as left/right as viewed — do NOT use offside/nearside. Also state the lamp TYPE if determinable (halogen / HID / LED-adaptive).
+    const userText = `Examine ALL images carefully before forming any verdict — survey every photo to locate the front corners before deciding.
+
+For EACH front headlamp position (both corners), determine whether a headlamp unit is physically present in the aperture or the mount is empty. A displaced bumper can expose an empty recess that looks occupied — judge whether an actual lens/reflector/lamp body is present, not just that the recess is visible. Report per corner. Describe each corner by its relation to the body damage (e.g. 'the corner with the major impact damage' / 'the undamaged corner') or as left/right as viewed — do NOT use offside/nearside. Also state the lamp TYPE if determinable (halogen / HID / LED-adaptive).
 
 Respond with a JSON array only — no markdown, no explanation, nothing else:
 [
@@ -139,7 +141,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
         model: 'claude-opus-4-8',
         max_tokens: 600,
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
-        messages: [{ role: 'user', content: [{ type: 'text', text: userText }, ...imageBlocks] }],
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
       }),
     });
     if (!res.ok) { console.warn('[LAMP DETECT] API error:', res.status); return null; }
@@ -819,11 +821,11 @@ export async function GET(request) {
       });
 
     const userContent = [
+      ...imageBlocks,
       {
         type: 'text',
         text: `Please assess this vehicle for auction bidding purposes.\n\nVehicle Details:\n${contextLines}\n\nAnalyse all provided photos and give a complete assessment using the required output format. After the Margin Calculation field, include a "WhatsApp Inspection Checklist:" section with at minimum 5 specific items tailored to this vehicle's damage profile, selected and expanded from the standard checklist items in your knowledge base.`,
       },
-      ...imageBlocks,
     ];
 
     const COPART_FEES_TOOL = {
