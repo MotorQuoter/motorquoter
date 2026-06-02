@@ -354,8 +354,14 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   const checklistEntry = 'Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
 
   if (effectiveVerdict === 'present') {
-    const verdictLine = 'Struck front corner headlamp — the front headlamp on the damaged corner appears present. Confirm serviceability on inspection; a struck-corner lamp may be cracked or displaced even if visible.';
-    return { tier: 2, tier2Fired: false, struckSide: side, tier1Line, verdictLine, costDriverEntry: null, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, detectionVerdict, effectiveVerdict };
+    // Cost always applies on apertureExposed — a displaced-bumper aperture makes photo evidence
+    // unreliable regardless of what appears present. Verdict controls wording only.
+    let verdictLine = `Struck front corner headlamp — the front headlamp on the damaged corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
+    verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
+    const costDriverEntry = lampTypeAssumed
+      ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
+      : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`;
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
   }
 
   if (effectiveVerdict === 'missing') {
