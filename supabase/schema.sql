@@ -133,6 +133,35 @@ ALTER TABLE salvage_sessions ENABLE ROW LEVEL SECURITY;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 4. oneauto_cache
+--    Per-call cache for One Auto API responses on the salvage assess route.
+--    Keyed by CALLTYPE:REG (e.g. BREGO_GB:MK15VPZ).  TTL 30 days; expires_at
+--    is the read gate (WHERE expires_at > now()).  Stale-on-error: expired rows
+--    are served when a live call fails (WHERE expires_at <= now() as fallback).
+--    Service role only; RLS blocks all client access.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS oneauto_cache (
+  -- E.g. "BREGO_GB:MK15VPZ", "SALVAGEHISTORY:AB12CDE"
+  cache_key   text        PRIMARY KEY,
+
+  -- Complete extracted API response (post .result??.raw unwrap), stored verbatim.
+  payload     jsonb       NOT NULL,
+
+  created_at  timestamptz NOT NULL DEFAULT now(),
+
+  -- TTL gate: unexpired = expires_at > now(); stale fallback reads all rows for key.
+  expires_at  timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS oneauto_cache_expires_at_idx
+  ON oneauto_cache (expires_at);
+
+ALTER TABLE oneauto_cache ENABLE ROW LEVEL SECURITY;
+-- No permissive policies — service role bypasses RLS; all other roles blocked.
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Cleanup queries (run manually or via pg_cron as needed)
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -144,3 +173,6 @@ ALTER TABLE salvage_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Purge old salvage sessions (images are large; trim after 90 days)
 -- DELETE FROM salvage_sessions WHERE created_at < now() - INTERVAL '90 days';
+
+-- Purge expired One Auto cache rows (TTL 30 days; keep 35 for stale-on-error safety)
+-- DELETE FROM oneauto_cache WHERE expires_at < now() - INTERVAL '5 days';
