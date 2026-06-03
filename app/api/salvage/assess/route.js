@@ -6,6 +6,7 @@ import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
+import { withOneAutoCache } from '@/lib/oneautoCache';
 
 export const maxDuration = 300;
 
@@ -502,6 +503,8 @@ export async function GET(request) {
     }
 
     // Check for cached assessment first (without fetching images)
+    // NOTE: zero One Auto calls here — salvageHistory is stored in vehicle_details
+    // on the initial assess run and read back verbatim.
     const { data: check } = await supabase
       .from('salvage_sessions')
       .select('status, vehicle_details, market, assessment, rerun_count')
@@ -510,27 +513,6 @@ export async function GET(request) {
 
     if (check?.assessment) {
       const vd = check.vehicle_details || {};
-      if (!vd.salvageHistory && check.market !== 'IE' && vd.vrm) {
-        try {
-          const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-          const cleanVrm = vd.vrm.replace(/\s+/g, '').toUpperCase();
-          const shRes = await fetch(
-            `${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`,
-            { headers: { 'x-api-key': process.env.ONE_AUTO_API_KEY } }
-          );
-          const shText = await shRes.text();
-          const shRaw = shText ? JSON.parse(shText) : null;
-          const shResult = shRaw?.result ?? shRaw;
-          if (shResult && !shResult.error) {
-            tagSelfReference(shResult, vd);
-            vd.salvageHistory = shResult;
-            await supabase
-              .from('salvage_sessions')
-              .update({ vehicle_details: vd })
-              .eq('id', salvageId);
-          }
-        } catch {}
-      }
       return NextResponse.json({
         assessment: check.assessment,
         vehicleDetails: vd,
@@ -665,31 +647,47 @@ export async function GET(request) {
       const oneAutoBase = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
       const oneAutoKey = process.env.ONE_AUTO_API_KEY;
       const cleanVrm = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
-      const safeGet = async (url) => {
-        try {
-          const r = await fetch(url, { headers: { 'x-api-key': oneAutoKey } });
-          const t = await r.text();
-          return t ? JSON.parse(t) : null;
-        } catch { return null; }
-      };
 
       roiData = {};
       const isPro = ['roi_pro', 'roi_history'].includes(roiTier);
       const isHistory = roiTier === 'roi_history';
 
-      const fetches = [
-        safeGet(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`),
-        safeGet(`${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`),
-        isPro ? safeGet(`${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
-        isHistory ? safeGet(`${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
-      ];
-      const [bregoRaw, demandRaw, cpgRaw, hpiRaw] = await Promise.all(fetches);
+      const [bregoResult, demandResult, cpgResult, hpiResult] = await Promise.all([
+        withOneAutoCache('BREGO_ROI', cleanVrm, async () => {
+          const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
+          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+          if (!raw) return null;
+          const result = raw?.success === true ? (raw.result ?? raw) : (raw?.result ?? null);
+          return (result && !result.error) ? result : null;
+        }),
+        withOneAutoCache('MARKETDEMAND', cleanVrm, async () => {
+          const r = await fetch(`${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
+          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+          const result = raw?.result ?? (raw?.success ? raw : null);
+          return (result && !result.error) ? result : null;
+        }),
+        isPro
+          ? withOneAutoCache('PRICEGUIDE', cleanVrm, async () => {
+              const r = await fetch(`${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
+              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+              const result = raw?.result ?? raw;
+              return (result && !result.error) ? result : null;
+            })
+          : Promise.resolve(null),
+        isHistory
+          ? withOneAutoCache('HPICHECK', cleanVrm, async () => {
+              const r = await fetch(`${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
+              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+              const result = raw?.result ?? raw;
+              return (result && !result.error) ? result : null;
+            })
+          : Promise.resolve(null),
+      ]);
 
-      if (bregoRaw?.success === true) roiData.valuation = bregoRaw.result ?? bregoRaw;
-      else if (bregoRaw?.result) roiData.valuation = bregoRaw.result;
-      if (demandRaw?.result || demandRaw?.success) roiData.marketDemand = demandRaw?.result ?? demandRaw;
-      if (isPro && cpgRaw) roiData.priceGuide = cpgRaw?.result ?? cpgRaw;
-      if (isHistory && hpiRaw) roiData.historyCheck = hpiRaw?.result ?? hpiRaw;
+      if (bregoResult) roiData.valuation = bregoResult;
+      if (demandResult) roiData.marketDemand = demandResult;
+      if (isPro && cpgResult) roiData.priceGuide = cpgResult;
+      if (isHistory && hpiResult) roiData.historyCheck = hpiResult;
     }
 
     if (roiData) enrichedVd.roiData = roiData;
@@ -770,30 +768,30 @@ export async function GET(request) {
       const cleanVrmB = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
       const hdrs = { 'x-api-key': process.env.ONE_AUTO_API_KEY };
 
-      const [shRes, brRes] = await Promise.all([
-        fetch(`${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, { headers: hdrs }).catch(() => null),
-        fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs }).catch(() => null),
+      const [shResult, brResult] = await Promise.all([
+        withOneAutoCache('SALVAGEHISTORY', cleanVrmB, async () => {
+          const r = await fetch(`${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, { headers: hdrs });
+          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+          const result = raw?.result ?? raw;
+          return (result && !result.error) ? result : null;
+        }),
+        withOneAutoCache('BREGO_GB', cleanVrmB, async () => {
+          const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs });
+          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+          const result = raw?.result ?? raw;
+          return (result && !result.error) ? result : null;
+        }),
       ]);
 
-      try {
-        const shText = await shRes?.text();
-        const shRaw = shText ? JSON.parse(shText) : null;
-        const shResult = shRaw?.result ?? shRaw;
-        if (shResult && !shResult.error) {
-          tagSelfReference(shResult, enrichedVd);
-          enrichedVd.salvageHistory = shResult;
-        }
-      } catch {}
+      if (shResult) {
+        tagSelfReference(shResult, enrichedVd);
+        enrichedVd.salvageHistory = shResult;
+      }
 
-      try {
-        const brText = await brRes?.text();
-        const brRaw = brText ? JSON.parse(brText) : null;
-        const brResult = brRaw?.result ?? brRaw;
-        if (brResult && !brResult.error) {
-          bregoData = { ...brResult, _mileageSource: brMileageSource, _mileageUsed: brMileage };
-          enrichedVd.bregoValuation = bregoData;
-        }
-      } catch {}
+      if (brResult) {
+        bregoData = { ...brResult, _mileageSource: brMileageSource, _mileageUsed: brMileage };
+        enrichedVd.bregoValuation = bregoData;
+      }
     }
 
     const AUCTION_SOURCE_LABELS = {
