@@ -444,6 +444,12 @@ function renderParts(parts) {
   }).join('\n');
 }
 
+function parseExitValue(text) {
+  if (!text) return null;
+  const m = text.replace(/,/g, '').match(/£(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
@@ -803,9 +809,7 @@ export async function GET(request) {
 
     const auctionSource = enrichedVd.auctionSource || 'copart';
 
-    const feeRef = auctionSource === 'copart'
-      ? 'Copart fees: Call the computeCopartFees tool for every hammer scenario you are evaluating, before writing the Margin Calculation. Pass your judged exit_value (single GBP integer — your chosen realistic exit price for this vehicle) and repair (single GBP integer — sum of your Parts Breakdown used-where-available column, including the front headlamp at your estimated cost) alongside each hammer. Both are car-level constants: pass identical values across all your hammer calls. The server computes all fees, hammer VAT, and the full margin. Your Margin Calculation prose must explain WHY you chose that exit anchor and that repair figure — it must NOT state any fee amount, hammer VAT amount, or margin figure.'
-      : null;
+    const feeRef = null; // fees/margins are code-computed; model no longer calls computeCopartFees
 
     const contextLines = [
       enrichedVd.vrm && `Registration: ${enrichedVd.vrm}`,
@@ -916,23 +920,9 @@ export async function GET(request) {
       },
     ];
 
-    const COPART_FEES_TOOL = {
-      name: 'computeCopartFees',
-      description: 'Returns the exact Copart UK fee stack for a given hammer price. Call this for every hypothetical hammer scenario before writing the Margin Calculation. Pass your judged exit_value and repair alongside each hammer — both are car-level constants, pass identical values for every hammer call. Do not estimate or calculate fees or margins yourself; the server computes and displays all figures.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          hammer:     { type: 'number', description: 'Hypothetical hammer price in GBP (e.g. 2500 for £2,500)' },
-          exit_value: { type: 'number', description: 'Your chosen realistic exit price for this vehicle in GBP — constant across all hammer scenarios' },
-          repair:     { type: 'number', description: 'Sum of your Parts Breakdown used-where-available column (used price where available, OEM price where not) — your holistic repair figure. Include the front headlamp at your estimated cost; the engine reconciles it to the authoritative band. Constant across all hammer scenarios.' },
-        },
-        required: ['hammer', 'exit_value', 'repair'],
-      },
-    };
-
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
-      description: 'Call exactly once on any front-struck lot, BEFORE computeCopartFees. Pass your plate-anchor side determination and the bumper displacement observation. After calling, include the front headlamp as a normal Parts Breakdown line with your best cost estimate. The engine reconciles the cost to the authoritative band — do NOT pre-adjust your repair figure for this. Do not write lamp commentary outside the Parts Breakdown line.',
+      description: 'Call exactly once on any front-struck lot, before writing your assessment. Pass your plate-anchor side determination and the bumper displacement observation. After calling, include the front headlamp as a normal Parts Breakdown line with your best cost estimate. The engine reconciles the cost to the authoritative band — do NOT pre-adjust your repair figure for this. Do not write lamp commentary outside the Parts Breakdown line.',
       input_schema: {
         type: 'object',
         properties: {
@@ -952,32 +942,19 @@ export async function GET(request) {
 
     const frontStruck = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
 
-    // Fire lamp detection in parallel with the main assess loop — joins post-loop
+    // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(session.images) : Promise.resolve(null);
 
-    const MAX_TOOL_ITERATIONS = 3;
-    const claudeTools = [
-      ...(auctionSource === 'copart' ? [COPART_FEES_TOOL] : []),
-      ...(frontStruck ? [LAMP_OBS_TOOL] : []),
-    ];
+    const claudeTools = frontStruck ? [LAMP_OBS_TOOL] : [];
     const messages = [{ role: 'user', content: userContent }];
-    const marginScenarios = [];
-    let lampResult = null;
-    let lampObs    = null; // raw tool inputs; computeLampResult deferred to post-loop after detection joins
-    const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
-
+    let lampObs = null;
     let rawText = '';
-    let toolCallCount = 0;
-    let capHit = false;
 
-    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+    // First Claude call — lamp observation tool fires here on front-struck lots
+    {
       const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
           model: 'claude-opus-4-8',
           max_tokens: 8000,
@@ -986,116 +963,66 @@ export async function GET(request) {
           ...(claudeTools.length ? { tools: claudeTools } : {}),
         }),
       });
-
       const apiData = await apiRes.json();
-      console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      console.log('[TOKEN LOG] iter=0 Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
       if (!apiRes.ok) throw new Error(apiData.error?.message || 'Claude API error');
 
       const content = apiData.content || [];
 
       if (apiData.stop_reason === 'end_turn') {
         rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
-        break;
-      }
-
-      if (apiData.stop_reason === 'tool_use') {
-        // Sort: process recordLampObservation before computeCopartFees within a single response
-        // (Item 2 within-response ordering guarantee — cross-iteration ordering handled post-loop)
-        const toolUseBlocks = [
-          ...content.filter(c => c.type === 'tool_use' && c.name === 'recordLampObservation'),
-          ...content.filter(c => c.type === 'tool_use' && c.name !== 'recordLampObservation'),
-        ];
-        const toolResults = toolUseBlocks
+      } else if (apiData.stop_reason === 'tool_use') {
+        // Only recordLampObservation is available — handle it, then get final text
+        const toolResults = content
+          .filter(c => c.type === 'tool_use')
           .map(block => {
             if (block.name === 'recordLampObservation') {
-              const struckSide      = block.input?.struckSide || 'central';
-              const apertureExposed = Boolean(block.input?.apertureExposed);
-              lampObs = { struckSide, apertureExposed };
-              // computeLampResult deferred to post-loop when lamp detection result is available
-              const prelimTier = apertureExposed ? 2 : 1;
-              console.log(`[LAMP] recordLampObservation: struckSide=${struckSide} apertureExposed=${apertureExposed} (computeLampResult deferred)`);
-              return {
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: JSON.stringify({ recorded: true, tier: prelimTier, note: 'Lamp verdict and allowance are engine-rendered. Exclude lamp from your repair figure and do not describe lamp presence/absence in your report.' }),
-              };
-            }
-            if (block.name === 'computeCopartFees') {
-              const hammer     = Number(block.input?.hammer);
-              const exitValue  = Number(block.input?.exit_value);
-              const repair     = Number(block.input?.repair);
-              if (!Number.isFinite(hammer) || hammer <= 0) {
-                console.warn('[FEE TOOL] Invalid hammer from model:', block.input?.hammer);
-                return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Invalid hammer — must be a positive number' }) };
-              }
-              const fees            = feeStack(hammer);
-              const hammerVat       = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
-              const hasMarginInputs = Number.isFinite(exitValue) && exitValue > 0 &&
-                                      Number.isFinite(repair) && repair >= 0;
-              const margin          = hasMarginInputs
-                ? Math.round((exitValue - repair - hammer - hammerVat - fees.totalIncVat) * 100) / 100
-                : null;
-              marginScenarios.push({
-                hammer, exit_value: hasMarginInputs ? exitValue : null,
-                repair: hasMarginInputs ? repair : null,
-                hammerVat, ...fees, margin,
-              });
-              toolCallCount++;
-              console.log(`[FEE TOOL] computeCopartFees(${hammer}) exit=${exitValue} repair=${repair} hammerVat=${hammerVat} →`, { ...fees, margin });
-              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ ...fees, hammerVat, margin }) };
+              lampObs = { struckSide: block.input?.struckSide || 'central', apertureExposed: Boolean(block.input?.apertureExposed) };
+              console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed}`);
+              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
             }
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
           });
 
         messages.push({ role: 'assistant', content });
         messages.push({ role: 'user', content: toolResults });
-        continue;
-      }
 
-      // Unexpected stop reason — take whatever text exists and break
-      rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
-      break;
-    }
-
-    // Car-level enforcement: exit_value and repair must be identical across all scenarios
-    if (marginScenarios.length > 1) {
-      const firstValid = marginScenarios.find(s => s.exit_value != null && s.repair != null);
-      if (firstValid) {
-        const canonicalExit   = firstValid.exit_value;
-        const canonicalRepair = firstValid.repair;
-        const exitDiverged    = marginScenarios.some(s => s.exit_value != null && s.exit_value !== canonicalExit);
-        const repairDiverged  = marginScenarios.some(s => s.repair   != null && s.repair   !== canonicalRepair);
-        if (exitDiverged || repairDiverged) {
-          console.warn('[MARGIN] exit_value or repair diverged across scenarios — normalising to first valid values', { canonicalExit, canonicalRepair });
-          for (let i = 0; i < marginScenarios.length; i++) {
-            const s = marginScenarios[i];
-            marginScenarios[i] = {
-              ...s,
-              exit_value: canonicalExit,
-              repair:     canonicalRepair,
-              margin:     Math.round((canonicalExit - canonicalRepair - s.hammer - s.hammerVat - s.totalIncVat) * 100) / 100,
-            };
-          }
-        }
+        // Second Claude call — no tools, produces the full assessment text
+        const finalRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model: 'claude-opus-4-8',
+            max_tokens: 8000,
+            system: ASSESSMENT_ENGINE_PROMPT,
+            messages,
+          }),
+        });
+        const finalData = await finalRes.json();
+        console.log('[TOKEN LOG] iter=1 Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
+        if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (iter 1)');
+        rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+      } else {
+        rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
       }
     }
 
-    // Join lamp detection (ran in parallel with main assess loop)
-    const lampDetectionRaw  = await lampDetectionPromise;
-    const detectedCorner    = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
+    // Join lamp detection (ran in parallel with Claude calls)
+    const lampDetectionRaw = await lampDetectionPromise;
+    const detectedCorner   = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
     if (frontStruck) {
       console.log('[LAMP DETECT]', detectedCorner
         ? `struck corner: verdict=${detectedCorner.verdict} lamp_type=${detectedCorner.lamp_type} evidence="${(detectedCorner.evidence || '').slice(0, 80)}"`
         : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
     }
 
-    // Item 1: guarantee lampObs for every frontStruck lot regardless of tool co-operation
+    // Guarantee lampObs for every front-struck lot regardless of tool co-operation
     if (frontStruck && !lampObs) {
       lampObs = { struckSide: 'central', apertureExposed: false };
       console.log('[LAMP] no tool call on frontStruck lot — Tier 1 floor defaults applied');
     }
 
-    // Single computeLampResult call with all inputs — tool obs + detection result
+    let lampResult = null;
     if (lampObs) {
       const derivedLampType = deriveLampType(enrichedVd);
       lampResult = computeLampResult(
@@ -1106,43 +1033,12 @@ export async function GET(request) {
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
 
-    // Cap hit: loop exhausted with tool_use still pending — force a final no-tool call
-    if (!rawText && messages[messages.length - 1].role === 'user') {
-      capHit = true;
-      console.warn('[FEE TOOL] Iteration cap hit — forcing final response without tools');
-      const finalRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-opus-4-8',
-          max_tokens: 8000,
-          system: ASSESSMENT_ENGINE_PROMPT,
-          messages,
-        }),
-      });
-      const finalData = await finalRes.json();
-      console.log('[TOKEN LOG] cap-fallback Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens);
-      if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (cap fallback)');
-      rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
-    }
-
-    if (auctionSource === 'copart' && toolCallCount === 0) {
-      console.warn('[FEE TOOL] Tool never called — no margin table will be shown');
-    }
-
     const assessment = parseAssessment(rawText);
     assessment._raw = rawText;
     assessment._market = market;
-    if (capHit) assessment._feeCapHit = true;
-    if (marginScenarios.length > 0) assessment._marginScenarios = marginScenarios;
     if (lampResult) assessment._lampResult = lampResult;
 
-    // Post-loop: Parts Breakdown reconciliation + lamp floor
-    // Must run after assessment is declared and marginScenarios attached
+    // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
     const { parts: reconciledParts, lamp_delta, lamp_inserted } = reconcileParts(rawParts, lampResult);
     const parts_sum = sumPartsRealistic(reconciledParts);
@@ -1151,21 +1047,26 @@ export async function GET(request) {
       assessment['Parts Breakdown'] = renderParts(reconciledParts);
     }
     assessment._reconciledParts = reconciledParts;
-
-    // Option A: parts_sum is the sole authoritative repair figure.
-    // Replace the model's holistic entirely — every margin row recomputed from parts_sum.
-    if (parts_sum > 0 && assessment._marginScenarios?.length > 0) {
-      assessment._marginScenarios = assessment._marginScenarios.map(s => ({
-        ...s,
-        repair: parts_sum,
-        margin: s.exit_value != null
-          ? Math.round((s.exit_value - parts_sum - s.hammer - (s.hammerVat ?? 0) - s.totalIncVat) * 100) / 100
-          : null,
-      }));
-      console.log(`[PARTS] repair=£${parts_sum} (parts_sum authoritative) lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted}`);
-    }
-
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted };
+    console.log(`[PARTS] repair=£${parts_sum} lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted}`);
+
+    // Code-owned margin table — fixed hammer set, repair = parts_sum, exit = model's stated value
+    const HAMMER_SCENARIOS = [500, 1000, 1500, 2000, 2500, 3000];
+    const exitValue = parseExitValue(assessment['Realistic Exit Value'] || '');
+    const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
+
+    if (auctionSource === 'copart' && parts_sum > 0 && exitValue != null) {
+      const marginScenarios = HAMMER_SCENARIOS.map(hammer => {
+        const fees = feeStack(hammer);
+        const hammerVat = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
+        const margin = Math.round((exitValue - parts_sum - hammer - hammerVat - fees.totalIncVat) * 100) / 100;
+        return { hammer, exit_value: exitValue, repair: parts_sum, hammerVat, ...fees, margin };
+      });
+      assessment._marginScenarios = marginScenarios;
+      console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
+    } else if (auctionSource === 'copart') {
+      console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
+    }
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
