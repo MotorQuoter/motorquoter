@@ -327,7 +327,7 @@ function deriveLampType(vd) {
   return 'indeterminate';
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null) {
+function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'single_corner') {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
@@ -341,11 +341,14 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   const bandValue       = HEADLAMP_BANDS[resolvedType];
   const lampTypeAssumed = specAssumed && !resolvedDetType;
 
+  // Lamp count from geometry: full-width frontal implies both lamps implicated
+  const lampCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
+
   const assumedDisclosure = ' Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
   const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
-    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0 };
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, lampCount: 1 };
   }
 
   // Verdict branch: toggle gates confident 'missing' wording; detection is authoritative otherwise
@@ -363,7 +366,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
   }
 
   if (effectiveVerdict === 'missing') {
@@ -372,7 +375,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
@@ -381,7 +384,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   const costDriverEntry = lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
     : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, detectionVerdict, effectiveVerdict };
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
 }
 
 // ── Parts Breakdown helpers ──────────────────────────────────────────────────
@@ -410,26 +413,43 @@ function isLampLine(name) {
 
 function reconcileParts(parts, lampResult) {
   if (!lampResult?.tier2Fired || !lampResult.lampAllowance) {
-    return { parts, lamp_delta: 0, lamp_inserted: false };
+    return { parts, lamp_delta: 0, lamp_inserted: false, lamp_count: 0 };
   }
-  const band = lampResult.lampAllowance;
-  const idx = parts.findIndex(p => isLampLine(p.name));
-  let lamp_delta, lamp_inserted = false;
+  const band      = lampResult.lampAllowance;
+  const lampCount = lampResult.lampCount ?? 1;
 
-  if (idx >= 0) {
-    const model_lamp_cost = parts[idx].used ?? parts[idx].oem ?? 0;
-    lamp_delta = band - model_lamp_cost;
-    // FIX: one authoritative cost — band in used col, OEM col cleared (not a mismatched pair)
-    parts = parts.map((item, i) => i === idx ? { ...item, oem: null, used: band } : item);
-  } else {
-    lamp_delta = band;
-    lamp_inserted = true;
-    // Insert before labour/paint line, or at end
-    const labourIdx = parts.findIndex(p => /labour|paint|prep/i.test(p.name));
-    const at = labourIdx >= 0 ? labourIdx : parts.length;
-    parts = [...parts.slice(0, at), { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true }, ...parts.slice(at)];
+  // Collect all lamp lines the model already priced
+  const lampIndices = [];
+  parts.forEach((p, i) => { if (isLampLine(p.name)) lampIndices.push(i); });
+
+  let lamp_delta = 0;
+  let workParts  = [...parts];
+
+  // Reconcile existing lamp lines up to lampCount: raise to band if below, leave if at/above
+  const toReconcile = Math.min(lampCount, lampIndices.length);
+  for (let n = 0; n < toReconcile; n++) {
+    const idx        = lampIndices[n];
+    const modelCost  = workParts[idx].used ?? workParts[idx].oem ?? 0;
+    const effective  = Math.max(modelCost, band);
+    lamp_delta      += effective - modelCost;
+    workParts        = workParts.map((item, i) => i === idx ? { ...item, oem: null, used: effective } : item);
   }
-  return { parts, lamp_delta, lamp_inserted };
+
+  // Insert additional lamp lines for any the model under-counted
+  const toInsert = lampCount - lampIndices.length;
+  for (let n = 0; n < Math.max(toInsert, 0); n++) {
+    lamp_delta += band;
+    const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
+    const at = labourIdx >= 0 ? labourIdx : workParts.length;
+    workParts = [
+      ...workParts.slice(0, at),
+      { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
+      ...workParts.slice(at),
+    ];
+  }
+
+  // lamp_inserted = true whenever the code-owned floor was activated (tier2Fired + lampAllowance)
+  return { parts: workParts, lamp_delta, lamp_inserted: true, lamp_count: lampCount };
 }
 
 function sumPartsRealistic(parts) {
@@ -922,7 +942,7 @@ export async function GET(request) {
 
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
-      description: 'Call exactly once on any front-struck lot, before writing your assessment. Pass your plate-anchor side determination and the bumper displacement observation. After calling, include the front headlamp as a normal Parts Breakdown line with your best cost estimate. The engine reconciles the cost to the authoritative band — do NOT pre-adjust your repair figure for this. Do not write lamp commentary outside the Parts Breakdown line.',
+      description: 'Call exactly once on any front-struck lot, before writing your assessment. Pass your plate-anchor side determination, bumper displacement observation, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
       input_schema: {
         type: 'object',
         properties: {
@@ -935,8 +955,13 @@ export async function GET(request) {
             type: 'boolean',
             description: 'True if the front bumper is visibly displaced or removed on the struck corner, exposing the lamp mounting recess.',
           },
+          damageSpan: {
+            type: 'string',
+            enum: ['single_corner', 'full_width'],
+            description: 'Structural extent of damage across the front. single_corner: damage confined to one side (one wing, one bumper corner). full_width: damage spans the full front width — bonnet crumpled, slam panel or front panel affected, both front corners involved. Judge from structural damage footprint (bonnet, slam panel, wing, bumper reach), NOT from lamp absence or presence.',
+          },
         },
-        required: ['struckSide', 'apertureExposed'],
+        required: ['struckSide', 'apertureExposed', 'damageSpan'],
       },
     };
 
@@ -977,8 +1002,12 @@ export async function GET(request) {
           .filter(c => c.type === 'tool_use')
           .map(block => {
             if (block.name === 'recordLampObservation') {
-              lampObs = { struckSide: block.input?.struckSide || 'central', apertureExposed: Boolean(block.input?.apertureExposed) };
-              console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed}`);
+              lampObs = {
+                struckSide:     block.input?.struckSide     || 'central',
+                apertureExposed: Boolean(block.input?.apertureExposed),
+                damageSpan:     block.input?.damageSpan     || 'single_corner',
+              };
+              console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
               return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
             }
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
@@ -1028,7 +1057,8 @@ export async function GET(request) {
       lampResult = computeLampResult(
         lampObs.struckSide, lampObs.apertureExposed, derivedLampType,
         detectedCorner?.verdict   || null,
-        detectedCorner?.lamp_type || null
+        detectedCorner?.lamp_type || null,
+        lampObs.damageSpan        || 'single_corner'
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
@@ -1040,15 +1070,15 @@ export async function GET(request) {
 
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
-    const { parts: reconciledParts, lamp_delta, lamp_inserted } = reconcileParts(rawParts, lampResult);
+    const { parts: reconciledParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
     const parts_sum = sumPartsRealistic(reconciledParts);
 
     if (reconciledParts.length > 0) {
       assessment['Parts Breakdown'] = renderParts(reconciledParts);
     }
     assessment._reconciledParts = reconciledParts;
-    assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted };
-    console.log(`[PARTS] repair=£${parts_sum} lamp_delta=£${lamp_delta} lamp_inserted=${lamp_inserted}`);
+    assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
+    console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
 
     // Code-owned margin table — fixed hammer set, repair = parts_sum, exit = model's stated value
     const HAMMER_SCENARIOS = [500, 1000, 1500, 2000, 2500, 3000];
