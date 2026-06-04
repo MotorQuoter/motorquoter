@@ -514,6 +514,30 @@ function parseExitValue(text) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+const HAMMER_LADDER_LOW_PCT  = 0.10;
+const HAMMER_LADDER_HIGH_PCT = 0.50;
+const HAMMER_LADDER_ROWS     = 6;
+
+function buildHammerLadder(exitValue) {
+  const low  = exitValue * HAMMER_LADDER_LOW_PCT;
+  const high = exitValue * HAMMER_LADDER_HIGH_PCT;
+  const step = (high - low) / (HAMMER_LADDER_ROWS - 1);
+
+  const inc = exitValue < 3000  ?  50
+            : exitValue < 10000 ? 100
+            : exitValue < 25000 ? 250
+            :                     500;
+
+  const raw = Array.from({ length: HAMMER_LADDER_ROWS }, (_, i) => low + i * step);
+  const rounded = raw.map(v => Math.round(v / inc) * inc);
+
+  // Ensure strict ascending order after rounding (nudge any collision up one increment)
+  for (let i = 1; i < rounded.length; i++) {
+    if (rounded[i] <= rounded[i - 1]) rounded[i] = rounded[i - 1] + inc;
+  }
+  return rounded;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
@@ -1145,8 +1169,7 @@ export async function GET(request) {
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
 
-    // Code-owned margin table — fixed hammer set, repair = parts_sum, exit = model's stated value
-    const HAMMER_SCENARIOS = [500, 1000, 1500, 2000, 2500, 3000];
+    // Code-owned margin table — exit-derived hammer ladder, repair = parts_sum, exit = model's stated value
     const exitValue = parseExitValue(assessment['Exit Value Stated'] || '');
 
     // Consistency guard: every £ figure in the narrative reasoning
@@ -1163,7 +1186,7 @@ export async function GET(request) {
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     if (auctionSource === 'copart' && parts_sum > 0 && exitValue != null) {
-      const marginScenarios = HAMMER_SCENARIOS.map(hammer => {
+      const marginScenarios = buildHammerLadder(exitValue).map(hammer => {
         const fees = feeStack(hammer);
         const hammerVat = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
         const margin = Math.round((exitValue - parts_sum - hammer - hammerVat - fees.totalIncVat) * 100) / 100;
