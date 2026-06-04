@@ -1062,13 +1062,14 @@ export async function GET(request) {
         body: JSON.stringify({
           model: 'claude-opus-4-8',
           max_tokens: 8000,
-          system: ASSESSMENT_ENGINE_PROMPT,
+          system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
           messages,
           ...(claudeTools.length ? { tools: claudeTools } : {}),
         }),
       });
       const apiData = await apiRes.json();
       console.log('[TOKEN LOG] iter=0 Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      console.log('[CACHE] iter=0 write=' + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
       if (!apiRes.ok) throw new Error(apiData.error?.message || 'Claude API error');
 
       const content = apiData.content || [];
@@ -1102,12 +1103,13 @@ export async function GET(request) {
           body: JSON.stringify({
             model: 'claude-opus-4-8',
             max_tokens: 8000,
-            system: ASSESSMENT_ENGINE_PROMPT,
+            system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
             messages,
           }),
         });
         const finalData = await finalRes.json();
         console.log('[TOKEN LOG] iter=1 Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
+        console.log('[CACHE] iter=1 write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
         if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (iter 1)');
         rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
       } else {
