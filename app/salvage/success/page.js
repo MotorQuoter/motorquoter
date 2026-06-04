@@ -127,8 +127,15 @@ export default function SalvageSuccessPage() {
         ? `/api/salvage/assess?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
         : `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
       const res = await fetch(url);
+      if (!res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const err = await res.json();
+          throw new Error(err.error || `Assessment failed (${res.status})`);
+        }
+        throw new Error(`Assessment failed (${res.status})`);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Assessment failed');
       setAssessment(data.assessment);
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');

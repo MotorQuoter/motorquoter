@@ -12,10 +12,10 @@ function getSupabase() {
 
 export async function POST(request) {
   const body = await request.json();
-  const { salvage_id, vehicleDetails, images, market } = body;
+  const { salvage_id, vehicleDetails, imagePaths, market } = body;
 
-  if (!salvage_id || !images?.length) {
-    return NextResponse.json({ error: 'Missing salvage_id or images' }, { status: 400 });
+  if (!salvage_id || !imagePaths?.length) {
+    return NextResponse.json({ error: 'Missing salvage_id or image paths' }, { status: 400 });
   }
 
   const supabase = getSupabase();
@@ -41,7 +41,7 @@ export async function POST(request) {
   const { error: updateError } = await supabase
     .from('salvage_sessions')
     .update({
-      images,
+      image_paths: imagePaths,
       vehicle_details: vehicleDetails || {},
       market: market || 'GB',
       assessment: null,

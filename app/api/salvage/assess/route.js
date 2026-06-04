@@ -111,6 +111,19 @@ function tagSelfReference(shResult, vd) {
 
 const LAMP_DETECTION_CONFIDENT_WORDING = false; // flip to true after false-positive guard passes (present-but-bumper-off lot)
 
+// Fetch all lot images from Supabase Storage as base64 data URLs.
+// Throws if any image cannot be retrieved — partial image sets are the unsafe failure mode.
+async function fetchImagesFromStorage(supabase, imagePaths) {
+  return Promise.all(imagePaths.map(async (path, i) => {
+    const { data: blob, error } = await supabase.storage.from('lot-images').download(path);
+    if (error || !blob) {
+      throw new Error(`Storage fetch failed for image ${i + 1} of ${imagePaths.length}: ${error?.message || 'file not found'}`);
+    }
+    const buf = Buffer.from(await blob.arrayBuffer());
+    return `data:image/jpeg;base64,${buf.toString('base64')}`;
+  }));
+}
+
 // Resize a stored base64 image to max 1024px longest edge for Haiku odo call only.
 // Haiku's ceiling is 1568 TOKENS (not pixels); a 1568px image (~2,458 tokens) exceeds
 // it, triggering API-side downsampling + double-JPEG that smears digits. 1024px keeps
@@ -569,6 +582,17 @@ export async function GET(request) {
     const market = session.market || 'GB';
     const roiTier = vd.roiTier || 'roi_free';
 
+    // Fetch images once; feed Haiku, Opus, and lamp detection from the same array.
+    // Fails loudly if any image is missing — a partial set degrades the assessment invisibly.
+    let images;
+    if (session.image_paths?.length) {
+      images = await fetchImagesFromStorage(supabase, session.image_paths);
+    } else if (session.images?.length) {
+      images = session.images; // legacy sessions stored base64 directly
+    } else {
+      return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
+    }
+
     function cleanCopartNotes(raw) {
       if (!raw) return '';
       return raw
@@ -721,7 +745,7 @@ export async function GET(request) {
     // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
     let photoOdometer = null;
     try {
-      const preExtractBlocks = await Promise.all(session.images.map(resizeToHaikuSafe));
+      const preExtractBlocks = await Promise.all(images.map(resizeToHaikuSafe));
       const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -923,7 +947,7 @@ export async function GET(request) {
       })(),
     ].filter(Boolean).join('\n');
 
-    const imageBlocks = session.images
+    const imageBlocks = images
       .map((img) => {
         let mediaType = 'image/jpeg';
         let data = img;
@@ -968,7 +992,7 @@ export async function GET(request) {
     const frontStruck = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
 
     // Fire lamp detection in parallel with the Claude assess call — joins after
-    const lampDetectionPromise = frontStruck ? runLampDetection(session.images) : Promise.resolve(null);
+    const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
 
     const claudeTools = frontStruck ? [LAMP_OBS_TOOL] : [];
     const messages = [{ role: 'user', content: userContent }];

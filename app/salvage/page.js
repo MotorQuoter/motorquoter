@@ -157,48 +157,89 @@ export default function SalvagePage() {
     setError('');
     setLoading(true);
     try {
+      // Step 1: generate a UUID for this upload batch and get signed upload URLs
+      const assessmentId = crypto.randomUUID();
+      const urlRes = await fetch('/api/salvage/upload-urls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessmentId, count: images.length }),
+      });
+      if (!urlRes.ok) {
+        const ct = urlRes.headers.get('content-type') || '';
+        const msg = ct.includes('application/json') ? (await urlRes.json()).error : null;
+        throw new Error(msg || 'Failed to prepare image upload');
+      }
+      const { uploadUrls } = await urlRes.json();
+
+      // Step 2: upload all images in parallel — a failed upload aborts the whole run
+      const imagePaths = await Promise.all(images.map(async (img, i) => {
+        const { path, uploadUrl } = uploadUrls[i];
+        const blob = await fetch(img.base64).then(r => r.blob());
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: blob,
+        });
+        if (!uploadRes.ok) {
+          throw new Error(`Failed to upload image ${i + 1} of ${images.length} — please try again`);
+        }
+        return path;
+      }));
+
+      // Step 3: proceed to checkout/promo/rerun with storage paths (a few KB regardless of image count)
+      const vehicleDetails = {
+        ...details,
+        copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null,
+        auctionSource,
+        dvlaVerified: dvlaStatus === 'found',
+        motMileageFlag: motWarning || null,
+        motHistory: dvlaData?.motHistory ?? null,
+      };
+
       if (appliedPromo?.discount_type === 'free') {
         const res = await fetch('/api/salvage/promo-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
-            images: images.map(i => i.base64),
-            market,
-            promoCode: appliedPromo.code,
-          }),
+          body: JSON.stringify({ vehicleDetails, imagePaths, market, promoCode: appliedPromo.code }),
         });
+        if (!res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const data = ct.includes('application/json') ? await res.json() : {};
+          throw new Error(data.error || 'Promo checkout failed');
+        }
         const data = await res.json();
-        if (!res.ok || !data.salvage_id) throw new Error(data.error || 'Promo checkout failed');
+        if (!data.salvage_id) throw new Error(data.error || 'Promo checkout failed');
         router.push(`/salvage/success?salvage_id=${data.salvage_id}&promo_token=${data.promoToken}`);
         return;
       }
+
       if (isRerun) {
         const res = await fetch('/api/salvage/rerun-submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            salvage_id: rerunSalvageId,
-            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
-            images: images.map(i => i.base64),
-            market,
-          }),
+          body: JSON.stringify({ salvage_id: rerunSalvageId, vehicleDetails, imagePaths, market }),
         });
+        if (!res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const data = ct.includes('application/json') ? await res.json() : {};
+          throw new Error(data.error || 'Re-run failed');
+        }
         const data = await res.json();
-        if (!res.ok || !data.salvage_id) throw new Error(data.error || 'Re-run failed');
+        if (!data.salvage_id) throw new Error(data.error || 'Re-run failed');
         router.push(`/salvage/success?salvage_id=${data.salvage_id}&session_id=${data.stripe_session_id}`);
       } else {
         const res = await fetch('/api/salvage/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            vehicleDetails: { ...details, copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null, auctionSource, dvlaVerified: dvlaStatus === 'found', motMileageFlag: motWarning || null, motHistory: dvlaData?.motHistory ?? null },
-            images: images.map(i => i.base64),
-            market,
-          }),
+          body: JSON.stringify({ vehicleDetails, imagePaths, market }),
         });
+        if (!res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const data = ct.includes('application/json') ? await res.json() : {};
+          throw new Error(data.error || 'Checkout failed');
+        }
         const data = await res.json();
-        if (!res.ok || !data.url) throw new Error(data.error || 'Checkout failed');
+        if (!data.url) throw new Error(data.error || 'Checkout failed');
         window.location.href = data.url;
       }
     } catch (e) {

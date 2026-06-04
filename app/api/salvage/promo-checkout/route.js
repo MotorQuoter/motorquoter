@@ -16,15 +16,15 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
 
-    const { vehicleDetails, images, market, roiTier, promoCode } = body;
+    const { vehicleDetails, imagePaths, market, roiTier, promoCode } = body;
 
     if (!promoCode) {
       return NextResponse.json({ error: 'Promo code required' }, { status: 400 });
     }
-    if (!Array.isArray(images) || images.length === 0) {
+    if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
       return NextResponse.json({ error: 'At least one image is required' }, { status: 400 });
     }
-    if (images.length > 20) {
+    if (imagePaths.length > 20) {
       return NextResponse.json({ error: 'Maximum 20 images allowed' }, { status: 400 });
     }
 
@@ -66,7 +66,7 @@ export async function POST(request) {
       .insert({
         status: 'promo_redeemed',
         vehicle_details: { ...(vehicleDetails || {}), roiTier: roiTierKey, promoToken },
-        images,
+        image_paths: imagePaths,
         market: market || 'GB',
       })
       .select('id')
