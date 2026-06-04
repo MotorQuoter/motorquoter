@@ -35,6 +35,7 @@ const ASSESSMENT_FIELDS = [
   'Bidder Note',
   'Recommended Action',
   'Realistic Exit Value',
+  'Exit Value Stated',
   'Margin Calculation',
   'WhatsApp Inspection Checklist',
 ];
@@ -1105,7 +1106,19 @@ export async function GET(request) {
 
     // Code-owned margin table — fixed hammer set, repair = parts_sum, exit = model's stated value
     const HAMMER_SCENARIOS = [500, 1000, 1500, 2000, 2500, 3000];
-    const exitValue = parseExitValue(assessment['Realistic Exit Value'] || '');
+    const exitValue = parseExitValue(assessment['Exit Value Stated'] || '');
+
+    // Consistency guard: every £ figure in the narrative reasoning
+    // should include the stated exit. Log loudly if none are within £500.
+    if (exitValue != null) {
+      const narrativeFigures = [...(assessment['Realistic Exit Value'] || '').replace(/,/g, '').matchAll(/£(\d+)/g)]
+        .map(m => parseInt(m[1], 10))
+        .filter(n => n > 0);
+      const narrativeAgrees = narrativeFigures.some(n => Math.abs(n - exitValue) <= 500);
+      if (!narrativeAgrees && narrativeFigures.length > 0) {
+        console.warn(`[EXIT MISMATCH] stated=£${exitValue} narrative figures=[${narrativeFigures.map(n => `£${n}`).join(', ')}]`);
+      }
+    }
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     if (auctionSource === 'copart' && parts_sum > 0 && exitValue != null) {
