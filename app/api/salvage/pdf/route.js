@@ -485,9 +485,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   const pdfParts = assessment._reconciledParts?.length
     ? assessment._reconciledParts
     : parsePdfParts(assessment['Parts Breakdown'] || '');
-  if (pdfParts.length > 0) {
+  const pdfAllowanceParts = assessment._allowanceParts || [];
+  if (pdfParts.length > 0 || pdfAllowanceParts.length > 0) {
     const fmtPP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
-    checkPage(8 + pdfParts.length * 6);
+    checkPage(8 + (pdfParts.length + pdfAllowanceParts.length) * 6);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 100, 100);
@@ -523,6 +524,26 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       y += 5;
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    // Allowance rows — visually distinct, excluded from repair total
+    for (const p of pdfAllowanceParts) {
+      checkPage(6);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(150, 150, 150);
+      doc.text(str(p.name), MARGIN, y);
+      doc.setFontSize(7.5);
+      doc.text('inspect', xAct, y);
+      doc.text('—', xOem + COL_OEM, y, { align: 'right' });
+      doc.setFont('helvetica', 'bolditalic');
+      doc.text(`~£${Number(p.used).toLocaleString('en-GB')}`, xUsed + COL_USED, y, { align: 'right' });
+      y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    if (pdfAllowanceParts.length > 0) {
+      checkPage(5);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(160, 160, 160);
+      doc.text('Italic rows: inspection allowance — confirm on inspection, not included in repair total', MARGIN, y);
+      y += 5;
     }
     y += 3;
     doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.15);

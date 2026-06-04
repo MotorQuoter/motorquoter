@@ -518,7 +518,8 @@ export default function SalvageSuccessPage() {
                   const parts = assessment._reconciledParts?.length
                     ? assessment._reconciledParts
                     : parseParts(assessment['Parts Breakdown'] || '');
-                  if (!parts.length) return null;
+                  const allowanceParts = assessment._allowanceParts || [];
+                  if (!parts.length && !allowanceParts.length) return null;
                   const fmtP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const colSt = (align = 'left', bold = false) => ({
                     fontSize: 12, fontWeight: bold ? 700 : 400,
@@ -551,6 +552,21 @@ export default function SalvageSuccessPage() {
                               <td style={colSt('right', true)}>{fmtP(p.used)}</td>
                             </tr>
                           ))}
+                          {allowanceParts.map((p, i) => (
+                            <tr key={`al-${i}`} style={{ opacity: 0.65 }}>
+                              <td style={{ ...colSt('left'), fontStyle: 'italic' }}>{p.name}</td>
+                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, fontStyle: 'italic' }}>inspect</td>
+                              <td style={colSt('right')}>—</td>
+                              <td style={{ ...colSt('right'), fontStyle: 'italic' }}>~{fmtP(p.used)}</td>
+                            </tr>
+                          ))}
+                          {allowanceParts.length > 0 && (
+                            <tr>
+                              <td colSpan={4} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
+                                Italic rows: inspection allowance — confirm on inspection, not in repair total
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>

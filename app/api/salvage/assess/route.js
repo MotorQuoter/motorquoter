@@ -370,6 +370,9 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     : (detectionVerdict || 'cannot_determine');
 
   const checklistEntry = 'Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
+  const checklistEntry2nd = lampCount === 2
+    ? `Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£${bandValue} if replacement needed — flagged as inspection allowance, not included in repair total.`
+    : null;
 
   if (effectiveVerdict === 'present') {
     // Cost always applies on apertureExposed — a displaced-bumper aperture makes photo evidence
@@ -379,7 +382,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
   }
 
   if (effectiveVerdict === 'missing') {
@@ -388,7 +391,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
@@ -397,7 +400,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   const costDriverEntry = lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
     : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
 }
 
 // ── Parts Breakdown helpers ──────────────────────────────────────────────────
@@ -426,43 +429,71 @@ function isLampLine(name) {
 
 function reconcileParts(parts, lampResult) {
   if (!lampResult?.tier2Fired || !lampResult.lampAllowance) {
-    return { parts, lamp_delta: 0, lamp_inserted: false, lamp_count: 0 };
+    return { parts, allowanceParts: [], lamp_delta: 0, lamp_inserted: false, lamp_count: 0 };
   }
   const band      = lampResult.lampAllowance;
   const lampCount = lampResult.lampCount ?? 1;
 
-  // Collect all lamp lines the model already priced
   const lampIndices = [];
   parts.forEach((p, i) => { if (isLampLine(p.name)) lampIndices.push(i); });
 
-  let lamp_delta = 0;
-  let workParts  = [...parts];
+  let lamp_delta       = 0;
+  let workParts        = [...parts];
+  const allowanceParts = [];
 
-  // Reconcile existing lamp lines up to lampCount: raise to band if below, leave if at/above
-  const toReconcile = Math.min(lampCount, lampIndices.length);
-  for (let n = 0; n < toReconcile; n++) {
-    const idx        = lampIndices[n];
-    const modelCost  = workParts[idx].used ?? workParts[idx].oem ?? 0;
-    const effective  = Math.max(modelCost, band);
-    lamp_delta      += effective - modelCost;
-    workParts        = workParts.map((item, i) => i === idx ? { ...item, oem: null, used: effective } : item);
+  if (lampCount === 2) {
+    if (lampIndices.length >= 1) {
+      // Reconcile first lamp into parts_sum (priced)
+      const idx0       = lampIndices[0];
+      const cost0      = workParts[idx0].used ?? workParts[idx0].oem ?? 0;
+      const effective0 = Math.max(cost0, band);
+      lamp_delta      += effective0 - cost0;
+      workParts        = workParts.map((item, i) => i === idx0 ? { ...item, oem: null, used: effective0 } : item);
+
+      if (lampIndices.length >= 2) {
+        // Model priced 2+ lamps — move second (and any extra) to allowanceParts, remove from workParts
+        for (let n = 1; n < lampIndices.length; n++) {
+          allowanceParts.push({ name: workParts[lampIndices[n]].name, action: 'replace', used: band, _allowance: true });
+        }
+        const toRemove = new Set(lampIndices.slice(1));
+        workParts = workParts.filter((_, i) => !toRemove.has(i));
+      } else {
+        // Model priced exactly 1 lamp — add the second as an allowance row
+        allowanceParts.push({ name: 'Front headlamp', action: 'replace', used: band, _allowance: true });
+      }
+    } else {
+      // Model priced 0 lamps — insert one priced, one allowance (same band, one type-read)
+      lamp_delta += band;
+      const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
+      const at = labourIdx >= 0 ? labourIdx : workParts.length;
+      workParts = [
+        ...workParts.slice(0, at),
+        { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
+        ...workParts.slice(at),
+      ];
+      allowanceParts.push({ name: 'Front headlamp', action: 'replace', used: band, _allowance: true });
+    }
+  } else {
+    // lampCount === 1: reconcile or insert exactly one lamp, no allowance row
+    if (lampIndices.length >= 1) {
+      const idx       = lampIndices[0];
+      const modelCost = workParts[idx].used ?? workParts[idx].oem ?? 0;
+      const effective = Math.max(modelCost, band);
+      lamp_delta     += effective - modelCost;
+      workParts       = workParts.map((item, i) => i === idx ? { ...item, oem: null, used: effective } : item);
+    } else {
+      lamp_delta += band;
+      const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
+      const at = labourIdx >= 0 ? labourIdx : workParts.length;
+      workParts = [
+        ...workParts.slice(0, at),
+        { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
+        ...workParts.slice(at),
+      ];
+    }
   }
 
-  // Insert additional lamp lines for any the model under-counted
-  const toInsert = lampCount - lampIndices.length;
-  for (let n = 0; n < Math.max(toInsert, 0); n++) {
-    lamp_delta += band;
-    const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
-    const at = labourIdx >= 0 ? labourIdx : workParts.length;
-    workParts = [
-      ...workParts.slice(0, at),
-      { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
-      ...workParts.slice(at),
-    ];
-  }
-
-  // lamp_inserted = true whenever the code-owned floor was activated (tier2Fired + lampAllowance)
-  return { parts: workParts, lamp_delta, lamp_inserted: true, lamp_count: lampCount };
+  return { parts: workParts, allowanceParts, lamp_delta, lamp_inserted: true, lamp_count: lampCount };
 }
 
 function sumPartsRealistic(parts) {
@@ -1092,15 +1123,25 @@ export async function GET(request) {
     assessment._market = market;
     if (lampResult) assessment._lampResult = lampResult;
 
+    // Append deterministic 2nd-lamp checklist item on full-width lots (before Supabase write)
+    if (lampResult?.checklistEntry2nd) {
+      const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+      if (existing) {
+        const itemCount = (existing.match(/^\d+[.)]/mg) || []).length;
+        assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. ${lampResult.checklistEntry2nd}`;
+      }
+    }
+
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
-    const { parts: reconciledParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
+    const { parts: reconciledParts, allowanceParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
     const parts_sum = sumPartsRealistic(reconciledParts);
 
     if (reconciledParts.length > 0) {
       assessment['Parts Breakdown'] = renderParts(reconciledParts);
     }
     assessment._reconciledParts = reconciledParts;
+    assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
 
