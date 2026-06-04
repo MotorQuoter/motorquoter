@@ -372,11 +372,11 @@ export default function SalvageSuccessPage() {
               </div>
             </div>
 
-            {/* Repair estimate banner */}
-            {assessment['Estimated Repair Range'] && (
+            {/* Repair estimate banner — code-owned parts_sum, single figure */}
+            {assessment._partsReconciliation?.parts_sum > 0 && (
               <div className="repair-banner">
-                <div className="repair-banner-label">Estimated Repair Range</div>
-                <div className="repair-banner-value">{assessment['Estimated Repair Range']}</div>
+                <div className="repair-banner-label">Estimated Repair</div>
+                <div className="repair-banner-value">£{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}</div>
               </div>
             )}
 
@@ -799,7 +799,7 @@ export default function SalvageSuccessPage() {
                       ['Odometer', savedLot.vehicleDetails?.odometer ? savedLot.vehicleDetails.odometer + ' mi' : '-', vehicleDetails?.odometer ? vehicleDetails.odometer + ' mi' : '-'],
                       ['Run Condition', savedLot.vehicleDetails?.runCondition, vehicleDetails?.runCondition],
                       ['Primary Damage', savedLot.vehicleDetails?.primaryDamage, vehicleDetails?.primaryDamage],
-                      ['Repair Range', savedLot.assessment?.['Estimated Repair Range'], assessment?.['Estimated Repair Range']],
+                      ['Repair', savedLot.assessment?._partsReconciliation?.parts_sum ? `£${Number(savedLot.assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}` : '-', assessment?._partsReconciliation?.parts_sum ? `£${Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}` : '-'],
                       ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
                       ['Airbags', savedLot.assessment?.['Airbags']?.split('.')[0] + '.', assessment?.['Airbags']?.split('.')[0] + '.'],
                       ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],

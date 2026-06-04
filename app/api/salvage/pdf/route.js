@@ -7,7 +7,6 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
-  'Estimated Repair Range',
   'Parts Breakdown',
   'Key Cost Drivers',
   'Red Flags',
@@ -461,9 +460,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 2;
   }
 
-  // Fix 4 — Section 3: REPAIR ESTIMATE BANNER
-  const repairRange = str(assessment['Estimated Repair Range']);
-  if (repairRange) {
+  // Section 3: REPAIR ESTIMATE BANNER — code-owned parts_sum, single figure
+  const partsSum = assessment._partsReconciliation?.parts_sum;
+  if (partsSum > 0) {
     checkPage(26);
     y += 3;
     doc.setFillColor(240, 90, 26);
@@ -471,10 +470,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(255, 200, 170);
-    doc.text('ESTIMATED REPAIR RANGE', MARGIN + 4, y + 3);
+    doc.text('ESTIMATED REPAIR', MARGIN + 4, y + 3);
     doc.setFontSize(13);
     doc.setTextColor(255, 255, 255);
-    doc.text(repairRange, MARGIN + 4, y + 12);
+    doc.text(`£${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 12);
     y += 23;
   }
 

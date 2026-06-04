@@ -26,7 +26,6 @@ const HEADLAMP_BAND_DEFAULT = 'led'; // conservative high — indeterminate spec
 
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
-  'Estimated Repair Range',
   'Parts Breakdown',
   'Key Cost Drivers',
   'Red Flags',
