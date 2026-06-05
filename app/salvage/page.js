@@ -226,7 +226,11 @@ export default function SalvagePage() {
         }
         const data = await res.json();
         if (!data.salvage_id) throw new Error(data.error || 'Re-run failed');
-        router.push(`/salvage/success?salvage_id=${data.salvage_id}&session_id=${data.stripe_session_id}`);
+        if (data.promoToken) {
+          router.push(`/salvage/success?salvage_id=${data.salvage_id}&promo_token=${data.promoToken}`);
+        } else {
+          router.push(`/salvage/success?salvage_id=${data.salvage_id}&session_id=${data.stripe_session_id}`);
+        }
       } else {
         const res = await fetch('/api/salvage/checkout', {
           method: 'POST',

@@ -573,7 +573,7 @@ export async function GET(request) {
         .from('salvage_sessions')
         .update({ status: 'processing' })
         .eq('id', salvageId)
-        .eq('status', 'promo_redeemed')
+        .in('status', ['promo_redeemed', 'pending'])
         .select('id');
 
       if (!claimed?.length) {
@@ -601,11 +601,20 @@ export async function GET(request) {
     // on the initial assess run and read back verbatim.
     const { data: check } = await supabase
       .from('salvage_sessions')
-      .select('status, vehicle_details, market, assessment, rerun_count')
+      .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id')
       .eq('id', salvageId)
       .single();
 
     if (check?.assessment) {
+      if (stripeSessionId && !check.stripe_session_id && !promoToken) {
+        const { error: recoveryWriteError } = await supabase
+          .from('salvage_sessions')
+          .update({ stripe_session_id: stripeSessionId })
+          .eq('id', salvageId);
+        if (recoveryWriteError) {
+          console.error(`[STRIPE SESSION WRITE FAILED] salvageId=${salvageId} error=${JSON.stringify(recoveryWriteError)}`);
+        }
+      }
       const vd = check.vehicle_details || {};
       return NextResponse.json({
         assessment: check.assessment,
@@ -630,7 +639,10 @@ export async function GET(request) {
     if (!promoToken) {
       const sessionUpdate = { status: 'processing' };
       if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
-      await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
+      const { error: sessionWriteError } = await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
+      if (sessionWriteError) {
+        console.error(`[STRIPE SESSION WRITE FAILED] salvageId=${salvageId} error=${JSON.stringify(sessionWriteError)}`);
+      }
     }
 
     const vd = session.vehicle_details || {};

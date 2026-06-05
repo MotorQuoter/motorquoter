@@ -22,7 +22,7 @@ export async function POST(request) {
 
   const { data: session, error } = await supabase
     .from('salvage_sessions')
-    .select('rerun_count, stripe_session_id, status')
+    .select('rerun_count, stripe_session_id, status, vehicle_details')
     .eq('id', salvage_id)
     .single();
 
@@ -34,7 +34,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Re-run not authorised — use /api/salvage/rerun first' }, { status: 403 });
   }
 
-  if (!session.stripe_session_id) {
+  const isStripe = !!session.stripe_session_id;
+  const isPromo  = !!session.vehicle_details?.promoToken;
+  if (!isStripe && !isPromo) {
     return NextResponse.json({ error: 'No payment session on record' }, { status: 400 });
   }
 
@@ -42,7 +44,10 @@ export async function POST(request) {
     .from('salvage_sessions')
     .update({
       image_paths: imagePaths,
-      vehicle_details: vehicleDetails || {},
+      vehicle_details: {
+        ...(vehicleDetails || {}),
+        ...(session.vehicle_details?.promoToken && { promoToken: session.vehicle_details.promoToken }),
+      },
       market: market || 'GB',
       assessment: null,
       status: 'pending',
@@ -53,8 +58,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Failed to update session' }, { status: 500 });
   }
 
-  return NextResponse.json({
-    salvage_id,
-    stripe_session_id: session.stripe_session_id,
-  });
+  return NextResponse.json(
+    isPromo
+      ? { salvage_id, promoToken: session.vehicle_details.promoToken }
+      : { salvage_id, stripe_session_id: session.stripe_session_id }
+  );
 }
