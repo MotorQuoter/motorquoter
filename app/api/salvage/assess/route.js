@@ -35,7 +35,7 @@ const ASSESSMENT_FIELDS = [
   'Bidder Note',
   'Recommended Action',
   'Realistic Exit Value',
-  'Exit Value Stated',
+  'Exit Band Position',
   'Margin Calculation',
   'WhatsApp Inspection Checklist',
 ];
@@ -508,10 +508,33 @@ function renderParts(parts) {
   }).join('\n');
 }
 
-function parseExitValue(text) {
+const EXIT_BAND_STEPS = ['lower', 'mid-low', 'mid', 'mid-high', 'upper'];
+
+const EXIT_BAND_PCT = {
+  s: { lower: 70, 'mid-low': 72.5, mid: 75, 'mid-high': 77.5, upper: 80 },
+  n: { lower: 80, 'mid-low': 82.5, mid: 85, 'mid-high': 87.5, upper: 90 },
+};
+
+function parseExitBandStep(text) {
   if (!text) return null;
-  const m = text.replace(/,/g, '').match(/£(\d+)/);
-  return m ? parseInt(m[1], 10) : null;
+  const first = text.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z-]/g, '');
+  return EXIT_BAND_STEPS.includes(first) ? first : null;
+}
+
+function computeExitFromBand(tradeLow, categoryStr, bandText) {
+  const cat = catLetter(categoryStr || '');
+  const band = cat === 'n' ? 'n' : 's'; // unknown → Cat S (conservative)
+  const rawStep = parseExitBandStep(bandText);
+  if (!rawStep) {
+    console.warn(`[EXIT BAND] unexpected value="${(bandText || '').slice(0, 80)}" defaulted to mid`);
+  }
+  const step = rawStep ?? 'mid';
+  const pct  = EXIT_BAND_PCT[band][step];
+  const exit = Math.round(tradeLow * pct / 100);
+  if (exit >= tradeLow) {
+    console.warn(`[EXIT BAND] sanity fail: exit £${exit} >= trade_low £${tradeLow}`);
+  }
+  return { exit, band, step, pct };
 }
 
 const HAMMER_LADDER_LOW_PCT  = 0.10;
@@ -1183,20 +1206,26 @@ export async function GET(request) {
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
 
-    // Code-owned margin table — exit-derived hammer ladder, repair = parts_sum, exit = model's stated value
-    const exitValue = parseExitValue(assessment['Exit Value Stated'] || '');
-
-    // Consistency guard: every £ figure in the narrative reasoning
-    // should include the stated exit. Log loudly if none are within £500.
-    if (exitValue != null) {
-      const narrativeFigures = [...(assessment['Realistic Exit Value'] || '').replace(/,/g, '').matchAll(/£(\d+)/g)]
-        .map(m => parseInt(m[1], 10))
-        .filter(n => n > 0);
-      const narrativeAgrees = narrativeFigures.some(n => Math.abs(n - exitValue) <= 500);
-      if (!narrativeAgrees && narrativeFigures.length > 0) {
-        console.warn(`[EXIT MISMATCH] stated=£${exitValue} narrative figures=[${narrativeFigures.map(n => `£${n}`).join(', ')}]`);
-      }
+    // Code-owned exit value: trade-low × band percentage keyed by category + model's 5-step position
+    let exitValue = null;
+    if (bregoData?.trade_low_valuation) {
+      const { exit, band, step, pct } = computeExitFromBand(
+        bregoData.trade_low_valuation,
+        enrichedVd.category || '',
+        assessment['Exit Band Position'] || ''
+      );
+      exitValue = exit;
+      const catLabel    = band === 'n' ? 'Cat N' : 'Cat S';
+      const tradeLowFmt = Number(bregoData.trade_low_valuation).toLocaleString('en-GB');
+      const exitFmt     = Number(exit).toLocaleString('en-GB');
+      assessment['Realistic Exit Value'] = (assessment['Realistic Exit Value'] || '').trimEnd() +
+        `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of trade-low £${tradeLowFmt} (${catLabel} band)`;
+      assessment._exitValue = exitValue;
+      console.log(`[EXIT BAND] cat=${catLabel} step=${step} pct=${pct}% tradeLow=£${bregoData.trade_low_valuation} → exit=£${exitValue}`);
+    } else {
+      console.warn('[EXIT BAND] no trade_low_valuation — exit value unavailable, margin skipped');
     }
+
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     if (auctionSource === 'copart' && parts_sum > 0 && exitValue != null) {
