@@ -85,6 +85,7 @@ export default function SalvageSuccessPage() {
   const [savedLot, setSavedLot] = useState(null);
   const [showComparison, setShowComparison] = useState(false);
   const [bregoData, setBregoData] = useState(null);
+  const [rerunLimitReached, setRerunLimitReached] = useState(false);
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -156,7 +157,16 @@ export default function SalvageSuccessPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salvage_id: salvageIdRef.current }),
       });
-      if (!res.ok) throw new Error('Re-run failed');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 403) {
+          setRerunLimitReached(true);
+          setErrorMsg("You've used your free re-run for this assessment.");
+          setStatus('error');
+          return;
+        }
+        throw new Error(body.error || 'Re-run failed');
+      }
       router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${vehicleDetails?.vrm || ''}`);
     } catch(e) {
       setErrorMsg(e.message);
@@ -351,11 +361,20 @@ export default function SalvageSuccessPage() {
         {status === 'error' && (
           <div className="error-wrap">
             <div className="error-box">
-              <div className="error-title">Assessment Failed</div>
-              <div className="error-msg">{errorMsg || 'Something went wrong. Your payment has been taken — click Retry to try again.'}</div>
-              <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
-                Retry Assessment
-              </button>
+              {rerunLimitReached ? (
+                <>
+                  <div className="error-title">Re-run Limit Reached</div>
+                  <div className="error-msg">{errorMsg}</div>
+                </>
+              ) : (
+                <>
+                  <div className="error-title">Assessment Failed</div>
+                  <div className="error-msg">{errorMsg || 'Something went wrong. Your payment has been taken — click Retry to try again.'}</div>
+                  <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
+                    Retry Assessment
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
