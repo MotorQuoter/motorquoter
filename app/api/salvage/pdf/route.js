@@ -297,6 +297,45 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     }
   }
 
+  // Structured Checklist (CORE) — code-owned forced-verdict slots, same _slots shape the web
+  // page renders from (lib/coreSlots.js), so the two surfaces never drift. [OK]/[VERDICT]
+  // markers replace checkmark glyphs — Helvetica/WinAnsi can't render them (see str() above).
+  const slotData = assessment._slots;
+  if (slotData?.groups?.length > 0) {
+    sectionTitle('Structured Checklist (CORE)');
+    const allClearSet = new Set(slotData.allClear);
+    const allClearSlots = slotData.groups.flatMap(g => g.slots).filter(s => allClearSet.has(s.id));
+    if (allClearSlots.length > 0) {
+      const okLines = doc.splitTextToSize(`[OK] Verified clear - ${allClearSlots.map(s => s.label).join(', ')}`, CONTENT_W);
+      checkPage(4.5 * okLines.length + 2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(0, 130, 0);
+      for (const line of okLines) { doc.text(str(line), MARGIN, y); y += 4.5; }
+      y += 2;
+    }
+    for (const group of slotData.groups) {
+      const shown = group.slots.filter(s => !allClearSet.has(s.id));
+      if (shown.length === 0) continue;
+      checkPage(8);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+      doc.text(group.label.toUpperCase(), MARGIN, y);
+      y += 4;
+      for (const slot of shown) {
+        const c = (slot.verdict === 'confirmed' || slot.verdict === 'undamaged' || slot.verdict === 'intact') ? [0, 130, 0]
+          : (slot.verdict === 'discrepancy' || slot.verdict === 'damaged' || slot.verdict === 'destroyed') ? [180, 0, 0]
+          : [180, 80, 0];
+        const lines = doc.splitTextToSize(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4);
+        checkPage(4 * lines.length + 1);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...c);
+        for (const line of lines) { doc.text(str(line), MARGIN + 2, y); y += 4; }
+      }
+      y += 2;
+    }
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.15);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 3;
+  }
+
   // MOT History section
   const motHistory = vd.motHistory;
   if (Array.isArray(motHistory) && motHistory.length > 0) {

@@ -7,6 +7,10 @@ import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
+import {
+  CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
+  wheelSlotId, tyreSlotId, buildSlot, buildGroup, assembleCoreSlots,
+} from '@/lib/coreSlots';
 
 export const maxDuration = 300;
 
@@ -84,11 +88,15 @@ function catLetter(s) {
   return null;
 }
 
+// Generalised to N records (brief decision #3 — "the Juke" had 2 records, 1 was self, and the
+// single-record-only check missed it). Same self-match predicate (mileage ±50 / category /
+// damage-text) now runs across every record; isSelfReferenceFirstWriteOff is preserved for the
+// existing web/PDF render branch — true when the WHOLE history is self-matches (the single-record
+// case is just N=1 of that), so "first write-off" still means "no PRIOR history exists".
+// selfMatchCount/recordsExcludingSelf are new: they feed the salvage-count-excl-self CORE slot.
 function tagSelfReference(shResult, vd) {
   if (!shResult) return;
   const records = shResult.salvage_auction_records || [];
-  if (records.length !== 1) { shResult.isSelfReferenceFirstWriteOff = false; return; }
-  const rec = records[0];
   let currentMileage = null;
   if (vd.copartListedMileage != null) {
     currentMileage = Number(vd.copartListedMileage);
@@ -96,17 +104,398 @@ function tagSelfReference(shResult, vd) {
     const n = parseInt(String(vd.odometer).replace(/[^0-9]/g, ''), 10);
     if (!isNaN(n)) currentMileage = n;
   }
-  const mileageMatch = currentMileage != null && rec.mileage != null
-    ? Math.abs(rec.mileage - currentMileage) <= 50
-    : null;
-  const recCat = catLetter(rec.salvage_auction_lot_desc);
   const curCat = catLetter(vd.category);
-  const categoryMatch = recCat != null && curCat != null && recCat === curCat;
-  const damageMatch = vd.primaryDamage != null && rec.primary_damage_desc != null
-    && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
-  shResult.isSelfReferenceFirstWriteOff =
-    (mileageMatch === true && categoryMatch && damageMatch) ||
-    (mileageMatch === null && categoryMatch && damageMatch);
+  const selfFlags = records.map((rec) => {
+    const mileageMatch = currentMileage != null && rec.mileage != null
+      ? Math.abs(rec.mileage - currentMileage) <= 50
+      : null;
+    const recCat = catLetter(rec.salvage_auction_lot_desc);
+    const categoryMatch = recCat != null && curCat != null && recCat === curCat;
+    const damageMatch = vd.primaryDamage != null && rec.primary_damage_desc != null
+      && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
+    return (mileageMatch === true && categoryMatch && damageMatch) ||
+           (mileageMatch === null && categoryMatch && damageMatch);
+  });
+  const selfMatchCount = selfFlags.filter(Boolean).length;
+  shResult.selfMatchCount = selfMatchCount;
+  shResult.recordsExcludingSelf = Math.max(0, records.length - selfMatchCount);
+  shResult.isSelfReferenceFirstWriteOff = records.length > 0 && selfMatchCount === records.length;
+}
+
+// ---------------------------------------------------------------------------
+// CORE slot builders — assemble assessment._slots from coreObs (model vision
+// read, via recordCoreObservations) + enrichedVd / bregoData (code-owned data).
+// Each builder returns ONE buildSlot() record; group builders compose them.
+// This is the slot-output pattern (_exitValue/_reconciledParts) generalised to
+// every CORE slot, per CC_Brief_CORE_SlotEngine_Phase1.md.
+// ---------------------------------------------------------------------------
+
+// Reads the windscreen-sticker letter the MODEL saw (vision-only — Vincent confirmed 06 Jun
+// the suffix is on the sticker photo, never in listing text) and resolves it through the
+// code-owned VENDOR_SUFFIX_MAP. source: 'model' so two-pass cross-checks the sticker read.
+function resolveVendorSuffix(coreObs) {
+  const sticker = coreObs.windscreenSticker || {};
+  const visible = Boolean(sticker.visible);
+  const letter = sticker.suffixLetter || 'UNREADABLE';
+  if (!visible || letter === 'UNREADABLE') return { status: 'unreadable', letter: null, mapped: null };
+  if (letter === 'OTHER') return { status: 'other', letter, mapped: null };
+  return { status: 'mapped', letter, mapped: VENDOR_SUFFIX_MAP[letter] || null };
+}
+
+function buildVendorSuffixSlot(vendorSuffix) {
+  if (vendorSuffix.status === 'unreadable') {
+    return buildSlot({
+      id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'Vendor suffix not readable — provenance signal unavailable',
+      confidence: 'hidden', source: 'model',
+      flag: { severity: 'info', whatsapp: 'Photograph the windscreen lot-number sticker close-up — the vendor-suffix letter was not legible in the current photo set', tier: 1 },
+    });
+  }
+  if (vendorSuffix.status === 'other') {
+    return buildSlot({
+      id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: `Sticker is legible but shows "${vendorSuffix.letter}" — outside the known X/P/C/Q vendor codes, vendor type unconfirmed`,
+      confidence: 'visible', source: 'model',
+    });
+  }
+  const { letter, mapped } = vendorSuffix;
+  return buildSlot({
+    id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
+    kind: 'confirmation', verdict: 'confirmed',
+    detail: `Sticker reads "${letter}" — ${mapped.vendorType}`,
+    confidence: 'visible', source: 'model',
+  });
+}
+
+function extractDoorCount(text) {
+  if (!text) return null;
+  const m = String(text).match(/(\d)\s*[- ]?\s*door/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Targets the specific "3-door/5-door wander" the design notes flag — a loose door-count
+// comparison rather than full-string fuzzy matching, which is too unreliable to force a verdict on.
+function buildBodyStyleSlot(enrichedVd, coreObs) {
+  const listing = (enrichedVd.bodyStyle || '').trim();
+  const observed = (coreObs.bodyStyle?.observed || '').trim();
+  const listingDoors = extractDoorCount(listing);
+  const observedDoors = extractDoorCount(observed);
+
+  if (!listing && !observed) {
+    return buildSlot({
+      id: 'body-style', label: 'Body style matches listing',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'No body style given on the listing and none clearly visible in the photos',
+      confidence: 'hidden', source: 'code+model',
+    });
+  }
+  if (!listing || !observed) {
+    return buildSlot({
+      id: 'body-style', label: 'Body style matches listing',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: listing
+        ? `Listing says ${listing} — body style not clearly visible in the photos`
+        : `Photos show what looks like ${observed} — listing carries no body style to compare against`,
+      confidence: 'inferred', source: 'code+model',
+    });
+  }
+  if (listingDoors != null && observedDoors != null && listingDoors !== observedDoors) {
+    return buildSlot({
+      id: 'body-style', label: 'Body style matches listing',
+      kind: 'confirmation', verdict: 'discrepancy',
+      detail: `Listing says ${listing} (${listingDoors}-door) — photos look like a ${observedDoors}-door ${observed}`,
+      confidence: 'visible', source: 'code+model',
+      flag: { severity: 'caution', whatsapp: `Listing says ${listingDoors}-door but the car in the photos looks like a ${observedDoors}-door — confirm the derivative/body style before bidding`, tier: 1 },
+    });
+  }
+  return buildSlot({
+    id: 'body-style', label: 'Body style matches listing',
+    kind: 'confirmation', verdict: 'confirmed',
+    detail: `Listing: ${listing} · Photos: ${observed} — consistent`,
+    confidence: 'corroborated', source: 'code+model',
+  });
+}
+
+function buildVrmPlateMatchSlot(enrichedVd, coreObs) {
+  const vrm = (enrichedVd.vrm || '').toUpperCase().replace(/\s+/g, '');
+  const plate = coreObs.plate || {};
+  const plateRead = (plate.textRead || '').toUpperCase().replace(/\s+/g, '');
+
+  if (!plate.visible || !plateRead) {
+    return buildSlot({
+      id: 'vrm-plate-match', label: 'Number plate matches listing',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: vrm ? `Plate not legible in photos — listing carries registration ${vrm}` : 'Plate not legible in photos and the listing carries no registration',
+      confidence: 'hidden', source: 'code+model',
+      flag: { severity: 'info', whatsapp: 'Photograph the number plate clearly and square-on — not legible in the current photo set', tier: 1 },
+    });
+  }
+  if (!vrm) {
+    return buildSlot({
+      id: 'vrm-plate-match', label: 'Number plate matches listing',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: `Plate reads ${plateRead} but the listing carries no registration to compare it against`,
+      confidence: 'visible', source: 'code+model',
+    });
+  }
+  if (plateRead === vrm) {
+    return buildSlot({
+      id: 'vrm-plate-match', label: 'Number plate matches listing',
+      kind: 'confirmation', verdict: 'confirmed',
+      detail: `Plate reads ${plateRead} — matches the listed registration`,
+      confidence: 'corroborated', source: 'code+model',
+    });
+  }
+  return buildSlot({
+    id: 'vrm-plate-match', label: 'Number plate matches listing',
+    kind: 'confirmation', verdict: 'discrepancy',
+    detail: `Plate reads ${plateRead} — does not match the listed registration ${vrm}`,
+    confidence: 'visible', source: 'code+model',
+    flag: { severity: 'red', whatsapp: `The plate visible in the photos reads ${plateRead}, not the listed ${vrm} — confirm with the seller this is the correct vehicle before bidding`, tier: 1 },
+  });
+}
+
+function buildCategorySlot(enrichedVd) {
+  const cat = (enrichedVd.category || '').trim();
+  if (!cat) {
+    return buildSlot({
+      id: 'category', label: 'Salvage category recorded',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'No salvage category on the listing — the exit-value band calculation cannot run without it',
+      confidence: 'hidden', source: 'code',
+      flag: { severity: 'caution', whatsapp: 'Salvage category is missing from the listing — confirm it directly with the auction handler before bidding', tier: 1 },
+    });
+  }
+  return buildSlot({
+    id: 'category', label: 'Salvage category recorded',
+    kind: 'confirmation', verdict: 'confirmed',
+    detail: `${cat} — drives the exit-value band calculation`,
+    confidence: 'visible', source: 'code',
+  });
+}
+
+// "Why is it here?" — the surface-deceptive / provenance-contradiction check from the design
+// notes: warranty-age + low-mileage-for-age + minimal damage story is the trigger pattern: a
+// vehicle that LOOKS too clean to be genuine salvage. Severity steps up when the vendor-suffix
+// slot (above) also resolved to a non-insurer entry (C/Q) — the "Q on a clean car" pattern.
+// Thresholds are defensible defaults (UK new-car warranty ~3yr, UK average ~7-8k mi/yr) — Vincent
+// should tune them from trade experience once validated against real lots.
+const PROVENANCE_WARRANTY_AGE_YEARS = 3;
+const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
+
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears) {
+  const currentYear = new Date().getFullYear();
+  const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
+  const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
+  const cat = (enrichedVd.category || '').trim();
+  const hasDamageText = Boolean((enrichedVd.primaryDamage || '').trim() || (enrichedVd.secondaryDamage || '').trim());
+
+  if (ageYears == null || brMileage == null || !cat) {
+    return buildSlot({
+      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'Not enough listing data (age / mileage / category) to test whether the salvage story holds together',
+      confidence: 'hidden', source: 'code',
+    });
+  }
+
+  const isWarrantyAge = ageYears <= PROVENANCE_WARRANTY_AGE_YEARS;
+  const milesPerYear = ageYears > 0 ? brMileage / ageYears : brMileage;
+  const isLowMileage = milesPerYear < PROVENANCE_LOW_MILES_PER_YEAR;
+  const isMinimalDamageStory = !hasDamageText || /^u\b/i.test(cat);
+  const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
+
+  if (isWarrantyAge && isLowMileage && isMinimalDamageStory) {
+    const descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
+    return buildSlot({
+      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      kind: 'confirmation', verdict: 'discrepancy',
+      detail: `${descriptor} — ${Math.round(brMileage).toLocaleString('en-GB')}mi (~${Math.round(milesPerYear).toLocaleString('en-GB')}/yr) at ${cat}, with little damage described — unusually clean for a salvage lot${nonInsurerSuffix ? '; sticker also points to a non-insurer entry' : ''}`,
+      confidence: 'inferred', source: 'code',
+      flag: {
+        severity: nonInsurerSuffix ? 'red' : 'caution',
+        whatsapp: `This lot looks unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described${nonInsurerSuffix ? ', non-insurer vendor suffix' : ''}. Ask the handler directly why it was written off and press for fault codes / an explanation before bidding`,
+        tier: 1,
+      },
+    });
+  }
+
+  return buildSlot({
+    id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+    kind: 'confirmation', verdict: 'confirmed',
+    detail: `Age, mileage and damage description are consistent with a genuine ${cat} write-off — no provenance contradiction detected`,
+    confidence: 'inferred', source: 'code',
+  });
+}
+
+function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears) {
+  const vendorSuffix = resolveVendorSuffix(coreObs);
+  return buildGroup({
+    id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
+    slots: [
+      buildVrmPlateMatchSlot(enrichedVd, coreObs),
+      buildBodyStyleSlot(enrichedVd, coreObs),
+      buildCategorySlot(enrichedVd),
+      buildVendorSuffixSlot(vendorSuffix),
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears),
+    ],
+  });
+}
+
+const MILEAGE_SOURCE_LABELS = {
+  copart_listed: 'the Copart listing field',
+  listing_odometer: 'the listing description',
+  photo_odometer: 'the dashboard photo',
+  dvsa_mot: 'the last DVSA MOT record',
+  default_fallback: 'a default estimate',
+};
+
+// Reuses the code's EXISTING mileage-hygiene signals (motMileageFlag / photoMileageFlag /
+// age-estimate source) rather than re-deriving comparison logic — those flags already ARE the
+// corroboration check; this slot just forces them into a verdict instead of leaving them as
+// prose the model might restate inconsistently.
+function buildMileageCorroborationSlot(enrichedVd, brMileage, brMileageSource) {
+  const fmtMiles = (n) => `${Number(n).toLocaleString('en-GB')} miles`;
+  const flagText = enrichedVd.motMileageFlag || enrichedVd.photoMileageFlag || null;
+
+  if (flagText) {
+    return buildSlot({
+      id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
+      kind: 'confirmation', verdict: 'discrepancy',
+      detail: String(flagText).replace(/^[⚠️\s|]+/, '').trim(),
+      confidence: 'visible', source: 'code',
+      flag: { severity: 'caution', whatsapp: 'Mileage sources do not agree — confirm actual mileage (dash photo plus V5/MOT paperwork) before bidding', tier: 1 },
+    });
+  }
+
+  if (brMileageSource === 'age_estimate' || brMileageSource === 'age_anomaly') {
+    return buildSlot({
+      id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: `${fmtMiles(brMileage)} — ESTIMATED from vehicle age only; no listing, photo or DVSA mileage was available`,
+      confidence: 'inferred', source: 'code',
+      flag: { severity: 'caution', whatsapp: 'No confirmed mileage is available for this lot — photograph the odometer clearly and confirm it against the V5/MOT paperwork before bidding', tier: 1 },
+    });
+  }
+
+  const sourceLabel = MILEAGE_SOURCE_LABELS[brMileageSource] || brMileageSource;
+  return buildSlot({
+    id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
+    kind: 'confirmation', verdict: 'confirmed',
+    detail: `${fmtMiles(brMileage)} from ${sourceLabel} — no discrepancy flagged against the other available sources`,
+    confidence: 'corroborated', source: 'code',
+  });
+}
+
+// Generalised salvage-count slot — consumes selfMatchCount/recordsExcludingSelf from the
+// generalised tagSelfReference() above. 0 excl. self = clean; 1 = note worth a light WhatsApp
+// question (was it repaired with paperwork?); 2+ = a repeat write-off pattern, a real red flag.
+function buildSalvageCountSlot(enrichedVd) {
+  const sh = enrichedVd.salvageHistory;
+  if (!sh) {
+    return buildSlot({
+      id: 'salvage-count-excl-self', label: 'Prior salvage auction history',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'Salvage auction history lookup was unavailable for this lot',
+      confidence: 'hidden', source: 'code',
+    });
+  }
+  const found = sh.salvage_auction_record_found === true;
+  const excl = sh.recordsExcludingSelf ?? 0;
+
+  if (!found || excl === 0) {
+    return buildSlot({
+      id: 'salvage-count-excl-self', label: 'Prior salvage auction history',
+      kind: 'confirmation', verdict: 'confirmed',
+      detail: 'No prior salvage auction events found, excluding this listing',
+      confidence: 'corroborated', source: 'code',
+    });
+  }
+  if (excl === 1) {
+    return buildSlot({
+      id: 'salvage-count-excl-self', label: 'Prior salvage auction history',
+      kind: 'confirmation', verdict: 'confirmed',
+      detail: '1 prior salvage auction event found, excluding this listing — see Salvage History Check for details',
+      confidence: 'corroborated', source: 'code',
+      flag: { severity: 'info', whatsapp: 'This vehicle has one prior salvage auction record — ask the handler whether the prior repair has any paperwork available', tier: 1 },
+    });
+  }
+  return buildSlot({
+    id: 'salvage-count-excl-self', label: 'Prior salvage auction history',
+    kind: 'confirmation', verdict: 'discrepancy',
+    detail: `${excl} prior salvage auction events found, excluding this listing — repeat write-off pattern materially raises risk`,
+    confidence: 'corroborated', source: 'code',
+    flag: { severity: 'red', whatsapp: `This vehicle has been through salvage auction ${excl} times before this listing — ask the handler for the full repair history and treat the valuation as high-risk`, tier: 1 },
+  });
+}
+
+function buildMileageGroup(enrichedVd, brMileage, brMileageSource) {
+  return buildGroup({
+    id: CORE_GROUPS.MILEAGE.id, label: CORE_GROUPS.MILEAGE.label,
+    slots: [
+      buildMileageCorroborationSlot(enrichedVd, brMileage, brMileageSource),
+      buildSalvageCountSlot(enrichedVd),
+    ],
+  });
+}
+
+function findCornerObs(coreObs, corner) {
+  return (coreObs.corners || []).find(c => c?.corner === corner) || null;
+}
+
+const WHEEL_VERDICT_DETAIL = {
+  intact: 'Intact — no visible damage',
+  kerbed: 'Kerbed — rim scuffed/scraped, cosmetic',
+  damaged: 'Damaged — visible deformation, cracking or buckling',
+  'not-shown': 'Not shown in the photo set — confirm on inspection',
+};
+const TYRE_VERDICT_DETAIL = {
+  intact: 'Intact — no visible damage',
+  damaged: 'Damaged — visible cuts, bulges or abnormal wear',
+  destroyed: 'Destroyed — shredded, deflated or unusable',
+  'not-shown': 'Not shown in the photo set — confirm on inspection',
+};
+
+function buildWheelSlot(corner, cornerObs) {
+  const visible = Boolean(cornerObs?.wheelVisible);
+  const verdict = visible ? (cornerObs.wheelVerdict || 'not-shown') : 'not-shown';
+  return buildSlot({
+    id: wheelSlotId(corner), label: `${CORNER_LABELS[corner]} wheel`,
+    kind: 'wheel', verdict,
+    detail: WHEEL_VERDICT_DETAIL[verdict] || WHEEL_VERDICT_DETAIL['not-shown'],
+    confidence: verdict === 'not-shown' ? 'hidden' : 'visible',
+    source: 'model',
+    flag: verdict === 'not-shown'
+      ? { severity: 'info', whatsapp: `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not shown in the current photo set`, tier: 1 }
+      : null,
+  });
+}
+
+function buildTyreSlot(corner, cornerObs) {
+  const visible = Boolean(cornerObs?.tyreVisible);
+  const verdict = visible ? (cornerObs.tyreVerdict || 'not-shown') : 'not-shown';
+  return buildSlot({
+    id: tyreSlotId(corner), label: `${CORNER_LABELS[corner]} tyre`,
+    kind: 'tyre', verdict,
+    detail: TYRE_VERDICT_DETAIL[verdict] || TYRE_VERDICT_DETAIL['not-shown'],
+    confidence: verdict === 'not-shown' ? 'hidden' : 'visible',
+    source: 'model',
+    // No flag here — the wheel slot for the same corner already raises the "photograph this
+    // corner" question; duplicating it per-tyre would double the WhatsApp item for one gap.
+    flag: null,
+  });
+}
+
+function buildPhysicalGroup(coreObs) {
+  const slots = [];
+  for (const corner of WHEEL_CORNERS) {
+    const cornerObs = findCornerObs(coreObs, corner);
+    slots.push(buildWheelSlot(corner, cornerObs));
+    slots.push(buildTyreSlot(corner, cornerObs));
+  }
+  return buildGroup({ id: CORE_GROUPS.PHYSICAL.id, label: CORE_GROUPS.PHYSICAL.label, slots });
 }
 
 const LAMP_DETECTION_CONFIDENT_WORDING = false; // flip to true after false-positive guard passes (present-but-bumper-off lot)
@@ -950,6 +1339,7 @@ export async function GET(request) {
       enrichedVd.make && `Make: ${enrichedVd.make}`,
       enrichedVd.model && `Model: ${enrichedVd.model}`,
       enrichedVd.year && `Year: ${enrichedVd.year}`,
+      enrichedVd.bodyStyle && `Body Style (from listing): ${enrichedVd.bodyStyle}`,
       enrichedVd.lotNumber && `Copart Lot Number: ${enrichedVd.lotNumber}`,
       enrichedVd.damageDescription && `Seller/Copart Damage Description: ${enrichedVd.damageDescription}`,
       enrichedVd.dvlaVerified && `DVLA Verified: Yes — vehicle identity confirmed against DVLA database`,
@@ -1054,6 +1444,69 @@ export async function GET(request) {
       },
     ];
 
+    // Forced-structured-observation tool for the CORE slot engine — fires on EVERY lot
+    // (unlike recordLampObservation, which is conditional on frontStruck). Generalises the
+    // same "forced tool call before prose" pattern: the model reports exactly what it sees;
+    // code owns what those observations MEAN (suffix→vendor-type mapping, per-corner verdict
+    // assembly, all-clear grouping). Anti-guessing spine applies — not-shown/unreadable are
+    // forced, honest answers, never papered over with an inferred guess.
+    const CORE_OBSERVATION_TOOL = {
+      name: 'recordCoreObservations',
+      description: 'Call exactly once, before writing your assessment, on EVERY lot — this is mandatory regardless of damage type. Record your direct visual observations for the CORE checklist; the engine derives forced verdicts from these plus code-side data, so do not restate them as prose elsewhere. Report exactly what the photos show. If something is not visible, not shown, or not legible, say so explicitly — never guess or infer to fill a gap.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          windscreenSticker: {
+            type: 'object',
+            description: 'The Copart lot-number sticker on the windscreen. Read the LAST CHARACTER only (the vendor-type suffix letter) directly off the photo — do not use any printed lot number from the listing text, only what the sticker photo shows.',
+            properties: {
+              visible: { type: 'boolean', description: 'True only if the sticker is visible AND the suffix letter is confidently legible in at least one photo.' },
+              suffixLetter: {
+                type: 'string',
+                enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'],
+                description: 'The last character of the lot number on the windscreen sticker. OTHER = a legible letter outside X/P/C/Q. UNREADABLE = sticker not visible, out of frame, or the character cannot be confidently read.',
+              },
+            },
+            required: ['visible', 'suffixLetter'],
+          },
+          plate: {
+            type: 'object',
+            description: 'The vehicle registration plate as it appears in the photos (for the VRM/plate-match check).',
+            properties: {
+              visible: { type: 'boolean' },
+              textRead: { type: 'string', description: 'Registration exactly as read from the plate photo, uppercase, no spaces. Empty string if no plate photo is legible.' },
+            },
+            required: ['visible', 'textRead'],
+          },
+          bodyStyle: {
+            type: 'object',
+            description: 'Body style / door count exactly as the photos show — the 3-door vs 5-door check that has wandered before.',
+            properties: {
+              observed: { type: 'string', description: 'Best description from the photos, e.g. "5-door hatchback", "3-door hatchback", "saloon", "estate".' },
+              doorCountVisible: { type: 'boolean', description: 'True only if door count is confidently determinable from the photo set.' },
+            },
+            required: ['observed', 'doorCountVisible'],
+          },
+          corners: {
+            type: 'array',
+            description: 'Per-corner wheel AND tyre verdicts. EVERY corner gets exactly one entry — forced, no omissions. If a corner is incomplete or missing from the photo set, record wheelVerdict/tyreVerdict as "not-shown" — that is information ("Copart did not show this corner — check on inspection"), never a guess.',
+            items: {
+              type: 'object',
+              properties: {
+                corner: { type: 'string', enum: ['front-left', 'front-right', 'rear-left', 'rear-right'] },
+                wheelVisible: { type: 'boolean' },
+                wheelVerdict: { type: 'string', enum: ['intact', 'kerbed', 'damaged', 'not-shown'] },
+                tyreVisible: { type: 'boolean' },
+                tyreVerdict: { type: 'string', enum: ['intact', 'damaged', 'destroyed', 'not-shown'] },
+              },
+              required: ['corner', 'wheelVisible', 'wheelVerdict', 'tyreVisible', 'tyreVerdict'],
+            },
+          },
+        },
+        required: ['windscreenSticker', 'plate', 'bodyStyle', 'corners'],
+      },
+    };
+
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
       description: 'Call exactly once on any front-struck lot, before writing your assessment. Pass your plate-anchor side determination, bumper displacement observation, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
@@ -1084,72 +1537,112 @@ export async function GET(request) {
     // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
 
-    const claudeTools = frontStruck ? [LAMP_OBS_TOOL] : [];
+    // recordCoreObservations is ALWAYS available — CORE fires on every lot. recordLampObservation
+    // joins it only on front-struck lots. Both are forced-structured-observation tools the model
+    // must satisfy before writing prose; a tool-use loop (rather than a single fixed round) lets
+    // the model call them together or across separate turns without losing either.
+    const claudeTools = [CORE_OBSERVATION_TOOL, ...(frontStruck ? [LAMP_OBS_TOOL] : [])];
     const messages = [{ role: 'user', content: userContent }];
     let lampObs = null;
+    let coreObs = null;
     let rawText = '';
 
-    // First Claude call — lamp observation tool fires here on front-struck lots
-    {
-      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-opus-4-8',
-          max_tokens: 8000,
-          system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
-          messages,
-          ...(claudeTools.length ? { tools: claudeTools } : {}),
-        }),
-      });
-      const apiData = await apiRes.json();
-      console.log('[TOKEN LOG] iter=0 Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-      console.log('[CACHE] iter=0 write=' + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
-      if (!apiRes.ok) throw new Error(apiData.error?.message || 'Claude API error');
+    const callClaude = (withTools) => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 8000,
+        system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+        messages,
+        ...(withTools ? { tools: claudeTools } : {}),
+      }),
+    }).then(res => res.json().then(data => ({ res, data })));
+
+    // Tool-use loop — keep calling with tools while the model keeps recording observations,
+    // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
+    // generalised so either/both forced tools can fire in one round or across several).
+    const MAX_TOOL_ROUNDS = 4;
+    for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
+      const { res: apiRes, data: apiData } = await callClaude(true);
+      console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      console.log(`[CACHE] iter=${iter} write=` + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
+      if (!apiRes.ok) throw new Error(apiData.error?.message || `Claude API error (iter ${iter})`);
 
       const content = apiData.content || [];
 
-      if (apiData.stop_reason === 'end_turn') {
+      if (apiData.stop_reason !== 'tool_use') {
         rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
-      } else if (apiData.stop_reason === 'tool_use') {
-        // Only recordLampObservation is available — handle it, then get final text
-        const toolResults = content
-          .filter(c => c.type === 'tool_use')
-          .map(block => {
-            if (block.name === 'recordLampObservation') {
-              lampObs = {
-                struckSide:     block.input?.struckSide     || 'central',
-                apertureExposed: Boolean(block.input?.apertureExposed),
-                damageSpan:     block.input?.damageSpan     || 'single_corner',
-              };
-              console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
-              return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
-            }
-            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
-          });
-
-        messages.push({ role: 'assistant', content });
-        messages.push({ role: 'user', content: toolResults });
-
-        // Second Claude call — no tools, produces the full assessment text
-        const finalRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({
-            model: 'claude-opus-4-8',
-            max_tokens: 8000,
-            system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
-            messages,
-          }),
-        });
-        const finalData = await finalRes.json();
-        console.log('[TOKEN LOG] iter=1 Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
-        console.log('[CACHE] iter=1 write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
-        if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (iter 1)');
-        rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
-      } else {
-        rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
+        break;
       }
+
+      const toolResults = content
+        .filter(c => c.type === 'tool_use')
+        .map(block => {
+          if (block.name === 'recordLampObservation') {
+            lampObs = {
+              struckSide:     block.input?.struckSide     || 'central',
+              apertureExposed: Boolean(block.input?.apertureExposed),
+              damageSpan:     block.input?.damageSpan     || 'single_corner',
+            };
+            console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
+            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
+          }
+          if (block.name === 'recordCoreObservations') {
+            const input = block.input || {};
+            coreObs = {
+              windscreenSticker: {
+                visible:      Boolean(input.windscreenSticker?.visible),
+                suffixLetter: input.windscreenSticker?.suffixLetter || 'UNREADABLE',
+              },
+              plate: {
+                visible:  Boolean(input.plate?.visible),
+                textRead: String(input.plate?.textRead || '').toUpperCase().replace(/\s+/g, ''),
+              },
+              bodyStyle: {
+                observed:         input.bodyStyle?.observed || '',
+                doorCountVisible: Boolean(input.bodyStyle?.doorCountVisible),
+              },
+              corners: Array.isArray(input.corners) ? input.corners.map(c => ({
+                corner:        c?.corner,
+                wheelVisible:  Boolean(c?.wheelVisible),
+                wheelVerdict:  c?.wheelVerdict || 'not-shown',
+                tyreVisible:   Boolean(c?.tyreVisible),
+                tyreVerdict:   c?.tyreVerdict || 'not-shown',
+              })) : [],
+            };
+            console.log(`[CORE OBS] sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) plate="${coreObs.plate.textRead}" bodyStyle="${coreObs.bodyStyle.observed}" corners=${coreObs.corners.length}`);
+            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
+          }
+          return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
+        });
+
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: toolResults });
+    }
+
+    // Force the prose if the loop ended without text (e.g. the model was still mid tool-use
+    // when MAX_TOOL_ROUNDS was hit) — final call with no tools available, same as the existing
+    // lamp flow's second call.
+    if (!rawText) {
+      const { res: finalRes, data: finalData } = await callClaude(false);
+      console.log('[TOKEN LOG] iter=final Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
+      console.log('[CACHE] iter=final write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
+      if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (final)');
+      rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    }
+
+    // Guarantee CORE observations for every lot regardless of tool co-operation — CORE fires
+    // on every lot, so a missing tool call still needs an honest "not observed" baseline.
+    // Mirrors the lampObs floor-default pattern: never silently omit, always state what's known.
+    if (!coreObs) {
+      coreObs = {
+        windscreenSticker: { visible: false, suffixLetter: 'UNREADABLE' },
+        plate: { visible: false, textRead: '' },
+        bodyStyle: { observed: '', doorCountVisible: false },
+        corners: [],
+      };
+      console.log('[CORE OBS] no tool call recorded on this lot — honest-absence floor defaults applied');
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
@@ -1240,6 +1733,15 @@ export async function GET(request) {
     } else if (auctionSource === 'copart') {
       console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
     }
+
+    // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
+    // enrichedVd/bregoData (code-owned data). Phase 1: identity, mileage, physical (wheel/tyre).
+    assessment._slots = assembleCoreSlots([
+      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears),
+      buildMileageGroup(enrichedVd, brMileage, brMileageSource),
+      buildPhysicalGroup(coreObs),
+    ]);
+    console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 

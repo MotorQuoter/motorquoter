@@ -72,6 +72,15 @@ function actionColor(action) {
   return '#f0ebe6';
 }
 
+// One mapping covers every CORE slot verdict vocabulary (confirmation/damage/wheel/tyre) —
+// the "clear" word is always green, the "contradicts" word always red, anything else (the
+// honest-absence states: unconfirmed/not-visible/not-shown/kerbed) sits in amber.
+function slotVerdictColor(verdict) {
+  if (verdict === 'confirmed' || verdict === 'undamaged' || verdict === 'intact') return '#4ade80';
+  if (verdict === 'discrepancy' || verdict === 'damaged' || verdict === 'destroyed') return '#f87171';
+  return '#f5c842';
+}
+
 export default function SalvageSuccessPage() {
   const router = useRouter();
   const [status, setStatus] = useState('loading'); // loading | success | error
@@ -408,6 +417,49 @@ export default function SalvageSuccessPage() {
                 </span>
               </div>
             )}
+
+            {/* CORE Checklist — code-owned forced-verdict slots, shared shape with the PDF */}
+            {(() => {
+              const slotData = assessment._slots;
+              if (!slotData?.groups?.length) return null;
+              const allClearSet = new Set(slotData.allClear);
+              const allClearSlots = slotData.groups.flatMap(g => g.slots).filter(s => allClearSet.has(s.id));
+              return (
+                <div className="section">
+                  <div className="section-title">Structured Checklist (CORE)</div>
+                  <div className="section-body">
+                    {allClearSlots.length > 0 && (
+                      <div className="field-row">
+                        <div className="field-val" style={{ color: '#4ade80' }}>
+                          ✓ Verified clear — {allClearSlots.map(s => s.label).join(' · ')}
+                        </div>
+                      </div>
+                    )}
+                    {slotData.groups.map((group) => {
+                      const shown = group.slots.filter(s => !allClearSet.has(s.id));
+                      if (shown.length === 0) return null;
+                      return (
+                        <div className="field-row" key={group.id}>
+                          <div className="field-key">{group.label}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                            {shown.map((slot) => (
+                              <div key={slot.id} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                                <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: slotVerdictColor(slot.verdict), minWidth: 84, flexShrink: 0 }}>
+                                  {slot.verdict}
+                                </span>
+                                <span style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                                  <strong style={{ color: 'var(--text-dim)', fontWeight: 700 }}>{slot.label}:</strong> {slot.detail}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* MOT History */}
             {vehicleDetails?.motHistory?.length > 0 && (
