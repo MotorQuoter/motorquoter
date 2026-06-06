@@ -779,7 +779,9 @@ function parseParts(text) {
   if (!text) return [];
   const result = [];
   for (const line of text.split('\n')) {
-    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    // Trailing `|` tolerated — model occasionally closes rows Markdown-table-style
+    // (e.g. "| £420 | — |"); the old anchor on a no-pipe tail rejected every such line.
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|?\s*$/);
     if (!m) continue;
     const [, name, action, col3, col4] = m;
     result.push({ name: name.trim(), action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
