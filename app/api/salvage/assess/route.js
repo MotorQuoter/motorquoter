@@ -175,33 +175,32 @@ function extractDoorCount(text) {
   return m ? parseInt(m[1], 10) : null;
 }
 
-// Targets the specific "3-door/5-door wander" the design notes flag — a loose door-count
-// comparison rather than full-string fuzzy matching, which is too unreliable to force a verdict on.
+// Targets the specific "3-door/5-door wander" the design notes flag — door-count is the only
+// cross-check loose enough to be reliable (full-string fuzzy matching is not). A confident,
+// non-empty model read is sufficient for "confirmed" on its own — matching how the model
+// reasons in its own prose ("3-door Coupe (confirmed)", stated without reference to the
+// listing). The listing comparison only steps in as an OVERRIDE, downgrading to "discrepancy"
+// when both sources exist AND actively conflict on door count.
+// (06 Jun fix — SR16GOT slot/prose clash: the old code REQUIRED listing corroboration before
+// calling it "confirmed", imposing a stricter bar than the model applies to itself — the slot
+// said "unconfirmed — none clearly visible" while the prose said "3-door Coupe (confirmed)".)
 function buildBodyStyleSlot(enrichedVd, coreObs) {
   const listing = (enrichedVd.bodyStyle || '').trim();
   const observed = (coreObs.bodyStyle?.observed || '').trim();
   const listingDoors = extractDoorCount(listing);
   const observedDoors = extractDoorCount(observed);
 
-  if (!listing && !observed) {
-    return buildSlot({
-      id: 'body-style', label: 'Body style matches listing',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: 'No body style given on the listing and none clearly visible in the photos',
-      confidence: 'hidden', source: 'code+model',
-    });
-  }
-  if (!listing || !observed) {
+  if (!observed) {
     return buildSlot({
       id: 'body-style', label: 'Body style matches listing',
       kind: 'confirmation', verdict: 'unconfirmed',
       detail: listing
         ? `Listing says ${listing} — body style not clearly visible in the photos`
-        : `Photos show what looks like ${observed} — listing carries no body style to compare against`,
-      confidence: 'inferred', source: 'code+model',
+        : 'No body style given on the listing and none clearly visible in the photos',
+      confidence: listing ? 'inferred' : 'hidden', source: 'code+model',
     });
   }
-  if (listingDoors != null && observedDoors != null && listingDoors !== observedDoors) {
+  if (listing && listingDoors != null && observedDoors != null && listingDoors !== observedDoors) {
     return buildSlot({
       id: 'body-style', label: 'Body style matches listing',
       kind: 'confirmation', verdict: 'discrepancy',
@@ -213,47 +212,10 @@ function buildBodyStyleSlot(enrichedVd, coreObs) {
   return buildSlot({
     id: 'body-style', label: 'Body style matches listing',
     kind: 'confirmation', verdict: 'confirmed',
-    detail: `Listing: ${listing} · Photos: ${observed} — consistent`,
-    confidence: 'corroborated', source: 'code+model',
-  });
-}
-
-function buildVrmPlateMatchSlot(enrichedVd, coreObs) {
-  const vrm = (enrichedVd.vrm || '').toUpperCase().replace(/\s+/g, '');
-  const plate = coreObs.plate || {};
-  const plateRead = (plate.textRead || '').toUpperCase().replace(/\s+/g, '');
-
-  if (!plate.visible || !plateRead) {
-    return buildSlot({
-      id: 'vrm-plate-match', label: 'Number plate matches listing',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: vrm ? `Plate not legible in photos — listing carries registration ${vrm}` : 'Plate not legible in photos and the listing carries no registration',
-      confidence: 'hidden', source: 'code+model',
-      flag: { severity: 'info', whatsapp: 'Photograph the number plate clearly and square-on — not legible in the current photo set', tier: 1 },
-    });
-  }
-  if (!vrm) {
-    return buildSlot({
-      id: 'vrm-plate-match', label: 'Number plate matches listing',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: `Plate reads ${plateRead} but the listing carries no registration to compare it against`,
-      confidence: 'visible', source: 'code+model',
-    });
-  }
-  if (plateRead === vrm) {
-    return buildSlot({
-      id: 'vrm-plate-match', label: 'Number plate matches listing',
-      kind: 'confirmation', verdict: 'confirmed',
-      detail: `Plate reads ${plateRead} — matches the listed registration`,
-      confidence: 'corroborated', source: 'code+model',
-    });
-  }
-  return buildSlot({
-    id: 'vrm-plate-match', label: 'Number plate matches listing',
-    kind: 'confirmation', verdict: 'discrepancy',
-    detail: `Plate reads ${plateRead} — does not match the listed registration ${vrm}`,
-    confidence: 'visible', source: 'code+model',
-    flag: { severity: 'red', whatsapp: `The plate visible in the photos reads ${plateRead}, not the listed ${vrm} — confirm with the seller this is the correct vehicle before bidding`, tier: 1 },
+    detail: listing
+      ? `Listing: ${listing} · Photos: ${observed} — consistent`
+      : `Photos clearly show a ${observed} — listing carries no body style to compare against, but the photo read is confident`,
+    confidence: listing ? 'corroborated' : 'visible', source: 'code+model',
   });
 }
 
@@ -335,7 +297,6 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears) {
   return buildGroup({
     id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
     slots: [
-      buildVrmPlateMatchSlot(enrichedVd, coreObs),
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
@@ -445,42 +406,56 @@ function findCornerObs(coreObs, corner) {
   return (coreObs.corners || []).find(c => c?.corner === corner) || null;
 }
 
+// 06 Jun fix — SR16GOT slot/prose clash: these details name the SAME 4 states the model records
+// in `recordCoreObservations` and reasons about in prose, so the slot can never land on a verdict
+// the model itself wouldn't also write down ("appears intact" in the slot iff "appears intact"
+// in the Visible Damage Summary).
 const WHEEL_VERDICT_DETAIL = {
-  intact: 'Intact — no visible damage',
-  kerbed: 'Kerbed — rim scuffed/scraped, cosmetic',
+  'dedicated-photo-intact': 'Dedicated close-up shows the wheel intact — no visible damage',
+  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but visible in the general photos and appears intact — confirm on inspection',
   damaged: 'Damaged — visible deformation, cracking or buckling',
-  'not-shown': 'Not shown in the photo set — confirm on inspection',
+  'genuinely-not-visible': 'Not visible in any photo — confirm on inspection',
 };
 const TYRE_VERDICT_DETAIL = {
-  intact: 'Intact — no visible damage',
+  'dedicated-photo-intact': 'Dedicated close-up shows the tyre intact — no visible damage',
+  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but visible in the general photos and appears intact — confirm on inspection',
   damaged: 'Damaged — visible cuts, bulges or abnormal wear',
-  destroyed: 'Destroyed — shredded, deflated or unusable',
-  'not-shown': 'Not shown in the photo set — confirm on inspection',
+  'genuinely-not-visible': 'Not visible in any photo — confirm on inspection',
+};
+const CORNER_VERDICT_CONFIDENCE = {
+  'dedicated-photo-intact': 'visible',
+  'no-dedicated-shot-but-appears-intact': 'inferred',
+  damaged: 'visible',
+  'genuinely-not-visible': 'hidden',
+};
+// Flag wording is keyed off WHICH gap the model reported — "looks fine but no dedicated shot"
+// reads very differently to a buyer than "we can't see this corner at all", and the verdict
+// (the model's own observation, not a derived visibility flag) is what decides which is true.
+const CORNER_FLAG_WHATSAPP = {
+  'no-dedicated-shot-but-appears-intact': corner => `Get a close-up of the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre — they look fine in the wider shots but there's no dedicated photo to confirm`,
+  'genuinely-not-visible': corner => `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not visible anywhere in the current photo set`,
 };
 
 function buildWheelSlot(corner, cornerObs) {
-  const visible = Boolean(cornerObs?.wheelVisible);
-  const verdict = visible ? (cornerObs.wheelVerdict || 'not-shown') : 'not-shown';
+  const verdict = cornerObs?.wheelVerdict || 'genuinely-not-visible';
+  const flagWhatsapp = CORNER_FLAG_WHATSAPP[verdict];
   return buildSlot({
     id: wheelSlotId(corner), label: `${CORNER_LABELS[corner]} wheel`,
     kind: 'wheel', verdict,
-    detail: WHEEL_VERDICT_DETAIL[verdict] || WHEEL_VERDICT_DETAIL['not-shown'],
-    confidence: verdict === 'not-shown' ? 'hidden' : 'visible',
+    detail: WHEEL_VERDICT_DETAIL[verdict] || WHEEL_VERDICT_DETAIL['genuinely-not-visible'],
+    confidence: CORNER_VERDICT_CONFIDENCE[verdict] || 'hidden',
     source: 'model',
-    flag: verdict === 'not-shown'
-      ? { severity: 'info', whatsapp: `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not shown in the current photo set`, tier: 1 }
-      : null,
+    flag: flagWhatsapp ? { severity: 'info', whatsapp: flagWhatsapp(corner), tier: 1 } : null,
   });
 }
 
 function buildTyreSlot(corner, cornerObs) {
-  const visible = Boolean(cornerObs?.tyreVisible);
-  const verdict = visible ? (cornerObs.tyreVerdict || 'not-shown') : 'not-shown';
+  const verdict = cornerObs?.tyreVerdict || 'genuinely-not-visible';
   return buildSlot({
     id: tyreSlotId(corner), label: `${CORNER_LABELS[corner]} tyre`,
     kind: 'tyre', verdict,
-    detail: TYRE_VERDICT_DETAIL[verdict] || TYRE_VERDICT_DETAIL['not-shown'],
-    confidence: verdict === 'not-shown' ? 'hidden' : 'visible',
+    detail: TYRE_VERDICT_DETAIL[verdict] || TYRE_VERDICT_DETAIL['genuinely-not-visible'],
+    confidence: CORNER_VERDICT_CONFIDENCE[verdict] || 'hidden',
     source: 'model',
     // No flag here — the wheel slot for the same corner already raises the "photograph this
     // corner" question; duplicating it per-tyre would double the WhatsApp item for one gap.
@@ -1469,41 +1444,38 @@ export async function GET(request) {
             },
             required: ['visible', 'suffixLetter'],
           },
-          plate: {
-            type: 'object',
-            description: 'The vehicle registration plate as it appears in the photos (for the VRM/plate-match check).',
-            properties: {
-              visible: { type: 'boolean' },
-              textRead: { type: 'string', description: 'Registration exactly as read from the plate photo, uppercase, no spaces. Empty string if no plate photo is legible.' },
-            },
-            required: ['visible', 'textRead'],
-          },
           bodyStyle: {
             type: 'object',
-            description: 'Body style / door count exactly as the photos show — the 3-door vs 5-door check that has wandered before.',
+            description: 'Body style / door count — record your CONFIRMED determination here, identical to what you will state when you open your Visible Damage Summary (e.g. "3-door Coupe (confirmed)"). This is not a preliminary guess to be refined later in prose; if you are confident enough to state it as confirmed in your summary, record that same confident read here. The two must match — this field and your prose are answering the same question.',
             properties: {
-              observed: { type: 'string', description: 'Best description from the photos, e.g. "5-door hatchback", "3-door hatchback", "saloon", "estate".' },
-              doorCountVisible: { type: 'boolean', description: 'True only if door count is confidently determinable from the photo set.' },
+              observed: { type: 'string', description: 'Your confirmed read, e.g. "3-door Coupe", "5-door Hatchback", "Saloon", "Estate" — the exact form you will also use in your Visible Damage Summary.' },
+              doorCountVisible: { type: 'boolean', description: 'True if door count is confidently determinable from the photo set (profile angle, glass line, handle/hinge positions) — even without a dedicated straight-on shot of every door.' },
             },
             required: ['observed', 'doorCountVisible'],
           },
           corners: {
             type: 'array',
-            description: 'Per-corner wheel AND tyre verdicts. EVERY corner gets exactly one entry — forced, no omissions. If a corner is incomplete or missing from the photo set, record wheelVerdict/tyreVerdict as "not-shown" — that is information ("Copart did not show this corner — check on inspection"), never a guess.',
+            description: 'Per-corner wheel AND tyre verdicts — your actual, considered read for each corner, identical to what you would say describing these corners in prose. EVERY corner gets exactly one entry — forced, no omissions. A general/wide shot that clearly shows a corner is real evidence: "no dedicated close-up" is NOT the same as "not seen" — record what you actually observed, not the strictest possible reading of it.',
             items: {
               type: 'object',
               properties: {
                 corner: { type: 'string', enum: ['front-left', 'front-right', 'rear-left', 'rear-right'] },
-                wheelVisible: { type: 'boolean' },
-                wheelVerdict: { type: 'string', enum: ['intact', 'kerbed', 'damaged', 'not-shown'] },
-                tyreVisible: { type: 'boolean' },
-                tyreVerdict: { type: 'string', enum: ['intact', 'damaged', 'destroyed', 'not-shown'] },
+                wheelVerdict: {
+                  type: 'string',
+                  enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
+                  description: '"dedicated-photo-intact" = a close-up of THIS wheel shows no damage. "no-dedicated-shot-but-appears-intact" = no close-up exists, but the wheel is visible in a wider/general shot and shows no damage — use this rather than defaulting to "not visible" just because there is no dedicated angle. "damaged" = visible deformation, cracking, buckling or scuffing in any shot. "genuinely-not-visible" = this corner does not appear in any photo at all, close-up or general.',
+                },
+                tyreVerdict: {
+                  type: 'string',
+                  enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
+                  description: 'Same four states as wheelVerdict, applied to the tyre at this corner: "dedicated-photo-intact" (close-up shows no damage), "no-dedicated-shot-but-appears-intact" (visible generally, looks fine, no close-up), "damaged" (visible cuts, bulges, abnormal wear or deflation), "genuinely-not-visible" (absent from every photo).',
+                },
               },
-              required: ['corner', 'wheelVisible', 'wheelVerdict', 'tyreVisible', 'tyreVerdict'],
+              required: ['corner', 'wheelVerdict', 'tyreVerdict'],
             },
           },
         },
-        required: ['windscreenSticker', 'plate', 'bodyStyle', 'corners'],
+        required: ['windscreenSticker', 'bodyStyle', 'corners'],
       },
     };
 
@@ -1595,23 +1567,17 @@ export async function GET(request) {
                 visible:      Boolean(input.windscreenSticker?.visible),
                 suffixLetter: input.windscreenSticker?.suffixLetter || 'UNREADABLE',
               },
-              plate: {
-                visible:  Boolean(input.plate?.visible),
-                textRead: String(input.plate?.textRead || '').toUpperCase().replace(/\s+/g, ''),
-              },
               bodyStyle: {
                 observed:         input.bodyStyle?.observed || '',
                 doorCountVisible: Boolean(input.bodyStyle?.doorCountVisible),
               },
               corners: Array.isArray(input.corners) ? input.corners.map(c => ({
-                corner:        c?.corner,
-                wheelVisible:  Boolean(c?.wheelVisible),
-                wheelVerdict:  c?.wheelVerdict || 'not-shown',
-                tyreVisible:   Boolean(c?.tyreVisible),
-                tyreVerdict:   c?.tyreVerdict || 'not-shown',
+                corner:       c?.corner,
+                wheelVerdict: c?.wheelVerdict || 'genuinely-not-visible',
+                tyreVerdict:  c?.tyreVerdict || 'genuinely-not-visible',
               })) : [],
             };
-            console.log(`[CORE OBS] sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) plate="${coreObs.plate.textRead}" bodyStyle="${coreObs.bodyStyle.observed}" corners=${coreObs.corners.length}`);
+            console.log(`[CORE OBS] sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" corners=${coreObs.corners.length}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
           return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
@@ -1638,7 +1604,6 @@ export async function GET(request) {
     if (!coreObs) {
       coreObs = {
         windscreenSticker: { visible: false, suffixLetter: 'UNREADABLE' },
-        plate: { visible: false, textRead: '' },
         bodyStyle: { observed: '', doorCountVisible: false },
         corners: [],
       };

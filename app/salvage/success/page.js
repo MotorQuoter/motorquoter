@@ -74,10 +74,11 @@ function actionColor(action) {
 
 // One mapping covers every CORE slot verdict vocabulary (confirmation/damage/wheel/tyre) —
 // the "clear" word is always green, the "contradicts" word always red, anything else (the
-// honest-absence states: unconfirmed/not-visible/not-shown/kerbed) sits in amber.
+// honest-absence/info states: unconfirmed/not-visible/genuinely-not-visible/
+// no-dedicated-shot-but-appears-intact) sits in amber.
 function slotVerdictColor(verdict) {
-  if (verdict === 'confirmed' || verdict === 'undamaged' || verdict === 'intact') return '#4ade80';
-  if (verdict === 'discrepancy' || verdict === 'damaged' || verdict === 'destroyed') return '#f87171';
+  if (verdict === 'confirmed' || verdict === 'undamaged' || verdict === 'dedicated-photo-intact') return '#4ade80';
+  if (verdict === 'discrepancy' || verdict === 'damaged') return '#f87171';
   return '#f5c842';
 }
 

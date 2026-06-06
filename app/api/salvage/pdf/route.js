@@ -320,8 +320,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.text(group.label.toUpperCase(), MARGIN, y);
       y += 4;
       for (const slot of shown) {
-        const c = (slot.verdict === 'confirmed' || slot.verdict === 'undamaged' || slot.verdict === 'intact') ? [0, 130, 0]
-          : (slot.verdict === 'discrepancy' || slot.verdict === 'damaged' || slot.verdict === 'destroyed') ? [180, 0, 0]
+        const c = (slot.verdict === 'confirmed' || slot.verdict === 'undamaged' || slot.verdict === 'dedicated-photo-intact') ? [0, 130, 0]
+          : (slot.verdict === 'discrepancy' || slot.verdict === 'damaged') ? [180, 0, 0]
           : [180, 80, 0];
         const lines = doc.splitTextToSize(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4);
         checkPage(4 * lines.length + 1);
