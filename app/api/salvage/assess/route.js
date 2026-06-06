@@ -410,17 +410,25 @@ function findCornerObs(coreObs, corner) {
 // in `recordCoreObservations` and reasons about in prose, so the slot can never land on a verdict
 // the model itself wouldn't also write down ("appears intact" in the slot iff "appears intact"
 // in the Visible Damage Summary).
+//
+// 06 Jun follow-up (BL75JAU false reassurance): a shredded rear tyre, glimpsed only
+// incidentally in a general shot, was recorded "appears intact" — a positive claim made on
+// a view too weak to support it. Absence of visible damage in a poor/incidental view is NOT
+// evidence the thing is fine. The schema descriptions below now require a genuinely
+// assessable view to claim "appears intact"; anything weaker — partial, obscured, too small
+// to judge — must land on "genuinely-not-visible" (the can't-confirm state). Detail/flag
+// wording for that state is phrased to cover both "absent" and "seen but not clearly enough".
 const WHEEL_VERDICT_DETAIL = {
   'dedicated-photo-intact': 'Dedicated close-up shows the wheel intact — no visible damage',
-  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but visible in the general photos and appears intact — confirm on inspection',
+  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but clearly visible and assessable in the general photos, and appears intact — confirm on inspection',
   damaged: 'Damaged — visible deformation, cracking or buckling',
-  'genuinely-not-visible': 'Not visible in any photo — confirm on inspection',
+  'genuinely-not-visible': 'Not clearly visible — confirm on inspection',
 };
 const TYRE_VERDICT_DETAIL = {
   'dedicated-photo-intact': 'Dedicated close-up shows the tyre intact — no visible damage',
-  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but visible in the general photos and appears intact — confirm on inspection',
+  'no-dedicated-shot-but-appears-intact': 'No dedicated close-up, but clearly visible and assessable in the general photos, and appears intact — confirm on inspection',
   damaged: 'Damaged — visible cuts, bulges or abnormal wear',
-  'genuinely-not-visible': 'Not visible in any photo — confirm on inspection',
+  'genuinely-not-visible': 'Not clearly visible — confirm on inspection',
 };
 const CORNER_VERDICT_CONFIDENCE = {
   'dedicated-photo-intact': 'visible',
@@ -433,7 +441,7 @@ const CORNER_VERDICT_CONFIDENCE = {
 // (the model's own observation, not a derived visibility flag) is what decides which is true.
 const CORNER_FLAG_WHATSAPP = {
   'no-dedicated-shot-but-appears-intact': corner => `Get a close-up of the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre — they look fine in the wider shots but there's no dedicated photo to confirm`,
-  'genuinely-not-visible': corner => `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not visible anywhere in the current photo set`,
+  'genuinely-not-visible': corner => `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not clearly visible enough to confirm in the current photo set`,
 };
 
 function buildWheelSlot(corner, cornerObs) {
@@ -1465,12 +1473,12 @@ export async function GET(request) {
                 wheelVerdict: {
                   type: 'string',
                   enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
-                  description: '"dedicated-photo-intact" = a close-up of THIS wheel shows no damage. "no-dedicated-shot-but-appears-intact" = no close-up exists, but the wheel is visible in a wider/general shot and shows no damage — use this rather than defaulting to "not visible" just because there is no dedicated angle. "damaged" = visible deformation, cracking, buckling or scuffing in any shot. "genuinely-not-visible" = this corner does not appear in any photo at all, close-up or general.',
+                  description: '"dedicated-photo-intact" = a close-up of THIS wheel shows no damage. "no-dedicated-shot-but-appears-intact" = no close-up exists, but THIS wheel is clearly and fully visible in a wider/general shot — large enough, unobscured, genuinely judgeable — and shows no damage. This requires an actual considered look at the wheel itself, not a glimpse of the corner in a busy shot; do not use it for a corner that merely appears somewhere in frame. "damaged" = visible deformation, cracking, buckling or scuffing in any shot, dedicated or general. "genuinely-not-visible" = you cannot make a real assessment of this wheel — whether because the corner is absent from every photo, or only appears incidentally/partially/obscured/too small to actually judge. A weak or partial view is NOT evidence the wheel is fine: if you could not honestly say "I had a good enough look and it is intact", this is the correct verdict — never claim "appears intact" on a view you cannot really assess.',
                 },
                 tyreVerdict: {
                   type: 'string',
                   enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
-                  description: 'Same four states as wheelVerdict, applied to the tyre at this corner: "dedicated-photo-intact" (close-up shows no damage), "no-dedicated-shot-but-appears-intact" (visible generally, looks fine, no close-up), "damaged" (visible cuts, bulges, abnormal wear or deflation), "genuinely-not-visible" (absent from every photo).',
+                  description: 'Same four states and the same bar as wheelVerdict, applied to the tyre at this corner. "no-dedicated-shot-but-appears-intact" requires a clear, fully judgeable general-shot view of THIS tyre — large enough, unobscured, a real look, not an incidental glimpse — showing no cuts, bulges, deflation or abnormal wear. "damaged" = visible cuts, bulges, abnormal wear or deflation in any shot, dedicated or general. "genuinely-not-visible" = you cannot make a real call on this tyre — absent from every photo, or only seen incidentally/partially/obscured/too small to judge. Claiming a tyre "appears intact" on a view you cannot properly assess is false reassurance — worse than admitting you cannot confirm it. When in doubt about whether your view was good enough, it was not: use "genuinely-not-visible".',
                 },
               },
               required: ['corner', 'wheelVerdict', 'tyreVerdict'],
