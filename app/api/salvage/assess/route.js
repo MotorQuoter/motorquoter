@@ -1445,11 +1445,11 @@ export async function GET(request) {
             type: 'object',
             description: 'The Copart lot-number sticker on the windscreen. Read the LAST CHARACTER only (the vendor-type suffix letter) directly off the photo — do not use any printed lot number from the listing text, only what the sticker photo shows.',
             properties: {
-              visible: { type: 'boolean', description: 'True only if the sticker is visible AND the suffix letter is confidently legible in at least one photo.' },
+              visible: { type: 'boolean', description: 'True if the sticker is visible in at least one photo and you can read the suffix letter from it. Do not default to false just because a dedicated close-up is absent — if the letter is readable in any shot, this is true.' },
               suffixLetter: {
                 type: 'string',
                 enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'],
-                description: 'The last character of the lot number on the windscreen sticker. OTHER = a legible letter outside X/P/C/Q. UNREADABLE = sticker not visible, out of frame, or the character cannot be confidently read.',
+                description: 'The last character of the lot number on the windscreen sticker. OTHER = a legible letter outside X/P/C/Q. UNREADABLE is a genuine last resort — use it only when the sticker is absent from every photo or the character is truly illegible; if you can read a letter, even without a close-up, report it.',
               },
             },
             required: ['visible', 'suffixLetter'],
@@ -1458,7 +1458,7 @@ export async function GET(request) {
             type: 'object',
             description: 'Body style / door count — record your CONFIRMED determination here, identical to what you will state when you open your Visible Damage Summary (e.g. "3-door Coupe (confirmed)"). This is not a preliminary guess to be refined later in prose; if you are confident enough to state it as confirmed in your summary, record that same confident read here. The two must match — this field and your prose are answering the same question.',
             properties: {
-              observed: { type: 'string', description: 'Your confirmed read, e.g. "3-door Coupe", "5-door Hatchback", "Saloon", "Estate" — the exact form you will also use in your Visible Damage Summary.' },
+              observed: { type: 'string', description: 'Your confirmed read, e.g. "3-door Coupe", "5-door Hatchback", "Saloon", "Estate" — the exact form you will also use in your Visible Damage Summary. Do NOT leave this empty — if the car is visible in the photos at all, you can state a body style. Give your best read from the photos; an empty string is always wrong.' },
               doorCountVisible: { type: 'boolean', description: 'True if door count is confidently determinable from the photo set (profile angle, glass line, handle/hinge positions) — even without a dedicated straight-on shot of every door.' },
             },
             required: ['observed', 'doorCountVisible'],
@@ -1723,6 +1723,34 @@ export async function GET(request) {
       console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
     } else if (auctionSource === 'copart') {
       console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
+    }
+
+    // Prose fallback — recover body-style and suffix from parsed prose when the tool call
+    // answered conservative/empty while the prose reached the correct conclusion. This is a
+    // TACTICAL backstop for within-assessment tool-call/prose divergence (the two are separate
+    // model passes and can disagree nondeterministically). Fires with WARN so divergences are
+    // visible in logs. Must run before assembleCoreSlots so recovered values feed slot assembly.
+    if (!coreObs.bodyStyle.observed) {
+      const vds = assessment['Visible Damage Summary'] || assessment._raw || '';
+      const m = vds.match(/(?:confirmed\s+body\s+style|body\s+style)[:\s\-]+([^\n.(]+)/i);
+      if (m) {
+        const recovered = m[1].replace(/\s*\(confirmed\)/i, '').trim();
+        if (recovered) {
+          console.warn(`[CORE OBS FALLBACK] body-style recovered from prose: "${recovered}" (tool call was empty)`);
+          coreObs.bodyStyle.observed = recovered;
+          coreObs.bodyStyle.doorCountVisible = /\d\s*-?\s*door/i.test(recovered);
+        }
+      }
+    }
+    if (coreObs.windscreenSticker.suffixLetter === 'UNREADABLE' || !coreObs.windscreenSticker.visible) {
+      const raw = assessment._raw || '';
+      const m = raw.match(/\bsuffix(?:\s+letter)?[^A-Z\n]*\b([XPCQ])\b/i);
+      if (m) {
+        const letter = m[1].toUpperCase();
+        console.warn(`[CORE OBS FALLBACK] suffix letter recovered from prose: "${letter}" (tool call was UNREADABLE/not-visible)`);
+        coreObs.windscreenSticker.suffixLetter = letter;
+        coreObs.windscreenSticker.visible = true;
+      }
     }
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
