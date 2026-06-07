@@ -369,6 +369,10 @@ Do not describe engine displacement, subframe disturbance, mount damage, or mech
 UK Hail Damage — Do Not Flag Unless Unambiguous
 Hail events of sufficient magnitude to cause panel damage are extremely rare in the UK. Do not introduce hail as a damage category unless large-scale panel dimpling is explicitly described in the listing or is unambiguously visible across multiple panels in the photos. Small circular marks on bodywork are more likely stone chips, parking damage, or photo artefacts. Never call hail damage without clear photographic evidence. Source: LP24YTE BMW 218i — Session 25 May 2026.
 
+Copart Key Cable Tie — Do Not Interpret as Windscreen Crack
+Copart routinely secure the keys to the rear-view mirror with a long cable tie, which can appear as a thin line across the windscreen in auction photos. Do NOT interpret a thin line or cable running from the rear-view mirror area as a windscreen crack. Only call windscreen crack/damage when there is a clear glass fracture not attributable to the key cable tie.
+Source: SR16GOT — phantom windscreen crack from Copart key cable tie — Session 07 Jun 2026.
+
 Heat / Scorch Damage — Recognition Cues, Do Not Misread as a Cosmetic Scrape
 Radiant-heat scorching presents very differently from mechanical surface damage (scrapes, scuffs, kerb rash) — the two are easily conflated and must not be. Recognition cues for HEAT/SCORCH damage: a graduated brown/tan/amber discolouration that fades outward from a source (mechanical scrapes are sharp-edged and uniform, not a gradient); blistering, bubbling, or raised texture in paint or trim (thermal degradation of the substrate, not surface removal); and distorted, warped, melted, or sagging cladding/trim/plastic mouldings (plastics deform under heat, never under a scrape). If any of these cues are present, describe the damage as heat/scorch damage — never as a scrape, scuff, or cosmetic mark.
 When the Copart damage descriptor includes 'Burn' (or 'Fire') AND the photos show any of the cues above, this is CONFIRMED heat damage — treat the descriptor as corroborated by the photos, not as yard-staff exaggeration to downgrade toward a milder cosmetic read. Apply the fire-damage surface-deceptive discipline here: the visible scorch is the tip of an unquantifiable problem — depth of heat penetration, substrate condition, and wiring/connector condition behind the visible panel are all unknowable from a photo. State explicitly that this is surface-deceptive, NOT a cosmetic refinish, and cost/flag it accordingly as an unscopeable risk, not a paint-and-polish line item.
@@ -380,6 +384,10 @@ On stolen-recovered lots, Missing/Altered VIN is a routine secondary damage desc
 
 Do Not Describe Physical Damage or Components from Listing Text Alone — Photos Only
 Never describe visible damage, visible components, or physical conditions that are not confirmed in the photos. If the listing mentions an item (tracker device, damage descriptor, equipment) but no photo confirms it, state explicitly that it is declared in the listing but not visible in the available photos. Never present listing-text inference as visual observation. A trickle of wash water on a panel is not a crease or scuff — apply fluid-on-ground discipline to all panel surfaces, not just fluid under the vehicle. Source: BC23EGJ Mercedes A35 — Session 25 May 2026.
+
+Cost What Is Visible — Do Not Fabricate Damage or Force a Single-Impact Narrative
+Describe and cost ONLY damage actually visible in the photos. Do NOT infer or add damaged components because a damage pattern 'usually' includes them — for example, do not add headlamp damage just because there is front-end damage, or call a bumper 'replace' when only a crack is visible. If the front is intact apart from a bumper crack, cost only the bumper crack. Where damage appears in separate, unconnected areas, describe each area independently — do not force them into a single-impact story. Cost what you see; flag what is uncertain for inspection; invent nothing.
+Source: WG72ULF — invented headlamp, forced single-collision narrative over distributed separate-area damage — Session 07 Jun 2026.
 
 Category X — Stolen/Recovered Minimal Damage — Official Copart Definition
 [SUPERSEDED — see Category X in the Salvage Category Handling section above.]
