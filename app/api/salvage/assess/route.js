@@ -1425,69 +1425,9 @@ export async function GET(request) {
       ...imageBlocks,
       {
         type: 'text',
-        text: `Please assess this vehicle for auction bidding purposes.\n\nVehicle Details:\n${contextLines}\n\nAnalyse all provided photos and give a complete assessment using the required output format. After the Margin Calculation field, include a "WhatsApp Inspection Checklist:" section with at minimum 5 specific items tailored to this vehicle's damage profile, selected and expanded from the standard checklist items in your knowledge base.`,
+        text: `Please assess this vehicle for auction bidding purposes.\n\nVehicle Details:\n${contextLines}\n\nAnalyse all provided photos and give a complete assessment using the required output format. After the Margin Calculation field, include a "WhatsApp Inspection Checklist:" section with at minimum 5 specific items tailored to this vehicle's damage profile, selected and expanded from the standard checklist items in your knowledge base. When describing wheel or tyre damage in the Visible Damage Summary, if the affected corner cannot be confidently identified from the photos, hedge the description (e.g. "one or both front tyres" or "front tyre — corner uncertain") rather than asserting a specific corner with false confidence.`,
       },
     ];
-
-    // Forced-structured-observation tool for the CORE slot engine — fires on EVERY lot
-    // (unlike recordLampObservation, which is conditional on frontStruck). Generalises the
-    // same "forced tool call before prose" pattern: the model reports exactly what it sees;
-    // code owns what those observations MEAN (suffix→vendor-type mapping, per-corner verdict
-    // assembly, all-clear grouping). Anti-guessing spine applies — not-shown/unreadable are
-    // forced, honest answers, never papered over with an inferred guess.
-    const CORE_OBSERVATION_TOOL = {
-      name: 'recordCoreObservations',
-      description: 'Call exactly once, before writing your assessment, on EVERY lot — this is mandatory regardless of damage type. Record your direct visual observations for the CORE checklist; the engine derives forced verdicts from these plus code-side data, so do not restate them as prose elsewhere. Report exactly what the photos show. If something is not visible, not shown, or not legible, say so explicitly — never guess or infer to fill a gap.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          windscreenSticker: {
-            type: 'object',
-            description: 'The Copart lot-number sticker on the windscreen. Read the LAST CHARACTER only (the vendor-type suffix letter) directly off the photo — do not use any printed lot number from the listing text, only what the sticker photo shows.',
-            properties: {
-              visible: { type: 'boolean', description: 'True if the sticker is visible in at least one photo and you can read the suffix letter from it. Do not default to false just because a dedicated close-up is absent — if the letter is readable in any shot, this is true.' },
-              suffixLetter: {
-                type: 'string',
-                enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'],
-                description: 'The last character of the lot number on the windscreen sticker. OTHER = a legible letter outside X/P/C/Q. UNREADABLE is a genuine last resort — use it only when the sticker is absent from every photo or the character is truly illegible; if you can read a letter, even without a close-up, report it.',
-              },
-            },
-            required: ['visible', 'suffixLetter'],
-          },
-          bodyStyle: {
-            type: 'object',
-            description: 'Body style / door count — record your CONFIRMED determination here, identical to what you will state when you open your Visible Damage Summary (e.g. "3-door Coupe (confirmed)"). This is not a preliminary guess to be refined later in prose; if you are confident enough to state it as confirmed in your summary, record that same confident read here. The two must match — this field and your prose are answering the same question.',
-            properties: {
-              observed: { type: 'string', description: 'Your confirmed read, e.g. "3-door Coupe", "5-door Hatchback", "Saloon", "Estate" — the exact form you will also use in your Visible Damage Summary. Do NOT leave this empty — if the car is visible in the photos at all, you can state a body style. Give your best read from the photos; an empty string is always wrong.' },
-              doorCountVisible: { type: 'boolean', description: 'True if door count is confidently determinable from the photo set (profile angle, glass line, handle/hinge positions) — even without a dedicated straight-on shot of every door.' },
-            },
-            required: ['observed', 'doorCountVisible'],
-          },
-          corners: {
-            type: 'array',
-            description: 'Per-corner wheel AND tyre verdicts — your actual, considered read for each corner, identical to what you would say describing these corners in prose. EVERY corner gets exactly one entry — forced, no omissions. A general/wide shot that clearly shows a corner is real evidence: "no dedicated close-up" is NOT the same as "not seen" — record what you actually observed, not the strictest possible reading of it. INDEPENDENT INSPECTION REQUIRED: before assigning each verdict, scan the full photo set specifically for that corner — do not carry over a general impression from the primary damage area. The fact that primary damage is at the front does NOT mean rear corners are undamaged; a "minor" or "secondary" damage descriptor does NOT mean the wheels and tyres at that corner are fine. Every corner must be assessed on its own evidence from the photos, regardless of where the headline damage is. CONSISTENCY RULE: if you described damage to a wheel or tyre at a given corner anywhere in your prose, the verdict for that corner MUST be "damaged" — verdicts and prose must agree.',
-            items: {
-              type: 'object',
-              properties: {
-                corner: { type: 'string', enum: ['front-left', 'front-right', 'rear-left', 'rear-right'] },
-                wheelVerdict: {
-                  type: 'string',
-                  enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
-                  description: '"dedicated-photo-intact" = a close-up of THIS wheel shows no damage. "no-dedicated-shot-but-appears-intact" = no close-up, but THIS wheel is clearly and fully visible in a wider/general shot — large enough, unobscured, genuinely judgeable — and shows no damage; this requires a real considered look at the wheel itself, not a glimpse of a corner in a busy shot. "damaged" = visible deformation, cracking, buckling or scuffing in ANY photo — dedicated or general — even a wide shot counts: if you can see the damage, use "damaged". "genuinely-not-visible" = you truly cannot assess this wheel — corner absent from every photo, or only visible incidentally/partially/obscured/too small to spot even obvious damage. DECISION RULE (apply in order): (1) damage is visible anywhere → "damaged"; (2) wheel is clearly and fully judgeable and looks intact → appropriate intact variant; (3) genuinely cannot see it at all → "genuinely-not-visible". "genuinely-not-visible" is NOT a safe default — do not use it when damage is visible or when the wheel is plainly clear and intact.',
-                },
-                tyreVerdict: {
-                  type: 'string',
-                  enum: ['dedicated-photo-intact', 'no-dedicated-shot-but-appears-intact', 'damaged', 'genuinely-not-visible'],
-                  description: 'Same four states and the same logic as wheelVerdict, applied to the tyre at this corner. "no-dedicated-shot-but-appears-intact" requires a clear, fully judgeable general-shot view of THIS tyre — large enough, unobscured, a real look, not an incidental glimpse — showing no cuts, bulges, deflation or abnormal wear. "damaged" = visible cuts, bulges, abnormal wear, deflation, shredding or any obvious tyre damage in ANY photo — dedicated or general — if you can see damage, use "damaged" regardless of whether a close-up exists. "genuinely-not-visible" = you truly cannot assess this tyre — absent from every photo, or only seen incidentally in a way that would not reveal even obvious damage. DECISION RULE (apply in order): (1) damage is visible in any photo → "damaged"; (2) tyre is clearly and fully assessable and looks intact → appropriate intact variant; (3) genuinely cannot assess it at all → "genuinely-not-visible". "genuinely-not-visible" is NOT a safe default — do not use it when tyre damage is visible, or when the tyre is clearly intact.',
-                },
-              },
-              required: ['corner', 'wheelVerdict', 'tyreVerdict'],
-            },
-          },
-        },
-        required: ['windscreenSticker', 'bodyStyle', 'corners'],
-      },
-    };
 
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
@@ -1519,11 +1459,9 @@ export async function GET(request) {
     // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
 
-    // recordCoreObservations is ALWAYS available — CORE fires on every lot. recordLampObservation
-    // joins it only on front-struck lots. Both are forced-structured-observation tools the model
-    // must satisfy before writing prose; a tool-use loop (rather than a single fixed round) lets
-    // the model call them together or across separate turns without losing either.
-    const claudeTools = [CORE_OBSERVATION_TOOL, ...(frontStruck ? [LAMP_OBS_TOOL] : [])];
+    // Call 1 tools: lamp detection only for front-struck lots. recordCoreObservations removed —
+    // structured extraction moves to Call 2 (Haiku, post-prose, forced tool_choice).
+    const claudeTools = frontStruck ? [LAMP_OBS_TOOL] : [];
     const messages = [{ role: 'user', content: userContent }];
     let lampObs = null;
     let coreObs = null;
@@ -1537,7 +1475,7 @@ export async function GET(request) {
         max_tokens: 8000,
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
-        ...(withTools ? { tools: claudeTools } : {}),
+        ...(withTools && claudeTools.length > 0 ? { tools: claudeTools } : {}),
       }),
     }).then(res => res.json().then(data => ({ res, data })));
 
@@ -1570,26 +1508,6 @@ export async function GET(request) {
             console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
-          if (block.name === 'recordCoreObservations') {
-            const input = block.input || {};
-            coreObs = {
-              windscreenSticker: {
-                visible:      Boolean(input.windscreenSticker?.visible),
-                suffixLetter: input.windscreenSticker?.suffixLetter || 'UNREADABLE',
-              },
-              bodyStyle: {
-                observed:         input.bodyStyle?.observed || '',
-                doorCountVisible: Boolean(input.bodyStyle?.doorCountVisible),
-              },
-              corners: Array.isArray(input.corners) ? input.corners.map(c => ({
-                corner:       c?.corner,
-                wheelVerdict: c?.wheelVerdict || 'genuinely-not-visible',
-                tyreVerdict:  c?.tyreVerdict || 'genuinely-not-visible',
-              })) : [],
-            };
-            console.log(`[CORE OBS] sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" corners=${coreObs.corners.length}`);
-            return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
-          }
           return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
         });
 
@@ -1608,16 +1526,84 @@ export async function GET(request) {
       rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
     }
 
-    // Guarantee CORE observations for every lot regardless of tool co-operation — CORE fires
-    // on every lot, so a missing tool call still needs an honest "not observed" baseline.
-    // Mirrors the lampObs floor-default pattern: never silently omit, always state what's known.
+    // Call 2 — Haiku structured extraction from committed prose
+    // Text-only (no images re-sent), forced tool_choice. Extracts windscreenSticker + bodyStyle
+    // from the prose Call 1 just produced. Structurally decoupled: slots derive from prose
+    // conclusions, cannot diverge from what the model actually wrote.
+    const CORE_EXTRACTION_TOOL = {
+      name: 'recordCoreObservations',
+      description: 'Extract windscreen sticker suffix letter and body style from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          windscreenSticker: {
+            type: 'object',
+            properties: {
+              visible: { type: 'boolean' },
+              suffixLetter: { type: 'string', enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'] },
+            },
+            required: ['visible', 'suffixLetter'],
+          },
+          bodyStyle: {
+            type: 'object',
+            properties: {
+              observed: { type: 'string' },
+              doorCountVisible: { type: 'boolean' },
+            },
+            required: ['observed', 'doorCountVisible'],
+          },
+        },
+        required: ['windscreenSticker', 'bodyStyle'],
+      },
+    };
+
+    const call2Start = Date.now();
+    const call2Response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 512,
+        tools: [CORE_EXTRACTION_TOOL],
+        tool_choice: { type: 'tool', name: 'recordCoreObservations' },
+        messages: [{
+          role: 'user',
+          content: `Extract the windscreen sticker suffix letter and body style from this vehicle assessment. Report only what the text explicitly states.\n\n${rawText}`,
+        }],
+      }),
+    });
+    const call2Data = await call2Response.json();
+    const call2Latency = Date.now() - call2Start;
+
+    const call2ToolBlock = (call2Data.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
+    if (call2ToolBlock?.input) {
+      const inp = call2ToolBlock.input;
+      coreObs = {
+        windscreenSticker: {
+          visible:      Boolean(inp.windscreenSticker?.visible),
+          suffixLetter: inp.windscreenSticker?.suffixLetter || 'UNREADABLE',
+        },
+        bodyStyle: {
+          observed:         inp.bodyStyle?.observed || '',
+          doorCountVisible: Boolean(inp.bodyStyle?.doorCountVisible),
+        },
+        corners: [],
+      };
+      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}"`);
+      console.log(`[CALL2] tokens input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens}`);
+    } else {
+      console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
+      // coreObs floor default fires below
+    }
+
+    // Guarantee CORE observations — floor defaults if Call 2 failed to return a tool block.
     if (!coreObs) {
       coreObs = {
         windscreenSticker: { visible: false, suffixLetter: 'UNREADABLE' },
         bodyStyle: { observed: '', doorCountVisible: false },
         corners: [],
       };
-      console.log('[CORE OBS] no tool call recorded on this lot — honest-absence floor defaults applied');
+      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied');
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
@@ -1661,19 +1647,16 @@ export async function GET(request) {
       }
     }
 
-    // Append "inspect all four wheels/tyres" item when ANY corner is unconfirmed.
-    // Confirmed states: "dedicated-photo-intact" and "damaged" (condition is actually known).
-    // Unconfirmed: "no-dedicated-shot-but-appears-intact" and "genuinely-not-visible".
-    // A dedicated shot on one corner does NOT clear the rest — test per corner, not per lot.
-    const hasUnconfirmedCorner = (coreObs.corners || []).some(
-      c => ['no-dedicated-shot-but-appears-intact', 'genuinely-not-visible'].includes(c.wheelVerdict) ||
-           ['no-dedicated-shot-but-appears-intact', 'genuinely-not-visible'].includes(c.tyreVerdict)
-    );
-    if (hasUnconfirmedCorner) {
+    // Wheel net fires unconditionally — Copart no longer provide dedicated wheel close-ups.
+    // All 4 corners default to genuinely-not-visible in slot assembly; the item always applies.
+    console.log(`[WHEEL NET] unconditional — appending to checklist. checklistLen=${(assessment['WhatsApp Inspection Checklist']||'').length}`);
+    {
       const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
       if (existing) {
         const itemCount = (existing.match(/^\d+[.)]/mg) || []).length;
         assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)`;
+      } else {
+        console.warn('[WHEEL NET] checklist section empty — item not appended; model may have used a non-standard section header');
       }
     }
 
@@ -1723,34 +1706,6 @@ export async function GET(request) {
       console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
     } else if (auctionSource === 'copart') {
       console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
-    }
-
-    // Prose fallback — recover body-style and suffix from parsed prose when the tool call
-    // answered conservative/empty while the prose reached the correct conclusion. This is a
-    // TACTICAL backstop for within-assessment tool-call/prose divergence (the two are separate
-    // model passes and can disagree nondeterministically). Fires with WARN so divergences are
-    // visible in logs. Must run before assembleCoreSlots so recovered values feed slot assembly.
-    if (!coreObs.bodyStyle.observed) {
-      const vds = assessment['Visible Damage Summary'] || assessment._raw || '';
-      const m = vds.match(/(?:confirmed\s+body\s+style|body\s+style)[:\s\-]+([^\n.(]+)/i);
-      if (m) {
-        const recovered = m[1].replace(/\s*\(confirmed\)/i, '').trim();
-        if (recovered) {
-          console.warn(`[CORE OBS FALLBACK] body-style recovered from prose: "${recovered}" (tool call was empty)`);
-          coreObs.bodyStyle.observed = recovered;
-          coreObs.bodyStyle.doorCountVisible = /\d\s*-?\s*door/i.test(recovered);
-        }
-      }
-    }
-    if (coreObs.windscreenSticker.suffixLetter === 'UNREADABLE' || !coreObs.windscreenSticker.visible) {
-      const raw = assessment._raw || '';
-      const m = raw.match(/\bsuffix(?:\s+letter)?[^A-Z\n]*\b([XPCQ])\b/i);
-      if (m) {
-        const letter = m[1].toUpperCase();
-        console.warn(`[CORE OBS FALLBACK] suffix letter recovered from prose: "${letter}" (tool call was UNREADABLE/not-visible)`);
-        coreObs.windscreenSticker.suffixLetter = letter;
-        coreObs.windscreenSticker.visible = true;
-      }
     }
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +

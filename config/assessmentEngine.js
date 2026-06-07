@@ -511,6 +511,15 @@ Include each implicated front headlamp as a separate line in Parts Breakdown —
 Do not write separate commentary about lamp presence, absence, or serviceability anywhere else in the report — not in Visible Damage Summary, Key Cost Drivers, Red Flags, or Checklist. Parts Breakdown lines only, nothing more.
 Source: MK15VPZ Toyota Yaris / EN66NMJ full-frontal — lamp count and insertion fix — Session 03 Jun 2026.
 
+Windscreen Sticker and Body Style — recordCoreObservations Extraction
+
+After you complete your full assessment prose, a structured extraction step reads your completed text and pulls two values: the Copart windscreen sticker suffix letter (X, P, C, Q, or OTHER), and the body style / door count. The extractor reads ONLY what your prose explicitly states — it cannot guess, infer, or read from photos.
+
+To ensure extraction succeeds:
+State the windscreen sticker suffix letter explicitly — e.g. "windscreen sticker suffix: X (Copart Insurance Write-off)" or "the sticker shows a 'P' suffix". If the sticker is not visible or the letter is illegible in any photo, say so explicitly.
+State the body style clearly in your Visible Damage Summary opening — e.g. "Confirmed body style: 5-door Hatchback" or "3-door Coupe (confirmed)". The extractor reads your confirmation statement directly; an absent or ambiguous statement produces UNCONFIRMED in the slot output.
+Source: Two-call architecture — Session 07 Jun 2026.
+
 [RETIRED — superseded by the offside/nearside ban (failed validation, MG3 EN25FHL).]
 
 DO NOT ASSIGN OFFSIDE/NEARSIDE TO DAMAGE (MANDATORY — supersedes all prior damage description side-labelling)
@@ -553,6 +562,15 @@ DROP THE ORIENTATION CHECK BLOCK:
 - Do NOT emit the "ORIENTATION CHECK" working block (end / camera position / which
   side is left / corroboration). It exists only to assign a side, which is now banned.
   Remove it from output entirely.
+
+WHEEL AND TYRE — NO CORNER SIDE LABEL:
+- At wheel and tyre level, do NOT use left/right qualifiers anywhere. "Front-left tyre",
+  "rear-right wheel", "offside-front tyre", "near-side rear wheel" — all banned.
+- Permitted forms: end of car + component ("front tyre", "rear tyre", "front wheel",
+  "rear wheel") or reference to the damaged side ("the damaged-side front wheel",
+  "the wheel at the damaged front corner", "the front tyre on the damaged side").
+- Corner-level left/right identification from auction photos fails reliably; this rule
+  removes a vector for sending an inspector to the wrong corner.
 
 Do not narrate this rule in the report.
 
