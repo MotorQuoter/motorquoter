@@ -1661,6 +1661,22 @@ export async function GET(request) {
       }
     }
 
+    // Append "inspect all four wheels/tyres" item when ANY corner is unconfirmed.
+    // Confirmed states: "dedicated-photo-intact" and "damaged" (condition is actually known).
+    // Unconfirmed: "no-dedicated-shot-but-appears-intact" and "genuinely-not-visible".
+    // A dedicated shot on one corner does NOT clear the rest — test per corner, not per lot.
+    const hasUnconfirmedCorner = (coreObs.corners || []).some(
+      c => ['no-dedicated-shot-but-appears-intact', 'genuinely-not-visible'].includes(c.wheelVerdict) ||
+           ['no-dedicated-shot-but-appears-intact', 'genuinely-not-visible'].includes(c.tyreVerdict)
+    );
+    if (hasUnconfirmedCorner) {
+      const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+      if (existing) {
+        const itemCount = (existing.match(/^\d+[.)]/mg) || []).length;
+        assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)`;
+      }
+    }
+
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
     const { parts: reconciledParts, allowanceParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
