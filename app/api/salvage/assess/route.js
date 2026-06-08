@@ -803,6 +803,15 @@ function isLampLine(name) {
 
 function reconcileParts(parts, lampResult) {
   if (!lampResult?.tier2Fired || !lampResult.lampAllowance) {
+    // Prose-authority fail-safe: on a tier-1 lot the prompt tells the model to omit
+    // the headlamp line when VDS confirms the lamp intact. Log loudly if one slips through;
+    // do NOT strip — code cannot distinguish an intact-but-orphaned line from a
+    // legitimate uncertain/cannot-confirm line without parsing prose. Prompt is primary.
+    const orphanLampIdx = parts.reduce((acc, p, i) => { if (isLampLine(p.name)) acc.push(i); return acc; }, []);
+    if (orphanLampIdx.length > 0) {
+      console.error(`[LAMP ORPHAN] ${orphanLampIdx.length} headlamp line(s) on tier-1 lot — NOT stripped (cannot distinguish intact/uncertain from prose alone). Investigate if this appears on a real lot.`);
+      // fall through — keep the line; prompt is the primary enforcement layer
+    }
     return { parts, allowanceParts: [], lamp_delta: 0, lamp_inserted: false, lamp_count: 0 };
   }
   const band      = lampResult.lampAllowance;
