@@ -284,7 +284,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     // Code arithmetic impossible — surface prose concern if present
     if (proseFlagged) {
       return buildSlot({
-        id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+        id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
         kind: 'confirmation', verdict: 'discrepancy',
         detail: 'Provenance concern flagged in assessment body (insufficient listing data for code arithmetic)',
         confidence: 'inferred', source: 'code+model',
@@ -292,7 +292,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
       });
     }
     return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      id: 'provenance-contradiction', label: '"Why is it here?" — cannot confirm',
       kind: 'confirmation', verdict: 'unconfirmed',
       detail: 'Not enough listing data (age / mileage / category) to test whether the salvage story holds together',
       confidence: 'hidden', source: 'code',
@@ -323,7 +323,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     if (qcCatSFlag)   whatsappParts.push('non-insurer vendor entry (Q/C suffix) on a Cat S structural write-off');
     if (proseFlagged) whatsappParts.push('assessment body flagged a provenance concern');
     return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
       kind: 'confirmation', verdict: 'discrepancy',
       detail: `${descriptor} — ${signals.join('; ')}`,
       confidence: proseFlagged ? 'corroborated' : 'inferred',
@@ -340,7 +340,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   if (proseNull) {
     // Call 2 failed: code found nothing but prose check unavailable — cannot confirm clear
     return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      id: 'provenance-contradiction', label: '"Why is it here?" — cannot confirm',
       kind: 'confirmation', verdict: 'unconfirmed',
       detail: 'Provenance code arithmetic found no concern, but prose faithfulness check was unavailable (Call 2 failed) — treat with caution',
       confidence: 'hidden', source: 'code',
