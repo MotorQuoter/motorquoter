@@ -105,16 +105,39 @@ function tagSelfReference(shResult, vd) {
     if (!isNaN(n)) currentMileage = n;
   }
   const curCat = catLetter(vd.category);
+  const today = new Date();
   const selfFlags = records.map((rec) => {
+    // Date is the required primary gate — a record excludes ONLY IF within 14 days AND mileage+category match.
+    // Any record older than 14 days is ALWAYS a genuine prior regardless of mileage proximity.
+    let daysDelta = null;
+    if (rec.salvage_auction_lot_date) {
+      const recDate = new Date(rec.salvage_auction_lot_date);
+      if (!isNaN(recDate.getTime())) {
+        daysDelta = Math.abs((today - recDate) / (1000 * 60 * 60 * 24));
+      } else {
+        console.warn(`[SELF-REF] Unparseable lot date "${rec.salvage_auction_lot_date}" — record counted as genuine prior`);
+      }
+    } else {
+      console.warn('[SELF-REF] No lot date on salvage record — record counted as genuine prior');
+    }
+    if (daysDelta === null || daysDelta > 14) return false; // date gate: required AND condition
+
     const mileageMatch = currentMileage != null && rec.mileage != null
-      ? Math.abs(rec.mileage - currentMileage) <= 50
-      : null;
+      ? Math.abs(rec.mileage - currentMileage) <= 100
+      : null; // mileage unavailable → cannot confirm self-reference → genuine prior
     const recCat = catLetter(rec.salvage_auction_lot_desc);
     const categoryMatch = recCat != null && curCat != null && recCat === curCat;
-    const damageMatch = vd.primaryDamage != null && rec.primary_damage_desc != null
-      && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
-    return (mileageMatch === true && categoryMatch && damageMatch) ||
-           (mileageMatch === null && categoryMatch && damageMatch);
+
+    // Damage text is corroboration only — logged but does NOT gate the decision
+    if (mileageMatch === true && categoryMatch) {
+      const damageTextCorroborates = vd.primaryDamage != null && rec.primary_damage_desc != null
+        && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
+      if (!damageTextCorroborates) {
+        console.log(`[SELF-REF] Date+mileage+category match; damage text differs — still self-reference. Listing: "${vd.primaryDamage}" / Record: "${rec.primary_damage_desc}"`);
+      }
+    }
+
+    return mileageMatch === true && categoryMatch; // date already gated above
   });
   const selfMatchCount = selfFlags.filter(Boolean).length;
   shResult.selfMatchCount = selfMatchCount;
@@ -247,14 +270,27 @@ function buildCategorySlot(enrichedVd) {
 const PROVENANCE_WARRANTY_AGE_YEARS = 3;
 const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
 
-function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears) {
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
   const currentYear = new Date().getFullYear();
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
   const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
   const cat = (enrichedVd.category || '').trim();
   const hasDamageText = Boolean((enrichedVd.primaryDamage || '').trim() || (enrichedVd.secondaryDamage || '').trim());
 
+  const proseFlagged = proseFlags?.provenanceConcernFlagged === true;
+  const proseNull    = proseFlags?.provenanceConcernFlagged === null; // Call 2 unavailable
+
   if (ageYears == null || brMileage == null || !cat) {
+    // Code arithmetic impossible — surface prose concern if present
+    if (proseFlagged) {
+      return buildSlot({
+        id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+        kind: 'confirmation', verdict: 'discrepancy',
+        detail: 'Provenance concern flagged in assessment body (insufficient listing data for code arithmetic)',
+        confidence: 'inferred', source: 'code+model',
+        flag: { severity: 'red', whatsapp: 'Assessment flagged a provenance concern — ask the handler directly why this vehicle is in salvage before bidding', tier: 1 },
+      });
+    }
     return buildSlot({
       id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
       kind: 'confirmation', verdict: 'unconfirmed',
@@ -269,30 +305,58 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   const isMinimalDamageStory = !hasDamageText || /^u\b/i.test(cat);
   const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
 
-  if (isWarrantyAge && isLowMileage && isMinimalDamageStory) {
+  // Code path A (existing): too-clean pattern — warranty age + low mileage + minimal damage
+  const codePathA = isWarrantyAge && isLowMileage && isMinimalDamageStory;
+  // Code path B (new): Q/C non-insurer entry on a structural write-off
+  const isCatS    = /^s\b/i.test(cat);
+  const qcCatSFlag = nonInsurerSuffix && isCatS;
+
+  // Conservative union: discrepancy if ANY of the three paths fires
+  if (codePathA || qcCatSFlag || proseFlagged) {
     const descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
+    const signals = [];
+    if (codePathA)    signals.push(`unusually clean for salvage (${Math.round(milesPerYear).toLocaleString('en-GB')} mi/yr at ${cat}, minimal damage described)`);
+    if (qcCatSFlag)   signals.push('non-insurer entry on a structural write-off (Q/C suffix + Cat S)');
+    if (proseFlagged) signals.push('provenance concern flagged in assessment body');
+    const whatsappParts = [];
+    if (codePathA)    whatsappParts.push(`unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described`);
+    if (qcCatSFlag)   whatsappParts.push('non-insurer vendor entry (Q/C suffix) on a Cat S structural write-off');
+    if (proseFlagged) whatsappParts.push('assessment body flagged a provenance concern');
     return buildSlot({
       id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
       kind: 'confirmation', verdict: 'discrepancy',
-      detail: `${descriptor} — ${Math.round(brMileage).toLocaleString('en-GB')}mi (~${Math.round(milesPerYear).toLocaleString('en-GB')}/yr) at ${cat}, with little damage described — unusually clean for a salvage lot${nonInsurerSuffix ? '; sticker also points to a non-insurer entry' : ''}`,
-      confidence: 'inferred', source: 'code',
+      detail: `${descriptor} — ${signals.join('; ')}`,
+      confidence: proseFlagged ? 'corroborated' : 'inferred',
+      source: proseFlagged ? 'code+model' : 'code',
       flag: {
-        severity: nonInsurerSuffix ? 'red' : 'caution',
-        whatsapp: `This lot looks unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described${nonInsurerSuffix ? ', non-insurer vendor suffix' : ''}. Ask the handler directly why it was written off and press for fault codes / an explanation before bidding`,
+        severity: (nonInsurerSuffix || proseFlagged) ? 'red' : 'caution',
+        whatsapp: `${whatsappParts.join('; ')}. Ask the handler directly why this vehicle was written off and press for an explanation before bidding`,
         tier: 1,
       },
+    });
+  }
+
+  // All three clean — check prose faithfulness availability
+  if (proseNull) {
+    // Call 2 failed: code found nothing but prose check unavailable — cannot confirm clear
+    return buildSlot({
+      id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'Provenance code arithmetic found no concern, but prose faithfulness check was unavailable (Call 2 failed) — treat with caution',
+      confidence: 'hidden', source: 'code',
+      flag: { severity: 'caution', whatsapp: 'Provenance check partially unavailable for this lot — verify the vendor entry channel and ask the handler why the vehicle is in salvage', tier: 2 },
     });
   }
 
   return buildSlot({
     id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
     kind: 'confirmation', verdict: 'confirmed',
-    detail: `Age, mileage and damage description are consistent with a genuine ${cat} write-off — no provenance contradiction detected`,
-    confidence: 'inferred', source: 'code',
+    detail: `Age, mileage, entry channel and damage description are consistent with a genuine ${cat} write-off — no provenance contradiction detected`,
+    confidence: 'corroborated', source: 'code+model',
   });
 }
 
-function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears) {
+function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags) {
   const vendorSuffix = resolveVendorSuffix(coreObs);
   return buildGroup({
     id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
@@ -300,7 +364,7 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears) {
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
-      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears),
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags),
     ],
   });
 }
@@ -353,7 +417,7 @@ function buildMileageCorroborationSlot(enrichedVd, brMileage, brMileageSource) {
 // Generalised salvage-count slot — consumes selfMatchCount/recordsExcludingSelf from the
 // generalised tagSelfReference() above. 0 excl. self = clean; 1 = note worth a light WhatsApp
 // question (was it repaired with paperwork?); 2+ = a repeat write-off pattern, a real red flag.
-function buildSalvageCountSlot(enrichedVd) {
+function buildSalvageCountSlot(enrichedVd, proseFlags) {
   const sh = enrichedVd.salvageHistory;
   if (!sh) {
     return buildSlot({
@@ -364,14 +428,27 @@ function buildSalvageCountSlot(enrichedVd) {
     });
   }
   const found = sh.salvage_auction_record_found === true;
-  const excl = sh.recordsExcludingSelf ?? 0;
+  let excl = sh.recordsExcludingSelf ?? 0;
+  let proseOverrideApplied = false;
+
+  // Prose corroboration override — only on the 1-prior case where code missed the self-reference.
+  // Code wins upward: on 2+ priors, prose cannot reduce the count (code holds the API record count).
+  const proseCorroboratesSelf = proseFlags?.salvageSelfReferenceConfirmed === true;
+  if (excl === 1 && !sh.isSelfReferenceFirstWriteOff && proseCorroboratesSelf) {
+    console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed self-reference that code missed — effectiveExcl forced from 1 to 0. Review tagSelfReference() criteria for this lot.');
+    excl = 0;
+    proseOverrideApplied = true;
+  }
+  if (excl >= 2 && proseCorroboratesSelf) {
+    console.error('[SALVAGE SELF-REF MISMATCH] Prose claims self-reference but code found 2+ records excluding self. Code wins upward — override not applied. Investigate.');
+  }
 
   if (!found || excl === 0) {
     return buildSlot({
       id: 'salvage-count-excl-self', label: 'Prior salvage auction history',
       kind: 'confirmation', verdict: 'confirmed',
       detail: 'No prior salvage auction events found, excluding this listing',
-      confidence: 'corroborated', source: 'code',
+      confidence: 'corroborated', source: proseOverrideApplied ? 'code+model' : 'code',
     });
   }
   if (excl === 1) {
@@ -392,12 +469,12 @@ function buildSalvageCountSlot(enrichedVd) {
   });
 }
 
-function buildMileageGroup(enrichedVd, brMileage, brMileageSource) {
+function buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags) {
   return buildGroup({
     id: CORE_GROUPS.MILEAGE.id, label: CORE_GROUPS.MILEAGE.label,
     slots: [
       buildMileageCorroborationSlot(enrichedVd, brMileage, brMileageSource),
-      buildSalvageCountSlot(enrichedVd),
+      buildSalvageCountSlot(enrichedVd, proseFlags),
     ],
   });
 }
@@ -1541,7 +1618,7 @@ export async function GET(request) {
     // conclusions, cannot diverge from what the model actually wrote.
     const CORE_EXTRACTION_TOOL = {
       name: 'recordCoreObservations',
-      description: 'Extract windscreen sticker suffix letter and body style from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
+      description: 'Extract windscreen sticker suffix letter, body style, and two prose-faithfulness verdicts from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1561,8 +1638,16 @@ export async function GET(request) {
             },
             required: ['observed', 'doorCountVisible'],
           },
+          provenanceConcernFlagged: {
+            type: 'boolean',
+            description: 'Set true ONLY if the assessment explicitly raises a concern about why this vehicle is in salvage, the vendor entry channel (Q- or C-suffix non-insurer risk, Copart re-entry risk), or uses language such as "establish why before bidding" or "provenance concern". Set false if the assessment is silent on provenance risk or gives the vehicle a clean provenance read. Default false when uncertain.',
+          },
+          salvageSelfReferenceConfirmed: {
+            type: 'boolean',
+            description: 'Set true ONLY if the assessment explicitly concludes that the single salvage history record found IS this lot\'s own current first write-off entry — i.e. the record is not a prior event. Set false if the assessment raises any prior salvage events as genuine concerns, is silent on the matter, or does not address this. Default false when uncertain.',
+          },
         },
-        required: ['windscreenSticker', 'bodyStyle'],
+        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed'],
       },
     };
 
@@ -1577,7 +1662,7 @@ export async function GET(request) {
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract the windscreen sticker suffix letter and body style from this vehicle assessment. Report only what the text explicitly states.\n\n${rawText}`,
+          content: `Extract the windscreen sticker suffix letter, body style, and two provenance booleans from this vehicle assessment. Report only what the text explicitly states — do not interpret or infer beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\n\n${rawText}`,
         }],
       }),
     });
@@ -1597,8 +1682,12 @@ export async function GET(request) {
           doorCountVisible: Boolean(inp.bodyStyle?.doorCountVisible),
         },
         corners: [],
+        proseFlags: {
+          provenanceConcernFlagged:     typeof inp.provenanceConcernFlagged === 'boolean'     ? inp.provenanceConcernFlagged     : null,
+          salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
+        },
       };
-      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}"`);
+      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed}`);
       console.log(`[CALL2] tokens input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
@@ -1611,8 +1700,9 @@ export async function GET(request) {
         windscreenSticker: { visible: false, suffixLetter: 'UNREADABLE' },
         bodyStyle: { observed: '', doorCountVisible: false },
         corners: [],
+        proseFlags: { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null },
       };
-      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied');
+      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied; proseFlags=null (unavailable)');
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
@@ -1719,9 +1809,11 @@ export async function GET(request) {
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
     // enrichedVd/bregoData (code-owned data). Phase 1: identity, mileage, physical (wheel/tyre).
+    // proseFlags: Call-2 prose-faithfulness conclusions; null fields = Call 2 unavailable.
+    const proseFlags = coreObs.proseFlags ?? { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null };
     assessment._slots = assembleCoreSlots([
-      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears),
-      buildMileageGroup(enrichedVd, brMileage, brMileageSource),
+      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags),
+      buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags),
       buildPhysicalGroup(coreObs),
     ]);
     console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
