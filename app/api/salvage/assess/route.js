@@ -1618,7 +1618,7 @@ export async function GET(request) {
     // conclusions, cannot diverge from what the model actually wrote.
     const CORE_EXTRACTION_TOOL = {
       name: 'recordCoreObservations',
-      description: 'Extract windscreen sticker suffix letter, body style, and two prose-faithfulness verdicts from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
+      description: 'Extract windscreen sticker suffix letter, body style, two prose-faithfulness verdicts, per-zone damage event classification, and per-part costing/flagging verdicts from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1646,8 +1646,90 @@ export async function GET(request) {
             type: 'boolean',
             description: 'Set true ONLY if the assessment explicitly concludes that the single salvage history record found IS this lot\'s own current first write-off entry — i.e. the record is not a prior event. Set false if the assessment raises any prior salvage events as genuine concerns, is silent on the matter, or does not address this. Default false when uncertain.',
           },
+          perZone: {
+            type: 'array',
+            description: 'One entry per damage zone the assessment identifies. Transcribe from the prose — do not infer zones not mentioned.',
+            items: {
+              type: 'object',
+              properties: {
+                zone: {
+                  type: 'string',
+                  enum: ['front', 'rear', 'flank-damaged-side', 'roof', 'underside', 'interior'],
+                  description: 'Zone label from the fixed set. front/rear = frontal or rear impacts. flank-damaged-side = side/flank impact on the affected side. roof = overhead damage. underside = suspension/drivetrain/floor. interior = cockpit/cabin.',
+                },
+                eventType: {
+                  type: 'string',
+                  enum: ['impact', 'thermal', 'water', 'other-non-impact'],
+                  description: 'Damage event type the assessment states for this zone.',
+                },
+                heightBand: {
+                  type: ['string', 'null'],
+                  enum: ['low', 'mid', 'high', 'indeterminate', null],
+                  description: 'Strike height band. Populate ONLY when eventType is "impact" and the prose states a band. MUST be null for thermal/water/other-non-impact — absence is correct, not a failure.',
+                },
+                severityNote: {
+                  type: 'string',
+                  description: 'One-line severity/extent note from the prose for this zone. Empty string if none stated.',
+                },
+              },
+              required: ['zone', 'eventType', 'heightBand', 'severityNote'],
+            },
+          },
+          costedParts: {
+            type: 'array',
+            description: 'All parts listed in the Parts Breakdown with a cost. For each, transcribe the prose visibility statement and vertical position.',
+            items: {
+              type: 'object',
+              properties: {
+                partName: { type: 'string' },
+                zone: {
+                  type: 'string',
+                  enum: ['front', 'rear', 'flank-damaged-side', 'roof', 'underside', 'interior'],
+                  description: 'Zone this part belongs to.',
+                },
+                independentlyVisible: {
+                  type: 'boolean',
+                  description: 'true ONLY if the prose explicitly states that damage to this specific part is directly visible on that part\'s own shots. false if the prose infers damage from adjacency, mechanism, or a neighbouring panel, or is silent on the part\'s own visibility. Default false when uncertain — never default true.',
+                },
+                costBasis: {
+                  type: 'string',
+                  description: 'Brief phrase from the prose describing the basis for the cost (e.g. "bumper crack visible"). Empty string if not stated.',
+                },
+                partHeight: {
+                  type: ['string', 'null'],
+                  enum: ['low', 'mid', 'high', null],
+                  description: 'Vertical body position of this part, transcribed from the prose. low = sill/bumper/lower panel, mid = door/body-line, high = bonnet/roof/upper body. null when the prose does not place the part vertically. Do not infer — transcribe only what the prose states.',
+                },
+              },
+              required: ['partName', 'zone', 'independentlyVisible', 'costBasis', 'partHeight'],
+            },
+          },
+          flaggedParts: {
+            type: 'array',
+            description: 'Parts the assessment raises as concerns but does NOT cost — adjacency flags, mechanism-inferred risks, inspection unknowns. First-class outputs, not footnotes.',
+            items: {
+              type: 'object',
+              properties: {
+                partName: { type: 'string' },
+                zone: {
+                  type: 'string',
+                  enum: ['front', 'rear', 'flank-damaged-side', 'roof', 'underside', 'interior'],
+                },
+                reason: {
+                  type: 'string',
+                  description: 'The reason the assessment gives for flagging this part without costing it.',
+                },
+                weight: {
+                  type: 'string',
+                  enum: ['low', 'medium', 'high'],
+                  description: '"high" = inspect before bidding / potentially substantial; "medium" = worth checking; "low" = minor concern noted.',
+                },
+              },
+              required: ['partName', 'zone', 'reason', 'weight'],
+            },
+          },
         },
-        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed'],
+        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone', 'costedParts', 'flaggedParts'],
       },
     };
 
@@ -1657,12 +1739,12 @@ export async function GET(request) {
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: 512,
+        max_tokens: 1024,
         tools: [CORE_EXTRACTION_TOOL],
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract the windscreen sticker suffix letter, body style, and two provenance booleans from this vehicle assessment. Report only what the text explicitly states — do not interpret or infer beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\n\n${rawText}`,
+          content: `Extract the windscreen sticker, body style, provenance verdicts, per-zone damage classification, and per-part costing/flagging verdicts from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\nFor costedParts: one entry per part in the Parts Breakdown; independentlyVisible is false when uncertain — never default true; partHeight is null when the prose does not place the part vertically.\nFor flaggedParts: parts named as concerns or flags in the prose but absent from the Parts Breakdown cost list.\n\n${rawText}`,
         }],
       }),
     });
@@ -1686,8 +1768,11 @@ export async function GET(request) {
           provenanceConcernFlagged:     typeof inp.provenanceConcernFlagged === 'boolean'     ? inp.provenanceConcernFlagged     : null,
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
+        perZone:      Array.isArray(inp.perZone)      ? inp.perZone      : [],
+        costedParts:  Array.isArray(inp.costedParts)  ? inp.costedParts  : [],
+        flaggedParts: Array.isArray(inp.flaggedParts) ? inp.flaggedParts : [],
       };
-      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed}`);
+      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} costedParts=${coreObs.costedParts.length} flaggedParts=${coreObs.flaggedParts.length}`);
       console.log(`[CALL2] tokens input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
@@ -1701,8 +1786,11 @@ export async function GET(request) {
         bodyStyle: { observed: '', doorCountVisible: false },
         corners: [],
         proseFlags: { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null },
+        perZone:     [],
+        costedParts: [],
+        flaggedParts: [],
       };
-      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied; proseFlags=null (unavailable)');
+      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied; proseFlags=null perZone/costedParts/flaggedParts=[] (unavailable)');
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
