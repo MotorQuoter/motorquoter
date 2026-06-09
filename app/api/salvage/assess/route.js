@@ -1912,6 +1912,11 @@ export async function GET(request) {
       }
     }
 
+    assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
+      ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
+      ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
+    );
+
     const parts_sum = sumPartsRealistic(gatedParts);
 
     if (gatedParts.length > 0) {

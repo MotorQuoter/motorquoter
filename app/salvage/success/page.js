@@ -644,7 +644,37 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
-                {['Key Cost Drivers', 'Red Flags', 'Alternative Damage Scenario', 'Airbags'].map(field => (
+                {assessment['Key Cost Drivers'] ? (
+                  <div className="field-row" key="Key Cost Drivers">
+                    <div className="field-key">Key Cost Drivers</div>
+                    <div className="field-val">{assessment['Key Cost Drivers']}</div>
+                  </div>
+                ) : null}
+                {/* Inspection Flags — structured per-part flags (model + gate-generated), weight high→low */}
+                {(() => {
+                  const flags = assessment._flaggedParts || [];
+                  if (!flags.length) return null;
+                  const wc = { high: '#c0392b', medium: '#b8860b', low: '#888' };
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">Inspection Flags</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+                        {flags.map((f, i) => (
+                          <div key={i}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: wc[f.weight] || '#888', textTransform: 'uppercase' }}>
+                                {f.weight}
+                              </span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{f.partName}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>{f.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {['Red Flags', 'Alternative Damage Scenario', 'Airbags'].map(field => (
                   assessment[field] ? (
                     <div className="field-row" key={field}>
                       <div className="field-key">{field}</div>

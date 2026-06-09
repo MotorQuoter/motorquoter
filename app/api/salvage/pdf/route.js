@@ -591,6 +591,42 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   }
 
   fieldBlock('Key Cost Drivers',            assessment['Key Cost Drivers']);
+
+  // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
+  const pdfFlags = assessment._flaggedParts || [];
+  if (pdfFlags.length > 0) {
+    checkPage(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('INSPECTION FLAGS', MARGIN, y);
+    y += 6;
+    for (const f of pdfFlags) {
+      const wc = f.weight === 'high' ? [192, 57, 43] : f.weight === 'medium' ? [184, 134, 11] : [136, 136, 136];
+      checkPage(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(...wc);
+      const badge = f.weight.toUpperCase();
+      doc.text(badge, MARGIN, y);
+      const badgeW = doc.getTextWidth(badge) + 3;
+      doc.setTextColor(20, 20, 20);
+      doc.text(f.partName, MARGIN + badgeW, y);
+      y += 4;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(60, 60, 60);
+      const reasonLines = doc.splitTextToSize(f.reason, CONTENT_W - 4);
+      checkPage(reasonLines.length * 4 + 3);
+      for (const line of reasonLines) {
+        doc.text(line, MARGIN + 4, y);
+        y += 4;
+      }
+      y += 2;
+    }
+    y += 3;
+  }
+
   fieldBlock('Red Flags',                   assessment['Red Flags']);
   fieldBlock('Alternative Damage Scenario', assessment['Alternative Damage Scenario']);
   fieldBlock('Airbags',                     assessment['Airbags']);
