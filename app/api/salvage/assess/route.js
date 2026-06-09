@@ -1750,9 +1750,14 @@ export async function GET(request) {
     });
     const call2Data = await call2Response.json();
     const call2Latency = Date.now() - call2Start;
+    console.log(`[CALL2] stop_reason=${call2Data.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
+    if (call2Data.stop_reason === 'max_tokens') {
+      console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone/costedParts/flaggedParts arrays may be incomplete or absent');
+    }
 
     const call2ToolBlock = (call2Data.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
     if (call2ToolBlock?.input) {
+      console.log('[CALL2] raw tool_use input:', JSON.stringify(call2ToolBlock.input));
       const inp = call2ToolBlock.input;
       coreObs = {
         windscreenSticker: {
@@ -1772,8 +1777,7 @@ export async function GET(request) {
         costedParts:  Array.isArray(inp.costedParts)  ? inp.costedParts  : [],
         flaggedParts: Array.isArray(inp.flaggedParts) ? inp.flaggedParts : [],
       };
-      console.log(`[CALL2] Haiku extraction latency=${call2Latency}ms sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} costedParts=${coreObs.costedParts.length} flaggedParts=${coreObs.flaggedParts.length}`);
-      console.log(`[CALL2] tokens input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens}`);
+      console.log(`[CALL2] extracted sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} costedParts=${coreObs.costedParts.length} flaggedParts=${coreObs.flaggedParts.length}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
       // coreObs floor default fires below
