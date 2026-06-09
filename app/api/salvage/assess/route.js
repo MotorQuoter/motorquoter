@@ -1864,6 +1864,7 @@ export async function GET(request) {
     costedParts.forEach((cp, i) => {
       if (dashIndices.has(i) || labourNamesNorm.has(normName(cp.partName))) {
         cp.independentlyVisible = null;
+        cp._labourSafe = true; // deliberate null — gate must PASS, not strip
       }
     });
     coreObs.costedParts  = costedParts;
@@ -1873,12 +1874,51 @@ export async function GET(request) {
     console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
 
     const { parts: reconciledParts, allowanceParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
-    const parts_sum = sumPartsRealistic(reconciledParts);
 
-    if (reconciledParts.length > 0) {
-      assessment['Parts Breakdown'] = renderParts(reconciledParts);
+    // Phase 2 — visibility gate (Test 1)
+    const nonAllowanceParts = reconciledParts.filter(p => !p._allowance);
+    const blockAbsent = coreObs.costedParts.length === 0 && nonAllowanceParts.length > 0;
+    let gatedParts;
+    if (blockAbsent) {
+      console.error(
+        `[GATE][INOPERATIVE] Part Verdicts absent/empty while ${nonAllowanceParts.length} costed part(s) present` +
+        ` — gate did not run; parts pass through unfiltered`
+      );
+      gatedParts = reconciledParts;
+    } else {
+      const gateStripped = [];
+      gatedParts = reconciledParts.filter(rp => {
+        if (rp._allowance) return true;
+        const verdict = coreObs.costedParts.find(cp => normName(cp.partName) === normName(rp.name));
+        if (!verdict) {
+          console.log(`[GATE] no-verdict-match "${rp.name}" — passed unchecked (no costedParts entry)`);
+          return true;
+        }
+        if (verdict._labourSafe) return true;
+        if (verdict.independentlyVisible === true) return true;
+        gateStripped.push(verdict);
+        return false;
+      });
+      for (const v of gateStripped) {
+        const reason = v.independentlyVisible === false ? 'iv=false' : 'iv=null(ambiguous)';
+        console.log(`[GATE] stripped "${v.partName}" zone=${v.zone} ${reason}`);
+        if (!coreObs.flaggedParts.some(f => normName(f.partName) === normName(v.partName))) {
+          coreObs.flaggedParts.push({
+            partName: v.partName, zone: v.zone, weight: 'medium',
+            reason: 'excluded from repair total — not independently confirmed on its own shots; verify on inspection before bidding',
+            _gateGenerated: true,
+          });
+        }
+      }
     }
-    assessment._reconciledParts = reconciledParts;
+
+    const parts_sum = sumPartsRealistic(gatedParts);
+
+    if (gatedParts.length > 0) {
+      assessment['Parts Breakdown'] = renderParts(gatedParts);
+    }
+    assessment._reconciledParts = gatedParts;
+    assessment._preGateParts    = reconciledParts;
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
