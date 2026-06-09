@@ -31,6 +31,7 @@ const HEADLAMP_BAND_DEFAULT = 'led'; // conservative high — indeterminate spec
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
   'Parts Breakdown',
+  'Part Verdicts',
   'Key Cost Drivers',
   'Red Flags',
   'Alternative Damage Scenario',
@@ -874,6 +875,51 @@ function parseParts(text) {
   return result;
 }
 
+function parsePartVerdicts(blockText) {
+  const costedParts  = [];
+  const flaggedParts = [];
+  if (!blockText) return { costedParts, flaggedParts };
+
+  const ZONES = 'front|rear|flank-damaged-side|roof|underside|interior';
+
+  for (const line of blockText.split('\n')) {
+    const t = line.trim();
+
+    // PART: name | iv:X | z:Y | ph:Z  (ph optional)
+    const pm = t.match(
+      new RegExp(
+        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na)\\s*\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
+        'i'
+      )
+    );
+    if (pm) {
+      const [, partName, ivRaw, zone, phRaw] = pm;
+      costedParts.push({
+        partName:             partName.trim(),
+        zone,
+        independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : null,
+        partHeight:           phRaw || null,
+      });
+      continue;
+    }
+
+    // FLAG: name | z:Y | weight:W :: reason  (reason is everything after ::, pipe-safe)
+    const fm = t.match(
+      new RegExp(
+        `^FLAG:\\s+(.+?)\\s*\\|\\s*z:(${ZONES})\\s*\\|\\s*weight:(low|medium|high)\\s*::(.+)$`,
+        'i'
+      )
+    );
+    if (fm) {
+      const [, partName, zone, weight, reason] = fm;
+      flaggedParts.push({ partName: partName.trim(), zone, weight, reason: reason.trim() });
+    }
+    // Unmatched lines silently skipped. Absent block → both arrays [].
+  }
+
+  return { costedParts, flaggedParts };
+}
+
 function isLampLine(name) {
   return /\bhead[\s-]?lamp\b|\bheadlight\b|\bfront\s+lamp\b/i.test(name);
 }
@@ -1618,7 +1664,7 @@ export async function GET(request) {
     // conclusions, cannot diverge from what the model actually wrote.
     const CORE_EXTRACTION_TOOL = {
       name: 'recordCoreObservations',
-      description: 'Extract windscreen sticker suffix letter, body style, two prose-faithfulness verdicts, per-zone damage event classification, and per-part costing/flagging verdicts from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
+      description: 'Extract windscreen sticker suffix letter, body style, two prose-faithfulness verdicts, and per-zone damage event classification from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1667,69 +1713,12 @@ export async function GET(request) {
                   enum: ['low', 'mid', 'high', 'indeterminate', null],
                   description: 'Strike height band. Populate ONLY when eventType is "impact" and the prose states a band. MUST be null for thermal/water/other-non-impact — absence is correct, not a failure.',
                 },
-                severityNote: {
-                  type: 'string',
-                  description: 'One-line severity/extent note from the prose for this zone. Empty string if none stated.',
-                },
               },
-              required: ['zone', 'eventType', 'heightBand', 'severityNote'],
-            },
-          },
-          costedParts: {
-            type: 'array',
-            description: 'All parts listed in the Parts Breakdown with a cost. For each, transcribe the prose visibility statement and vertical position.',
-            items: {
-              type: 'object',
-              properties: {
-                partName: { type: 'string' },
-                zone: {
-                  type: 'string',
-                  enum: ['front', 'rear', 'flank-damaged-side', 'roof', 'underside', 'interior'],
-                  description: 'Zone this part belongs to.',
-                },
-                independentlyVisible: {
-                  type: 'boolean',
-                  description: 'true ONLY if the prose explicitly states that damage to this specific part is directly visible on that part\'s own shots. false if the prose infers damage from adjacency, mechanism, or a neighbouring panel, or is silent on the part\'s own visibility. Default false when uncertain — never default true.',
-                },
-                costBasis: {
-                  type: 'string',
-                  description: 'Brief phrase from the prose describing the basis for the cost (e.g. "bumper crack visible"). Empty string if not stated.',
-                },
-                partHeight: {
-                  type: ['string', 'null'],
-                  enum: ['low', 'mid', 'high', null],
-                  description: 'Vertical body position of this part, transcribed from the prose. low = sill/bumper/lower panel, mid = door/body-line, high = bonnet/roof/upper body. null when the prose does not place the part vertically. Do not infer — transcribe only what the prose states.',
-                },
-              },
-              required: ['partName', 'zone', 'independentlyVisible', 'costBasis', 'partHeight'],
-            },
-          },
-          flaggedParts: {
-            type: 'array',
-            description: 'Parts the assessment raises as concerns but does NOT cost — adjacency flags, mechanism-inferred risks, inspection unknowns. First-class outputs, not footnotes.',
-            items: {
-              type: 'object',
-              properties: {
-                partName: { type: 'string' },
-                zone: {
-                  type: 'string',
-                  enum: ['front', 'rear', 'flank-damaged-side', 'roof', 'underside', 'interior'],
-                },
-                reason: {
-                  type: 'string',
-                  description: 'The reason the assessment gives for flagging this part without costing it.',
-                },
-                weight: {
-                  type: 'string',
-                  enum: ['low', 'medium', 'high'],
-                  description: '"high" = inspect before bidding / potentially substantial; "medium" = worth checking; "low" = minor concern noted.',
-                },
-              },
-              required: ['partName', 'zone', 'reason', 'weight'],
+              required: ['zone', 'eventType', 'heightBand'],
             },
           },
         },
-        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone', 'costedParts', 'flaggedParts'],
+        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone'],
       },
     };
 
@@ -1744,7 +1733,7 @@ export async function GET(request) {
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract the windscreen sticker, body style, provenance verdicts, per-zone damage classification, and per-part costing/flagging verdicts from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\nFor costedParts: one entry per part in the Parts Breakdown; independentlyVisible is false when uncertain — never default true; partHeight is null when the prose does not place the part vertically.\nFor flaggedParts: parts named as concerns or flags in the prose but absent from the Parts Breakdown cost list.\n\n${rawText}`,
+          content: `Extract the windscreen sticker, body style, provenance verdicts, and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
         }],
       }),
     });
@@ -1752,7 +1741,7 @@ export async function GET(request) {
     const call2Latency = Date.now() - call2Start;
     console.log(`[CALL2] stop_reason=${call2Data.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
     if (call2Data.stop_reason === 'max_tokens') {
-      console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone/costedParts/flaggedParts arrays may be incomplete or absent');
+      console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone array may be incomplete or absent');
     }
 
     const call2ToolBlock = (call2Data.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
@@ -1773,11 +1762,9 @@ export async function GET(request) {
           provenanceConcernFlagged:     typeof inp.provenanceConcernFlagged === 'boolean'     ? inp.provenanceConcernFlagged     : null,
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
-        perZone:      Array.isArray(inp.perZone)      ? inp.perZone      : [],
-        costedParts:  Array.isArray(inp.costedParts)  ? inp.costedParts  : [],
-        flaggedParts: Array.isArray(inp.flaggedParts) ? inp.flaggedParts : [],
+        perZone: Array.isArray(inp.perZone) ? inp.perZone : [],
       };
-      console.log(`[CALL2] extracted sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} costedParts=${coreObs.costedParts.length} flaggedParts=${coreObs.flaggedParts.length}`);
+      console.log(`[CALL2] extracted sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
       // coreObs floor default fires below
@@ -1853,6 +1840,38 @@ export async function GET(request) {
 
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
+
+    // Per-part verdicts — parsed from the separate Part Verdicts block; never touches buyer-facing output
+    const { costedParts, flaggedParts } = parsePartVerdicts(assessment['Part Verdicts'] || '');
+
+    // Labour-safety: mark gate-inert any costedParts entry that corresponds to a dash-action
+    // parseParts row. Primary signal: positional (same index, per prompt instruction).
+    // Fallback: normalised name match (catches position drift within normalisation tolerance).
+    // independentlyVisible=null → gate ignores entry regardless of Phase 2 visibility gate logic.
+    // Accepted residual: entry stays gate-eligible only when BOTH position AND normalised name drift
+    // — requires prompt non-compliance on a line that is also mispositioned.
+    const dashIndices = rawParts.reduce((acc, rp, i) => {
+      if (/^[-–—]+$/.test(rp.action)) acc.add(i);
+      return acc;
+    }, new Set());
+    const normName = s => s.toLowerCase().trim()
+      .replace(/\s*&\s*|\s+and\s+/gi, ' and ')
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s+/g, ' ');
+    const labourNamesNorm = new Set(
+      rawParts.filter((_, i) => dashIndices.has(i)).map(rp => normName(rp.name))
+    );
+    costedParts.forEach((cp, i) => {
+      if (dashIndices.has(i) || labourNamesNorm.has(normName(cp.partName))) {
+        cp.independentlyVisible = null;
+      }
+    });
+    coreObs.costedParts  = costedParts;
+    coreObs.flaggedParts = flaggedParts;
+    console.log(`[PART VERDICTS] costedParts=${costedParts.length} flaggedParts=${flaggedParts.length}`);
+    console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
+    console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
+
     const { parts: reconciledParts, allowanceParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
     const parts_sum = sumPartsRealistic(reconciledParts);
 
