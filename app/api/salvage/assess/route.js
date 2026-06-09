@@ -1867,7 +1867,7 @@ export async function GET(request) {
         cp._labourSafe = true; // deliberate null — gate must PASS, not strip
       }
     });
-    coreObs.costedParts  = costedParts;
+    coreObs.costedParts  = []; // TEMP INOPERATIVE TEST — revert immediately after proof
     coreObs.flaggedParts = flaggedParts;
     console.log(`[PART VERDICTS] costedParts=${costedParts.length} flaggedParts=${flaggedParts.length}`);
     console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
