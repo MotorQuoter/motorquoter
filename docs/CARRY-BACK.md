@@ -64,12 +64,14 @@ back to parsing assessment['Parts Breakdown'] prose; the repair banner still
 reads _partsReconciliation.parts_sum. Latent display inconsistency: table rows
 and banner value may not agree if the fallback fires. Logged 12 Jun, not scheduled.
 
-## 11. Radiator double-row — UPGRADED to floor-integrity defect, PRE-MERGE FIX REQUIRED
+## 11. Radiator double-row — CLOSED 12 Jun
 Mechanism: parts-survival loop (parts.mjs:167–196) has no already-matched
 tracking; duplicate rawParts rows both match one iv=true verdict and both
 survive to gatedParts — duplicate money IN the displayed floor (observed live,
 SF69 S1). Separate from CB9. Fix shape is a design decision (reconcile-time
 name dedup vs consumed-verdict tracking) — own audit-and-propose before THE merge.
+
+CLOSED 12 Jun: consumed-verdict Set fix (bd98a04); fixture-proven (CB11, harness 20/20); regression-clean across 4 live validation runs.
 
 ## 12. Physical section wheel/tyre slots (not scheduled)
 8 unconditional rows, _slots render path, route.js:1919–1923. Render
@@ -101,7 +103,9 @@ silence class (BL75JAU live-proven 17:26: iter=0 stop=tool_use, 97
 tokens, observation extracted) but had no reach on these sessions.
 The real defect is item 14: trigger input integrity.
 
-## 14. Lamp trigger single-point-of-failure — PRE-MERGE FIX REQUIRED
+CLOSED 12 Jun: defence-in-depth forced-call fix (8b211a1); live-proven BL75JAU 17:26 (iter=0 stop=tool_use, forced) per re-diagnosis note; null-null class addressed by item 14.
+
+## 14. Lamp trigger single-point-of-failure — CLOSED 12 Jun
 £350–£700 of code-owned band money hangs entirely on two pasted text
 lines. Proven same-lot: SF69 morning paste carried 'Front
 End'(secondary) → frontStruck=true → £350 banded; afternoon pastes
@@ -113,3 +117,15 @@ front/impact && lampObs null → one targeted forced observation call;
 Layer 3 = [LAMP][TRIGGER] log line every run stating which source
 armed (or failed to arm) the lamp path. No path guesses
 apertureExposed — every path obtains it from model observation.
+
+CLOSED 12 Jun: layered fix (54e04e1); matrix 4/4: truncated SF69 banded (source=voluntary-iter0; layer 1 live-proven, layer 2 fixture-proven only, self-announces via [LAMP][TRIGGER] on first natural fire), full SF69 text-forced, BL75JAU regression clean, LB18HDU no-arm control clean.
+
+## 15. Left/right prose-ban drift — PRE-MERGE FIX REQUIRED (pending Vincent ratification)
+Left/right prose-ban drift with DEMONSTRATED ERROR. Sighting 1: BL75JAU 18:15 —
+offside/nearside in prose + parts-table names, content correct. Sighting 2:
+LB18HDU 18:20 — 'driver's-side flank' named in prose AND WRONG: ground truth
+(Vincent, photo-verified) is the burn sits on the OPPOSITE flank. The ban exists
+because side assignment is model-unreliable; sighting 2 is that unreliability
+published to a buyer. Fix shape = audit-and-propose (must spare quoted DVSA/MOT
+text per the 12 Jun exemption; options: banned-term detect → substitute
+'damaged-side' / fail-and-reroll / flag).

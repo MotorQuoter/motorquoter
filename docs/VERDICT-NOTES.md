@@ -397,3 +397,16 @@ the absent flap as a damaged flap (present-vs-absent confusion on an
 exposed aperture, lamp-detect class in miniature). Action and cost
 were correct (replace); no floor impact. Identity churn on this part:
 RESOLVED.
+
+## LB18HDU — GROUND TRUTH (Vincent, 12 Jun 2026)
+
+Ground truth (Vincent, 12 Jun): (a) the burn is on the OPPOSITE flank
+to the report's 'driver's-side' identification — side assignment error,
+published. (b) The 'melted, blistered, perforated hole in the front door
+skin' is the aperture where the SIDE MARKER/REPEATER LAMP melted away —
+not burn-through of the door skin. The 'heat penetrated through the skin'
+inference was built on this misread. The melted repeater lamp itself was
+never costed. APERTURE-CONFUSION CLASS, instance 3 (with BL75JAU
+charge-port flap and the original empty-socket lamp hallucination): an
+absent part's aperture read as damage to the surrounding panel. Two-pass
+design input. LB18HDU retained as ground-truthed fire/thermal test lot.
