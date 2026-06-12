@@ -1032,7 +1032,7 @@ export async function GET(request) {
       if (!claimed?.length) {
         const { data: current } = await supabase
           .from('salvage_sessions')
-          .select('status, assessment, vehicle_details, market, rerun_count')
+          .select('status, assessment, vehicle_details, market, rerun_count, created_at')
           .eq('id', salvageId)
           .single();
         if (current?.assessment) {
@@ -1045,6 +1045,17 @@ export async function GET(request) {
             bregoData: vd.bregoValuation ?? null,
           });
         }
+        // CB4: stale-lock recovery for promo path
+        if (current?.status === 'processing') {
+          const ageSec = current.created_at
+            ? (Date.now() - new Date(current.created_at).getTime()) / 1000
+            : Infinity;
+          if (ageSec > STALE_PROCESSING_SECS) {
+            console.error(`[STALE LOCK] promo salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to failed`);
+            await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
+            return NextResponse.json({ error: 'Assessment timed out — please try again' }, { status: 500 });
+          }
+        }
         return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
       }
     }
@@ -1052,9 +1063,15 @@ export async function GET(request) {
     // Check for cached assessment first (without fetching images)
     // NOTE: zero One Auto calls here — salvageHistory is stored in vehicle_details
     // on the initial assess run and read back verbatim.
+    // CB4: staleness threshold — created_at used as proxy for processing-started-at.
+    // updated_at not verified to auto-update (no trigger confirmed in this codebase).
+    // 600s = 300s maxDuration + ~300s checkout flow headroom. Long-term recommendation:
+    // add a Supabase `updated_at` trigger for a tighter (≈360s) threshold.
+    const STALE_PROCESSING_SECS = 600;
+
     const { data: check } = await supabase
       .from('salvage_sessions')
-      .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id')
+      .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id, created_at')
       .eq('id', salvageId)
       .single();
 
@@ -1076,6 +1093,26 @@ export async function GET(request) {
         rerunCount: check.rerun_count ?? 0,
         bregoData: vd.bregoValuation ?? null,
       });
+    }
+
+    // CB4: stale-lock recovery — hard Vercel kills (maxDuration=300s) bypass catch,
+    // leaving status='processing' permanently. Caught exceptions use the catch block
+    // to reset to 'failed'; this handles the uncaught hard-kill case only.
+    if (check?.status === 'processing' && !check?.assessment) {
+      const ageSec = check.created_at
+        ? (Date.now() - new Date(check.created_at).getTime()) / 1000
+        : Infinity;
+      if (ageSec > STALE_PROCESSING_SECS) {
+        console.error(`[STALE LOCK] salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to failed`);
+        await supabase
+          .from('salvage_sessions')
+          .update({ status: 'failed' })
+          .eq('id', salvageId)
+          .eq('status', 'processing');
+        return NextResponse.json({ error: 'Assessment timed out — please try again' }, { status: 500 });
+      }
+      // Live processing session (within window) — return 409
+      return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
     }
 
     // Need to run assessment — fetch full session including images
