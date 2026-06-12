@@ -57,3 +57,9 @@ evidence confirms a wheel/tyre's condition.
 Flag-render dedup review: normName-based dedup (:1905) may double-flag lamps
 with variant phrasings; related: run-2 front-tyres strip row absent from
 rendered Inspection Flags (12 Jun, unadjudicated). Review together, post-CB7.
+
+## 10. PDF parts-table prose-fallback path (not scheduled)
+pdf/route.js:524-526 — if _reconciledParts absent, the PDF parts table falls
+back to parsing assessment['Parts Breakdown'] prose; the repair banner still
+reads _partsReconciliation.parts_sum. Latent display inconsistency: table rows
+and banner value may not agree if the fallback fires. Logged 12 Jun, not scheduled.

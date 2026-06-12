@@ -404,7 +404,7 @@ export default function SalvageSuccessPage() {
             {/* Repair estimate banner — code-owned parts_sum, single figure */}
             {assessment._partsReconciliation?.parts_sum > 0 && (
               <div className="repair-banner">
-                <div className="repair-banner-label">Estimated Repair</div>
+                <div className="repair-banner-label">Estimated Repair — visible items</div>
                 <div className="repair-banner-value">£{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}</div>
               </div>
             )}
@@ -635,7 +635,7 @@ export default function SalvageSuccessPage() {
                           {allowanceParts.length > 0 && (
                             <tr>
                               <td colSpan={4} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
-                                Italic rows: inspection allowance — confirm on inspection, not in repair total
+                                Italic rows: inspection allowance — confirm on inspection, not in repair total. See Inspection Flags for other excluded items.
                               </td>
                             </tr>
                           )}
@@ -953,7 +953,7 @@ export default function SalvageSuccessPage() {
             </div>
 
             <p className="footer-note">
-              AI-generated guidance only. Not a professional repair quote. Repair costs are estimates based on visible photo evidence — hidden or secondary damage may increase actual costs.<br />
+              AI-generated guidance only. Not a professional repair quote. The repair figure is the sum of itemised parts costed as visible in the photos. Items not independently confirmable appear in Inspection Flags and italic allowance rows — they are not in this figure. Hidden, secondary, or unphotographed damage may increase actual costs.<br />
               MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
             </p>
           </>
