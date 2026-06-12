@@ -1004,6 +1004,13 @@ export async function GET(request) {
   const supabase = getSupabase();
 
   try {
+    // CB4: staleness threshold — created_at used as proxy for processing-started-at.
+    // updated_at not verified to auto-update (no trigger confirmed in this codebase).
+    // 600s = 300s maxDuration + ~300s checkout flow headroom. Long-term recommendation:
+    // add a Supabase `updated_at` trigger for a tighter (≈360s) threshold.
+    // Hoisted here so both the promo guard and the main guard can reference it.
+    const STALE_PROCESSING_SECS = 600;
+
     if (promoToken) {
       const { data: tokenCheck } = await supabase
         .from('salvage_sessions')
@@ -1051,8 +1058,10 @@ export async function GET(request) {
             ? (Date.now() - new Date(current.created_at).getTime()) / 1000
             : Infinity;
           if (ageSec > STALE_PROCESSING_SECS) {
-            console.error(`[STALE LOCK] promo salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to failed`);
-            await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
+            // CE: promo-aware reset — token must remain retryable; promo claim accepts
+            // 'promo_redeemed', not 'failed'. Mirrors what the catch block already does.
+            console.error(`[STALE LOCK] promo salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to promo_redeemed`);
+            await supabase.from('salvage_sessions').update({ status: 'promo_redeemed' }).eq('id', salvageId).eq('status', 'processing');
             return NextResponse.json({ error: 'Assessment timed out — please try again' }, { status: 500 });
           }
         }
@@ -1063,12 +1072,6 @@ export async function GET(request) {
     // Check for cached assessment first (without fetching images)
     // NOTE: zero One Auto calls here — salvageHistory is stored in vehicle_details
     // on the initial assess run and read back verbatim.
-    // CB4: staleness threshold — created_at used as proxy for processing-started-at.
-    // updated_at not verified to auto-update (no trigger confirmed in this codebase).
-    // 600s = 300s maxDuration + ~300s checkout flow headroom. Long-term recommendation:
-    // add a Supabase `updated_at` trigger for a tighter (≈360s) threshold.
-    const STALE_PROCESSING_SECS = 600;
-
     const { data: check } = await supabase
       .from('salvage_sessions')
       .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id, created_at')
@@ -1098,7 +1101,12 @@ export async function GET(request) {
     // CB4: stale-lock recovery — hard Vercel kills (maxDuration=300s) bypass catch,
     // leaving status='processing' permanently. Caught exceptions use the catch block
     // to reset to 'failed'; this handles the uncaught hard-kill case only.
-    if (check?.status === 'processing' && !check?.assessment) {
+    // CE: !promoToken guard — promo sessions that just claimed land here with
+    // status='processing'; without this guard the main check would 409 them
+    // (live session) or reset to 'failed' (stale created_at), overwriting the
+    // promo-aware reset in the inner block. Promo hard-kills are handled by
+    // the inner block's CB4 guard, so this path is non-promo only.
+    if (check?.status === 'processing' && !check?.assessment && !promoToken) {
       const ageSec = check.created_at
         ? (Date.now() - new Date(check.created_at).getTime()) / 1000
         : Infinity;
