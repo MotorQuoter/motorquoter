@@ -1790,19 +1790,6 @@ export async function GET(request) {
       }
     }
 
-    // Wheel net fires unconditionally — Copart no longer provide dedicated wheel close-ups.
-    // All 4 corners default to genuinely-not-visible in slot assembly; the item always applies.
-    console.log(`[WHEEL NET] unconditional — appending to checklist. checklistLen=${(assessment['WhatsApp Inspection Checklist']||'').length}`);
-    {
-      const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
-      if (existing) {
-        const itemCount = (existing.match(/^\d+[.)]/mg) || []).length;
-        assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)`;
-      } else {
-        console.warn('[WHEEL NET] checklist section empty — item not appended; model may have used a non-standard section header');
-      }
-    }
-
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
 
@@ -1859,6 +1846,24 @@ export async function GET(request) {
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
+
+    // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
+    // avoiding contradiction with already-confirmed wheel damage in the checklist.
+    {
+      const IS_WHEEL_TYRE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
+      const damagedWheelParts = gatedParts.filter(p => IS_WHEEL_TYRE.test(p.name));
+      const netItem = damagedWheelParts.length > 0
+        ? `Wheel/tyre damage already identified and costed (${damagedWheelParts.map(p => p.name).join(', ')}) — photograph ALL corners close-up to confirm extent of identified damage and that unaffected corners are serviceable`
+        : `Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)`;
+      console.log(`[WHEEL NET] ${damagedWheelParts.length > 0 ? 'adapt' : 'unconditional'} — appending to checklist. damagedWheels=${damagedWheelParts.length}`);
+      const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+      if (existing) {
+        const itemCount = (existing.match(/^\d+[.)]/mg) || []).length;
+        assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. ${netItem}`;
+      } else {
+        console.warn('[WHEEL NET] checklist section empty — item not appended; model may have used a non-standard section header');
+      }
+    }
 
     // Code-owned exit value: trade-low × band percentage keyed by category + model's 5-step position
     let exitValue = null;
