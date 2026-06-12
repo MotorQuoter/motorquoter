@@ -637,15 +637,17 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
       },
       body: JSON.stringify({
         model: 'claude-opus-4-8',
-        max_tokens: 600,
+        max_tokens: 1024,
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
       }),
     });
     if (!res.ok) { console.warn('[LAMP DETECT] API error:', res.status); return null; }
     const data = await res.json();
-    console.log('[TOKEN LOG] lamp-detect Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Model:', data.model || 'unknown');
-    const raw = (data.content?.[0]?.text || '').trim();
+    console.log('[TOKEN LOG] lamp-detect Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    if (data.stop_reason === 'max_tokens') { console.warn('[LAMP DETECT] max_tokens — response truncated; lamp path returning null'); return null; }
+    if (data.stop_reason === 'refusal')   { console.warn('[LAMP DETECT] refusal — content policy; lamp path returning null'); return null; }
+    const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\[[\s\S]*\]/);
     if (!match) { console.warn('[LAMP DETECT] no JSON array in response:', raw.slice(0, 200)); return null; }
     const parsed = JSON.parse(match[0]);
@@ -1526,7 +1528,7 @@ export async function GET(request) {
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-opus-4-8',
-        max_tokens: 8000,
+        max_tokens: 16000,
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
         ...(withTools && claudeTools.length > 0 ? { tools: claudeTools } : {}),
@@ -1546,6 +1548,8 @@ export async function GET(request) {
       const content = apiData.content || [];
 
       if (apiData.stop_reason !== 'tool_use') {
+        if (apiData.stop_reason === 'max_tokens') throw new Error(`[MAX_TOKENS] main assess call truncated at iter=${iter} — response ceiling hit`);
+        if (apiData.stop_reason === 'refusal')   throw new Error(`[REFUSAL] main assess call refused at iter=${iter} — content policy`);
         rawText = content.filter(c => c.type === 'text').map(c => c.text).join('');
         break;
       }
@@ -1577,6 +1581,8 @@ export async function GET(request) {
       console.log('[TOKEN LOG] iter=final Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
       console.log('[CACHE] iter=final write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
       if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (final)');
+      if (finalData.stop_reason === 'max_tokens') throw new Error('[MAX_TOKENS] main assess call truncated (final) — response ceiling hit');
+      if (finalData.stop_reason === 'refusal')   throw new Error('[REFUSAL] main assess call refused (final) — content policy');
       rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
     }
 
@@ -1875,9 +1881,19 @@ export async function GET(request) {
   } catch (err) {
     console.error('Salvage assess error:', err);
     if (promoToken) {
+      // Promo: reset to promo_redeemed so the token remains usable for a retry.
       await supabase
         .from('salvage_sessions')
         .update({ status: 'promo_redeemed' })
+        .eq('id', salvageId)
+        .eq('status', 'processing');
+    } else {
+      // Non-promo: reset to 'failed' so the client can retry without hitting the
+      // CB4 staleness window. Hard kills (maxDuration) bypass this catch and still
+      // need CB4 as a backstop — they leave the session 'processing' until detected stale.
+      await supabase
+        .from('salvage_sessions')
+        .update({ status: 'failed' })
         .eq('id', salvageId)
         .eq('status', 'processing');
     }
