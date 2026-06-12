@@ -1101,12 +1101,16 @@ export async function GET(request) {
     // CB4: stale-lock recovery — hard Vercel kills (maxDuration=300s) bypass catch,
     // leaving status='processing' permanently. Caught exceptions use the catch block
     // to reset to 'failed'; this handles the uncaught hard-kill case only.
-    // CE: !promoToken guard — promo sessions that just claimed land here with
-    // status='processing'; without this guard the main check would 409 them
-    // (live session) or reset to 'failed' (stale created_at), overwriting the
-    // promo-aware reset in the inner block. Promo hard-kills are handled by
-    // the inner block's CB4 guard, so this path is non-promo only.
-    if (check?.status === 'processing' && !check?.assessment && !promoToken) {
+    // CE: promo sessions are identified from the row (vehicle_details.promoToken)
+    // rather than the request parameter, so the guard is correct even in the
+    // cross-contamination edge case (Stripe session_id presented with a promo
+    // salvage_id). Promo sessions that just claimed also land here with
+    // status='processing'; the row-level exclusion prevents the main guard from
+    // 409ing them or overwriting the inner block's promo-aware stale reset.
+    // Promo hard-kills are handled entirely by the inner block's CB4 guard;
+    // this path is non-promo only. The inner promo guard is promo-scope by
+    // definition (it sits inside the if (promoToken) verification block).
+    if (check?.status === 'processing' && !check?.assessment && !check.vehicle_details?.promoToken) {
       const ageSec = check.created_at
         ? (Date.now() - new Date(check.created_at).getTime()) / 1000
         : Infinity;
