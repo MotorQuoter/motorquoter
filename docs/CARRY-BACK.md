@@ -89,3 +89,27 @@ honest but violates the unconditional-band lock. Fix shape is a
 design decision (fail-loud + retry when frontStruck && no lampObs, vs
 code-side trigger fallback) — own audit-and-propose before THE merge,
 alongside item 11.
+
+RE-DIAGNOSIS 12 Jun: the founding 15:49 incident, the 18:20 run, and
+the SF69 Fable probe 'lamp inert' runs were ALL the null-null class —
+the Copart listing paste truncated at 'V5 available:', structured
+damage lines absent, primaryDamage/secondaryDamage stored null,
+frontStruck=false, lamp tool never OFFERED (not declined). Zero
+confirmed instances of true model-silence on a frontStruck lot to
+date. The item 13 forced-call fix STANDS as defence-in-depth for the
+silence class (BL75JAU live-proven 17:26: iter=0 stop=tool_use, 97
+tokens, observation extracted) but had no reach on these sessions.
+The real defect is item 14: trigger input integrity.
+
+## 14. Lamp trigger single-point-of-failure — PRE-MERGE FIX REQUIRED
+£350–£700 of code-owned band money hangs entirely on two pasted text
+lines. Proven same-lot: SF69 morning paste carried 'Front
+End'(secondary) → frontStruck=true → £350 banded; afternoon pastes
+truncated → null-null → entire lamp machinery silently off (tool,
+detect, band). Ratified design: Layer 1 = offer LAMP_OBS_TOOL
+unconditionally, force only when text fields say front, voluntary
+otherwise; Layer 2 = post-Call-2 backstop — perZone contains
+front/impact && lampObs null → one targeted forced observation call;
+Layer 3 = [LAMP][TRIGGER] log line every run stating which source
+armed (or failed to arm) the lamp path. No path guesses
+apertureExposed — every path obtains it from model observation.

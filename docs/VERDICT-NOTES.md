@@ -53,6 +53,8 @@ Same signature as the Opus fabrication. Two-pass justification holding so far.
 | 4 | 946d5828 | VALID | ~$1.31 |
 | 5 | 1a307a3a | VALID — closed 11 Jun; SF69YBB Fable complete 3/3 | — |
 
+*Probe footnote — 12 Jun 2026: Fable SF69 'lamp path inert' rows (run-1 fcdd34ec, run-2 8ddb3cd6) were truncation artifacts (null-null input class), not model behaviour. primaryDamage/secondaryDamage both null in stored vehicle_details; frontStruck=false; LAMP_OBS_TOOL never offered to the model. Verdict unaffected — criteria never hinged on lamp. The cross-model silence claim in the item 13 audit is withdrawn; zero confirmed instances of true model-silence on a frontStruck lot to date.*
+
 ## Run ledger (SF69YBB, claude-opus-4-8 — State B, e1fa14a)
 | Run | Session | Disposition |
 |---|---|---|
