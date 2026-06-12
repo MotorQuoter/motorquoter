@@ -223,6 +223,51 @@ for (const [rel, archived, expected] of RUNS) {
     `left iv=true survived=${leftSurvived} right iv=false stripped=${rightStripped} labour safe=${labourSurvived} flags=${flagCount} — normKey defect asserted`]);
 }
 
+// ---------- CB9 coexistence fixture: model flag + gate-strip on same normalized name ----------
+// Asserts the CB9 discriminant fix: when a model flag already exists for a part's
+// normalized name, the gate MUST still push its own _gateGenerated flag alongside it.
+// Before CB9: gate dedup matched any flag → gate flag suppressed → buyer sees no exclusion notice.
+// After CB9: gate dedup only matches _gateGenerated flags → model flag and gate flag coexist →
+// buyer sees both the model's concern AND the code's "excluded from repair total" notice.
+// Strip behaviour is unchanged — the row is removed from gatedParts regardless.
+{
+  const coexRawParts = [
+    { name: 'Front bumper', action: 'replace', oem: null, used: 300 },
+    { name: 'Labour & paint', action: '-', oem: null, used: 200 },
+  ];
+  const coexCostedParts = [
+    { partName: 'Front bumper', zone: 'front', independentlyVisible: false, _synthetic: true },
+    { partName: 'Labour & paint', zone: 'front', independentlyVisible: null, _labourSafe: true, _synthetic: true },
+  ];
+  // Pre-existing MODEL flag for 'Front bumper' — NOT _gateGenerated; simulates a model-authored flag
+  const coexFlagged = [
+    { partName: 'Front bumper', zone: 'front', weight: 'high',
+      reason: 'significant bumper damage visible — model flag', _gateGenerated: false },
+  ];
+  const coexLampResult = null;
+
+  const { parts: coexReconciled } = quiet(() => reconcileParts(coexRawParts, coexLampResult, coexCostedParts));
+  const { gatedParts: coexGated } = quiet(() => applyVisibilityGate(coexReconciled, coexCostedParts, coexFlagged, coexLampResult));
+
+  const bumperStripped  = !coexGated.some(p => p.name === 'Front bumper');
+  const labourSurvived2 = coexGated.some(p => p.name === 'Labour & paint');
+  const modelFlagPresent = coexFlagged.some(f => f.partName === 'Front bumper' && !f._gateGenerated);
+  const gateFlagPresent  = coexFlagged.some(f =>
+    normName(f.partName) === normName('Front bumper') &&
+    f._gateGenerated === true &&
+    f.reason.includes('excluded from repair total'));
+  const coexFlagCount = coexFlagged.length;
+
+  if (!bumperStripped)   fail('CB9-coexistence', 'Front bumper iv=false should be stripped from gatedParts');
+  if (!labourSurvived2)  fail('CB9-coexistence', 'Labour & paint _labourSafe should survive gate');
+  if (!modelFlagPresent) fail('CB9-coexistence', 'original model flag must be preserved');
+  if (!gateFlagPresent)  fail('CB9-coexistence', 'gate flag with excluded-from-repair-total must be added alongside model flag');
+  if (coexFlagCount !== 2) fail('CB9-coexistence', `expected 2 flags (model + gate), got ${coexFlagCount}`);
+
+  rows.push(['CB9-coexistence', '—', `£${sumPartsRealistic(coexGated)}`, '—',
+    `bumper stripped=${bumperStripped} model-flag=${modelFlagPresent} gate-flag=${gateFlagPresent} flags=${coexFlagCount} — CB9 coexistence asserted`]);
+}
+
 console.log('\nrun | old(replay) | new | expected | notes');
 for (const r of rows) console.log(r.join(' | '));
 console.log(failures === 0 ? `\nALL GREEN — ${rows.length} runs replayed, 0 failures` : `\n${failures} FAILURE(S)`);

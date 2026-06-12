@@ -63,3 +63,16 @@ pdf/route.js:524-526 — if _reconciledParts absent, the PDF parts table falls
 back to parsing assessment['Parts Breakdown'] prose; the repair banner still
 reads _partsReconciliation.parts_sum. Latent display inconsistency: table rows
 and banner value may not agree if the fallback fires. Logged 12 Jun, not scheduled.
+
+## 11. Radiator double-row — UPGRADED to floor-integrity defect, PRE-MERGE FIX REQUIRED
+Mechanism: parts-survival loop (parts.mjs:167–196) has no already-matched
+tracking; duplicate rawParts rows both match one iv=true verdict and both
+survive to gatedParts — duplicate money IN the displayed floor (observed live,
+SF69 S1). Separate from CB9. Fix shape is a design decision (reconcile-time
+name dedup vs consumed-verdict tracking) — own audit-and-propose before THE merge.
+
+## 12. Physical section wheel/tyre slots (not scheduled)
+8 unconditional rows, _slots render path, route.js:1919–1923. Render
+'not clearly visible' beside costed wheel/tyre parts — same coherence class
+as CB8, slots surface. Product decision owed (adapt like CB8 or stay
+unconditional). Logged 12 Jun, not scheduled.
