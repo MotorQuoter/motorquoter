@@ -268,6 +268,45 @@ for (const [rel, archived, expected] of RUNS) {
     `bumper stripped=${bumperStripped} model-flag=${modelFlagPresent} gate-flag=${gateFlagPresent} flags=${coexFlagCount} — CB9 coexistence asserted`]);
 }
 
+// ---------- CB11 duplicate-verdict fixture: two rawParts rows share one iv=true verdict ----------
+// Asserts consumed-verdict tracking: first matching row survives gatedParts; second is stripped
+// and a medium _gateGenerated duplicate flag is added. Labour and lamp branches are untouched.
+{
+  // Model emits "Radiator" twice (identical name, observed live SF69YBB S1).
+  // Both normKey to 'radiator' → both find the same costedParts iv=true verdict.
+  const dedupRawParts = [
+    { name: 'Radiator', action: 'replace', oem: 350, used: null },
+    { name: 'Radiator', action: 'repair',  oem: 300, used: null },
+    { name: 'Labour & paint', action: '-', oem: null, used: 200 },
+  ];
+  // Single iv=true verdict — both Radiator rows normKey to 'radiator' → same entry
+  const dedupCostedParts = [
+    { partName: 'Radiator', zone: 'front', independentlyVisible: true, _synthetic: true },
+    { partName: 'Labour & paint', zone: 'front', independentlyVisible: null, _labourSafe: true, _synthetic: true },
+  ];
+  const dedupFlagged = [];
+  const dedupLampResult = null;
+
+  const { parts: dedupReconciled } = quiet(() => reconcileParts(dedupRawParts, dedupLampResult, dedupCostedParts));
+  const { gatedParts: dedupGated } = quiet(() => applyVisibilityGate(dedupReconciled, dedupCostedParts, dedupFlagged, dedupLampResult));
+
+  const radiatorSurvivorCount = dedupGated.filter(p => /radi/i.test(p.name)).length;
+  const labourSurvived3 = dedupGated.some(p => p.name === 'Labour & paint');
+  const dupFlagPresent = dedupFlagged.some(f =>
+    f._gateGenerated === true &&
+    f.weight === 'medium' &&
+    f.reason.includes('duplicate part row'));
+  const dedupFlagCount = dedupFlagged.length;
+
+  if (radiatorSurvivorCount !== 1) fail('CB11-dedup', `expected exactly 1 radiator row in gatedParts, got ${radiatorSurvivorCount}`);
+  if (!labourSurvived3)            fail('CB11-dedup', 'Labour & paint _labourSafe must survive gate unchanged');
+  if (!dupFlagPresent)             fail('CB11-dedup', 'medium _gateGenerated duplicate flag must be added for stripped row');
+  if (dedupFlagCount !== 1)        fail('CB11-dedup', `expected exactly 1 flag (duplicate notice), got ${dedupFlagCount}`);
+
+  rows.push(['CB11-dedup', '—', `£${sumPartsRealistic(dedupGated)}`, '—',
+    `radiator survivors=${radiatorSurvivorCount} labour=${labourSurvived3} dup-flag=${dupFlagPresent} flags=${dedupFlagCount} — CB11 consumed-verdict dedup asserted`]);
+}
+
 console.log('\nrun | old(replay) | new | expected | notes');
 for (const r of rows) console.log(r.join(' | '));
 console.log(failures === 0 ? `\nALL GREEN — ${rows.length} runs replayed, 0 failures` : `\n${failures} FAILURE(S)`);
