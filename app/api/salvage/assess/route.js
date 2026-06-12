@@ -11,6 +11,10 @@ import {
   CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
   wheelSlotId, tyreSlotId, buildSlot, buildGroup, assembleCoreSlots,
 } from '@/lib/coreSlots';
+import {
+  normName, sumPartsRealistic, reconcileParts,
+  applyVisibilityGate, finalizeLampInstrumentation,
+} from '@/lib/parts.mjs';
 
 export const maxDuration = 300;
 
@@ -920,91 +924,9 @@ function parsePartVerdicts(blockText) {
   return { costedParts, flaggedParts };
 }
 
-function isLampLine(name) {
-  return /\bhead[\s-]?lamp\b|\bheadlight\b|\bfront\s+lamp\b/i.test(name);
-}
-
-function reconcileParts(parts, lampResult) {
-  if (!lampResult?.tier2Fired || !lampResult.lampAllowance) {
-    // Prose-authority fail-safe: on a tier-1 lot the prompt tells the model to omit
-    // the headlamp line when VDS confirms the lamp intact. Log loudly if one slips through;
-    // do NOT strip — code cannot distinguish an intact-but-orphaned line from a
-    // legitimate uncertain/cannot-confirm line without parsing prose. Prompt is primary.
-    const orphanLampIdx = parts.reduce((acc, p, i) => { if (isLampLine(p.name)) acc.push(i); return acc; }, []);
-    if (orphanLampIdx.length > 0) {
-      console.error(`[LAMP ORPHAN] ${orphanLampIdx.length} headlamp line(s) on tier-1 lot — NOT stripped (cannot distinguish intact/uncertain from prose alone). Investigate if this appears on a real lot.`);
-      // fall through — keep the line; prompt is the primary enforcement layer
-    }
-    return { parts, allowanceParts: [], lamp_delta: 0, lamp_inserted: false, lamp_count: 0 };
-  }
-  const band      = lampResult.lampAllowance;
-  const lampCount = lampResult.lampCount ?? 1;
-
-  const lampIndices = [];
-  parts.forEach((p, i) => { if (isLampLine(p.name)) lampIndices.push(i); });
-
-  let lamp_delta       = 0;
-  let workParts        = [...parts];
-  const allowanceParts = [];
-
-  if (lampCount === 2) {
-    if (lampIndices.length >= 1) {
-      // Reconcile first lamp into parts_sum (priced)
-      const idx0       = lampIndices[0];
-      const cost0      = workParts[idx0].used ?? workParts[idx0].oem ?? 0;
-      const effective0 = Math.max(cost0, band);
-      lamp_delta      += effective0 - cost0;
-      workParts        = workParts.map((item, i) => i === idx0 ? { ...item, oem: null, used: effective0 } : item);
-
-      if (lampIndices.length >= 2) {
-        // Model priced 2+ lamps — move second (and any extra) to allowanceParts, remove from workParts
-        for (let n = 1; n < lampIndices.length; n++) {
-          allowanceParts.push({ name: workParts[lampIndices[n]].name, action: 'replace', used: band, _allowance: true });
-        }
-        const toRemove = new Set(lampIndices.slice(1));
-        workParts = workParts.filter((_, i) => !toRemove.has(i));
-      } else {
-        // Model priced exactly 1 lamp — add the second as an allowance row
-        allowanceParts.push({ name: 'Front headlamp', action: 'replace', used: band, _allowance: true });
-      }
-    } else {
-      // Model priced 0 lamps — insert one priced, one allowance (same band, one type-read)
-      lamp_delta += band;
-      const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
-      const at = labourIdx >= 0 ? labourIdx : workParts.length;
-      workParts = [
-        ...workParts.slice(0, at),
-        { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
-        ...workParts.slice(at),
-      ];
-      allowanceParts.push({ name: 'Front headlamp', action: 'replace', used: band, _allowance: true });
-    }
-  } else {
-    // lampCount === 1: reconcile or insert exactly one lamp, no allowance row
-    if (lampIndices.length >= 1) {
-      const idx       = lampIndices[0];
-      const modelCost = workParts[idx].used ?? workParts[idx].oem ?? 0;
-      const effective = Math.max(modelCost, band);
-      lamp_delta     += effective - modelCost;
-      workParts       = workParts.map((item, i) => i === idx ? { ...item, oem: null, used: effective } : item);
-    } else {
-      lamp_delta += band;
-      const labourIdx = workParts.findIndex(p => /labour|paint|prep/i.test(p.name));
-      const at = labourIdx >= 0 ? labourIdx : workParts.length;
-      workParts = [
-        ...workParts.slice(0, at),
-        { name: 'Front headlamp', action: 'replace', oem: null, used: band, _inserted: true },
-        ...workParts.slice(at),
-      ];
-    }
-  }
-
-  return { parts: workParts, allowanceParts, lamp_delta, lamp_inserted: true, lamp_count: lampCount };
-}
-
-function sumPartsRealistic(parts) {
-  return parts.reduce((acc, p) => acc + (p.used ?? p.oem ?? 0), 0);
-}
+// isLampLine / reconcileParts / sumPartsRealistic / normName / the visibility
+// gate live in lib/parts.mjs (CB7 fix, 12 Jun 2026) so the regression harness
+// imports the literal shipped functions.
 
 function renderParts(parts) {
   return parts.map((p, i) => {
@@ -1854,10 +1776,6 @@ export async function GET(request) {
       if (/^[-–—]+$/.test(rp.action)) acc.add(i);
       return acc;
     }, new Set());
-    const normName = s => s.toLowerCase().trim()
-      .replace(/\s*&\s*|\s+and\s+/gi, ' and ')
-      .replace(/\s*\([^)]*\)/g, '')
-      .replace(/\s+/g, ' ');
     const labourNamesNorm = new Set(
       rawParts.filter((_, i) => dashIndices.has(i)).map(rp => normName(rp.name))
     );
@@ -1873,44 +1791,11 @@ export async function GET(request) {
     console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
     console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
 
-    const { parts: reconciledParts, allowanceParts, lamp_delta, lamp_inserted, lamp_count } = reconcileParts(rawParts, lampResult);
+    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts);
 
-    // Phase 2 — visibility gate (Test 1)
-    const nonAllowanceParts = reconciledParts.filter(p => !p._allowance);
-    const blockAbsent = coreObs.costedParts.length === 0 && nonAllowanceParts.length > 0;
-    let gatedParts;
-    if (blockAbsent) {
-      console.error(
-        `[GATE][INOPERATIVE] Part Verdicts absent/empty while ${nonAllowanceParts.length} costed part(s) present` +
-        ` — gate did not run; parts pass through unfiltered`
-      );
-      gatedParts = reconciledParts;
-    } else {
-      const gateStripped = [];
-      gatedParts = reconciledParts.filter(rp => {
-        if (rp._allowance) return true;
-        const verdict = coreObs.costedParts.find(cp => normName(cp.partName) === normName(rp.name));
-        if (!verdict) {
-          console.log(`[GATE] no-verdict-match "${rp.name}" — passed unchecked (no costedParts entry)`);
-          return true;
-        }
-        if (verdict._labourSafe) return true;
-        if (verdict.independentlyVisible === true) return true;
-        gateStripped.push(verdict);
-        return false;
-      });
-      for (const v of gateStripped) {
-        const reason = v.independentlyVisible === false ? 'iv=false' : 'iv=null(ambiguous)';
-        console.log(`[GATE] stripped "${v.partName}" zone=${v.zone} ${reason}`);
-        if (!coreObs.flaggedParts.some(f => normName(f.partName) === normName(v.partName))) {
-          coreObs.flaggedParts.push({
-            partName: v.partName, zone: v.zone, weight: 'medium',
-            reason: 'excluded from repair total — not independently confirmed on its own shots; verify on inspection before bidding',
-            _gateGenerated: true,
-          });
-        }
-      }
-    }
+    // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
+    // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
+    const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
 
     assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
@@ -1918,6 +1803,10 @@ export async function GET(request) {
     );
 
     const parts_sum = sumPartsRealistic(gatedParts);
+
+    // Instrumentation finalised post-gate: lamp_delta/lamp_inserted describe the
+    // rows actually inside parts_sum — reality, never assumption (CB7 fix)
+    const { lamp_delta, lamp_inserted, lamp_count } = finalizeLampInstrumentation(gatedParts, lampResult);
 
     if (gatedParts.length > 0) {
       assessment['Parts Breakdown'] = renderParts(gatedParts);
