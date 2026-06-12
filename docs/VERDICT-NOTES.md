@@ -78,6 +78,7 @@ Same signature as the Opus fabrication. Two-pass justification holding so far.
 | 1 | 7b24a321 | VALID — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok; both lamps iv=true, no gate strip, repair £3,145 includes one priced lamp |
 | 2 | c6567f26 | VALID + MANDATORY DISTORTION NOTE — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. DISTORTION NOTE: "CB7 fired: gate stripped the reconcile-kept lamp; displayed repair £3,245 contains ZERO priced lamp money (verified by line-summing). Corrected comparison figure ~£3,595 (+£350 lamp band). Use the corrected figure for any cross-run repair comparison." |
 | 3 | def6f287 | VALID — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. Lamp watch did not fire. £3,045 sum verified clean, includes one priced lamp |
+| post-carry-back | 14:50 (12 Jun, preview 149d278) | VALID — carry-back batch A–F live proof: CB8 adapt fired, lamp pair/clamp/allowance chain coherent, both gate null-paths + live strip, line-sum £2,325 to the penny, hash-verified 149d278. Ground-truth note: two tyres shredded (both offside — front and rear), rear omitted by model — see BL75JAU ground-truth addendum below. |
 
 **BL75JAU Opus block CLOSED (11 Jun runs, ledgered 12 Jun): 3 valid (runs 1, 2, 3), 1 excluded-retained (run 0). BL75JAU matrix complete on both sides — Fable 3/3 VALID, Opus 3/3 VALID + 1 excluded-retained.**
 
@@ -354,3 +355,31 @@ carries phantom zone money (£160–£350 per run, all phantom) while Fable
 omits the one minor real part (nose panel, minor deformation). Both
 wrong, small money. The error directions (over-include vs under-include)
 are unchanged but the stakes are smaller than previously stated.
+
+## BL75JAU GROUND-TRUTH ADDENDUM — 12 Jun (post-carry-back validation run)
+
+### Corrected ground truth (Vincent, 12 Jun, photo-verified)
+
+"BL75JAU corrected ground truth: TWO tyres shredded, both offside —
+driver's side front AND driver's side rear. The rear offside tyre is
+plainly visible in the rear three-quarter photo (de-treaded carcass
+on the rim, directly below the scuffed quarter the model described).
+The model costed one front tyre as 'corner uncertain' and omitted the
+rear tyre entirely — not costed, not flagged. The front shredded tyre
+is determinably the offside front from the photo set; the 'corner
+uncertain' hedge was resolvable. The offside rear quarter scuff band
++ cracked vent trim + both offside tyres shredded indicate a SINGLE
+event with a flank component travelling down the driver's side; the
+report's framing of the rear quarter damage as 'independent of the
+front impact' is incorrect against ground truth."
+
+### Consequences
+
+- **Classification:** PERCEPTION OMISSION of visible damage — the inverse of the phantom class. BL75JAU now carries both error directions on one lot (probe record: phantom-costed intact parts; this run: visible real damage dropped).
+- **Money:** Displayed repair floor light by ~£120 (rear tyre).
+- **Wheel-net backstop:** Checklist item 9 (CB8 adapt mode) is the control that catches this for a buyer who follows it — backstop credited; report still wrong. "The backstop caught it" ≠ "the report was right."
+- **Damage reconstruction:** Split one event into two — a failure in the buyer-can't-verify value layer.
+
+### DESIGN INPUT (12 Jun, BL75JAU): two-pass completeness challenge
+
+"DESIGN INPUT (12 Jun, BL75JAU): two-pass as banked targets the phantom/attribution class. BL75JAU adds the inverse: completeness omission of visible damage. Decision owed at two-pass design time: widen the challenge to a per-zone completeness sweep ('what damaged parts in this zone are NOT in your table?') alongside the attribution challenge, or leave omission to the wheel-net permanently. Logged now, decided then."
