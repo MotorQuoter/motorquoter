@@ -76,3 +76,16 @@ name dedup vs consumed-verdict tracking) — own audit-and-propose before THE me
 'not clearly visible' beside costed wheel/tyre parts — same coherence class
 as CB8, slots surface. Product decision owed (adapt like CB8 or stay
 unconditional). Logged 12 Jun, not scheduled.
+
+## 13. Lamp tier-1-by-silence — PRE-MERGE FIX REQUIRED
+Observed live: SF69YBB 15:49 run, iter=0 stop=end_turn output=3907 —
+model never fired recordLampObservation on a genuinely struck front
+(bumper displaced, ground-truth band condition met). Floor at
+route.js:1774–1777 forced apertureExposed:false → tier 1 → lamps=0,
+£350 band absent from displayed total. [LAMP ORPHAN] watchdog fired
+correctly. Mitigation in current output: model lamp row gate-stripped
+AND flagged, so the omission is disclosed under Phase 3 framing —
+honest but violates the unconditional-band lock. Fix shape is a
+design decision (fail-loud + retry when frontStruck && no lampObs, vs
+code-side trigger fallback) — own audit-and-propose before THE merge,
+alongside item 11.
