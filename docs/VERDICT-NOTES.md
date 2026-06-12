@@ -383,3 +383,15 @@ front impact' is incorrect against ground truth."
 ### DESIGN INPUT (12 Jun, BL75JAU): two-pass completeness challenge
 
 "DESIGN INPUT (12 Jun, BL75JAU): two-pass as banked targets the phantom/attribution class. BL75JAU adds the inverse: completeness omission of visible damage. Decision owed at two-pass design time: widen the challenge to a per-zone completeness sweep ('what damaged parts in this zone are NOT in your table?') alongside the attribution challenge, or leave omission to the wheel-net permanently. Logged now, decided then."
+
+### Rear-quarter trim identity — RESOLVED (Vincent, 12 Jun)
+
+Rear-quarter trim identity RULED (Vincent, 12 Jun): the part is the
+CHARGE-PORT FLAP, and it is MISSING — not cracked. The 14:50 run's
+'air-vent / aero blade trim' was a wrong identity; the 15:42 and PDF
+runs named the part correctly. All runs described it as
+cracked/damaged — the model read the exposed socket lattice behind
+the absent flap as a damaged flap (present-vs-absent confusion on an
+exposed aperture, lamp-detect class in miniature). Action and cost
+were correct (replace); no floor impact. Identity churn on this part:
+RESOLVED.
