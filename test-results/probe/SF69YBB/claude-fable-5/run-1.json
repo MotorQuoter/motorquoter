@@ -1,0 +1,37 @@
+{
+  "sessionId": "fcdd34ec-aa2c-478f-b97c-9cf138cd6662",
+  "sessionCreatedAt": "2026-06-10T13:31:46.645794+00:00",
+  "lot": "SF69YBB",
+  "lampObs": null,
+  "rawParts": [],
+  "capturedAt": "2026-06-10T13:33:59.813Z",
+  "lampDetect": "not_front_struck",
+  "lampResult": null,
+  "costedParts": [],
+  "proseFields": {
+    "Airbags": null,
+    "Red Flags": null,
+    "Bidder Note": null,
+    "Part Verdicts": null,
+    "Parts Breakdown": null,
+    "Confidence Level": null,
+    "Key Cost Drivers": null,
+    "Exit Band Position": null,
+    "Margin Calculation": null,
+    "Recommended Action": null,
+    "Realistic Exit Value": null,
+    "Visible Damage Summary": "Confirmed body style: 5-door Hatchback (front and rear doors both present on each side, confirmed in photos and listing). Windscreen sticker suffix: Q (53003666Q) — Copart purchased this vehicle to resell. This is not an insurance-entered lot and warrants extra scrutiny: establish why the vehicle is in salvage before bidding, as the reason for disposal is not insurer-documented.\n\nThis vehicle shows damage in three separate, unconnected areas — each is described independently and should not be assumed to be one event:\n\n1. FRONT — impact damage, strike height mid-to-high. The upper grille assembly and trim are broken away, exposing the radiator/condenser pack and b",
+    "Alternative Damage Scenario": null,
+    "WhatsApp Inspection Checklist": null
+  },
+  "stopReasons": [
+    "max_tokens"
+  ],
+  "flaggedParts": [],
+  "servedModels": [
+    "claude-fable-5"
+  ],
+  "partVerdictsText": "",
+  "lampDetectCorners": null,
+  "disposition": "DISCARDED — truncation: max_tokens silently accepted pre-fix (f5e6083); 695 chars text, no parts data"
+}

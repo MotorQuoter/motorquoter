@@ -1,0 +1,292 @@
+{
+  "sessionId": "7ef4f79d-4636-4df1-93b8-d650e1bd0915",
+  "sessionCreatedAt": "2026-06-10T14:36:44.082237+00:00",
+  "lot": "SF69YBB",
+  "usage": [
+    {
+      "input_tokens": 33915,
+      "output_tokens": 4402,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 31208
+    },
+    {
+      "input_tokens": 13,
+      "output_tokens": 4890,
+      "cache_read_input_tokens": 31208,
+      "cache_creation_input_tokens": 38317
+    }
+  ],
+  "lampObs": {
+    "damageSpan": "full_width",
+    "struckSide": "central",
+    "apertureExposed": true
+  },
+  "rawParts": [
+    {
+      "oem": 220,
+      "name": "Front grille / upper bumper trim",
+      "used": 70,
+      "action": "replace"
+    },
+    {
+      "oem": 250,
+      "name": "Front bumper",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 160,
+      "name": "Front lower splitter/undertray",
+      "used": 50,
+      "action": "replace"
+    },
+    {
+      "oem": 220,
+      "name": "Bonnet",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 650,
+      "name": "Front headlamp (1)",
+      "used": 220,
+      "action": "replace"
+    },
+    {
+      "oem": 650,
+      "name": "Front headlamp (2)",
+      "used": 220,
+      "action": "replace"
+    },
+    {
+      "oem": 70,
+      "name": "Front arch liner",
+      "used": 25,
+      "action": "replace"
+    },
+    {
+      "oem": 45,
+      "name": "Side marker/indicator trim",
+      "used": 15,
+      "action": "replace"
+    },
+    {
+      "oem": 90,
+      "name": "Front alloy wheel",
+      "used": null,
+      "action": "refurbish"
+    },
+    {
+      "oem": 280,
+      "name": "Front door (damaged side)",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 280,
+      "name": "Rear door (damaged side)",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 180,
+      "name": "Sill garnish / side skirt",
+      "used": 60,
+      "action": "replace"
+    },
+    {
+      "oem": 480,
+      "name": "Rear bumper assembly",
+      "used": 160,
+      "action": "replace"
+    },
+    {
+      "oem": 650,
+      "name": "Rear quarter panel",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 450,
+      "name": "Rear lower panel / corner structure",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 1900,
+      "name": "Labour & paint",
+      "used": null,
+      "action": "—"
+    }
+  ],
+  "capturedAt": "2026-06-10T14:39:39.005Z",
+  "lampDetect": "no_json",
+  "lampResult": {
+    "tier": 2,
+    "lampType": "halogen",
+    "lampCount": 2,
+    "tier1Line": "Struck front corner — confirm a serviceable headlamp on inspection.",
+    "struckSide": "central",
+    "tier2Fired": true,
+    "verdictLine": "Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £150 (halogen). Confirm on inspection.",
+    "lampAllowance": 150,
+    "checklistEntry": "Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.",
+    "costDriverEntry": "Struck front corner headlamp — replacement costed at £150 (halogen).",
+    "lampTypeAssumed": false,
+    "detectionVerdict": null,
+    "effectiveVerdict": "cannot_determine",
+    "checklistEntry2nd": "Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£150 if replacement needed — flagged as inspection allowance, not included in repair total."
+  },
+  "costedParts": [
+    {
+      "zone": "front",
+      "partName": "Front grille / upper bumper trim",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front bumper",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front lower splitter/undertray",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Bonnet",
+      "partHeight": "high",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front headlamp (1)",
+      "partHeight": "high",
+      "independentlyVisible": false
+    },
+    {
+      "zone": "front",
+      "partName": "Front headlamp (2)",
+      "partHeight": "high",
+      "independentlyVisible": false
+    },
+    {
+      "zone": "front",
+      "partName": "Front arch liner",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Side marker/indicator trim",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front alloy wheel",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "flank-damaged-side",
+      "partName": "Front door (damaged side)",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "flank-damaged-side",
+      "partName": "Rear door (damaged side)",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "flank-damaged-side",
+      "partName": "Sill garnish / side skirt",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "rear",
+      "partName": "Rear bumper assembly",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "rear",
+      "partName": "Rear quarter panel",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "rear",
+      "partName": "Rear lower panel / corner structure",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "rear",
+      "partName": "Labour & paint",
+      "partHeight": null,
+      "_labourSafe": true,
+      "independentlyVisible": null
+    }
+  ],
+  "proseFields": {
+    "Airbags": "Not deployed — steering wheel centre and passenger fascia are intact in the interior photos, and no airbag warning lamp is visible on the running dash cluster. Curtain airbag covers along the headlining show no disturbance in the interior shots.",
+    "Red Flags": "- Q-suffix windscreen sticker on a Cat S lot: this vehicle was entered by Copart themselves, not an insurer. This may indicate a previously-bought, re-entered-unrepaired lot — possibly because the damage proved worse than the photos suggest or repair was uneconomic. Establish why before bidding; do not bid unless this is understood and priced in.\n- V5 Status: No — combined with Cat S, the buyer must apply to DVLA for a replacement V5, which will be permanently marked Category S and will show on all future HPI checks. Factor in the delay and the permanent resale impact.\n- Rear structural extent unknown: the boot floor and rear chassis leg cannot be seen in the photos. If deformation extends into the chassis leg, repair cost rises materially.\n- MOT status: Not valid — the vehicle will need a fresh MOT post-repair before road use.\n- DVSA record note: an advisory for \"Offside Front Lower bumper skirt slightly insecure\" was recorded at consecutive tests in April 2024 — the same lower-front area now showing splitter damage. The subsequent April 2025 test was clean for that item, so it was likely addressed; confirm repair documentation if possible.\n- TPMS warning illuminated on the dash — likely simple, but check tyre condition across all corners.\n\nMileage integrity: the MOT ladder runs cleanly — 17,397 (2022) → 17,702 (2023) → 25,112 (2024) → 37,605 (2025) — and the dash photo reads 41,716 miles, matching the Copart listed figure exactly. This is consistent with the declared mileage; no rollback or implausible jump detected. This is positive reassurance on a Q-suffix lot where mileage trust would otherwise be a live question.",
+    "Bidder Note": "A running, driving, airbags-intact Civic Sport Line with genuine corroborated mileage, but the torn rear corner structure, missing V5, and Copart-resale (Q-suffix) provenance make this a lot where the unknowns sit behind the metal, not in front of the camera.",
+    "Part Verdicts": "PART: Front grille / upper bumper trim | iv:true | z:front | ph:mid\nPART: Front bumper | iv:true | z:front | ph:mid\nPART: Front lower splitter/undertray | iv:true | z:front | ph:low\nPART: Bonnet | iv:true | z:front | ph:high\nPART: Front headlamp (1) | iv:false | z:front | ph:high\nPART: Front headlamp (2) | iv:false | z:front | ph:high\nPART: Front arch liner | iv:true | z:front | ph:low\nPART: Side marker/indicator trim | iv:true | z:front | ph:mid\nPART: Front alloy wheel | iv:true | z:front | ph:low\nPART: Front door (damaged side) | iv:true | z:flank-damaged-side | ph:low\nPART: Rear door (damaged side) | iv:true | z:flank-damaged-side | ph:low\nPART: Sill garnish / side skirt | iv:true | z:flank-damaged-side | ph:low\nPART: Rear bumper assembly | iv:true | z:rear | ph:low\nPART: Rear quarter panel | iv:true | z:rear | ph:mid\nPART: Rear lower panel / corner structure | iv:true | z:rear | ph:low\nPART: Labour & paint | iv:na | z:rear\nFLAG: Radiator / AC condenser | z:front | weight:medium :: Exposed through the broken grille but no damage independently visible on their own shots — confirm no fin damage or leaks on inspection.\nFLAG: Rear chassis leg / boot floor | z:rear | weight:high :: Cat S classification with torn metal at the rear corner — the structural extent behind the rear panel is not visible in the photos; inspect the boot floor and rear chassis leg before bidding.\nFLAG: Rear bumper reinforcement / impact absorber | z:rear | weight:medium :: Corner structure deformed; the crash bar behind it is not independently visible — verify condition.\nFLAG: Front crash bar / bumper reinforcement | z:front | weight:low :: Not visible behind the bumper; front damage appears trim-level but confirm on inspection.",
+    "Parts Breakdown": "1. Front grille / upper bumper trim | replace | £220 | £70\n2. Front bumper | repair | £250 | —\n3. Front lower splitter/undertray | replace | £160 | £50\n4. Bonnet | repair | £220 | —\n5. Front headlamp (1) | replace | £650 | £220\n6. Front headlamp (2) | replace | £650 | £220\n7. Front arch liner | replace | £70 | £25\n8. Side marker/indicator trim | replace | £45 | £15\n9. Front alloy wheel | refurbish | £90 | —\n10. Front door (damaged side) | repair | £280 | —\n11. Rear door (damaged side) | repair | £280 | —\n12. Sill garnish / side skirt | replace | £180 | £60\n13. Rear bumper assembly | replace | £480 | £160\n14. Rear quarter panel | repair | £650 | —\n15. Rear lower panel / corner structure | repair | £450 | —\n16. Labour & paint | — | £1,900 | —",
+    "Confidence Level": "Medium — good photo coverage of all three damage zones and a legible dash, but the structural extent behind the rear corner and headlamp serviceability cannot be confirmed remotely, and the Q-suffix provenance question is unresolved.",
+    "Key Cost Drivers": "1. Rear corner structural repair — torn quarter and rear panel metal requires skilled panel work and jig-checked alignment; this is the Cat S trigger and the largest labour component.\n2. Both headlamps — serviceability unconfirmed with surrounding trim broken on both sides; OEM units are expensive, used units materially change the picture.\n3. Three separate damage zones (front, flank, rear) means a high paint panel count relative to the severity of any single zone.",
+    "Exit Band Position": "mid-low — running/driving mainstream car with good mileage, but structural rear-corner damage across three zones and missing V5 pull it below mid.",
+    "Margin Calculation": "The repair is moderate-to-heavy in character: the front and flank are largely cosmetic/trim-level work, but the rear corner is genuine structural panel repair requiring skilled labour and post-repair alignment verification — that is where both the cost and the risk concentrate. The itemised repair total above assumes the rear damage stops at what is visible; if the WhatsApp inspection reveals chassis leg or boot floor involvement, the labour figure rises and the margin compresses quickly. The mid-low band position reflects a car that will retail readily once repaired (desirable spec, genuine low mileage, no airbag event) but carries a permanent structural marker and discoverable salvage history. The bidding decision should hinge on the rear structural verification: with a clean boot floor and chassis leg confirmed, the margin picture is workable using used headlamps and a competent bodyshop; without that confirmation, the downside scenario absorbs the spread. Price the bid off the Parts Breakdown as the floor, hold back headroom for the rear structural unknown and the V5/DVLA friction, and do not chase the hammer above the point where the unknowns are no longer paid for.\n\nNo previous salvage auction history — this appears to be a first write-off.",
+    "Recommended Action": "Book a £10 Copart WhatsApp video inspection (minimum 48hrs before sale). Key unknowns — rear structural extent, headlamp serviceability, and why Copart themselves are the vendor — are answerable on video and materially change the bid ceiling. Do not bid blind on this one.",
+    "Realistic Exit Value": "For reference, the live market valuation (June 2026, calibrated to the Copart-listed 41,716 miles, which the dash photo confirms): Retail low £12,103 / Retail average £12,699 / Retail high £13,312; Trade low £9,574 / Trade average £10,121 / Trade high £10,691. Desirability signals are reasonable: a Honda Civic Sport Line in red with a manual gearbox, 41,716 miles on a 2019 car (low for age), clean leather interior, running and driving with no airbag deployment — a sellable, mainstream-desirable car. Against that: this is a Cat S with visible torn structural metal at the rear corner, damage across three zones requiring a high paint panel count, no V5 in hand (DVLA application required, permanent Cat S marker), and Q-suffix provenance that a diligent retail buyer can discover via salvage-record scrapers. The structural nature of the rear damage and the multi-zone footprint pull the position down from mid; the strong mechanical/interior condition and corroborated mileage stop it falling to the bottom of the band. On balance this sits below the midpoint of the Cat S band.",
+    "Visible Damage Summary": "Confirmed body style: 5-door Hatchback (rear doors and rear quarter visible in side and interior photos; rear bench confirmed). Windscreen sticker suffix: Q — this lot was purchased by Copart to resell, not entered by an insurer. Apply extra scrutiny — Q-suffix lots frequently carry undisclosed issues, and on a Cat S this may indicate a previously-bought, re-entered-unrepaired vehicle. Establish why this lot is being sold by Copart themselves before bidding.\n\nThis is a 2019 Honda Civic 1.0 VTEC Turbo Sport Line manual (6-speed manual shifter confirmed in interior photos) with damage in three distinct zones:\n\nZone 1 — Front end (impact event; strike height mid-to-high, bumper-top/bonnet leading edge): the upper bumper grille trim is broken away across the front, exposing the radiator/condenser pack. The bonnet leading edge shows mild distortion. The black finisher trim at the inner edge of each headlamp is broken on both sides, and around the front wheel arch the side marker trim is exposed and the arch liner is disturbed/missing in part. The lower splitter/undertray is broken with sections missing (visible in the low front shot). Both headlamp lenses appear in place and unbroken, but with the surrounding trim broken away on both sides and mounting areas exposed, headlamp serviceability cannot be confirmed from the photos — mounting tabs are a known casualty in this damage pattern. The radiator and condenser are exposed through the broken grille but show no independently visible damage on their own shots — verify on inspection. The engine bay otherwise presents straight: suspension turrets, slam panel area and inner wings show no visible deformation.\n\nZone 2 — Side (impact event; strike height low, sill/door-bottom height): a low scrape/crease runs along the lower edges of the front and rear doors on one side, with the sill garnish/side skirt scuffed and a sharp crease at the door bottoms across the door gap. This is contained to one flank; the opposite flank appears undamaged.\n\nZone 3 — Rear corner (impact event; strike height low-to-mid): the heaviest damage on the car. The rear bumper is torn away at one corner, the rear quarter panel has torn, folded metal at its lower rear edge, and the lower rear panel/corner structure behind the bumper is deformed with wiring exposed. This torn structural metal at the rear corner is the most plausible trigger for the Category S classification. Both rear lamp clusters are individually confirmed intact in the photos — lenses unbroken, mounted correctly on both sides. The exhaust finisher/diffuser area on the damaged corner is disturbed.\n\nWheels: one front alloy shows kerb rash with chunks missing from the finish (corner uncertain from the photos — the damaged-side front wheel). Tyres appear inflated and seated in all shots.\n\nDashboard: odometer reads 41,716 miles — this matches the Copart listed mileage exactly; state with confidence. Engine shown at idle-ready state with several amber warnings visible including a tyre pressure (TPMS) warning; critically, no airbag warning lamp is illuminated. The coolant temperature indicator shows cold (normal). Listing confirms Copart verified engine start and transmission engagement (Run and Drive).\n\nInterior: clean, undamaged, both front seats and rear bench in good order. Steering wheel airbag intact, passenger fascia intact.\n\nRoof and glass: no visible damage.",
+    "Alternative Damage Scenario": "The damage pattern is consistent with a multi-impact event — most plausibly a rear shunt that pushed the car forward into an object ahead (explaining matching front and rear damage), with the flank scrape either part of the same incident or separate low-speed contact. The front damage is largely trim-level; the Cat S rating is best explained by the torn rear quarter/rear panel metal rather than anything at the front. A purely cosmetic read of the rear is not supported — the torn metal is visible and real.",
+    "WhatsApp Inspection Checklist": "1. Show the boot floor/load floor from inside the boot for structural distortion or rippling — this is the critical Cat S verification on this car.\n2. Show the rear chassis leg and lower rear panel from below at the damaged rear corner — confirm whether the torn metal extends into the chassis leg or is confined to the quarter/rear panel skin.\n3. Show both front headlamps close up, including the upper and inner mounting points where the surrounding trim is broken — confirm whether the mounting tabs are intact and the lamps are secure.\n4. Show the radiator and AC condenser through the open grille aperture — confirm no fin damage, kinked pipes, or coolant residue.\n5. Attempt engine start (keys are present) and show the dash cluster — confirm which warning lamps remain illuminated with the engine running, and specifically confirm the airbag lamp goes out.\n6. Confirm the rear wheel on the damaged corner sits straight in the arch and the tailgate opens and closes correctly — checks for rear-end alignment displacement.\n7. Show the lower door edges and sill on the damaged flank close up — confirm whether the creases are skin-level or have distorted the door frames/sill structure.\n8. Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£150 if replacement needed — flagged as inspection allowance, not included in repair total.\n9. Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)"
+  },
+  "stopReasons": [
+    "tool_use",
+    "end_turn"
+  ],
+  "flaggedParts": [
+    {
+      "zone": "front",
+      "reason": "Exposed through the broken grille but no damage independently visible on their own shots — confirm no fin damage or leaks on inspection.",
+      "weight": "medium",
+      "partName": "Radiator / AC condenser"
+    },
+    {
+      "zone": "rear",
+      "reason": "Cat S classification with torn metal at the rear corner — the structural extent behind the rear panel is not visible in the photos; inspect the boot floor and rear chassis leg before bidding.",
+      "weight": "high",
+      "partName": "Rear chassis leg / boot floor"
+    },
+    {
+      "zone": "rear",
+      "reason": "Corner structure deformed; the crash bar behind it is not independently visible — verify condition.",
+      "weight": "medium",
+      "partName": "Rear bumper reinforcement / impact absorber"
+    },
+    {
+      "zone": "front",
+      "reason": "Not visible behind the bumper; front damage appears trim-level but confirm on inspection.",
+      "weight": "low",
+      "partName": "Front crash bar / bumper reinforcement"
+    }
+  ],
+  "servedModels": [
+    "claude-fable-5",
+    "claude-fable-5"
+  ],
+  "partVerdictsText": "PART: Front grille / upper bumper trim | iv:true | z:front | ph:mid\nPART: Front bumper | iv:true | z:front | ph:mid\nPART: Front lower splitter/undertray | iv:true | z:front | ph:low\nPART: Bonnet | iv:true | z:front | ph:high\nPART: Front headlamp (1) | iv:false | z:front | ph:high\nPART: Front headlamp (2) | iv:false | z:front | ph:high\nPART: Front arch liner | iv:true | z:front | ph:low\nPART: Side marker/indicator trim | iv:true | z:front | ph:mid\nPART: Front alloy wheel | iv:true | z:front | ph:low\nPART: Front door (damaged side) | iv:true | z:flank-damaged-side | ph:low\nPART: Rear door (damaged side) | iv:true | z:flank-damaged-side | ph:low\nPART: Sill garnish / side skirt | iv:true | z:flank-damaged-side | ph:low\nPART: Rear bumper assembly | iv:true | z:rear | ph:low\nPART: Rear quarter panel | iv:true | z:rear | ph:mid\nPART: Rear lower panel / corner structure | iv:true | z:rear | ph:low\nPART: Labour & paint | iv:na | z:rear\nFLAG: Radiator / AC condenser | z:front | weight:medium :: Exposed through the broken grille but no damage independently visible on their own shots — confirm no fin damage or leaks on inspection.\nFLAG: Rear chassis leg / boot floor | z:rear | weight:high :: Cat S classification with torn metal at the rear corner — the structural extent behind the rear panel is not visible in the photos; inspect the boot floor and rear chassis leg before bidding.\nFLAG: Rear bumper reinforcement / impact absorber | z:rear | weight:medium :: Corner structure deformed; the crash bar behind it is not independently visible — verify condition.\nFLAG: Front crash bar / bumper reinforcement | z:front | weight:low :: Not visible behind the bumper; front damage appears trim-level but confirm on inspection.",
+  "lampDetectCorners": null,
+  "disposition": "VALID — first Fable data point; frontStruck fired, SELF-REF matches Opus controls, ERV present"
+}

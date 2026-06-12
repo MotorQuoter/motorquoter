@@ -1,0 +1,251 @@
+{
+  "sessionId": "def6f287-c615-413f-932a-e1712ea76abb",
+  "sessionCreatedAt": "2026-06-11T13:30:34.997104+00:00",
+  "lot": "BL75JAU",
+  "disposition": "VALID — BL75JAU Opus baseline data point 3 of 3 (State B, e1fa14a); servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. Lamp watch did not fire. £3,045 sum verified clean, includes one priced lamp.",
+  "usage": [
+    {
+      "input_tokens": 1029,
+      "output_tokens": 139,
+      "cache_read_input_tokens": 31208,
+      "cache_creation_input_tokens": 21039
+    },
+    {
+      "input_tokens": 121,
+      "output_tokens": 3458,
+      "cache_read_input_tokens": 31208,
+      "cache_creation_input_tokens": 22099
+    }
+  ],
+  "lampObs": {
+    "damageSpan": "full_width",
+    "struckSide": "central",
+    "apertureExposed": true
+  },
+  "rawParts": [
+    {
+      "oem": 480,
+      "name": "Front bumper assembly",
+      "used": 180,
+      "action": "replace"
+    },
+    {
+      "oem": 260,
+      "name": "Front bumper reinforcement bar",
+      "used": 120,
+      "action": "replace"
+    },
+    {
+      "oem": 340,
+      "name": "Slam panel / front upper tie bar",
+      "used": 150,
+      "action": "replace"
+    },
+    {
+      "oem": 420,
+      "name": "Front headlamp (corner 1)",
+      "used": 180,
+      "action": "replace"
+    },
+    {
+      "oem": 420,
+      "name": "Front headlamp (corner 2)",
+      "used": 180,
+      "action": "replace"
+    },
+    {
+      "oem": 390,
+      "name": "Condenser / cooling pack (front-mounted)",
+      "used": 160,
+      "action": "replace"
+    },
+    {
+      "oem": 300,
+      "name": "Front crossmember / lower tie bar",
+      "used": 140,
+      "action": "replace"
+    },
+    {
+      "oem": 130,
+      "name": "Front tyre (damaged-side)",
+      "used": null,
+      "action": "replace"
+    },
+    {
+      "oem": 220,
+      "name": "Front park assist sensor set + wiring",
+      "used": null,
+      "action": "replace"
+    },
+    {
+      "oem": 70,
+      "name": "Rear quarter air vent grille",
+      "used": 35,
+      "action": "replace"
+    },
+    {
+      "oem": 260,
+      "name": "Rear quarter / lower body refinish (cosmetic scuffs)",
+      "used": null,
+      "action": "repair"
+    },
+    {
+      "oem": 1300,
+      "name": "Labour & paint",
+      "used": null,
+      "action": "—"
+    }
+  ],
+  "capturedAt": "2026-06-11T13:31:42.716Z",
+  "lampDetect": "ok",
+  "lampResult": {
+    "tier": 2,
+    "lampType": "led",
+    "lampCount": 2,
+    "tier1Line": "Struck front corner — confirm a serviceable headlamp on inspection.",
+    "struckSide": "central",
+    "tier2Fired": true,
+    "verdictLine": "Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £350 (led). Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.",
+    "lampAllowance": 350,
+    "checklistEntry": "Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.",
+    "costDriverEntry": "Struck front corner headlamp — replacement costed at £350 (led, assumed).",
+    "lampTypeAssumed": true,
+    "detectionVerdict": "missing",
+    "effectiveVerdict": "cannot_determine",
+    "checklistEntry2nd": "Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£350 if replacement needed — flagged as inspection allowance, not included in repair total."
+  },
+  "costedParts": [
+    {
+      "zone": "front",
+      "partName": "Front bumper assembly",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front bumper reinforcement bar",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Slam panel / front upper tie bar",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front headlamp (corner 1)",
+      "partHeight": "high",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front headlamp (corner 2)",
+      "partHeight": "high",
+      "independentlyVisible": false
+    },
+    {
+      "zone": "front",
+      "partName": "Condenser / cooling pack (front-mounted)",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front crossmember / lower tie bar",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front tyre (damaged-side)",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Front park assist sensor set + wiring",
+      "partHeight": "low",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "flank-damaged-side",
+      "partName": "Rear quarter air vent grille",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "flank-damaged-side",
+      "partName": "Rear quarter / lower body refinish (cosmetic scuffs)",
+      "partHeight": "mid",
+      "independentlyVisible": true
+    },
+    {
+      "zone": "front",
+      "partName": "Labour & paint",
+      "partHeight": null,
+      "_labourSafe": true,
+      "independentlyVisible": null
+    }
+  ],
+  "proseFields": {
+    "Airbags": "Not deployed — interior photos show intact steering wheel and dash, no deployed bags, and no airbag warning light on the cluster. Consistent with the moderate-speed front impact pattern.",
+    "Red Flags": "- Cat S structural: requires specialist assessment of the front chassis legs/inner wing — the structural trigger behind the visible front damage is not photographable here.\n- EV front impact: the inverter/charger and HV cooling sit directly in the damaged zone. Even though the dash shows READY and Run & Drive is verified, confirm there are no latent HV faults, coolant loss, or charge-system damage before bidding — EV front repairs can escalate sharply.\n- \"Front Park Assist sensor failure\" on the dash — consistent with impact damage to the front sensors/loom.\n- Shredded front tyre indicates the wheel may have been driven on while damaged — inspect the wheel, hub and suspension geometry on the damaged corner.",
+    "Bidder Note": "Near-delivery, low-mileage 2026 EV with a full-width but apparently repairable front impact — attractive if the HV system and front chassis are clean, but the EV front-impact risk is the deciding factor. No previous separate salvage auction history — this appears to be a first write-off.",
+    "Part Verdicts": "PART: Front bumper assembly | iv:true | z:front | ph:low\nPART: Front bumper reinforcement bar | iv:true | z:front | ph:low\nPART: Slam panel / front upper tie bar | iv:true | z:front | ph:mid\nPART: Front headlamp (corner 1) | iv:true | z:front | ph:high\nPART: Front headlamp (corner 2) | iv:false | z:front | ph:high\nPART: Condenser / cooling pack (front-mounted) | iv:true | z:front | ph:mid\nPART: Front crossmember / lower tie bar | iv:true | z:front | ph:low\nPART: Front tyre (damaged-side) | iv:true | z:front | ph:low\nPART: Front park assist sensor set + wiring | iv:true | z:front | ph:low\nPART: Rear quarter air vent grille | iv:true | z:flank-damaged-side | ph:mid\nPART: Rear quarter / lower body refinish (cosmetic scuffs) | iv:true | z:flank-damaged-side | ph:mid\nPART: Labour & paint | iv:na | z:front\nFLAG: Front chassis leg / inner wing | z:front | weight:high :: Cat S structural trigger most likely intrusion into the chassis leg/inner wing behind the displaced front structure — not independently confirmable from photos; inspect for deformation/realignment before bidding.\nFLAG: HV battery / front electrical integrity | z:front | weight:high :: full-width front impact on an EV with exposed front electronics — confirm no high-voltage system disruption, coolant loss or fault codes despite READY state.\nFLAG: Front headlamp (corner 2) | z:front | weight:medium :: not independently confirmed serviceable on its own shots — aperture exposed; verify on inspection.",
+    "Parts Breakdown": "1. Front bumper assembly | replace | £480 | £180\n2. Front bumper reinforcement bar | replace | £260 | £120\n3. Slam panel / front upper tie bar | replace | £340 | £150\n4. Front headlamp (corner 1) | replace | £420 | £180\n5. Front headlamp (corner 2) | replace | £420 | £180\n6. Condenser / cooling pack (front-mounted) | replace | £390 | £160\n7. Front crossmember / lower tie bar | replace | £300 | £140\n8. Front tyre (damaged-side) | replace | £130 | —\n9. Front park assist sensor set + wiring | replace | £220 | —\n10. Rear quarter air vent grille | replace | £70 | £35\n11. Rear quarter / lower body refinish (cosmetic scuffs) | repair | £260 | —\n12. Labour & paint | — | £1,300 | —",
+    "Confidence Level": "Medium — photo set is good and mileage is photo/listing-corroborated, but EV HV integrity and the structural trigger behind the front cannot be confirmed from images.",
+    "Key Cost Drivers": "- Full-width front structural disruption — bumper, reinforcement, slam panel, crossmember, cooling pack and both headlamps all implicated.\n- EV-specific risk: front-mounted power electronics and HV cooling exposed in the impact zone — diagnosis and any HV component cost is the major swing factor.\n- The Cat S marker means a structural element behind the front needs repair/realignment — front chassis leg/inner wing is the prime suspect.",
+    "Exit Band Position": "mid-high — current-gen near-delivery EV, top trim, but full-width front structural impact.",
+    "Margin Calculation": "The desirability of a near-new, current-generation top-trim EV with trustworthy insurer-route mileage justifies a band position in the upper half of the Cat S range, while the full-width front structural nature of the repair keeps it off the very top. The repair is moderate-to-heavy front structural work with a real EV-integrity tail risk; the itemised Parts Breakdown captures the visible front and rear components, but the margin picture depends heavily on the HV system and front chassis proving clean on inspection. If they do, the spread on a low-mileage current-model EV is genuinely attractive; if HV or chassis problems surface, the upside erodes quickly. Bid conservatively until the inspection confirms the structural and EV picture.",
+    "Recommended Action": "Book a £10 Copart WhatsApp video inspection (minimum 48 hours before sale). Use it to resolve the structural and EV-integrity unknowns before committing to a bid (checklist below).",
+    "Realistic Exit Value": "This is a highly desirable salvage prospect on desirability signals: a current-generation 2026 model, near-delivery mileage (2,681), top \"Max Extended Range\" trim, clean interior, and a first write-off via the insurer route (X suffix) so the mileage is trustworthy. The newness of an EV this young overrides the usual battery-anxiety penalty. However, the damage is a full-width front structural impact (Cat S) with EV power electronics in the strike zone — that pulls against the upper end. Balancing strong desirability/newness against heavy front structural severity lands this at mid-high within the Cat S band.",
+    "Visible Damage Summary": "Confirmed body style: 5-door Hatchback (Citroën ë-C3 Aircross, electric). Windscreen sticker suffix: the lot sticker reads \"53337506x\" — an X suffix (insurance company vendor, low value category). This identifies the vendor type only; write-off status is the confirmed Category S in the listing data.\n\nThis is a near-new 2026 ë-C3 Aircross EV showing 2,681 miles on the dashboard (photo-confirmed, matching the listing and salvage record). The vehicle is Run and Drive with keys present, and the dash photo shows \"READY\" with the drive system live.\n\nFront-end impact (primary damage zone — impact, full-width): The entire front of the car has been stripped/displaced. The front bumper assembly is removed/displaced, exposing the slam panel area, the bumper reinforcement bar (visible, appears bent/scuffed), the cooling/condenser pack, and the front crash structure. The bonnet leading edge is lifted and the front panel/slam panel is disrupted. Both front corners are involved — this is full-width front structural disruption, not a single corner. The engine bay photo shows the EV power electronics and front structure exposed; the inverter/charger unit is visible and appears in place, but the front crossmember and radiator support area are clearly disturbed.\n\nHeadlamp status: Both front headlamps are implicated on this full-width front. The lamp on one corner appears displaced and hanging from its mounting; the opposite lamp's serviceability cannot be confirmed with the bumper and aperture exposed. Neither can be affirmed intact — both are carried as uncertain.\n\nFront tyre(s): At least one front tyre is destroyed — shredded/delaminated down to the sidewall structure (visible in the front and corner photos). Corner uncertain — one or both front tyres may be affected; the destroyed tyre is on the damaged front side.\n\nRear/flank (secondary damage zone — impact, low-to-mid): The rear quarter on one side shows scuffing/scratching running along the lower body and around the tail lamp area, plus a damaged/cracked rear quarter air vent grille. These are light cosmetic scrapes, consistent with the \"Minor Dents/Scratches\" descriptor.\n\nDash: \"Front Park Assist sensor failure\" message displayed — consistent with the front sensors/wiring being disrupted in the impact. No airbag warning light visible; READY state shown.\n\nInterior (front and rear) is clean and undamaged — no airbag deployment evident.",
+    "Alternative Damage Scenario": "Damage and category are consistent — a genuine full-width frontal impact with light secondary flank scuffing, written off as Cat S due to structural intrusion behind the front. The rear-quarter scuffs are independent minor cosmetic damage, not a second major impact.",
+    "WhatsApp Inspection Checklist": "1. Show the front chassis legs/rails from below for deformation or kinking behind the displaced front structure — this is the likely Cat S structural trigger.\n2. Confirm the front HV power electronics, charger/inverter and HV cooling lines are intact and show no coolant loss — and ask whether any HV/EV system fault codes are present despite the READY state.\n3. Show the damaged-side front wheel, hub and suspension close up — the shredded tyre suggests the car was driven on a damaged corner; check geometry and hub integrity.\n4. Confirm both front headlamps' mounting and condition close up, with the bumper aperture exposed, to settle headlamp replacement count.\n5. Show the rear quarter scuffs and cracked vent grille close up to confirm the secondary damage is cosmetic only and depth of refinish required.\n6. Confirm the bonnet and front panel open/close and align correctly to gauge the extent of front-panel/slam-panel disruption.\n7. Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£350 if replacement needed — flagged as inspection allowance, not included in repair total.\n8. Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)"
+  },
+  "stopReasons": [
+    "tool_use",
+    "end_turn"
+  ],
+  "flaggedParts": [
+    {
+      "zone": "front",
+      "reason": "Cat S structural trigger most likely intrusion into the chassis leg/inner wing behind the displaced front structure — not independently confirmable from photos; inspect for deformation/realignment before bidding.",
+      "weight": "high",
+      "partName": "Front chassis leg / inner wing"
+    },
+    {
+      "zone": "front",
+      "reason": "full-width front impact on an EV with exposed front electronics — confirm no high-voltage system disruption, coolant loss or fault codes despite READY state.",
+      "weight": "high",
+      "partName": "HV battery / front electrical integrity"
+    },
+    {
+      "zone": "front",
+      "reason": "not independently confirmed serviceable on its own shots — aperture exposed; verify on inspection.",
+      "weight": "medium",
+      "partName": "Front headlamp (corner 2)"
+    }
+  ],
+  "servedModels": [
+    "claude-opus-4-8",
+    "claude-opus-4-8"
+  ],
+  "partVerdictsText": "PART: Front bumper assembly | iv:true | z:front | ph:low\nPART: Front bumper reinforcement bar | iv:true | z:front | ph:low\nPART: Slam panel / front upper tie bar | iv:true | z:front | ph:mid\nPART: Front headlamp (corner 1) | iv:true | z:front | ph:high\nPART: Front headlamp (corner 2) | iv:false | z:front | ph:high\nPART: Condenser / cooling pack (front-mounted) | iv:true | z:front | ph:mid\nPART: Front crossmember / lower tie bar | iv:true | z:front | ph:low\nPART: Front tyre (damaged-side) | iv:true | z:front | ph:low\nPART: Front park assist sensor set + wiring | iv:true | z:front | ph:low\nPART: Rear quarter air vent grille | iv:true | z:flank-damaged-side | ph:mid\nPART: Rear quarter / lower body refinish (cosmetic scuffs) | iv:true | z:flank-damaged-side | ph:mid\nPART: Labour & paint | iv:na | z:front\nFLAG: Front chassis leg / inner wing | z:front | weight:high :: Cat S structural trigger most likely intrusion into the chassis leg/inner wing behind the displaced front structure — not independently confirmable from photos; inspect for deformation/realignment before bidding.\nFLAG: HV battery / front electrical integrity | z:front | weight:high :: full-width front impact on an EV with exposed front electronics — confirm no high-voltage system disruption, coolant loss or fault codes despite READY state.\nFLAG: Front headlamp (corner 2) | z:front | weight:medium :: not independently confirmed serviceable on its own shots — aperture exposed; verify on inspection.",
+  "lampDetectCorners": [
+    {
+      "verdict": "missing",
+      "evidence": "The front-left aperture is empty with the fender, wheel and surrounding structure destroyed and no lamp body, lens or reflector present in the recess.",
+      "lamp_type": "indeterminate",
+      "corner_descriptor": "left corner as viewed (the corner with the major impact damage)"
+    },
+    {
+      "verdict": "present",
+      "evidence": "A dark LED-style headlamp unit with visible lens and internal reflectors is still mounted in the right-side aperture, though dislodged outward by the impact.",
+      "lamp_type": "led",
+      "corner_descriptor": "right corner as viewed (the less-damaged corner near the intact headlamp)"
+    }
+  ]
+}

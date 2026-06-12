@@ -1,0 +1,54 @@
+# fable5-probe — carry-back candidates for core-slots
+
+*Items proven on the probe branch that protect Opus too. None applied to core-slots yet — each needs its own commit + proof there. 2026-06-10.*
+
+## 1. stop_reason=max_tokens fail-loud (main assess call, both sites)
+Pre-existing gap: any non-tool_use stop is silently accepted as final prose (route.js `!== 'tool_use'` branch). Run-1 truncation was this. Fail loud — run discarded, identical pattern to the refusal check. Protects Opus: an Opus response that ever exceeds the ceiling would today render a truncated report.
+
+## 2. stop_reason=refusal fail-loud (main) / loud-log + soft-fail with status (lamp-detect)
+Same silent-acceptance species. Lamp-detect soft-fails by design (lamp absence is a handled state) but must record WHY it returned null — status enum in the run record / log line.
+
+## 3. lamp-detect: read text blocks, not content[0]
+`data.content?.[0]?.text` is a positional read that breaks whenever block 0 is not a text block (thinking blocks on Fable 5 always-on; any future model emitting non-text first). Filter `type === 'text'` and join — same pattern as the main call's rawText assembly. Reading machinery, not steering.
+
+## 4. normName parenthetical-collapse — latent join-identity defect (RECLASSIFIED from quirk)
+`normName` strips parentheticals (`.replace(/\s*\([^)]*\)/g,'')`), so any same-base-name part pair shares one identity at the gate join: both rows `find()`-match the SAME first verdict entry, strip logs print the first name twice, and the flag dedupe collapses two stripped parts into one flag.
+**Worked example:** a future lot with `Door mirror (left)` and `Door mirror (right)` — both normalise to `door mirror`; one iv=true / one iv=false would apply ONE verdict to BOTH lines. Observed on SF69YBB run-2 (`Front headlamp (one side)/(other side)`, both iv=false — benign there only because the verdicts agreed and reconcile normally absorbs lamp lines first).
+No fix now; needs a join key that preserves the parenthetical qualifier.
+
+## 5. Adjacency-misattribution mechanism + two-pass challenge question
+Ground-truthed failure class (exposed-substrate false positive) unifying
+the SF69YBB rear-quarter and bonnet findings across both model generations.
+Full section in VERDICT-NOTES.md ("MECHANISM — Adjacency misattribution").
+DESIGN INPUT for the decorrelated two-pass build; explicitly NOT a
+single-pass prompt change. Must survive into docs/ with the rest of the
+durable outputs.
+
+## 6. Lamp-allowance silent extraction (observability)
+reconcileParts removes surplus lamp rows to allowanceParts with no per-part
+log (route.js:978–982; also lamp-insert branches 985/994/997). Exact
+"silent pass" shape under the Phase 2 re-state principle. Fix: emit a
+[LAMP][ALLOWANCE] line per extracted row, mirroring [GATE] stripped.
+
+## 7. Lamp order-dependence money hazard (HIGH)
+Reconcile keeps lampIndices[0] regardless of independentlyVisible. Mirror
+ordering (iv=false lamp first) keeps the unconfirmed lamp priced, sends the
+confirmed one to allowance, gate then strips the kept lamp → repair total
+carries ZERO priced lamps while lamp_inserted/lamp_delta assume one. Silent
+repair understatement ≥ one lamp band (£350+ LED), decided by model row
+order. BL75JAU run 2 was one ordering away. Fix is a design decision
+(iv-aware keep-selection or gate-aware allowance merge) — built right at
+carry-back application, not patched. Include removal of the dead _allowance
+pass-through at route.js:1970.
+Per-run watch until fixed: a [GATE] stripped line naming a lamp while
+lamps=2 → that run's repair total is distorted; disposition must say so.
+
+## 8. Wheel-net checklist contradiction
+Unconditional eight-line "not clearly visible" wheel/tyre append renders
+alongside costed, prose-confirmed wheel destruction (BL75JAU 3/3).
+User-falsifiable incoherence. Fix: wheel-net lines must yield where run
+evidence confirms a wheel/tyre's condition.
+
+## Watch items (not carry-back yet)
+- **38K unexplained cache_creation on the final call of front-struck (2-call) runs** — observed SF69YBB run-3 (write=38,317 beyond the system breakpoint, input=13). TTL unknown → $0.48–$0.77 cost spread per run. Confirm reproduction on next front-struck run.
+- **frontStruck regex single-source** — reads only listing primaryDamage/secondaryDamage (paste-derived); never consults the salvage-history record damage descriptors the route already fetches. Bit run-2 (null fields → dead lamp path). Mitigated operationally by the paste checklist; a real fix would OR-in `rec.*_damage_desc`.
