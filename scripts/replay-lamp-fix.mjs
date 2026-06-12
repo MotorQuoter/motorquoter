@@ -18,7 +18,7 @@
 
 import fs from 'node:fs';
 import {
-  isLampLine, normName, sumPartsRealistic, lampVerdictFor,
+  isLampLine, normName, normKey, sumPartsRealistic, lampVerdictFor,
   reconcileParts, applyVisibilityGate, finalizeLampInstrumentation,
 } from '../lib/parts.mjs';
 
@@ -176,6 +176,51 @@ for (const [rel, archived, expected] of RUNS) {
 
   rows.push([rel, `£${oldSum}`, `£${newSum}`, expected != null ? `£${expected}` : '—',
     `${notes.join('; ')}; allowance rows: ${allowanceParts.length}`]);
+}
+
+// ---------- CB3 synthetic fixture: normKey gate-join correctness ----------
+// Asserts the defect case: two parts with the same base name but different
+// parenthetical qualifiers must NOT share a verdict under the new normKey join.
+// Door mirror (left)  — costedParts iv=true  → must SURVIVE the gate
+// Door mirror (right) — costedParts iv=false → must be STRIPPED by the gate
+// Under the old normName join both matched the FIRST (iv=true) entry and
+// both survived; normKey preserves the qualifier and strips the correct row.
+// Fixture marked _synthetic:true — not from a probe export.
+{
+  const syntheticRawParts = [
+    { name: 'Door mirror (left)',  action: 'repair',  oem: null, used: 80  },
+    { name: 'Door mirror (right)', action: 'replace', oem: null, used: 120 },
+    { name: 'Labour & paint',      action: '-',       oem: null, used: 200 },
+  ];
+  const syntheticCostedParts = [
+    { partName: 'Door mirror (left)',  zone: 'flank',  independentlyVisible: true,  _synthetic: true },
+    { partName: 'Door mirror (right)', zone: 'flank',  independentlyVisible: false, _synthetic: true },
+    { partName: 'Labour & paint',      zone: 'flank',  independentlyVisible: null,  _labourSafe: true, _synthetic: true },
+  ];
+  const syntheticFlagged = [];
+  const syntheticLampResult = null; // no lamp machinery on this fixture
+
+  const { parts: reconciled } = quiet(() => reconcileParts(syntheticRawParts, syntheticLampResult, syntheticCostedParts));
+  const { gatedParts: synGated } = quiet(() => applyVisibilityGate(reconciled, syntheticCostedParts, syntheticFlagged, syntheticLampResult));
+
+  const leftSurvived  = synGated.some(p => p.name === 'Door mirror (left)');
+  const rightStripped = !synGated.some(p => p.name === 'Door mirror (right)');
+  const labourSurvived = synGated.some(p => p.name === 'Labour & paint');
+  const flagCount = syntheticFlagged.length;
+
+  const synPass = leftSurvived && rightStripped && labourSurvived && flagCount === 1;
+  if (!leftSurvived)  fail('CB3-synthetic', 'Door mirror (left) iv=true should survive gate');
+  if (!rightStripped) fail('CB3-synthetic', 'Door mirror (right) iv=false should be stripped');
+  if (!labourSurvived) fail('CB3-synthetic', 'Labour & paint _labourSafe should survive gate');
+  if (flagCount !== 1) fail('CB3-synthetic', `expected 1 gate flag, got ${flagCount}`);
+
+  // Also assert normKey exports work correctly
+  if (normKey('Door mirror (left)') !== 'door mirror (left)')   fail('CB3-synthetic', 'normKey should preserve parenthetical');
+  if (normName('Door mirror (left)') !== 'door mirror')         fail('CB3-synthetic', 'normName should strip parenthetical');
+  if (normKey('Labour & paint') !== 'labour and paint')         fail('CB3-synthetic', 'normKey & → and');
+
+  rows.push(['CB3-synthetic', '—', `£${sumPartsRealistic(synGated)}`, '—',
+    `left iv=true survived=${leftSurvived} right iv=false stripped=${rightStripped} labour safe=${labourSurvived} flags=${flagCount} — normKey defect asserted`]);
 }
 
 console.log('\nrun | old(replay) | new | expected | notes');
