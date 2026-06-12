@@ -292,3 +292,18 @@ pass-through (route.js:1970) is dead code on the current flow.
 - "RULING (Vincent, 12 Jun): verbatim quoted DVSA/MOT record text is EXEMPT from the left/right prose ban — the ban governs the model's own damage descriptions only; quoted source records render as-is."
 - "Run-2 substrate note: Labour & paint emitted in costedParts with iv=null + _labourSafe:true — labour-null deliberate-pass path exercised correctly for the first time. Runs 1 & 3 passed labour via no-verdict-match. Both Phase 2 null paths now proven in the wild."
 - "Run-2 rendering question (NOT adjudicated): 'Front tyres (pair)' was gate-stripped (iv=false) but no 'excluded from repair total' row appeared in rendered Inspection Flags — unlike the headlamp strip rows. No money distortion (no tyre line in parts table). Open question whether dedup absorbed it or the strip row dropped. Flag for carry-back review, do not investigate now."
+
+## ADDENDUM 12 Jun (post-verdict, during CB7 fix design)
+Per-shape audit found CB7 also fired on the Fable side — SF69YBB F3–F5 (both
+iv=false), BL75JAU F1 (mixed, iv=false ordered first), and F3 exposes a fourth
+shape (lamps=1 + iv=false). True firing surface ~9–11 of 13 counted runs, not
+5/7. Fable ledger totals were NOT corrected during the probe; Opus totals were.
+The verdict is unaffected: the WORSE trigger is the slam panel, and the
+cost-variance comparison was explicitly noted-not-leaned-on. Corrected-Fable
+figures now live in the CB7 fixture expectation table
+(scripts/replay-lamp-fix.mjs).
+
+The normName lamp collision is a documented system property — all per-corner
+lamp names normalise to "front headlamp", so the gate never attributed
+per-lamp iv before this fix; every observed CB7 firing/non-firing was
+array-order determined. Rule B (per-lamp positional pairing) adopted 12 Jun.

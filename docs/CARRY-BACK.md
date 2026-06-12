@@ -52,3 +52,8 @@ evidence confirms a wheel/tyre's condition.
 ## Watch items (not carry-back yet)
 - **38K unexplained cache_creation on the final call of front-struck (2-call) runs** — observed SF69YBB run-3 (write=38,317 beyond the system breakpoint, input=13). TTL unknown → $0.48–$0.77 cost spread per run. Confirm reproduction on next front-struck run.
 - **frontStruck regex single-source** — reads only listing primaryDamage/secondaryDamage (paste-derived); never consults the salvage-history record damage descriptors the route already fetches. Bit run-2 (null fields → dead lamp path). Mitigated operationally by the paste checklist; a real fix would OR-in `rec.*_damage_desc`.
+
+## 9. Flag-render dedup review (Q4, parked 12 Jun)
+Flag-render dedup review: normName-based dedup (:1905) may double-flag lamps
+with variant phrasings; related: run-2 front-tyres strip row absent from
+rendered Inspection Flags (12 Jun, unadjudicated). Review together, post-CB7.

@@ -83,5 +83,7 @@ Resolution re-tuning (was contingent on a swap; dead with STAY), lamp wording to
 ## 8. ONE GAP, EXPLICITLY MARKED
 Gap filled 12 Jun (CC, docs-copy paste): totals appended to §1 from the Supabase session rows' `_partsReconciliation.parts_sum` — the run exports turned out to carry only pre-gate raw arrays, not the engine-computed displayed total, so the engine's persisted figure was used instead (disclosed deviation, better provenance than a line-sum reconstruction).
 
+See also: `docs/VERDICT-NOTES.md` ADDENDUM 12 Jun (post-verdict, during CB7 fix design) — CB7 also fired on the Fable side; the Fable totals in §1/§2.3 above are archived uncorrected, corrected figures in the CB7 fixture table (`scripts/replay-lamp-fix.mjs`).
+
 ---
 *MotorQuoter — Confidential — © Vincent Marmion 2026*
