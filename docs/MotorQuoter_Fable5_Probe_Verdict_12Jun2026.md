@@ -10,6 +10,11 @@ Decision rules 2 (UNCHANGED) and 3 (WORSE) converge on the same outcome, so the 
 
 ---
 
+## AMENDMENT 12 Jun (same day, post-publication)
+*Ground-truth correction — the slam panel is intact; the §2.3 WORSE trigger ('genuine part dropped: slam panel') was built on a session-level misattribution of Vincent's 11 Jun ruling and is WITHDRAWN. The verdict re-adjudicates MIXED → UNCHANGED under the same pre-committed §5 criteria. THE DECISION IS UNCHANGED: §6 rule 2 (UNCHANGED) directs STAY ON OPUS 4.8, identically to rule 3. The §3 scoreboard's slam-panel row inverts (Opus 7/7 phantom; Fable 0/8 correct); the error-direction asymmetry is smaller than stated. Full corrected analysis in VERDICT-NOTES, 'RE-ADJUDICATION 12 Jun'. The original text below is preserved unedited for the record.*
+
+---
+
 ## 1. THE MATRIX (complete)
 
 | Lot | Model | Valid runs | Other |

@@ -59,6 +59,7 @@ Same signature as the Opus fabrication. Two-pass justification holding so far.
 | 1 | aa244b5c | VALID + MANDATORY DISTORTION NOTE — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. DISTORTION NOTE: "CB7 fired: gate stripped the reconcile-kept lamp (Front headlamp corner 1); displayed repair £4,120 contains ZERO priced front lamp money (verified by line-summing). Corrected comparison figure ~£4,470 (+£350 lamp band)." |
 | 2 | 73f8dcc6 | VALID + MANDATORY DISTORTION NOTE — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. DISTORTION NOTE: "CB7 fired: gate stripped the reconcile-kept lamp (Front headlamp one side); displayed repair £3,200 contains ZERO priced front lamp money (verified by line-summing). Corrected comparison figure ~£3,550 (+£350 lamp band)." |
 | 3 | 7d7d639d | VALID + MANDATORY DISTORTION NOTE — servedModels opus-4-8 both calls, stops tool_use→end_turn, lampDetect ok. DISTORTION NOTE: "CB7 fired: gate stripped the reconcile-kept lamp (Front headlamp struck corner 1); displayed repair £3,730 contains ZERO priced front lamp money (verified by line-summing). Corrected comparison figure ~£4,080 (+£350 lamp band)." |
+| post-probe | 11:31 (12 Jun, core-slots CB7-fix preview) | VALID — fix mechanics proven live; ground-truth note (re-adjudication 12 Jun): slam row £260 phantom (slam panel intact); rad-core witness marks fabricated (no paint witness marks, undamaged rad confirmed); lamps=1 + iv=false shape: Q1 clamp applied, band retained in repair total. |
 
 **SF69YBB Opus block CLOSED: 3 valid (all CB7-distorted). FULL PROBE MATRIX COMPLETE: SF69YBB Fable 3/3 + Opus 3/3; BL75JAU Fable 3/3 + Opus 3/3 + 1 excluded-retained. CB7 final tally: fired 5/7 instrumented Opus observations.**
 
@@ -307,3 +308,49 @@ The normName lamp collision is a documented system property — all per-corner
 lamp names normalise to "front headlamp", so the gate never attributed
 per-lamp iv before this fix; every observed CB7 firing/non-firing was
 array-order determined. Rule B (per-lamp positional pairing) adopted 12 Jun.
+
+## RE-ADJUDICATION 12 Jun: slam-panel attribution corrected
+
+### Ground truth (Vincent, 12 Jun)
+"SF69YBB front zone, corrected and final: bonnet undamaged — shut lines
+perfect in the closed photo, confirmed open and closed across two photos.
+Slam panel INTACT — with the bonnet open, the plastic covers above the
+headlamps and the slam panel are visibly intact. No paint witness marks
+on the rad core; no radiator or cooling-pack damage. The genuinely
+damaged part is the NOSE PANEL (the little panel sitting in front of the
+bonnet), slightly pulled out of shape. The entire frontal damage is
+minor. The 11 Jun ruling's 'narrow panel ahead of the bonnet' meant this
+nose panel; the session-level attribution of it to the slam-panel zone
+was incorrect and is superseded."
+
+### Consequences
+Every slam/tie-bar/rad-support costed row, both models, all runs, was
+PHANTOM. Opus 7/7 instrumented runs costed the slam-panel zone (3/3 State
+B baselines + 3/3 pre-probe controls + 11:31 post-probe preview run at
+£260); Fable 0/8 carried the correct absence. The genuinely damaged nose
+panel was named by NEITHER model in any run: Fable omitted the front
+zone entirely; Opus mislocated the minor nose damage onto the intact slam
+panel. Symmetric failure; not a model-specific regression.
+
+### Mechanism instance 2 — REWRITTEN
+The exposed-front adjacency misattribution now spans the whole zone:
+bonnet phantom + slam phantom (both absent in ground truth) + fabricated
+rad-core witness marks (11:31 run) — all against intact-covers and
+undamaged-rad ground truth. Real source stimulus identified: the pulled
+nose panel + displaced bumper created a disrupted front zone that both
+models read as multi-part structural damage rather than the single minor
+cosmetic part it is. This is the strongest and most fully documented
+instance of the adjacency-misattribution class: an intact slam panel
+with visibly intact covers, no paint witness marks on the rad core, yet
+costed 7/7 by Opus. Prime two-pass test case.
+
+### §3 shape correction
+Opus's front-zone over-include is phantom-heavier than the verdict
+stated: the slam panel was never a real part — Opus 7/7 is pure phantom
+(not real-part-plus-phantom-neighbour as the verdict implied). Fable's
+front-zone read was more honest than credited: Fable's 0/8 slam-panel
+absence is CORRECT, not a dropped real part. Residual asymmetry: Opus
+carries phantom zone money (£160–£350 per run, all phantom) while Fable
+omits the one minor real part (nose panel, minor deformation). Both
+wrong, small money. The error directions (over-include vs under-include)
+are unchanged but the stakes are smaller than previously stated.
