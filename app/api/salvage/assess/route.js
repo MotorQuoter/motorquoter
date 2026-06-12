@@ -14,6 +14,7 @@ import {
 import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
+  needsLampBackstop,
 } from '@/lib/parts.mjs';
 
 export const maxDuration = 300;
@@ -1564,11 +1565,14 @@ export async function GET(request) {
     // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
 
-    // Call 1 tools: lamp detection only for front-struck lots. recordCoreObservations removed —
-    // structured extraction moves to Call 2 (Haiku, post-prose, forced tool_choice).
-    const claudeTools = frontStruck ? [LAMP_OBS_TOOL] : [];
+    // Call 1 tools: LAMP_OBS_TOOL always offered (item 14 — trigger input-integrity).
+    // Force guard (iter===0 && frontStruck) unchanged — forced only when text fields confirm front.
+    // On non-front lots the model sees the tool but the description instructs "front-struck lots
+    // only" — voluntary, will not call it; lampObs stays null correctly.
+    const claudeTools = [LAMP_OBS_TOOL];
     const messages = [{ role: 'user', content: userContent }];
     let lampObs = null;
+    let lampObsSource = null;
     let coreObs = null;
     let rawText = '';
 
@@ -1618,6 +1622,7 @@ export async function GET(request) {
               apertureExposed: Boolean(block.input?.apertureExposed),
               damageSpan:     block.input?.damageSpan     || 'single_corner',
             };
+            lampObsSource = (iter === 0 && frontStruck) ? 'text-forced' : 'voluntary-iter0';
             console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
@@ -1776,11 +1781,57 @@ export async function GET(request) {
         : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
     }
 
-    // Guarantee lampObs for every front-struck lot regardless of tool co-operation
+    // Layer 2 backstop (item 14): perZone identifies front/impact but no lampObs from Call 1.
+    // Uses the full Call-1 thread (Opus — thread carries 1568px images, Haiku-safe resize not applicable).
+    // Expected input: ~22–33K tokens (system prefix cached + messages thread). max_tokens=512 covers
+    // one tool_use block; observed backstop output at BL75JAU iter=0: 97 tokens.
+    if (needsLampBackstop(coreObs.perZone, lampObs)) {
+      console.log('[LAMP] Layer 2 backstop triggered — front/impact in perZone, no observation from Call 1');
+      const backstopFetch = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-opus-4-8',
+          max_tokens: 512,
+          system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+          messages: [
+            ...messages,
+            { role: 'assistant', content: rawText },
+            { role: 'user', content: 'You identified front impact damage in your assessment above. Call recordLampObservation now to record your observation of the struck front corner — bumper displacement (apertureExposed) and damage span — based on the photos and your assessment.' },
+          ],
+          tools: [LAMP_OBS_TOOL],
+          tool_choice: { type: 'any' },
+        }),
+      });
+      const backstopData = await backstopFetch.json();
+      console.log(`[LAMP] Layer 2: stop=${backstopData.stop_reason} input=${backstopData.usage?.input_tokens} output=${backstopData.usage?.output_tokens}`);
+      const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordLampObservation');
+      if (backstopBlock?.input) {
+        lampObs = {
+          struckSide:      backstopBlock.input?.struckSide      || 'central',
+          apertureExposed: Boolean(backstopBlock.input?.apertureExposed),
+          damageSpan:      backstopBlock.input?.damageSpan      || 'single_corner',
+        };
+        lampObsSource = 'layer2-backstop';
+        console.log(`[LAMP] Layer 2 observation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
+      } else {
+        lampObs = { struckSide: 'central', apertureExposed: false };
+        lampObsSource = 'layer2-backstop';
+        console.log('[LAMP] Layer 2 backstop failed — no tool block returned; tier-1 floor applied (apertureExposed:false)');
+      }
+    }
+
+    // Defensive floor: frontStruck=true from text fields but no observation after all layers
+    // (guards against transient API failures on the item-13 forced path; should not fire in practice)
     if (frontStruck && !lampObs) {
       lampObs = { struckSide: 'central', apertureExposed: false };
-      console.log('[LAMP] no tool call on frontStruck lot — Tier 1 floor defaults applied');
+      lampObsSource = 'no-arm';
+      console.log('[LAMP] frontStruck text-confirmed — no observation after all layers; tier-1 floor applied');
     }
+
+    // Layer 3: unconditional trigger observability — one line per run, every lot
+    lampObsSource = lampObsSource || 'no-arm';
+    console.log(`[LAMP][TRIGGER] source=${lampObsSource}`);
 
     let lampResult = null;
     if (lampObs) {

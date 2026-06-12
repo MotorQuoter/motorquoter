@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import {
   isLampLine, normName, normKey, sumPartsRealistic, lampVerdictFor,
   reconcileParts, applyVisibilityGate, finalizeLampInstrumentation,
+  needsLampBackstop,
 } from '../lib/parts.mjs';
 
 // ---------- OLD PATH — frozen pre-fix reference (route.js as of core-slots 0c690f6) ----------
@@ -305,6 +306,44 @@ for (const [rel, archived, expected] of RUNS) {
 
   rows.push(['CB11-dedup', '—', `£${sumPartsRealistic(dedupGated)}`, '—',
     `radiator survivors=${radiatorSurvivorCount} labour=${labourSurvived3} dup-flag=${dupFlagPresent} flags=${dedupFlagCount} — CB11 consumed-verdict dedup asserted`]);
+}
+
+// ---------- CB14 §5-item-1: needsLampBackstop trigger predicate unit tests ----------
+{
+  const cases = [
+    { perZone: [{ zone: 'front', eventType: 'impact' }],   lampObs: null,                                                                     expected: true,  label: 'front/impact + no lampObs → triggers' },
+    { perZone: [{ zone: 'rear',  eventType: 'impact' }],   lampObs: null,                                                                     expected: false, label: 'rear/impact + no lampObs → no trigger' },
+    { perZone: [{ zone: 'front', eventType: 'thermal' }],  lampObs: null,                                                                     expected: false, label: 'front/thermal + no lampObs → no trigger' },
+    { perZone: [{ zone: 'front', eventType: 'impact' }],   lampObs: { struckSide: 'central', apertureExposed: true, damageSpan: 'single_corner' }, expected: false, label: 'front/impact + lampObs present → no trigger' },
+    { perZone: [],                                          lampObs: null,                                                                     expected: false, label: 'empty perZone + no lampObs → no trigger' },
+    { perZone: [{ zone: 'rear', eventType: 'impact' }, { zone: 'front', eventType: 'impact' }], lampObs: null,                                expected: true,  label: 'multi-zone with front/impact + no lampObs → triggers' },
+  ];
+  let allPass = true;
+  for (const c of cases) {
+    const result = needsLampBackstop(c.perZone, c.lampObs);
+    if (result !== c.expected) { fail('CB14-trigger', `${c.label}: expected ${c.expected} got ${result}`); allPass = false; }
+  }
+  rows.push(['CB14-trigger', '—', '—', '—',
+    `${cases.length} needsLampBackstop predicate cases — ${allPass ? 'all correct' : 'FAILURES above'}`]);
+}
+
+// ---------- CB14 §5-item-2: backstop failure-path floor → no-retrigger, tier-1 direction ----------
+// The failure path sets lampObs = { apertureExposed: false }. Assert:
+// (a) needsLampBackstop returns false once lampObs is set (no re-trigger loop)
+// (b) a perZone.front/impact lot with the floor value yields lampObs.apertureExposed===false
+//     (disclosed tier-1, never guessed tier-2)
+{
+  const failFloor = { struckSide: 'central', apertureExposed: false, damageSpan: 'single_corner' };
+  const perZoneFront = [{ zone: 'front', eventType: 'impact' }];
+
+  const noRetrigger = !needsLampBackstop(perZoneFront, failFloor);
+  const isDisclosedTier1 = failFloor.apertureExposed === false;
+
+  if (!noRetrigger)    fail('CB14-backstop-failure', 'floor-set lampObs must prevent Layer 2 re-triggering');
+  if (!isDisclosedTier1) fail('CB14-backstop-failure', 'failure floor must set apertureExposed:false (disclosed tier-1, not guessed tier-2)');
+
+  rows.push(['CB14-backstop-failure', '—', '—', '—',
+    `no-retrigger=${noRetrigger} disclosed-tier1=${isDisclosedTier1} — backstop failure path confirmed`]);
 }
 
 console.log('\nrun | old(replay) | new | expected | notes');
