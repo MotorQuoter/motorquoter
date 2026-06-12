@@ -1572,7 +1572,7 @@ export async function GET(request) {
     let coreObs = null;
     let rawText = '';
 
-    const callClaude = (withTools) => fetch('https://api.anthropic.com/v1/messages', {
+    const callClaude = (withTools, forced = false) => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -1580,16 +1580,22 @@ export async function GET(request) {
         max_tokens: 16000,
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
-        ...(withTools && claudeTools.length > 0 ? { tools: claudeTools } : {}),
+        ...(withTools && claudeTools.length > 0 ? {
+          tools: claudeTools,
+          ...(forced ? { tool_choice: { type: 'any' } } : {}),
+        } : {}),
       }),
     }).then(res => res.json().then(data => ({ res, data })));
 
     // Tool-use loop — keep calling with tools while the model keeps recording observations,
     // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
     // generalised so either/both forced tools can fire in one round or across several).
+    // iter=0 on frontStruck lots: forced=true so the model MUST call recordLampObservation
+    // (tool_choice:{type:'any'}). iter>=1: forced=false — continuation rounds have tool_result
+    // context and must be free to end_turn into prose naturally.
     const MAX_TOOL_ROUNDS = 4;
     for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
-      const { res: apiRes, data: apiData } = await callClaude(true);
+      const { res: apiRes, data: apiData } = await callClaude(true, iter === 0 && frontStruck);
       console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
       console.log(`[CACHE] iter=${iter} write=` + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
       if (!apiRes.ok) throw new Error(apiData.error?.message || `Claude API error (iter ${iter})`);
