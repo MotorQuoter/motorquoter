@@ -22,6 +22,7 @@ import {
   reconcileParts, applyVisibilityGate, finalizeLampInstrumentation,
   needsLampBackstop,
 } from '../lib/parts.mjs';
+import { sanitizeSideTerms } from '../lib/sanitizeProse.js';
 
 // ---------- OLD PATH — frozen pre-fix reference (route.js as of core-slots 0c690f6) ----------
 function oldReconcile(parts, lampResult) {
@@ -344,6 +345,78 @@ for (const [rel, archived, expected] of RUNS) {
 
   rows.push(['CB14-backstop-failure', '—', '—', '—',
     `no-retrigger=${noRetrigger} disclosed-tier1=${isDisclosedTier1} — backstop failure path confirmed`]);
+}
+
+// ── CB15 side-term substitution (item 15, 13 Jun 2026) ────────────────────────
+// Asserts the prose-ban enforcement layer: banned absolute-side compounds are
+// substituted; vehicle-spec terms (RHD/LHD/right-hand drive/left-hand drive) survive.
+// CORNER_LABELS (Front Left etc.) are code-generated and OUT OF SCOPE — not tested here.
+{
+  const cases = [
+    // — compound offside/nearside + direction —
+    { input: 'offside front wing is damaged',          expect: 'damaged front wing is damaged' },
+    { input: 'nearside rear door — replace',           expect: 'opposite rear door — replace' },
+    { input: 'offside-front headlamp',                 expect: 'damaged front headlamp' },
+    { input: 'nearside-rear quarter panel',            expect: 'opposite rear quarter panel' },
+    { input: 'off-side front wing',                    expect: 'damaged front wing' },
+    { input: 'near-side rear door',                    expect: 'opposite rear door' },
+    // — standalone offside / nearside —
+    { input: 'damage to the offside of the vehicle',   expect: 'damage to the damaged-side of the vehicle' },
+    { input: 'the nearside is undamaged',              expect: 'the opposite-side is undamaged' },
+    { input: 'off-side panel crumpled',                expect: 'damaged-side panel crumpled' },
+    { input: 'near-side sill intact',                  expect: 'opposite-side sill intact' },
+    // — driver/passenger compounds —
+    { input: "driver's side front wheel",              expect: 'damaged-side front wheel' },
+    { input: "driver's-side wing",                     expect: 'damaged-side wing' },
+    { input: 'driver side mirror',                     expect: 'damaged-side mirror' },
+    { input: 'driver-side door',                       expect: 'damaged-side door' },
+    { input: "passenger's side rear door",             expect: 'opposite-side rear door' },
+    { input: "passenger's-side sill",                  expect: 'opposite-side sill' },
+    { input: 'passenger side window',                  expect: 'opposite-side window' },
+    { input: 'passenger-side mirror',                  expect: 'opposite-side mirror' },
+    // — left/right-hand-side —
+    { input: 'damage on the right-hand-side',          expect: 'damage on the damaged-side' },
+    { input: 'left-hand-side panel intact',            expect: 'opposite-side panel intact' },
+    { input: 'right hand side impact',                 expect: 'damaged-side impact' },
+    { input: 'left hand side door',                    expect: 'opposite-side door' },
+    // — HARD EXCLUSION: vehicle-spec terms must survive intact —
+    { input: 'confirmed RHD vehicle',                  expect: 'confirmed RHD vehicle' },
+    { input: 'This is an LHD import',                  expect: 'This is an LHD import' },
+    { input: 'right-hand drive confirmed from photos', expect: 'right-hand drive confirmed from photos' },
+    { input: 'left-hand drive — EU import',            expect: 'left-hand drive — EU import' },
+    { input: 'right hand drive UK spec',               expect: 'right hand drive UK spec' },
+    { input: 'left hand drive continental',            expect: 'left hand drive continental' },
+    // — real-world form: BL75JAU sighting 1 (offside/nearside in prose AND part names) —
+    { input: 'offside front wing | Replace | £450 | £180',   expect: 'damaged front wing | Replace | £450 | £180' },
+    { input: 'nearside rear door | Replace | £600 | £220',   expect: 'opposite rear door | Replace | £600 | £220' },
+    // — real-world form: LB18HDU sighting 2 (driver's-side flank named wrong) —
+    { input: "the driver's-side flank — fire damage",        expect: 'the damaged-side flank — fire damage' },
+    // — case variants —
+    { input: 'OFFSIDE FRONT WING',                    expect: 'damaged front WING' },
+    { input: 'Nearside Rear Door',                    expect: 'opposite rear Door' },
+    { input: "Driver's Side Mirror",                  expect: 'damaged-side Mirror' },
+    // — no-op: bare left/right are not in the ban list —
+    { input: 'turn left at the junction',             expect: 'turn left at the junction' },
+    { input: 'two left rear tyres',                   expect: 'two left rear tyres' },
+    { input: 'right running condition',               expect: 'right running condition' },
+  ];
+
+  let cb15Pass = true;
+  const failedCases = [];
+  for (const { input, expect: expected } of cases) {
+    const got = sanitizeSideTerms(input);
+    if (got !== expected) {
+      cb15Pass = false;
+      failedCases.push(`  input:    ${JSON.stringify(input)}\n  expected: ${JSON.stringify(expected)}\n  got:      ${JSON.stringify(got)}`);
+    }
+  }
+
+  for (const fc of failedCases) {
+    fail('CB15-side-terms', `substitution mismatch:\n${fc}`);
+  }
+
+  rows.push(['CB15-side-terms', '—', '—', '—',
+    `${cases.length} sanitizeSideTerms cases — ${cb15Pass ? 'all correct' : `${failedCases.length} FAILURES`}`]);
 }
 
 console.log('\nrun | old(replay) | new | expected | notes');

@@ -16,6 +16,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation,
   needsLampBackstop,
 } from '@/lib/parts.mjs';
+import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 
 export const maxDuration = 300;
 
@@ -1845,8 +1846,12 @@ export async function GET(request) {
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
 
-    const assessment = parseAssessment(rawText);
-    assessment._raw = rawText;
+    // Item 15 — enforce prose-ban on absolute side labels before any buyer-facing field is parsed.
+    // Single chokepoint: rawText is final here (Call 2 already read it); parseAssessment and
+    // _raw both receive the sanitized version so every surface is covered in one pass.
+    const sanitizedRawText = sanitizeSideTerms(rawText);
+    const assessment = parseAssessment(sanitizedRawText);
+    assessment._raw = sanitizedRawText;
     assessment._market = market;
     if (lampResult) assessment._lampResult = lampResult;
 
