@@ -1526,9 +1526,6 @@ export async function GET(request) {
         const match = img.match(/^data:([^;]+);base64,(.+)$/);
         if (match) { mediaType = match[1]; data = match[2]; }
         const block = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
-        // Cache checkpoint on the last image block so all probes can read the image set warm.
-        // The instruction block lives AFTER this checkpoint and remains variable per probe.
-        if (i === images.length - 1) block.cache_control = { type: 'ephemeral' };
         return block;
       });
 
@@ -1899,6 +1896,15 @@ export async function GET(request) {
     console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
     console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
 
+    // Shared across all probe calls: same system text so probe-2/3 can read probe-1's
+    // image cache (cache key = system + messages prefix up to cache_control block).
+    const PROBE_SYSTEM = 'You are an independent vehicle damage reviewer. Your sole task is to answer visibility questions about specific panels from auction photos — describe only what you directly observe. Do not provide repair estimates, cost opinions, or any information beyond what the photos show.';
+    // probeImageBlocks: same bytes as the main assess, cache_control on the last block.
+    // Probe-1 writes the image cache; probe-2+ read it warm (saving ~90% of image token cost).
+    const probeImageBlocks = imageBlocks.length > 0
+      ? [...imageBlocks.slice(0, -1), { ...imageBlocks.at(-1), cache_control: { type: 'ephemeral' } }]
+      : imageBlocks;
+
     // ── Two-pass Phase 1: Perception-Fabrication Probe ─────────────────────────
     // Runs AFTER costedParts is populated, BEFORE reconcileParts/gate.
     // Blind: sends photos + numbered part names only — NO verdicts, prose, reasoning,
@@ -1952,8 +1958,8 @@ export async function GET(request) {
             body: JSON.stringify({
               model: 'claude-opus-4-8',
               max_tokens: 2048,
-              system: [{ type: 'text', text: 'You are an independent vehicle damage reviewer. Your sole task is to answer visibility questions about specific panels from auction photos — describe only what you directly observe. Do not provide repair estimates, cost opinions, or any information beyond what the photos show.' }],
-              messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: probeInstruction }] }],
+              system: [{ type: 'text', text: PROBE_SYSTEM }],
+              messages: [{ role: 'user', content: [...probeImageBlocks, { type: 'text', text: probeInstruction }] }],
               tools: [PROBE_TOOL],
               tool_choice: { type: 'tool', name: 'recordPanelVisibility' },
             }),
