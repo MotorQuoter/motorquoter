@@ -12,7 +12,7 @@ import {
   wheelSlotId, tyreSlotId, buildSlot, buildGroup, assembleCoreSlots,
 } from '@/lib/coreSlots';
 import {
-  normName, sumPartsRealistic, reconcileParts,
+  isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
   needsLampBackstop,
 } from '@/lib/parts.mjs';
@@ -1520,12 +1520,16 @@ export async function GET(request) {
     ].filter(Boolean).join('\n');
 
     const imageBlocks = images
-      .map((img) => {
+      .map((img, i) => {
         let mediaType = 'image/jpeg';
         let data = img;
         const match = img.match(/^data:([^;]+);base64,(.+)$/);
         if (match) { mediaType = match[1]; data = match[2]; }
-        return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+        const block = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+        // Cache checkpoint on the last image block so all probes can read the image set warm.
+        // The instruction block lives AFTER this checkpoint and remains variable per probe.
+        if (i === images.length - 1) block.cache_control = { type: 'ephemeral' };
+        return block;
       });
 
     const userContent = [
