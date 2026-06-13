@@ -1899,6 +1899,103 @@ export async function GET(request) {
     console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
     console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
 
+    // ── Two-pass Phase 1: Perception-Fabrication Probe ─────────────────────────
+    // Runs AFTER costedParts is populated, BEFORE reconcileParts/gate.
+    // Blind: sends photos + numbered part names only — NO verdicts, prose, reasoning,
+    // listing description, or side labels. Challenges each iv===true non-lamp entry
+    // independently; sets iv=false + _probeStripped=true on challenged panels.
+    // Gate at line 1906 handles the rest: strips challenged panels from the floor,
+    // surfaces them as inspection notes with distinct probe-stripped wording.
+    // Three states: 'ok' (ran), 'refusal' (abstained — lines stand), 'error' (abstained).
+    let _perceptionProbeResult = null;
+    {
+      const PROBE_TOOL = {
+        name: 'recordPanelVisibility',
+        description: 'Record your independent visibility verdict for every numbered panel. Return one entry per panel — every panel in the list must have an entry.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            panels: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  index:    { type: 'integer', description: 'Panel number as given in the list (1, 2, 3 …)' },
+                  visible:  { type: 'boolean', description: 'True if you can independently see damage to this panel in at least one photo. False if you cannot.' },
+                  photoRef: { type: 'string',  description: 'Which photo(s) show the evidence (e.g. "photo 3"). Write "none" if not visible.' },
+                  whatISee: { type: 'string',  description: 'What you actually observe in the photo that constitutes damage — or why you cannot see it.' },
+                },
+                required: ['index', 'visible', 'photoRef', 'whatISee'],
+              },
+            },
+          },
+          required: ['panels'],
+        },
+      };
+
+      // Only challenge iv===true entries; skip lamps (gate-mandated) and labour rows (_labourSafe).
+      const checkable = costedParts
+        .map((cp, arrayIdx) => ({ cp, arrayIdx }))
+        .filter(({ cp }) => cp.independentlyVisible === true && !cp._labourSafe && !isLampLine(cp.partName));
+
+      if (checkable.length === 0) {
+        _perceptionProbeResult = { status: 'ok', challenged: [], usage: null };
+        console.log('[PERCEPTION PROBE] no iv=true non-lamp panels — probe skipped');
+      } else {
+        const panelListText = checkable.map(({ cp }, i) => `Panel ${i + 1}: ${cp.partName}`).join('\n');
+        const probeInstruction = `You are performing a blind independent review of vehicle auction photos.\n\nFor each panel listed below, answer ONLY from what you can directly observe in the photos:\n- Is damage to this panel independently visible in any photo?\n- Cite which photo number shows it (photo 1, photo 2, etc.).\n- Describe exactly what you see, or state plainly that you cannot see it.\n\nJudge solely from the photos. Do not use assumptions about the damage type, vehicle history, or incident.\n\n${panelListText}\n\nCall recordPanelVisibility with your verdict for every panel in the list.`;
+
+        try {
+          const probeRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({
+              model: 'claude-opus-4-8',
+              max_tokens: 2048,
+              system: [{ type: 'text', text: 'You are an independent vehicle damage reviewer. Your sole task is to answer visibility questions about specific panels from auction photos — describe only what you directly observe. Do not provide repair estimates, cost opinions, or any information beyond what the photos show.' }],
+              messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: probeInstruction }] }],
+              tools: [PROBE_TOOL],
+              tool_choice: { type: 'tool', name: 'recordPanelVisibility' },
+            }),
+          });
+          const probeData = await probeRes.json();
+          console.log(`[PERCEPTION PROBE] stop=${probeData.stop_reason} input=${probeData.usage?.input_tokens} output=${probeData.usage?.output_tokens} cache_read=${probeData.usage?.cache_read_input_tokens ?? 0} model=${probeData.model || 'unknown'}`);
+
+          if (probeData.stop_reason === 'refusal') {
+            console.warn('[PERCEPTION PROBE] refusal — probe abstained; pass-1 lines unchanged');
+            _perceptionProbeResult = { status: 'refusal', challenged: [], usage: probeData.usage ?? null };
+          } else if (!probeRes.ok || probeData.error) {
+            console.error('[PERCEPTION PROBE] API error:', probeData.error?.message || probeRes.status);
+            _perceptionProbeResult = { status: 'error', error: probeData.error?.message || `HTTP ${probeRes.status}`, challenged: [], usage: null };
+          } else {
+            const probeBlock = (probeData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordPanelVisibility');
+            if (!probeBlock?.input?.panels) {
+              console.error('[PERCEPTION PROBE] no tool block returned — probe abstained');
+              _perceptionProbeResult = { status: 'error', error: 'no tool block', challenged: [], usage: probeData.usage ?? null };
+            } else {
+              const challenged = [];
+              for (const verdict of probeBlock.input.panels) {
+                if (typeof verdict.index !== 'number') continue;
+                const entry = checkable[verdict.index - 1]; // probe is 1-indexed
+                if (!entry) continue;
+                if (verdict.visible === false) {
+                  costedParts[entry.arrayIdx].independentlyVisible = false;
+                  costedParts[entry.arrayIdx]._probeStripped = true;
+                  challenged.push({ index: verdict.index, arrayIdx: entry.arrayIdx, partName: entry.cp.partName, photoRef: verdict.photoRef, whatISee: verdict.whatISee });
+                }
+              }
+              _perceptionProbeResult = { status: 'ok', challenged, usage: probeData.usage ?? null };
+              console.log(`[PERCEPTION PROBE] ok — checked=${checkable.length} stripped=${challenged.length}${challenged.length ? ': ' + challenged.map(c => c.partName).join(', ') : ''}`);
+            }
+          }
+        } catch (probeErr) {
+          console.error('[PERCEPTION PROBE] threw:', probeErr.message);
+          _perceptionProbeResult = { status: 'error', error: probeErr.message, challenged: [], usage: null };
+        }
+      }
+    }
+    // ── End perception probe ────────────────────────────────────────────────────
+
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
@@ -1923,6 +2020,14 @@ export async function GET(request) {
     assessment._preGateParts    = reconciledParts;
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
+    if (_perceptionProbeResult) {
+      assessment._perceptionProbe = {
+        status:     _perceptionProbeResult.status,
+        challenged: _perceptionProbeResult.challenged,
+        usage:      _perceptionProbeResult.usage,
+        capturedAt: new Date().toISOString(),
+      };
+    }
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
 
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
