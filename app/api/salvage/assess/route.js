@@ -2007,6 +2007,128 @@ export async function GET(request) {
     }
     // ── End perception probe ────────────────────────────────────────────────────
 
+    // ── Two-pass Phase 2: Aperture-Confusion Probe ──────────────────────────────
+    // Runs AFTER perception probe (costedParts may have iv=false entries from probe-1).
+    // Blind: sends photos + numbered panel names only — NO verdicts, prose, or reasoning.
+    // Eligible panels: front wing (front bumper displaced per lampObs.apertureExposed) or
+    // rear quarter (rear bumper displaced per lampObs.rearApertureExposed), still iv=true.
+    // Knowledge-armed (D-AP2): model is told what aperture confusion is so it can classify.
+    // D-AP3 conservative rule: strip ONLY on 'exposed_seam'; 'cannot_distinguish' abstains.
+    // Gate handles the rest: _apertureStripped panels get distinct seam-note wording.
+    let _apertureProbeResult = null;
+    {
+      const frontBumperDisplaced = lampObs?.apertureExposed === true;
+      const rearBumperDisplaced  = lampObs?.rearApertureExposed === true;
+
+      const isFrontWing   = name => /\bfront\b.*\bwing\b/i.test(name);
+      const isRearQuarter = name => /\brear\b.*\bquarter\b/i.test(name);
+
+      const apertureCheckable = costedParts
+        .map((cp, arrayIdx) => ({ cp, arrayIdx }))
+        .filter(({ cp }) => {
+          if (cp.independentlyVisible !== true) return false;
+          if (cp._labourSafe) return false;
+          if (isFrontWing(cp.partName))   return frontBumperDisplaced;
+          if (isRearQuarter(cp.partName)) return rearBumperDisplaced;
+          return false;
+        });
+
+      if (apertureCheckable.length === 0) {
+        _apertureProbeResult = { status: 'ok', challenged: [], usage: null };
+        console.log(`[APERTURE PROBE] no eligible panels (frontBumperDisplaced=${frontBumperDisplaced} rearBumperDisplaced=${rearBumperDisplaced}) — probe skipped`);
+      } else {
+        const APERTURE_TOOL = {
+          name: 'recordApertureVerdict',
+          description: 'Record your verdict for every panel in the list — one entry per panel, no omissions.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              panels: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    index:   { type: 'integer', description: 'Panel number from the list (1-based).' },
+                    verdict: {
+                      type: 'string',
+                      enum: ['impact_damage', 'exposed_seam', 'cannot_distinguish'],
+                      description: 'impact_damage: the panel itself is deformed, creased, or torn by the impact. exposed_seam: what you see is the normal body seam or construction fold that was hidden behind the bumper, now visible because the bumper is displaced — NOT damage to the panel itself. cannot_distinguish: you cannot confidently tell from the photos alone.',
+                    },
+                    photoRef: { type: 'string', description: 'Photo number(s) where you observed this area (e.g. "photo 2", "photos 1 and 3").' },
+                    whatISee: { type: 'string', description: 'One sentence describing exactly what is visible at this panel in the photos.' },
+                  },
+                  required: ['index', 'verdict', 'photoRef', 'whatISee'],
+                },
+              },
+            },
+            required: ['panels'],
+          },
+        };
+
+        const panelListText = apertureCheckable.map(({ cp }, i) => `Panel ${i + 1}: ${cp.partName}`).join('\n');
+        const probeInstruction = `You are performing a blind independent review of vehicle auction photos.\n\nAPERTURE CONFUSION: When a bumper is torn away from a vehicle, the normal construction seam or fold between the bumper mounting area and the adjacent body panel becomes visible. This seam is a standard manufacturing feature — it is NOT impact damage to the panel. In auction photos this exposed seam can resemble an impact crease, making it easy to mistake the seam for deformation of the wing or quarter panel.\n\nFor each panel below, determine which applies:\n- IMPACT DAMAGE: the panel itself shows genuine deformation, creasing, crushing, or tearing caused by the collision.\n- EXPOSED SEAM: what is visible is the normal body seam or fold that was hidden behind the bumper, now exposed because the bumper is displaced — the panel itself is not deformed.\n- CANNOT DISTINGUISH: you cannot confidently tell from the photos alone.\n\nDo not guess. If the photos do not give you enough information to distinguish, say so.\n\n${panelListText}\n\nCall recordApertureVerdict with your verdict for every panel in the list.`;
+
+        try {
+          const apertureRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({
+              model: 'claude-opus-4-8',
+              max_tokens: 2048,
+              system: [{ type: 'text', text: PROBE_SYSTEM }],
+              messages: [{ role: 'user', content: [...probeImageBlocks, { type: 'text', text: probeInstruction }] }],
+              tools: [APERTURE_TOOL],
+              tool_choice: { type: 'tool', name: 'recordApertureVerdict' },
+            }),
+          });
+          const apertureData = await apertureRes.json();
+          console.log(`[APERTURE PROBE] stop=${apertureData.stop_reason} input=${apertureData.usage?.input_tokens} output=${apertureData.usage?.output_tokens} cache_read=${apertureData.usage?.cache_read_input_tokens ?? 0} model=${apertureData.model || 'unknown'}`);
+
+          if (apertureData.stop_reason === 'refusal') {
+            console.warn('[APERTURE PROBE] refusal — probe abstained; pass-1 lines unchanged');
+            _apertureProbeResult = { status: 'refusal', challenged: [], usage: apertureData.usage ?? null };
+          } else if (!apertureRes.ok || apertureData.error) {
+            console.error('[APERTURE PROBE] API error:', apertureData.error?.message || apertureRes.status);
+            _apertureProbeResult = { status: 'error', error: apertureData.error?.message || `HTTP ${apertureRes.status}`, challenged: [], usage: null };
+          } else {
+            const apertureBlock = (apertureData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordApertureVerdict');
+            if (!apertureBlock?.input?.panels) {
+              console.error('[APERTURE PROBE] no tool block returned — probe abstained');
+              _apertureProbeResult = { status: 'error', error: 'no tool block', challenged: [], usage: apertureData.usage ?? null };
+            } else {
+              const challenged = [];
+              for (const verdict of apertureBlock.input.panels) {
+                const entry = apertureCheckable[verdict.index - 1];
+                if (!entry) {
+                  console.warn(`[APERTURE PROBE] verdict index ${verdict.index} out of range (checkable=${apertureCheckable.length}) — skipped`);
+                  continue;
+                }
+                if (verdict.verdict === 'exposed_seam') {
+                  costedParts[entry.arrayIdx].independentlyVisible = false;
+                  costedParts[entry.arrayIdx]._apertureStripped = true;
+                  console.log(`[APERTURE PROBE] stripped "${entry.cp.partName}" — verdict=exposed_seam photo=${verdict.photoRef}`);
+                } else {
+                  console.log(`[APERTURE PROBE] kept "${entry.cp.partName}" — verdict=${verdict.verdict}`);
+                }
+                challenged.push({
+                  index:    verdict.index,
+                  partName: entry.cp.partName,
+                  verdict:  verdict.verdict,
+                  photoRef: verdict.photoRef,
+                  whatISee: verdict.whatISee,
+                });
+              }
+              _apertureProbeResult = { status: 'ok', challenged, usage: apertureData.usage ?? null };
+            }
+          }
+        } catch (apertureErr) {
+          console.error('[APERTURE PROBE] threw:', apertureErr.message);
+          _apertureProbeResult = { status: 'error', error: apertureErr.message, challenged: [], usage: null };
+        }
+      }
+    }
+    // ── End aperture probe ──────────────────────────────────────────────────────
+
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
@@ -2036,6 +2158,14 @@ export async function GET(request) {
         status:     _perceptionProbeResult.status,
         challenged: _perceptionProbeResult.challenged,
         usage:      _perceptionProbeResult.usage,
+        capturedAt: new Date().toISOString(),
+      };
+    }
+    if (_apertureProbeResult) {
+      assessment._apertureProbe = {
+        status:     _apertureProbeResult.status,
+        challenged: _apertureProbeResult.challenged,
+        usage:      _apertureProbeResult.usage,
         capturedAt: new Date().toISOString(),
       };
     }
