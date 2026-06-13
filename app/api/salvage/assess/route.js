@@ -1538,8 +1538,8 @@ export async function GET(request) {
     ];
 
     const LAMP_OBS_TOOL = {
-      name: 'recordLampObservation',
-      description: 'Call exactly once on any front-struck lot, before writing your assessment. Also call if the rear bumper is visibly torn away or displaced. Pass your plate-anchor side determination, bumper displacement observations, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
+      name: 'recordImpactObservation',
+      description: 'Call exactly once on any impact lot (front or rear damage), before writing your assessment. Pass your plate-anchor side determination, bumper displacement and removal-mode observations, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1561,20 +1561,32 @@ export async function GET(request) {
             type: 'boolean',
             description: 'True if the rear bumper is torn away or displaced from the body on the struck corner, exposing the rear-quarter-to-bumper seam or fold. Set on lots with rear bumper displacement; omit or set false if the rear bumper is intact.',
           },
+          removalMode: {
+            type: 'string',
+            enum: ['peel', 'crush', 'indeterminate'],
+            description: 'How the FRONT bumper was removed. Judge from the bumper\'s own removal evidence, NOT from whether the adjacent wing looks damaged. peel: bumper torn/dragged off in tension (pulled rearward or outward off its mounts, mount tabs failed in tension, fasteners stripped, NO perpendicular inward crush of the adjacent body, exposed seam clean — travelling-forward snag/kerb is the canonical case). crush: bumper driven inward by perpendicular impact, adjacent body panel shows crush/intrusion/folding, force transmitted into the structure behind. indeterminate: cannot confidently distinguish from the photos. Omit if apertureExposed is false.',
+          },
+          rearRemovalMode: {
+            type: 'string',
+            enum: ['peel', 'crush', 'indeterminate'],
+            description: 'How the REAR bumper was removed. Same definitions as removalMode but applied to the rear. peel: rear bumper torn/dragged off in tension, mount tabs failed, NO perpendicular inward crush into the rear body, exposed seam clean. crush: rear bumper driven inward by perpendicular impact, rear body/quarter shows crush/intrusion. indeterminate: cannot confidently distinguish. Omit if rearApertureExposed is false.',
+          },
         },
         required: ['struckSide', 'apertureExposed', 'damageSpan'],
       },
     };
 
-    const frontStruck = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
+    const frontStruck    = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
+    const rearStruck     = /rear/i.test(enrichedVd.primaryDamage  || '') || /rear/i.test(enrichedVd.secondaryDamage  || '');
+    const hasImpactZone  = frontStruck || rearStruck; // derived from listing descriptors only — no prose
 
     // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
 
     // Call 1 tools: LAMP_OBS_TOOL always offered (item 14 — trigger input-integrity).
-    // Force guard (iter===0 && frontStruck) unchanged — forced only when text fields confirm front.
-    // On non-front lots the model sees the tool but the description instructs "front-struck lots
-    // only" — voluntary, will not call it; lampObs stays null correctly.
+    // Force guard (iter===0 && hasImpactZone): fires on front OR rear impact lots from listing data.
+    // Non-impact lots (fire/flood/theft/mechanical): hasImpactZone=false — tool offered but not
+    // forced; model will not call it; lampObs stays null correctly.
     const claudeTools = [LAMP_OBS_TOOL];
     const messages = [{ role: 'user', content: userContent }];
     let lampObs = null;
@@ -1600,12 +1612,12 @@ export async function GET(request) {
     // Tool-use loop — keep calling with tools while the model keeps recording observations,
     // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
     // generalised so either/both forced tools can fire in one round or across several).
-    // iter=0 on frontStruck lots: forced=true so the model MUST call recordLampObservation
-    // (tool_choice:{type:'any'}). iter>=1: forced=false — continuation rounds have tool_result
-    // context and must be free to end_turn into prose naturally.
+    // iter=0 on impact lots (hasImpactZone): forced=true so the model MUST call
+    // recordImpactObservation (tool_choice:{type:'any'}). iter>=1: forced=false — continuation
+    // rounds have tool_result context and must be free to end_turn into prose naturally.
     const MAX_TOOL_ROUNDS = 4;
     for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
-      const { res: apiRes, data: apiData } = await callClaude(true, iter === 0 && frontStruck);
+      const { res: apiRes, data: apiData } = await callClaude(true, iter === 0 && hasImpactZone);
       console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
       console.log(`[CACHE] iter=${iter} write=` + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
       if (!apiRes.ok) throw new Error(apiData.error?.message || `Claude API error (iter ${iter})`);
@@ -1622,15 +1634,17 @@ export async function GET(request) {
       const toolResults = content
         .filter(c => c.type === 'tool_use')
         .map(block => {
-          if (block.name === 'recordLampObservation') {
+          if (block.name === 'recordImpactObservation') {
             lampObs = {
               struckSide:          block.input?.struckSide     || 'central',
               apertureExposed:     Boolean(block.input?.apertureExposed),
               damageSpan:          block.input?.damageSpan     || 'single_corner',
               rearApertureExposed: block.input?.rearApertureExposed === true,
+              removalMode:         block.input?.removalMode    || null,
+              rearRemovalMode:     block.input?.rearRemovalMode || null,
             };
-            lampObsSource = (iter === 0 && frontStruck) ? 'text-forced' : 'voluntary-iter0';
-            console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} damageSpan=${lampObs.damageSpan}`);
+            lampObsSource = (iter === 0 && hasImpactZone) ? 'listing-forced' : 'voluntary-iter0';
+            console.log(`[IMPACT OBS] recordImpactObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} removalMode=${lampObs.removalMode} rearRemovalMode=${lampObs.rearRemovalMode} damageSpan=${lampObs.damageSpan}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
           return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
