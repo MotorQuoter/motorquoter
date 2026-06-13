@@ -1915,6 +1915,29 @@ export async function GET(request) {
     console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
     console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
 
+    // ── Removal-mode gate ──────────────────────────────────────────────────────
+    // Code-owned, no model call. Runs BEFORE both probes so perception and aperture
+    // probes never see iv=false entries already demoted here.
+    // Acts ONLY on clean 'peel': crush/indeterminate/null all stand down (D3 conservative rule).
+    // Front wing eligible when apertureExposed=true + removalMode='peel'.
+    // Rear quarter eligible when rearApertureExposed=true + rearRemovalMode='peel'.
+    {
+      const frontBumperPeel = lampObs?.apertureExposed === true  && lampObs?.removalMode    === 'peel';
+      const rearBumperPeel  = lampObs?.rearApertureExposed === true && lampObs?.rearRemovalMode === 'peel';
+      console.log(`[SEAM GATE] frontBumperPeel=${frontBumperPeel} rearBumperPeel=${rearBumperPeel}`);
+      for (const cp of costedParts) {
+        if (cp.independentlyVisible !== true || cp._labourSafe) continue;
+        const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
+        const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
+        if ((isFW && frontBumperPeel) || (isRQ && rearBumperPeel)) {
+          cp.independentlyVisible = false;
+          cp._seamModeStripped = true;
+          console.log(`[SEAM GATE] demoted "${cp.partName}" — peel-removal, seam exposed, no crush transmitted`);
+        }
+      }
+    }
+    // ── End removal-mode gate ──────────────────────────────────────────────────
+
     // Shared across all probe calls: same system text so probe-2/3 can read probe-1's
     // image cache (cache key = system + messages prefix up to cache_control block).
     const PROBE_SYSTEM = 'You are an independent vehicle damage reviewer. Your sole task is to answer visibility questions about specific panels from auction photos — describe only what you directly observe. Do not provide repair estimates, cost opinions, or any information beyond what the photos show.';
