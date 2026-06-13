@@ -1539,7 +1539,7 @@ export async function GET(request) {
 
     const LAMP_OBS_TOOL = {
       name: 'recordLampObservation',
-      description: 'Call exactly once on any front-struck lot, before writing your assessment. Pass your plate-anchor side determination, bumper displacement observation, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
+      description: 'Call exactly once on any front-struck lot, before writing your assessment. Also call if the rear bumper is visibly torn away or displaced. Pass your plate-anchor side determination, bumper displacement observations, and damage span. After calling, include each implicated front headlamp as a separate Parts Breakdown line. The engine reconciles costs to the authoritative band — do NOT pre-adjust your repair figure. Do not write lamp commentary outside the Parts Breakdown lines.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1556,6 +1556,10 @@ export async function GET(request) {
             type: 'string',
             enum: ['single_corner', 'full_width'],
             description: 'Structural extent of damage across the front. single_corner: damage confined to one side (one wing, one bumper corner). full_width: damage spans the full front width — bonnet crumpled, slam panel or front panel affected, both front corners involved. Judge from structural damage footprint (bonnet, slam panel, wing, bumper reach), NOT from lamp absence or presence.',
+          },
+          rearApertureExposed: {
+            type: 'boolean',
+            description: 'True if the rear bumper is torn away or displaced from the body on the struck corner, exposing the rear-quarter-to-bumper seam or fold. Set on lots with rear bumper displacement; omit or set false if the rear bumper is intact.',
           },
         },
         required: ['struckSide', 'apertureExposed', 'damageSpan'],
@@ -1620,12 +1624,13 @@ export async function GET(request) {
         .map(block => {
           if (block.name === 'recordLampObservation') {
             lampObs = {
-              struckSide:     block.input?.struckSide     || 'central',
-              apertureExposed: Boolean(block.input?.apertureExposed),
-              damageSpan:     block.input?.damageSpan     || 'single_corner',
+              struckSide:          block.input?.struckSide     || 'central',
+              apertureExposed:     Boolean(block.input?.apertureExposed),
+              damageSpan:          block.input?.damageSpan     || 'single_corner',
+              rearApertureExposed: block.input?.rearApertureExposed === true,
             };
             lampObsSource = (iter === 0 && frontStruck) ? 'text-forced' : 'voluntary-iter0';
-            console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
+            console.log(`[LAMP] recordLampObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} damageSpan=${lampObs.damageSpan}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
           return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ error: 'Unknown tool' }) };
