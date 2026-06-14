@@ -1262,6 +1262,9 @@ export async function GET(request) {
       console.warn('[VAT PARSE] possible missed VAT flag: "VAT to be added" found in listing but vatOnSale parsed as null');
     }
 
+    // TEMP NORM-BASELINE — REMOVE after commit-2 field diff validated
+    console.log('[NORM BASELINE]', JSON.stringify(enrichedVd));
+
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
     if (market === 'IE' && roiTier !== 'roi_free' && enrichedVd.vrm) {
@@ -1465,7 +1468,6 @@ export async function GET(request) {
       auctionSource !== 'copart' && `Auction Source: ${AUCTION_SOURCE_LABELS[auctionSource] || auctionSource}`,
       feeRef,
       enrichedVd.vatOnSale && `VAT on Sale: ${enrichedVd.vatOnSale}`,
-      enrichedVd.category && `Category: ${enrichedVd.category}`,
       enrichedVd.runCondition && `Run Condition: ${enrichedVd.runCondition}`,
       enrichedVd.keys && `Keys: ${enrichedVd.keys}`,
       enrichedVd.transmission && `Transmission: ${enrichedVd.transmission}`,
@@ -1482,7 +1484,6 @@ export async function GET(request) {
         const lines = records.map((rec, i) => [
           `Record ${i + 1}:`,
           rec.salvage_auction_lot_date && `  Lot Date: ${rec.salvage_auction_lot_date}`,
-          rec.salvage_auction_lot_desc && `  Category: ${rec.salvage_auction_lot_desc}`,
           rec.mileage != null          && `  Mileage at Sale: ${Number(rec.mileage).toLocaleString()} miles`,
           rec.primary_damage_desc      && `  Primary Damage: ${rec.primary_damage_desc}`,
           rec.secondary_damage_desc    && `  Secondary Damage: ${rec.secondary_damage_desc}`,
@@ -1518,6 +1519,10 @@ export async function GET(request) {
         return lines.filter(Boolean).join('\n');
       })(),
     ].filter(Boolean).join('\n');
+
+    // TEMP CAT-AUDIT — REMOVE after both commits validated
+    const _catLines = contextLines.split('\n').filter(l => /\bcategory\b/i.test(l));
+    console.log('[CAT AUDIT] category check: ' + (_catLines.length ? 'FOUND' : 'ABSENT') + (_catLines.length ? '\n' + _catLines.join('\n') : ''));
 
     const imageBlocks = images
       .map((img, i) => {
