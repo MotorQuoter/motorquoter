@@ -17,6 +17,7 @@ import {
   needsLampBackstop,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
+import { normaliseLot } from '@/lib/normaliseLot';
 
 export const maxDuration = 300;
 
@@ -1164,106 +1165,10 @@ export async function GET(request) {
       return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
     }
 
-    function cleanCopartNotes(raw) {
-      if (!raw) return '';
-      return raw
-        .split('\n')
-        .map(l => l.trim())
-        .filter(l => l.length > 0)
-        .filter(l => !/thumbnail/i.test(l))
-        .filter(l => !/^https?:\/\//i.test(l))
-        .filter(l => !/^VIN:/i.test(l))
-        .filter(l => !/^Lot number:/i.test(l))
-        .filter(l => !/^Lane\/Item:/i.test(l))
-        .filter(l => !/^Sale name:/i.test(l))
-        .filter(l => !/^Sale date:/i.test(l))
-        .filter(l => !/^Location:/i.test(l))
-        .filter(l => !/^\d+\/\d+$/.test(l))
-        .filter(l => !/^Watchlist$/i.test(l))
-        .filter(l => !/^HD$/i.test(l))
-        .filter(l => !/VIEW FULL VEHICLE/i.test(l))
-        .filter(l => !/^Estimated retail value:\s*$/i.test(l))
-        .filter(l => !/^Transmission:\s*$/i.test(l))
-        .filter(l => !/^2 AXLE RIGID BODY/i.test(l))
-        .filter(l => !/^Drive:/i.test(l))
-        .filter(l => !/^Transmission engages/i.test(l))
-        .filter(l => !/^1 Speed/i.test(l))
-        .filter(l => !/^2 Speed/i.test(l))
-        .filter(l => !/^\d+ Speed/i.test(l))
-        .filter(l => !/^Gears engage/i.test(l))
-        .filter(l => !/^Physical V5/i.test(l))
-        .filter(l => !/^Auction countdown/i.test(l))
-        .filter(l => !/^Minimum bid/i.test(l))
-        .filter(l => !/^Seller reserve/i.test(l))
-        .filter(l => !/^Minor Dents/i.test(l))
-        .filter(l => !/^Front End$/i.test(l))
-        .filter(l => !/^Rear End$/i.test(l))
-        .filter(l => !/^No V5/i.test(l))
-        .filter(l => !/^N REPAIRABLE/i.test(l))
-        .filter(l => !/^S REPAIRABLE/i.test(l))
-        .filter(l => !/^Water\/flood/i.test(l))
-        .filter(l => !/^VAT to be added/i.test(l))
-        .filter(l => !/^Yes$/i.test(l))
-        .filter(l => !/^No$/i.test(l))
-        .filter(l => /[a-zA-Z]{4,}/.test(l))
-        .join('\n')
-        .trim();
-    }
+    const enrichedVd = normaliseLot(vd);
 
-    const cleanedVd = { ...vd, damageDescription: cleanCopartNotes(vd.damageDescription) };
-
-    function parseCopartListing(raw) {
-      if (!raw) return {};
-      const get = (pattern) => {
-        const m = raw.match(pattern);
-        return m ? m[1].trim() : null;
-      };
-      return {
-        category:         get(/^Category:\s*([^\n]+)/im),
-        runCondition:     get(/Run condition:\s*\n?([^\n]+)/i),
-        odometer:         get(/Odometer:\s*\n?([^\n]+)/i),
-        keys:             get(/Has key:\s*\n?([^\n]+)/i),
-        fuel:             get(/Fuel:\s*\n?([^\n]+)/i),
-        transmission:     get(/Transmission:\s*\n?([^\n]+)/i),
-        bodyStyle:        get(/Body style:\s*\n?([^\n]+)/i),
-        colour:           get(/Colour:\s*\n?([^\n]+)/i),
-        engineSize:       get(/Engine type:\s*\n?([^\n]+)/i),
-        primaryDamage:    get(/Primary damage:\s*\n?([^\n]+)/i),
-        secondaryDamage:  get(/Secondary damage:\s*\n?([^\n]+)/i),
-        additionalDamage: get(/Additional damage[^:]*:\s*\n?([^\n]+)/i),
-        estimatedRetail:  get(/Estimated retail value:\s*\n?([^\n]+)/i),
-        vatOnSale:        get(/VAT to be added[^:\n]*(?::\s*|\s*\r?\n\s*)(Yes|No)/i),
-        v5Status:         get(/V5 available:\s*\n?([^\n]+)/i),
-        lotNumber:        get(/Lot number:\s*\n?([^\n]+)/i),
-      };
-    }
-
-    const parsed = parseCopartListing(vd.damageDescription || '');
-    const enrichedVd = {
-      ...cleanedVd,
-      category:         cleanedVd.category        || parsed.category,
-      runCondition:     cleanedVd.runCondition     || parsed.runCondition,
-      odometer:         cleanedVd.odometer         || parsed.odometer,
-      keys:             cleanedVd.keys             || parsed.keys,
-      fuel:             cleanedVd.fuel             || parsed.fuel,
-      transmission:     cleanedVd.transmission     || parsed.transmission,
-      colour:           cleanedVd.colour           || parsed.colour,
-      engineSize:       cleanedVd.engineSize       || parsed.engineSize,
-      primaryDamage:    cleanedVd.primaryDamage    || parsed.primaryDamage,
-      secondaryDamage:  cleanedVd.secondaryDamage  || parsed.secondaryDamage,
-      additionalDamage: cleanedVd.additionalDamage || parsed.additionalDamage,
-      estimatedRetail:  cleanedVd.estimatedRetail  || parsed.estimatedRetail,
-      vatOnSale:        cleanedVd.vatOnSale        || parsed.vatOnSale,
-      v5Status:         cleanedVd.v5Status         || parsed.v5Status,
-      lotNumber:        cleanedVd.lotNumber        || parsed.lotNumber || vd.lotNumber,
-    };
-
-    if (!enrichedVd.vatOnSale && /VAT\s+to\s+be\s+added/i.test(vd.damageDescription || '')) {
-      console.warn('[VAT PARSE] possible missed VAT flag: "VAT to be added" found in listing but vatOnSale parsed as null');
-    }
-
-    // TEMP NORM-BASELINE — REMOVE after commit-2 field diff validated
-    console.log('[NORM BASELINE]', JSON.stringify(enrichedVd));
+    // TEMP NORM-VALIDATION — REMOVE after field diff vs NORM-BASELINE confirmed (zero changes except damageDescription Category label)
+    console.log('[NORM VALIDATION]', JSON.stringify(enrichedVd));
 
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
