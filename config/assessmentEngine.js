@@ -57,7 +57,12 @@ Flagged parts format: FLAG: [Part name] | z:[zone] | weight:[low/medium/high] ::
   weight: high = inspect before bidding; medium = worth checking; low = minor concern
   reason is free text to end of line — may contain any characters including pipe symbols
 Part names in this block must match the Parts Breakdown exactly. One PART: line per Parts Breakdown row.]
-Key Cost Drivers: [the 2-3 things most affecting the estimate]
+Key Cost Drivers:
+[One line per cost driver, 2–3 lines maximum. Each line MUST begin with the exact part name from your Parts Breakdown — same capitalisation, same string — followed by a colon and a brief reason why it drives the cost. This block is machine-read: code uses the leading part name (before the colon) to cross-reference the repair total. Do not add prose outside the per-driver lines.
+Format:
+- Part name from Parts Breakdown: reason this is a key cost driver
+- Part name from Parts Breakdown: reason
+Non-part cost concerns (hidden damage risk, structural uncertainty) belong in Red Flags, not here.]
 Red Flags: [anything that could make costs significantly higher]
 Alternative Damage Scenario: [if photos don't match description, state what else the visible evidence could indicate. Base the alternative on what the photos and damage description show — do not reason from salvage category]
 Airbags: [deployed / not visible / unclear — with reasoning]

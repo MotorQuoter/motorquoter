@@ -1820,6 +1820,7 @@ export async function GET(request) {
     // structured early call) → adjacent wing/quarter seam exposed → line demoted.
     // No peel/crush classification: bumper off is sufficient — the seam is exposed
     // regardless of how the bumper left.
+    const bumperOffDemoted = []; // { partName, rx } — fed to KCD scrub below
     {
       const frontBumperOff = lampObs?.apertureExposed === true;
       const rearBumperOff  = lampObs?.rearApertureExposed === true;
@@ -1831,11 +1832,32 @@ export async function GET(request) {
         if ((isFW && frontBumperOff) || (isRQ && rearBumperOff)) {
           cp.independentlyVisible = false;
           cp._bumperOffStripped = true;
+          bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
           console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
         }
       }
     }
     // ── End bumper-off rule ────────────────────────────────────────────────────
+
+    // ── KCD scrub — drop demoted-part driver lines ────────────────────────────
+    // Structured KCD (part-name-first before ':' on each line) lets code locate
+    // and drop any driver whose leading token is a bumper-off demoted part.
+    // Deterministic: the token IS the canonical Parts Breakdown part name.
+    // Fail-safe: lines with no colon-delimited token are kept, never dropped.
+    if (bumperOffDemoted.length > 0 && assessment['Key Cost Drivers']) {
+      const lines = assessment['Key Cost Drivers'].split('\n');
+      const kept = lines.filter(line => {
+        const m = line.match(/^[\s\-*•\d.]*(.+?):/);
+        if (!m) return true;
+        const tok = m[1].trim();
+        return !bumperOffDemoted.some(d => d.rx.test(tok));
+      });
+      if (kept.length < lines.length) {
+        console.log(`[KCD SCRUB] dropped ${lines.length - kept.length} line(s) for bumper-off demoted parts`);
+        assessment['Key Cost Drivers'] = kept.join('\n').trim() || '';
+      }
+    }
+    // ── End KCD scrub ─────────────────────────────────────────────────────────
 
     // Perception probe retired — bumper-off rule demotes wing/quarter panels
     // deterministically before reconcile. Completeness probe will be built separately.
