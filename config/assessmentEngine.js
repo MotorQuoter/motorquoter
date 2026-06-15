@@ -36,7 +36,18 @@ CRITICAL FORMAT RULE: Always output field labels using the exact format "Field N
 
 Always structure your response using these exact fields:
 
-Visible Damage Summary: [what you can actually see in the photos]
+Visible Damage Summary:
+[Lead with one paragraph of overall context — windscreen sticker suffix and vendor type, vehicle overview, event type, zones affected. Then write one PART: block per damaged part from your Parts Breakdown (same part name, same capitalisation, same string). Omit PART: blocks for Labour & paint and any non-part cost lines. Every physically damaged part in the Parts Breakdown gets a PART: block regardless of whether it was independently visible on its own shots.
+Format:
+[Overall context paragraph.]
+
+PART: [exact Part name from Parts Breakdown — same capitalisation, same string]
+[One short paragraph: what the photos show for this specific part, or what they do not show.]
+
+PART: [exact Part name from Parts Breakdown]
+[One short paragraph.]
+
+The PART: header is machine-read and must exactly match the Parts Breakdown part name.]
 Parts Breakdown:
 [Numbered list — one line per damaged part plus a labour/paint line. Use this exact pipe-delimited format with four columns:
 1. [Part name] | [repair or replace] | £[OEM/new price] | £[used/breakers price or —]

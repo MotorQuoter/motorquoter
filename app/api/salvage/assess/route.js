@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  needsLampBackstop,
+  needsLampBackstop, BUMPER_OFF_SEAM_REASON, parseVdsParts, reassembleVds,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -1858,6 +1858,59 @@ export async function GET(request) {
       }
     }
     // ── End KCD scrub ─────────────────────────────────────────────────────────
+
+    // ── VDS scrub — reframe demoted-part blocks ───────────────────────────────
+    // parseVdsParts splits VDS into preamble + per-part PART: blocks.
+    // Demoted-part blocks have their prose replaced with BUMPER_OFF_SEAM_REASON.
+    // All other blocks are untouched. Every edge case fails safe toward keeping
+    // existing prose — see 2b spec.
+    if (bumperOffDemoted.length > 0 && assessment['Visible Damage Summary']) {
+      const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary']);
+      if (parts.length > 0) {
+        let scrubbed = false;
+        for (const part of parts) {
+          if (bumperOffDemoted.some(d => d.rx.test(part.partName))) {
+            part.prose = BUMPER_OFF_SEAM_REASON;
+            scrubbed = true;
+            console.log(`[VDS SCRUB] reframed block for "${part.partName}" — seam text substituted`);
+          }
+        }
+        for (const d of bumperOffDemoted) {
+          if (!parts.some(p => d.rx.test(p.partName))) {
+            console.log(`[VDS SCRUB] demoted part "${d.partName}" has no VDS block — no-op`);
+          }
+        }
+        for (const cp of costedParts.filter(c => !c._labourSafe && !c._bumperOffStripped)) {
+          if (!parts.some(p => normName(p.partName) === normName(cp.partName))) {
+            console.warn(`[VDS SCRUB] costed part "${cp.partName}" has no VDS block — model compliance gap`);
+          }
+        }
+        if (scrubbed) {
+          assessment['Visible Damage Summary'] = reassembleVds(preamble, parts);
+        }
+      } else {
+        for (const d of bumperOffDemoted) {
+          console.log(`[VDS SCRUB] demoted part "${d.partName}" has no VDS block — no-op (freeform prose)`);
+        }
+      }
+    }
+    // ── End VDS scrub ─────────────────────────────────────────────────────────
+
+    // ── Red Flags scrub — full-line regex drop ────────────────────────────────
+    // Full-line regex (not leading-token): catches combined-line entries with no
+    // colon delimiter (e.g. "Rear quarter inner structure unknown — OUTER
+    // deformation visible"). Inner-structure concern is preserved in the
+    // gate-generated Inspection Flag (BUMPER_OFF_SEAM_REASON + rear-quarter
+    // inner-structure addendum — see lib/parts.mjs applyVisibilityGate).
+    if (bumperOffDemoted.length > 0 && assessment['Red Flags']) {
+      const rfLines = assessment['Red Flags'].split('\n');
+      const rfKept  = rfLines.filter(line => !bumperOffDemoted.some(d => d.rx.test(line)));
+      if (rfKept.length < rfLines.length) {
+        console.log(`[RED FLAGS SCRUB] dropped ${rfLines.length - rfKept.length} line(s) for bumper-off demoted parts`);
+        assessment['Red Flags'] = rfKept.join('\n').trim() || '';
+      }
+    }
+    // ── End Red Flags scrub ───────────────────────────────────────────────────
 
     // Perception probe retired — bumper-off rule demotes wing/quarter panels
     // deterministically before reconcile. Completeness probe will be built separately.

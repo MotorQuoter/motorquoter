@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { parseVdsParts } from '@/lib/parts.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -579,12 +580,31 @@ export default function SalvageSuccessPage() {
             <div className="section">
               <div className="section-title">Damage Assessment</div>
               <div className="section-body">
-                {assessment['Visible Damage Summary'] && (
-                  <div className="field-row">
-                    <div className="field-key">Visible Damage Summary</div>
-                    <div className="field-val">{assessment['Visible Damage Summary']}</div>
-                  </div>
-                )}
+                {assessment['Visible Damage Summary'] && (() => {
+                  const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary']);
+                  if (parts.length === 0) {
+                    return (
+                      <div className="field-row">
+                        <div className="field-key">Visible Damage Summary</div>
+                        <div className="field-val">{assessment['Visible Damage Summary']}</div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">Visible Damage Summary</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {preamble && <div className="field-val">{preamble}</div>}
+                        {parts.map((p, i) => (
+                          <div key={i}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>{p.partName}</div>
+                            <div className="field-val">{p.prose}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Parts Breakdown — structured line-per-item table */}
                 {(() => {
                   const parts = assessment._reconciledParts?.length

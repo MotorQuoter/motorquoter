@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { parseVdsParts } from '@/lib/parts.mjs';
 
 const MARGIN = 20;
 const PAGE_W = 210;
@@ -518,7 +519,48 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
   sectionTitle('Damage Assessment');
-  fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
+  // VDS — structured per-part blocks; falls back to flat fieldBlock when no PART: headers
+  {
+    const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary'] || '');
+    if (parts.length === 0) {
+      fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
+    } else {
+      checkPage(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 100, 100);
+      doc.text('VISIBLE DAMAGE SUMMARY', MARGIN, y);
+      y += 4;
+      if (preamble) {
+        const preambleLines = doc.splitTextToSize(str(preamble), CONTENT_W);
+        checkPage(preambleLines.length * 4.5 + 4);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(20, 20, 20);
+        for (const line of preambleLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
+        y += 2;
+      }
+      for (const { partName, prose } of parts) {
+        checkPage(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        doc.text(str(partName), MARGIN, y);
+        y += 4;
+        const proseLines = doc.splitTextToSize(str(prose), CONTENT_W - 4);
+        checkPage(proseLines.length * 4.5 + 3);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(20, 20, 20);
+        for (const line of proseLines) { checkPage(5); doc.text(line, MARGIN + 4, y); y += 4.5; }
+        y += 2;
+      }
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.15);
+      doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+      y += 3;
+    }
+  }
 
   // Parts Breakdown — structured table
   const pdfParts = assessment._reconciledParts?.length
