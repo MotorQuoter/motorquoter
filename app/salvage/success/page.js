@@ -504,6 +504,7 @@ export default function SalvageSuccessPage() {
               const found = sh.salvage_auction_record_found === true;
               const records = sh.salvage_auction_records || [];
               const isSelfRef = sh.isSelfReferenceFirstWriteOff === true;
+              const genuinePriors = sh.genuinePriorCount ?? records.length;
               return (
                 <div className="section">
                   <div className="section-title">Salvage History Check</div>
@@ -512,7 +513,7 @@ export default function SalvageSuccessPage() {
                       <div className="field-row">
                         <div className="field-val" style={{ color: '#4ade80' }}>✓ No previous salvage auction records found</div>
                       </div>
-                    ) : isSelfRef ? (
+                    ) : (isSelfRef || genuinePriors === 0) ? (
                       <>
                         <div className="field-row">
                           <div className="field-val" style={{ color: '#4ade80' }}>✓ First write-off — no prior salvage auction history</div>
@@ -540,7 +541,7 @@ export default function SalvageSuccessPage() {
                       <>
                         <div className="field-row" style={{ background: 'rgba(248,113,113,0.07)', borderRadius: 8, padding: '10px 12px', marginBottom: 4 }}>
                           <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>
-                            ⚠️ This vehicle has been through salvage auction {records.length} time{records.length !== 1 ? 's' : ''}
+                            ⚠️ This vehicle has been through salvage auction {genuinePriors} time{genuinePriors !== 1 ? 's' : ''}
                           </div>
                         </div>
                         {records.map((rec, i) => (

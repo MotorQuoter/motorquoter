@@ -452,14 +452,33 @@ function buildSalvageCountSlot(enrichedVd, proseFlags) {
   // Prose corroboration override — only on the 1-prior case where code missed the self-reference.
   // Code wins upward: on 2+ priors, prose cannot reduce the count (code holds the API record count).
   const proseCorroboratesSelf = proseFlags?.salvageSelfReferenceConfirmed === true;
-  if (excl === 1 && !sh.isSelfReferenceFirstWriteOff && proseCorroboratesSelf) {
-    console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed self-reference that code missed — effectiveExcl forced from 1 to 0. Review tagSelfReference() criteria for this lot.');
-    excl = 0;
-    proseOverrideApplied = true;
+  // Guard: selfMatchCount===0 means code found no self-match; prose may have caught what code missed.
+  // When selfMatchCount>=1 code already handled the self-reference — the remaining excl is a genuine prior.
+  if (excl === 1 && !sh.isSelfReferenceFirstWriteOff && proseCorroboratesSelf && (sh.selfMatchCount ?? 0) === 0) {
+    // Date guard: only fires when the candidate record is within tagSelfReference's 14-day window.
+    // A record outside that window is a genuine prior by date alone — prose cannot override a hard date fact.
+    const candidate = (sh.salvage_auction_records || [])[0];
+    let overrideDateOk = false;
+    if (candidate?.salvage_auction_lot_date) {
+      const recDate = new Date(candidate.salvage_auction_lot_date);
+      if (!isNaN(recDate.getTime())) {
+        overrideDateOk = Math.abs((Date.now() - recDate.getTime()) / (1000 * 60 * 60 * 24)) <= 14;
+      }
+    }
+    if (overrideDateOk) {
+      console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed self-reference that code missed (within 14-day window) — effectiveExcl forced from 1 to 0. Review tagSelfReference() criteria for this lot.');
+      excl = 0;
+      proseOverrideApplied = true;
+    } else {
+      console.error('[SALVAGE SELF-REF OVERRIDE REJECTED] Record date outside 14-day window — date guard blocked the prose override; genuine prior retained.');
+    }
   }
   if (excl >= 2 && proseCorroboratesSelf) {
     console.error('[SALVAGE SELF-REF MISMATCH] Prose claims self-reference but code found 2+ records excluding self. Code wins upward — override not applied. Investigate.');
   }
+  // Reconciled count: consumed by BOTH the CORE slot below and the Salvage History Check render surfaces.
+  // Set once here so the two surfaces can never diverge.
+  sh.genuinePriorCount = excl;
 
   if (!found || excl === 0) {
     return buildSlot({

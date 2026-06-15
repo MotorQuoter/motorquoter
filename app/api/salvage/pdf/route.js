@@ -385,18 +385,19 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const shFound = sh.salvage_auction_record_found === true;
     const shRecords = sh.salvage_auction_records || [];
     const shSelfRef = sh.isSelfReferenceFirstWriteOff === true;
+    const shGenuinePriors = sh.genuinePriorCount ?? shRecords.length;
     sectionTitle('Salvage History Check');
     if (!shFound) {
       checkPage(8);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(0, 130, 0);
       doc.text('[OK] No previous salvage auction records found', MARGIN, y); y += 8;
-    } else if (shSelfRef) {
+    } else if (shSelfRef || shGenuinePriors === 0) {
       checkPage(8);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(0, 130, 0);
       doc.text('[OK] First write-off — no prior salvage auction history', MARGIN, y); y += 8;
     } else {
       checkPage(8);
-      const timesText = `[!] This vehicle has been through salvage auction ${shRecords.length} time${shRecords.length !== 1 ? 's' : ''}`;
+      const timesText = `[!] This vehicle has been through salvage auction ${shGenuinePriors} time${shGenuinePriors !== 1 ? 's' : ''}`;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(170, 0, 0);
       doc.text(str(timesText), MARGIN, y); y += 7;
       for (const rec of shRecords) {
