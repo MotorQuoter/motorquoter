@@ -168,17 +168,27 @@ function resolveVendorSuffix(coreObs) {
   const sticker = coreObs.windscreenSticker || {};
   const visible = Boolean(sticker.visible);
   const letter = sticker.suffixLetter || 'UNREADABLE';
-  if (!visible || letter === 'UNREADABLE') return { status: 'unreadable', letter: null, mapped: null };
+  if (!visible) return { status: 'absent', letter: null, mapped: null };      // no printed sticker seen
+  if (letter === 'UNREADABLE') return { status: 'unreadable', letter: null, mapped: null }; // sticker present, letter illegible
   if (letter === 'OTHER') return { status: 'other', letter, mapped: null };
   return { status: 'mapped', letter, mapped: VENDOR_SUFFIX_MAP[letter] || null };
 }
 
 function buildVendorSuffixSlot(vendorSuffix) {
+  if (vendorSuffix.status === 'absent') {
+    return buildSlot({
+      id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
+      kind: 'confirmation', verdict: 'unconfirmed',
+      detail: 'No windscreen vendor sticker visible — vendor type unconfirmed',
+      confidence: 'hidden', source: 'model',
+      flag: { severity: 'info', whatsapp: 'No vendor sticker was visible in the photos — photograph the upper windscreen area to establish vendor type before bidding', tier: 1 },
+    });
+  }
   if (vendorSuffix.status === 'unreadable') {
     return buildSlot({
       id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
       kind: 'confirmation', verdict: 'unconfirmed',
-      detail: 'Vendor suffix not readable — provenance signal unavailable',
+      detail: 'Vendor sticker present but suffix letter not legible — vendor type unconfirmed',
       confidence: 'hidden', source: 'model',
       flag: { severity: 'info', whatsapp: 'Photograph the windscreen lot-number sticker close-up — the vendor-suffix letter was not legible in the current photo set', tier: 1 },
     });
@@ -1577,9 +1587,10 @@ export async function GET(request) {
         properties: {
           windscreenSticker: {
             type: 'object',
+            description: 'The Copart vendor sticker — the long white PRINTED label on the upper windscreen. Chalk marks and handwritten lot numbers are NOT this sticker.',
             properties: {
-              visible: { type: 'boolean' },
-              suffixLetter: { type: 'string', enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'] },
+              visible: { type: 'boolean', description: 'true ONLY if the assessment explicitly confirms the white printed vendor sticker is physically present on the windscreen. false if the assessment states the sticker is absent, not visible, chalk-only, or "vendor type unconfirmed" without establishing the sticker.' },
+              suffixLetter: { type: 'string', enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'], description: 'The suffix letter at the right end of the printed sticker. Set UNREADABLE when visible is false, or when the sticker is present but the letter is not legible in the assessment.' },
             },
             required: ['visible', 'suffixLetter'],
           },

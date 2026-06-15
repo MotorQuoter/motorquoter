@@ -120,7 +120,14 @@ Q suffix — Purchased by Copart to resell. Apply extra scrutiny — these frequ
 CRITICAL: X and P suffixes do NOT mean the vehicle is written off. The suffix identifies the vendor type only. Write-off status is determined by the Category (S, N, U, B, A, X) not the sticker suffix.
 
 MANDATORY — Windscreen Sticker Suffix Reporting
-You must identify and report the windscreen sticker suffix in every assessment, even if no other windscreen issues are present. State the suffix code, vendor type, and any risk implications in the Visible Damage Summary section. If the sticker is not visible or the suffix is unreadable, state this explicitly as a flag: "Windscreen sticker suffix not visible — vendor type unconfirmed." Never omit this check.
+The Copart vendor sticker is a long white PRINTED label fixed to the UPPER part of the windscreen above the steering wheel. It is a distinct physical object — NOT a chalk mark, NOT a handwritten lot number, NOT a circled yard annotation. Before reading the suffix letter you MUST first establish that this white printed sticker is physically present in the photos.
+
+STEP 1 — Establish presence. Look for the long white printed label in the upper windscreen area above the steering wheel. Chalk marks, handwritten numbers, and circled yard markings are NOT the vendor sticker and must NOT be read as a suffix letter.
+- No white printed sticker visible → state: "No windscreen vendor sticker visible — vendor type unconfirmed." Do not guess or infer a letter.
+- White printed sticker present but suffix letter at its end is not clearly legible → state: "Vendor sticker present — suffix letter not legible, vendor type unconfirmed."
+- White printed sticker present AND suffix letter clearly legible → state the letter, its vendor-type meaning, and any risk implications in the Visible Damage Summary.
+
+NEVER infer a suffix from chalk, from the lot number, from expectation, or from anything other than a clearly legible printed letter on the white sticker. If you cannot see the white printed sticker, report its absence — do not fabricate a letter.
 
 Returned Lot Detection
 If vendor suffix is C (private entry) AND the HPI/Cat date significantly predates the current listing, the vehicle may have been previously sold at auction and returned by a buyer who could not repair or resell it. This is a significant red flag.
