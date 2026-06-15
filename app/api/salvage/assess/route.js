@@ -102,6 +102,12 @@ function catLetter(s) {
 // existing web/PDF render branch — true when the WHOLE history is self-matches (the single-record
 // case is just N=1 of that), so "first write-off" still means "no PRIOR history exists".
 // selfMatchCount/recordsExcludingSelf are new: they feed the salvage-count-excl-self CORE slot.
+// Maximum days between today and a salvage record date for the record to be considered a
+// potential self-reference (the current lot's own first write-off). Used by tagSelfReference()
+// and the prose-override date guard in buildSalvageCountSlot — both must use this constant
+// so the windows cannot drift independently.
+const SELF_REF_DATE_WINDOW_DAYS = 14;
+
 function tagSelfReference(shResult, vd) {
   if (!shResult) return;
   const records = shResult.salvage_auction_records || [];
@@ -115,8 +121,8 @@ function tagSelfReference(shResult, vd) {
   const curCat = catLetter(vd.category);
   const today = new Date();
   const selfFlags = records.map((rec) => {
-    // Date is the required primary gate — a record excludes ONLY IF within 14 days AND mileage+category match.
-    // Any record older than 14 days is ALWAYS a genuine prior regardless of mileage proximity.
+    // Date is the required primary gate — a record excludes ONLY IF within SELF_REF_DATE_WINDOW_DAYS AND mileage+category match.
+    // Any record older than that window is ALWAYS a genuine prior regardless of mileage proximity.
     let daysDelta = null;
     if (rec.salvage_auction_lot_date) {
       const recDate = new Date(rec.salvage_auction_lot_date);
@@ -128,7 +134,7 @@ function tagSelfReference(shResult, vd) {
     } else {
       console.warn('[SELF-REF] No lot date on salvage record — record counted as genuine prior');
     }
-    if (daysDelta === null || daysDelta > 14) return false; // date gate: required AND condition
+    if (daysDelta === null || daysDelta > SELF_REF_DATE_WINDOW_DAYS) return false; // date gate: required AND condition
 
     const mileageMatch = currentMileage != null && rec.mileage != null
       ? Math.abs(rec.mileage - currentMileage) <= 100
@@ -455,14 +461,15 @@ function buildSalvageCountSlot(enrichedVd, proseFlags) {
   // Guard: selfMatchCount===0 means code found no self-match; prose may have caught what code missed.
   // When selfMatchCount>=1 code already handled the self-reference — the remaining excl is a genuine prior.
   if (excl === 1 && !sh.isSelfReferenceFirstWriteOff && proseCorroboratesSelf && (sh.selfMatchCount ?? 0) === 0) {
-    // Date guard: only fires when the candidate record is within tagSelfReference's 14-day window.
+    // Date guard: only fires when the candidate record is within SELF_REF_DATE_WINDOW_DAYS.
     // A record outside that window is a genuine prior by date alone — prose cannot override a hard date fact.
+    // Invariant: excl===1 && selfMatchCount===0 ⟹ records.length===1, so records[0] is the single candidate.
     const candidate = (sh.salvage_auction_records || [])[0];
     let overrideDateOk = false;
     if (candidate?.salvage_auction_lot_date) {
       const recDate = new Date(candidate.salvage_auction_lot_date);
       if (!isNaN(recDate.getTime())) {
-        overrideDateOk = Math.abs((Date.now() - recDate.getTime()) / (1000 * 60 * 60 * 24)) <= 14;
+        overrideDateOk = Math.abs((Date.now() - recDate.getTime()) / (1000 * 60 * 60 * 24)) <= SELF_REF_DATE_WINDOW_DAYS;
       }
     }
     if (overrideDateOk) {
