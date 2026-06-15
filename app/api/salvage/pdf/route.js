@@ -314,6 +314,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       y += 2;
     }
     for (const group of slotData.groups) {
+      if (group.id === 'physical') continue;
       const shown = group.slots.filter(s => !allClearSet.has(s.id));
       if (shown.length === 0) continue;
       checkPage(8);

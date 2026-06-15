@@ -1308,7 +1308,7 @@ export async function GET(request) {
         : NaN;
       if (!isNaN(listedMileage) && listedMileage >= 1) {
         const diff = Math.abs(photoOdometer - listedMileage);
-        if (diff > 500) {
+        if (diff > 3000) {
           enrichedVd.photoMileageFlag = `Photo odometer reads ${photoOdometer.toLocaleString()} miles; listing shows ${listedMileage.toLocaleString()} miles — discrepancy of ${diff.toLocaleString()} miles. Verify before bidding.`;
         }
       }

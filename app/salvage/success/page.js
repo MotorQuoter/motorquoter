@@ -438,6 +438,7 @@ export default function SalvageSuccessPage() {
                       </div>
                     )}
                     {slotData.groups.map((group) => {
+                      if (group.id === 'physical') return null;
                       const shown = group.slots.filter(s => !allClearSet.has(s.id));
                       if (shown.length === 0) return null;
                       return (
