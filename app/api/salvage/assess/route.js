@@ -1063,15 +1063,15 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     ? 'cannot_determine'
     : (detectionVerdict || 'cannot_determine');
 
-  const checklistEntry = 'Show the struck-side front headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
+  const checklistEntry = 'Show the struck-side headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
   const checklistEntry2nd = lampCount === 2
-    ? `Inspect the opposite-side front headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£${bandValue} if replacement needed — flagged as inspection allowance, not included in repair total.`
+    ? `Inspect the opposite-side headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£${bandValue} if replacement needed — flagged as inspection allowance, not included in repair total.`
     : null;
 
   if (effectiveVerdict === 'present') {
     // Cost always applies on apertureExposed — a displaced-bumper aperture makes photo evidence
     // unreliable regardless of what appears present. Verdict controls wording only.
-    let verdictLine = `Struck front corner headlamp — the front headlamp on the damaged corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
+    let verdictLine = `Struck front corner headlamp — the headlamp on the struck corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
     verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
@@ -1080,7 +1080,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   }
 
   if (effectiveVerdict === 'missing') {
-    let verdictLine = `Struck front corner headlamp — the front headlamp on the damaged corner is missing. Replacement costed at £${bandValue} (${resolvedType}).`;
+    let verdictLine = `Struck front corner headlamp — the headlamp on the struck corner is missing. Replacement costed at £${bandValue} (${resolvedType}).`;
     verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
@@ -2203,7 +2203,14 @@ export async function GET(request) {
     // Perception probe retired — bumper-off rule demotes wing/quarter panels
     // deterministically before reconcile. Completeness probe will be built separately.
 
-    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts);
+    // Grille-set allowance detection: fires when per-view or aperture rule established
+    // the front grille missing (_amalgMissing) and the main call did not price it.
+    const grilleIsMissing     = coreObs.costedParts.some(cp => cp._amalgMissing === true && normName(cp.partName) === normName('front grille'));
+    const grilleAlreadyPriced = rawParts.some(p => normName(p.name) === normName('front grille'));
+    const grilleAllowance     = (grilleIsMissing && !grilleAlreadyPriced) ? 250 : 0;
+    if (grilleAllowance > 0) console.log('[GRILLE BAND] front grille established missing, not in main-call Parts Breakdown — queuing £250 allowance');
+
+    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
