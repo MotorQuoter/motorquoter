@@ -719,13 +719,14 @@ Do NOT report:
 - Under-bonnet ancillaries unless visibly damaged: fluid reservoirs, hoses, cables, filter housings, air intake
 - Antenna, number plates, badges, wiper blades, fuel cap
 
-PART: <part name> | iv:<true|false|na> | z:<front|rear|flank-damaged-side|roof|underside|interior>
+PART: <part name> | iv:<true|false|na|missing> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
-The iv value has THREE meanings in this task. Read these definitions carefully — they may differ from how iv is used elsewhere:
+The iv value has FOUR meanings in this task. Read these definitions carefully — they may differ from how iv is used elsewhere:
 
 - iv:true  — the part is visible in this photo AND shows damage.
 - iv:false — the part is visible in this photo AND is undamaged. You can see it clearly and it is fine.
 - iv:na    — you CANNOT resolve this part in this photo: it is out of frame, occluded, too distant, at too oblique an angle, in shadow, or otherwise not clearly enough shown to judge damaged-or-undamaged. When in doubt, use iv:na.
+- iv:missing — the part is ABSENT: it has been torn away, is not present where it should be, or the mounting point is exposed with no part attached. Use this only when you are certain the part is gone — not merely damaged-but-present. A crumpled bumper still in place is iv:true. A bumper completely torn off leaving bare bodywork is iv:missing.
 
 The distinction between iv:false and iv:na is critical. iv:false is a positive statement that you have looked at the part and it is undamaged. iv:na means you could not look at it properly. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
@@ -785,7 +786,7 @@ async function runPerViewAssess(image, idx) {
     const { costedParts } = parsePartVerdicts(raw);
     const resolved = costedParts.filter(cp => cp.partName !== 'none');
     resolved.forEach(cp => {
-      const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : 'na';
+      const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
       console.log(`[PER-VIEW][${idx}] part="${cp.partName}" iv=${ivLabel} zone=${cp.zone}`);
     });
     return { costedParts: resolved, idx };
@@ -799,7 +800,7 @@ async function runGrouping(allPerViewResults, mainPartNames = []) {
   // Build the flat verdict-line array — this is the ground truth for index resolution.
   const verdictLines = allPerViewResults.flatMap(({ costedParts, idx }) =>
     costedParts.map(cp => {
-      const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : 'na';
+      const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
       return `[view:${idx}] PART: ${cp.partName} | iv:${ivStr} | z:${cp.zone}`;
     })
   );
@@ -861,13 +862,22 @@ function amalgamate(groups) {
     const members   = Array.isArray(group.members) ? group.members : [];
     const zone = (() => { const m = members[0]?.match(/\|\s*z:(\S+)/); return m ? m[1] : 'unknown'; })();
     const verdicts  = members.map(line => {
-      const m = line.match(/\|\s*iv:(true|false|na)\s*\|/i);
+      const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
       return m ? m[1].toLowerCase() : 'na';
     });
+    const missing   = verdicts.filter(v => v === 'missing').length;
     const damaged   = verdicts.filter(v => v === 'true').length;
     const clean     = verdicts.filter(v => v === 'false').length;
-    const resolving = damaged + clean;
-    if (resolving === 0) {
+    const resolving = missing + damaged + clean;
+    if (missing > 0) {
+      // Missing dominates: absence is not adjudicable by a view that didn't notice it.
+      // A clean vote cannot override a missing vote — you cannot mistake a present part
+      // for absent, but you can easily fail to notice one that is gone. Missing+true also
+      // costs: both agree replacement is needed.
+      // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
+      console.log(`[AMALG] "${canonical}" missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
+      costedParts.push({ partName: canonical, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
+    } else if (resolving === 0) {
       console.log(`[AMALG] "${canonical}" 0 resolving — not-visible → floor`);
       costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
@@ -1131,7 +1141,7 @@ function parsePartVerdicts(blockText) {
       costedParts.push({
         partName:             partName.trim(),
         zone,
-        independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : null,
+        independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : ivRaw.toLowerCase() === 'missing' ? 'missing' : null,
         partHeight:           phRaw || null,
       });
       continue;
@@ -2071,7 +2081,7 @@ export async function GET(request) {
       const rearBumperOff  = lampObs?.rearApertureExposed === true;
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} rearBumperOff=${rearBumperOff}`);
       for (const cp of coreObs.costedParts) {
-        if (cp.independentlyVisible !== true || cp._labourSafe) continue;
+        if (cp.independentlyVisible !== true || cp._labourSafe || cp._amalgMissing === true) continue;
         const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
         const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
         if ((isFW && frontBumperOff) || (isRQ && rearBumperOff)) {
