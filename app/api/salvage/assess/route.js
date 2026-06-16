@@ -1132,7 +1132,7 @@ function parsePartVerdicts(blockText) {
     // PART: name | iv:X | z:Y | ph:Z  (ph optional)
     const pm = t.match(
       new RegExp(
-        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na)\\s*\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
+        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
         'i'
       )
     );
@@ -2057,6 +2057,37 @@ export async function GET(request) {
     console.log(`[PART VERDICTS][PER-VIEW] costedParts=${pvResult.costedParts.length} flaggedParts=${pvResult.flaggedParts.length}`);
     console.log('[PART VERDICTS][PER-VIEW] costedParts:', JSON.stringify(pvResult.costedParts));
     console.log('[PART VERDICTS][PER-VIEW] flaggedParts:', JSON.stringify(pvResult.flaggedParts));
+
+    // ── Aperture-grille cost rule ──────────────────────────────────────────────
+    // Code-owned, no model call. Condition: front bumper physically displaced
+    // (apertureExposed) AND lamp-detect confirmed headlamp mount empty
+    // (detectedCorner.verdict='missing'). Together these establish the grille is
+    // absent — no bumper and no lamp means nothing sits between camera and
+    // radiator. Per-view cannot reliably adjudicate absence (empty region reads
+    // as damaged-present or clean-background per angle); the deterministic
+    // structured pair overrides per-view amalgamation.
+    // Distinct from the bumper-off panel floor rule (acts on wing/quarter, floors
+    // downward): this acts on the grille and costs upward. No collision.
+    // Note: detectedCorner.verdict is the RAW lamp-detect verdict — not
+    // lampResult.effectiveVerdict, which is suppressed by LAMP_DETECTION_CONFIDENT_WORDING.
+    if (lampObs?.apertureExposed === true && detectedCorner?.verdict === 'missing') {
+      const grilleNorm  = normName('front grille');
+      const grilleEntry = coreObs.costedParts.find(cp => normName(cp.partName) === grilleNorm);
+      if (!grilleEntry) {
+        console.log('[AMALG][APERTURE] grille established absent but no canonical match — LOGGED, not applied');
+      } else {
+        const prior = grilleEntry._amalgMissing        ? 'cost (missing)'
+          : grilleEntry.independentlyVisible === true  ? 'cost (damaged)'
+          : grilleEntry._perViewClear                  ? 'clear (all-clean)'
+          : 'floor';
+        console.log(`[AMALG][APERTURE] "${grilleEntry.partName}" bumper-off + lamp-missing → force cost (replace), per-view said ${prior}`);
+        grilleEntry.independentlyVisible = true;
+        grilleEntry._amalgMissing = true;
+        const fi = coreObs.flaggedParts.findIndex(fp => normName(fp.partName) === normName(grilleEntry.partName));
+        if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
+      }
+    }
+    // ── End aperture-grille cost rule ─────────────────────────────────────────
 
     // Hard-fail if the per-view pipeline produced nothing while costed parts exist.
     // A bare return here would bypass the catch block and strand the session in
