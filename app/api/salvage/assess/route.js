@@ -697,6 +697,164 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
   }
 }
 
+const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; inspect in person before bidding';
+const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; inspect in person before bidding';
+
+const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
+
+For each vehicle part you can identify in this photo, return one verdict line in this exact format, one per line, and nothing else:
+
+PART: <part name> | iv:<true|false|na> | z:<front|rear|flank-damaged-side|roof|underside|interior>
+
+The iv value has THREE meanings in this task. Read these definitions carefully — they may differ from how iv is used elsewhere:
+
+- iv:true  — the part is visible in this photo AND shows damage.
+- iv:false — the part is visible in this photo AND is undamaged. You can see it clearly and it is fine.
+- iv:na    — you CANNOT resolve this part in this photo: it is out of frame, occluded, too distant, at too oblique an angle, in shadow, or otherwise not clearly enough shown to judge damaged-or-undamaged. When in doubt, use iv:na.
+
+The distinction between iv:false and iv:na is critical. iv:false is a positive statement that you have looked at the part and it is undamaged. iv:na means you could not look at it properly. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
+
+--- RESOLVABILITY THRESHOLD (tunable — this clause only) ---
+Only return iv:true or iv:false for a part that is fully and clearly in frame, shown square-on enough to judge its condition with confidence. A part that is partially shown, sharply angled, partly hidden behind another panel, or otherwise not fully and clearly presented is iv:na. Set the bar HIGH: if you are not confident you are seeing the whole part well enough to judge it, return iv:na.
+--- END RESOLVABILITY THRESHOLD ---
+
+Name parts naturally and specifically (e.g. "front bumper", "front headlamp", "bonnet"). Do not worry about matching names to any list — name what you see.
+
+Do NOT write any prose, summary, narrative, cost, or commentary. Return ONLY the PART: lines. If you can identify no parts in this photo, return the single line: PART: none | iv:na | z:front
+
+Do not use the words "offside", "nearside", "left", or "right" in any part name. Use front/rear and the component name only (e.g. "front headlamp", not "offside headlamp").`;
+
+const GROUPING_PROMPT = `Below are damage verdicts from several separate photographs of the SAME salvage vehicle. Each photo was assessed independently, so the same physical part may be named differently across photos (for example "headlight" in one and "headlamp" in another, or "front bumper" and "front bumper cover").
+
+Your ONLY task is to group verdict lines that refer to the SAME physical part. Group purely by what the part IS — by name and synonymy. Two lines belong in the same group if and only if they name the same physical component of the car.
+
+Strict rules:
+- Group ONLY by synonymy of the part itself. "headlight" and "headlamp" are the same part. "front bumper" and "front bumper cover" are the same part.
+- Do NOT group two DIFFERENT parts because they are near each other or on the same area of the car. A fog lamp and a headlamp are different parts even if both are at the front. A bumper and a number plate are different parts. Keep different parts in different groups.
+- Do NOT split one part into two groups because the photos described it differently or saw it from different angles. Same part = one group, always.
+- Do NOT make any judgement about damage, visibility, cost, or which photo is "right". You are grouping names only. Ignore the iv values entirely — just carry them through.
+- You are working from TEXT ONLY. You have not seen the photos. Do not infer anything beyond what the part names say.
+
+Return the groups as JSON and nothing else, no preamble and no code fences:
+
+[{ "part": "<canonical name>", "members": [ "<verbatim verdict lines that belong to this part>" ] }]
+
+Choose the clearest, most specific name as the "part" canonical name for each group. Every input line must appear in exactly one group.
+
+When a reference part name list is provided below, prefer a reference name as the canonical for a group if it is a synonym for the part described — use the reference spelling over a per-photo variant so that downstream name-matching is consistent. Apply reference names for synonymy only: never change which lines belong in a group, never merge or split groups, and never alter any damage or visibility reasoning.`;
+
+
+async function runPerViewAssess(image, idx) {
+  try {
+    let mediaType = 'image/jpeg';
+    let data = image;
+    const m = image.match(/^data:([^;]+);base64,(.+)$/);
+    if (m) { mediaType = m[1]; data = m[2]; }
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+          { type: 'text', text: PER_VIEW_PROMPT },
+        ]}],
+      }),
+    });
+    if (!res.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res.status}`); return { costedParts: [], idx }; }
+    const apiData = await res.json();
+    console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
+    if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx }; }
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const { costedParts } = parsePartVerdicts(raw);
+    const resolved = costedParts.filter(cp => cp.partName !== 'none');
+    resolved.forEach(cp => {
+      const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : 'na';
+      console.log(`[PER-VIEW][${idx}] part="${cp.partName}" iv=${ivLabel} zone=${cp.zone}`);
+    });
+    return { costedParts: resolved, idx };
+  } catch (err) {
+    console.warn(`[PER-VIEW][${idx}] error:`, err.message);
+    return { costedParts: [], idx };
+  }
+}
+
+async function runGrouping(allPerViewResults, mainPartNames = []) {
+  const lines = allPerViewResults.flatMap(({ costedParts, idx }) =>
+    costedParts.map(cp => {
+      const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : 'na';
+      return `[view:${idx}] PART: ${cp.partName} | iv:${ivStr} | z:${cp.zone}`;
+    })
+  );
+  if (lines.length === 0) {
+    console.log('[AMALG][GROUP] no verdict lines — grouping skipped');
+    return [];
+  }
+  const refSection = mainPartNames.length > 0
+    ? '\n\nReference part names from this vehicle\'s assessment:\n' + mainPartNames.join('\n')
+    : '';
+  const fullPrompt = GROUPING_PROMPT + refSection + '\n\nVerdicts:\n' + lines.join('\n');
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: fullPrompt }],
+      }),
+    });
+    if (!res.ok) { console.warn('[AMALG][GROUP] API error', res.status); return null; }
+    const apiData = await res.json();
+    console.log(`[TOKEN LOG][AMALG][GROUP] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) { console.warn('[AMALG][GROUP] no JSON array in response:', raw.slice(0, 200)); return null; }
+    const groups = JSON.parse(match[0]);
+    if (!Array.isArray(groups)) { console.warn('[AMALG][GROUP] response was not a JSON array'); return null; }
+    groups.forEach(g => console.log(`[AMALG][GROUP] "${g.part}" ← ${g.members?.length ?? 0} member(s)`));
+    return groups;
+  } catch (err) {
+    console.warn('[AMALG][GROUP] error:', err.message);
+    return null;
+  }
+}
+
+function amalgamate(groups) {
+  const costedParts  = [];
+  const flaggedParts = [];
+  if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts };
+  for (const group of groups) {
+    const canonical = group.part;
+    const members   = Array.isArray(group.members) ? group.members : [];
+    const zone = (() => { const m = members[0]?.match(/\|\s*z:(\S+)/); return m ? m[1] : 'unknown'; })();
+    const verdicts  = members.map(line => {
+      const m = line.match(/\|\s*iv:(true|false|na)\s*\|/i);
+      return m ? m[1].toLowerCase() : 'na';
+    });
+    const damaged   = verdicts.filter(v => v === 'true').length;
+    const clean     = verdicts.filter(v => v === 'false').length;
+    const resolving = damaged + clean;
+    if (resolving === 0) {
+      console.log(`[AMALG] "${canonical}" 0 resolving — not-visible → floor`);
+      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
+      flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
+    } else if (damaged > 0 && clean === 0) {
+      console.log(`[AMALG] "${canonical}" ${damaged}/${resolving} damaged → cost`);
+      costedParts.push({ partName: canonical, zone, independentlyVisible: true, partHeight: null });
+    } else if (clean > 0 && damaged === 0) {
+      console.log(`[AMALG] "${canonical}" ${clean}/${resolving} clean → clear`);
+      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
+    } else {
+      console.log(`[AMALG] "${canonical}" disagree (${damaged} damaged, ${clean} clean) → floor`);
+      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
+      flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
+    }
+  }
+  return { costedParts, flaggedParts };
+}
+
 function selectStruckCornerVerdict(corners) {
   if (!Array.isArray(corners) || corners.length === 0) return null;
   // A 'missing' verdict is the strongest signal — prefer it
@@ -1200,6 +1358,11 @@ export async function GET(request) {
     } else {
       return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
     }
+
+    // Per-view assess calls fire here in parallel with the main call.
+    // Grouping + amalgamate run inline after parseParts so the main-call part names
+    // can anchor the grouping canonical names (name-seam fix).
+    const perViewResultsPromise = Promise.all(images.map((img, i) => runPerViewAssess(img, i)));
 
     const enrichedVd = normaliseLot(vd);
 
@@ -1844,11 +2007,15 @@ export async function GET(request) {
         cp._labourSafe = true; // deliberate null — gate must PASS, not strip
       }
     });
-    coreObs.costedParts  = costedParts;
-    coreObs.flaggedParts = flaggedParts;
-    console.log(`[PART VERDICTS] costedParts=${costedParts.length} flaggedParts=${flaggedParts.length}`);
-    console.log('[PART VERDICTS] costedParts:', JSON.stringify(costedParts));
-    console.log('[PART VERDICTS] flaggedParts:', JSON.stringify(flaggedParts));
+    const mainPartNames  = rawParts.map(rp => rp.name);
+    const perViewResults = await perViewResultsPromise;
+    const groups         = await runGrouping(perViewResults, mainPartNames);
+    const pvResult       = amalgamate(groups);
+    coreObs.costedParts  = pvResult.costedParts;
+    coreObs.flaggedParts = pvResult.flaggedParts;
+    console.log(`[PART VERDICTS][PER-VIEW] costedParts=${pvResult.costedParts.length} flaggedParts=${pvResult.flaggedParts.length}`);
+    console.log('[PART VERDICTS][PER-VIEW] costedParts:', JSON.stringify(pvResult.costedParts));
+    console.log('[PART VERDICTS][PER-VIEW] flaggedParts:', JSON.stringify(pvResult.flaggedParts));
 
     // ── Bumper-off rule ────────────────────────────────────────────────────────
     // Code-owned, no model call. Runs BEFORE perception probe so the probe never
@@ -1862,7 +2029,7 @@ export async function GET(request) {
       const frontBumperOff = lampObs?.apertureExposed === true;
       const rearBumperOff  = lampObs?.rearApertureExposed === true;
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} rearBumperOff=${rearBumperOff}`);
-      for (const cp of costedParts) {
+      for (const cp of coreObs.costedParts) {
         if (cp.independentlyVisible !== true || cp._labourSafe) continue;
         const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
         const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
@@ -1917,7 +2084,9 @@ export async function GET(request) {
             console.log(`[VDS SCRUB] demoted part "${d.partName}" has no VDS block — no-op`);
           }
         }
-        for (const cp of costedParts.filter(c => !c._labourSafe && !c._bumperOffStripped)) {
+        // Name-seam caveat: coreObs.costedParts carries per-view canonical names which may differ
+        // from VDS block names — false-positive warnings expected here until seam is closed.
+        for (const cp of coreObs.costedParts.filter(c => !c._labourSafe && !c._bumperOffStripped)) {
           if (!parts.some(p => normName(p.partName) === normName(cp.partName))) {
             console.warn(`[VDS SCRUB] costed part "${cp.partName}" has no VDS block — model compliance gap`);
           }
