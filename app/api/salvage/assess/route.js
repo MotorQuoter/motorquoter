@@ -702,7 +702,22 @@ const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed th
 
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
-For each vehicle part you can identify in this photo, return one verdict line in this exact format, one per line, and nothing else:
+For each damage-relevant part you can assess in this photo, return one verdict line in this exact format, one per line, and nothing else:
+
+Damage-relevant parts include:
+- Body panels: front bumper, rear bumper, bonnet, boot lid, roof, door(s), wing(s), sill(s), quarter panel(s)
+- Structural components: chassis leg, subframe, inner wing, A/B/C-pillar, floor pan
+- Glass: windscreen, side glass, rear glass
+- Lamps and lenses: headlamp, tail lamp, fog lamp
+- Wheels and tyres
+- Any part that is visibly damaged or missing in this photo, regardless of category
+
+Report exterior body panels and structural components even when undamaged (iv:false) — a clean view of a panel is needed to resolve a damaged report of the same panel in another view. Do not omit a clean exterior panel just because nothing in the photo is damaged.
+
+Do NOT report:
+- Interior components unless visibly damaged: buttons, switches, seat belt buckles, steering wheel trim, carpet, floor mats, gear lever, door cards
+- Under-bonnet ancillaries unless visibly damaged: fluid reservoirs, hoses, cables, filter housings, air intake
+- Antenna, number plates, badges, wiper blades, fuel cap
 
 PART: <part name> | iv:<true|false|na> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
@@ -735,11 +750,11 @@ Strict rules:
 - Do NOT make any judgement about damage, visibility, cost, or which photo is "right". You are grouping names only. Ignore the iv values entirely — just carry them through.
 - You are working from TEXT ONLY. You have not seen the photos. Do not infer anything beyond what the part names say.
 
-Return the groups as JSON and nothing else, no preamble and no code fences:
+The verdict lines below are numbered starting at 0. Return the groups as JSON and nothing else, no preamble and no code fences:
 
-[{ "part": "<canonical name>", "members": [ "<verbatim verdict lines that belong to this part>" ] }]
+[{ "part": "<canonical name>", "members": [ <integer indices of the verdict lines that belong to this group> ] }]
 
-Choose the clearest, most specific name as the "part" canonical name for each group. Every input line must appear in exactly one group.
+Use integer indices (not the verdict text) in members — this keeps the response compact. Every index from 0 to N-1 must appear in exactly one group. Choose the clearest, most specific name as the "part" canonical name for each group.
 
 When a reference part name list is provided below, prefer a reference name as the canonical for a group if it is a synonym for the part described — use the reference spelling over a per-photo variant so that downstream name-matching is consistent. Apply reference names for synonymy only: never change which lines belong in a group, never merge or split groups, and never alter any damage or visibility reasoning.`;
 
@@ -781,39 +796,55 @@ async function runPerViewAssess(image, idx) {
 }
 
 async function runGrouping(allPerViewResults, mainPartNames = []) {
-  const lines = allPerViewResults.flatMap(({ costedParts, idx }) =>
+  // Build the flat verdict-line array — this is the ground truth for index resolution.
+  const verdictLines = allPerViewResults.flatMap(({ costedParts, idx }) =>
     costedParts.map(cp => {
       const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : 'na';
       return `[view:${idx}] PART: ${cp.partName} | iv:${ivStr} | z:${cp.zone}`;
     })
   );
-  if (lines.length === 0) {
+  if (verdictLines.length === 0) {
     console.log('[AMALG][GROUP] no verdict lines — grouping skipped');
     return [];
   }
+  // Number the lines so the model returns integer indices rather than echoing full strings.
+  // This collapses output size by ~10× — prevents overflow on large lots.
+  const numberedInput = verdictLines.map((line, i) => `${i}: ${line}`).join('\n');
   const refSection = mainPartNames.length > 0
     ? '\n\nReference part names from this vehicle\'s assessment:\n' + mainPartNames.join('\n')
     : '';
-  const fullPrompt = GROUPING_PROMPT + refSection + '\n\nVerdicts:\n' + lines.join('\n');
+  const fullPrompt = GROUPING_PROMPT + refSection + '\n\nVerdicts:\n' + numberedInput;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-opus-4-8',
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: 'user', content: fullPrompt }],
       }),
     });
     if (!res.ok) { console.warn('[AMALG][GROUP] API error', res.status); return null; }
     const apiData = await res.json();
-    console.log(`[TOKEN LOG][AMALG][GROUP] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
+    console.log(`[TOKEN LOG][AMALG][GROUP] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason} Lines:${verdictLines.length}`);
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[AMALG][GROUP] max_tokens — response truncated; aborting grouping'); return null; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\[[\s\S]*\]/);
     if (!match) { console.warn('[AMALG][GROUP] no JSON array in response:', raw.slice(0, 200)); return null; }
-    const groups = JSON.parse(match[0]);
-    if (!Array.isArray(groups)) { console.warn('[AMALG][GROUP] response was not a JSON array'); return null; }
-    groups.forEach(g => console.log(`[AMALG][GROUP] "${g.part}" ← ${g.members?.length ?? 0} member(s)`));
+    const indexGroups = JSON.parse(match[0]);
+    if (!Array.isArray(indexGroups)) { console.warn('[AMALG][GROUP] response was not a JSON array'); return null; }
+    // Resolve integer indices back to verdict strings; drop any out-of-range index with a warning.
+    const groups = indexGroups.map(g => ({
+      part: g.part,
+      members: (Array.isArray(g.members) ? g.members : []).map(i => {
+        if (typeof i !== 'number' || i < 0 || i >= verdictLines.length) {
+          console.warn(`[AMALG][GROUP] "${g.part}" — index ${i} out of range (${verdictLines.length} lines); skipped`);
+          return null;
+        }
+        return verdictLines[i];
+      }).filter(Boolean),
+    }));
+    groups.forEach(g => console.log(`[AMALG][GROUP] "${g.part}" ← ${g.members.length} member(s)`));
     return groups;
   } catch (err) {
     console.warn('[AMALG][GROUP] error:', err.message);
@@ -2016,6 +2047,16 @@ export async function GET(request) {
     console.log(`[PART VERDICTS][PER-VIEW] costedParts=${pvResult.costedParts.length} flaggedParts=${pvResult.flaggedParts.length}`);
     console.log('[PART VERDICTS][PER-VIEW] costedParts:', JSON.stringify(pvResult.costedParts));
     console.log('[PART VERDICTS][PER-VIEW] flaggedParts:', JSON.stringify(pvResult.flaggedParts));
+
+    // Hard-fail if the per-view pipeline produced nothing while costed parts exist.
+    // A bare return here would bypass the catch block and strand the session in
+    // 'processing' until the 600s stale-lock. Throwing routes through catch (2239–2258)
+    // which resets promo→promo_redeemed (immediately retryable) and non-promo→failed
+    // (retry via same stripe session_id passes payment_status=paid at no re-charge).
+    if (pvResult.costedParts.length === 0 && rawParts.length > 0) {
+      console.error(`[PER-VIEW][ABORT] pipeline produced 0 verdicts while ${rawParts.length} costed part(s) exist — aborting; session reset to retryable`);
+      throw new Error('Assessment could not be completed — please retry');
+    }
 
     // ── Bumper-off rule ────────────────────────────────────────────────────────
     // Code-owned, no model call. Runs BEFORE perception probe so the probe never
