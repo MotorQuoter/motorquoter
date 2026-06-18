@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { parseVdsParts } from '@/lib/parts.mjs';
+import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 
 const MARGIN = 20;
 const PAGE_W = 210;
@@ -658,7 +658,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   fieldBlock('Key Cost Drivers',            assessment['Key Cost Drivers']);
 
   // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
-  const pdfFlags = assessment._flaggedParts || [];
+  const pdfFlags = buildBuyerFlags(assessment);
   if (pdfFlags.length > 0) {
     checkPage(14);
     doc.setFont('helvetica', 'bold');

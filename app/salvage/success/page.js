@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { parseVdsParts } from '@/lib/parts.mjs';
+import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -693,7 +693,7 @@ export default function SalvageSuccessPage() {
                 ) : null}
                 {/* Inspection Flags — structured per-part flags (model + gate-generated), weight high→low */}
                 {(() => {
-                  const flags = assessment._flaggedParts || [];
+                  const flags = buildBuyerFlags(assessment);
                   if (!flags.length) return null;
                   const wc = { high: '#c0392b', medium: '#b8860b', low: '#888' };
                   return (
