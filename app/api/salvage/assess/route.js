@@ -699,6 +699,12 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
 
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; inspect in person before bidding';
 const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; inspect in person before bidding';
+// Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
+// confirmed displaced bumper. States only the situation and uncertainty — no damage verb,
+// no damage claim, no "inspect in person" (buyers have no Copart access).
+const AMALG_REASON_APERTURE_REAR  = 'Rear bumper displaced on this corner; the quarter panel behind it cannot be reliably assessed from the listing photos.';
+const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the wing behind it cannot be reliably assessed from the listing photos.';
+const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
 
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
@@ -2247,6 +2253,25 @@ export async function GET(request) {
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
     );
+
+    // Aperture-confusion reword (scoped exception to post-merge wording deferral —
+    // corrects implied-damage-on-clean-panel credibility problem, not cosmetic polish).
+    // Mutates only the reason string on DISAGREE floors that sit behind a confirmed
+    // displaced bumper. No other field, no cost path, no checklist.
+    if (lampObs) {
+      const apertureMap = new Map();
+      if (lampObs.rearApertureExposed === true) apertureMap.set('Rear quarter panel', AMALG_REASON_APERTURE_REAR);
+      if (lampObs.apertureExposed     === true) apertureMap.set('Front wing',         AMALG_REASON_APERTURE_WING);
+      if (lampObs.apertureExposed     === true) apertureMap.set('Front headlamp',      AMALG_REASON_APERTURE_LAMP);
+      if (apertureMap.size > 0) {
+        for (const flag of assessment._flaggedParts) {
+          if (flag._amalgDisagree && apertureMap.has(flag.partName)) {
+            console.log(`[APERTURE-REWORD] "${flag.partName}" reason updated (aperture-confusion, not genuine disagreement)`);
+            flag.reason = apertureMap.get(flag.partName);
+          }
+        }
+      }
+    }
 
     const parts_sum = sumPartsRealistic(gatedParts);
 
