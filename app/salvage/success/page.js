@@ -625,6 +625,12 @@ export default function SalvageSuccessPage() {
                     letterSpacing: '0.1em', color: 'var(--text-dim)', textTransform: 'uppercase',
                     textAlign: align, paddingBottom: 4,
                   });
+                  // Column totals — render-only; oemTotal never written to any stored field.
+                  const shTotal  = assessment._reconciledParts?.length > 0 && assessment._partsReconciliation?.parts_sum > 0
+                    ? assessment._partsReconciliation.parts_sum : null;
+                  const oemTotal = shTotal != null
+                    ? parts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
+                    : null;
                   return (
                     <div className="field-row">
                       <div className="field-key">Parts Breakdown</div>
@@ -658,6 +664,19 @@ export default function SalvageSuccessPage() {
                             <tr>
                               <td colSpan={4} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
                                 Italic rows: inspection allowance — confirm on inspection, not in repair total. See Inspection Flags for other excluded items.
+                              </td>
+                            </tr>
+                          )}
+                          {oemTotal != null && (
+                            <tr>
+                              <td colSpan={2} style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', padding: '7px 4px', borderTop: '2px solid var(--text-dim)' }}>Repair total</td>
+                              <td style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'right', padding: '7px 4px', borderTop: '2px solid var(--text-dim)' }}>
+                                <div>{fmtP(oemTotal)}</div>
+                                <div style={{ fontSize: 9, marginTop: 1 }}>New</div>
+                              </td>
+                              <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--orange)', textAlign: 'right', padding: '7px 4px', borderTop: '2px solid var(--text-dim)' }}>
+                                <div>{fmtP(shTotal)}</div>
+                                <div style={{ fontSize: 9, color: 'var(--text-dim)', fontWeight: 400, marginTop: 1 }}>S/H</div>
                               </td>
                             </tr>
                           )}

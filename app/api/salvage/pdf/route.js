@@ -628,6 +628,27 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.text('Italic rows: inspection allowance — confirm on inspection, not included in repair total. See Inspection Flags for other excluded items.', MARGIN, y);
       y += 5;
     }
+    // Column totals row — New (OEM) vs S/H. S/H = stored parts_sum (bid figure); New = oem??used per row.
+    // Render-only: oemTotal never written to any stored field; no downstream calc reads it.
+    if (assessment._partsReconciliation?.parts_sum > 0) {
+      const oemTotal = pdfParts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0);
+      const shTotal  = assessment._partsReconciliation.parts_sum;
+      checkPage(14);
+      doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.5);
+      doc.line(xOem, y, PAGE_W - MARGIN, y);
+      y += 5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(60, 60, 60);
+      doc.text('Repair total', MARGIN, y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(130, 130, 130);
+      doc.text(str(fmtPP(oemTotal)), xOem + COL_OEM, y, { align: 'right' });
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(240, 90, 26);
+      doc.text(str(fmtPP(shTotal)),  xUsed + COL_USED, y, { align: 'right' });
+      y += 3.5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(150, 150, 150);
+      doc.text('New', xOem + COL_OEM, y, { align: 'right' });
+      doc.text('S/H', xUsed + COL_USED, y, { align: 'right' });
+      y += 3;
+    }
     y += 3;
     doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
