@@ -856,7 +856,9 @@ async function runGrouping(allPerViewResults, mainPartNames = []) {
 function amalgamate(groups) {
   const costedParts  = [];
   const flaggedParts = [];
-  if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts };
+  const pvVotesMap   = {};
+  let pvVotesCollision = false;
+  if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
   for (const group of groups) {
     const canonical = group.part;
     const members   = Array.isArray(group.members) ? group.members : [];
@@ -892,8 +894,22 @@ function amalgamate(groups) {
       costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
+    // Per-panel vote split — persisted to assessment._pvVotes at the call site.
+    const branch = missing > 0              ? 'iv:missing-dominant'
+                 : resolving === 0          ? 'not-visible'
+                 : damaged > 0 && clean === 0 ? 'passed-costed'
+                 : clean > 0 && damaged === 0 ? 'passed-clear'
+                 : 'disagree';
+    let pvKey = canonical;
+    if (pvKey in pvVotesMap) {
+      pvVotesCollision = true;
+      let n = 2;
+      while (`${canonical}#${n}` in pvVotesMap) n++;
+      pvKey = `${canonical}#${n}`;
+    }
+    pvVotesMap[pvKey] = { views: members.length, resolving, damaged, clean, notVisible: missing, branch };
   }
-  return { costedParts, flaggedParts };
+  return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
 }
 
 function selectStruckCornerVerdict(corners) {
@@ -2013,6 +2029,12 @@ export async function GET(request) {
     assessment._raw = sanitizedRawText;
     assessment._market = market;
     if (lampResult) assessment._lampResult = lampResult;
+    assessment._lampObs = lampObs ? {
+      apertureExposed: lampObs.apertureExposed,
+      ...('rearApertureExposed' in lampObs ? { rearApertureExposed: lampObs.rearApertureExposed } : {}),
+      ...('damageSpan'          in lampObs ? { damageSpan:          lampObs.damageSpan }          : {}),
+      lampObsSource: lampObsSource ?? null,
+    } : null;
 
     // Append deterministic 2nd-lamp checklist item on full-width lots (before Supabase write)
     if (lampResult?.checklistEntry2nd) {
@@ -2054,6 +2076,11 @@ export async function GET(request) {
     const pvResult       = amalgamate(groups);
     coreObs.costedParts  = pvResult.costedParts;
     coreObs.flaggedParts = pvResult.flaggedParts;
+    assessment._pvVotes  = pvResult.pvVotesMap ?? null;
+    if (pvResult.pvVotesCollision) {
+      assessment._pvVotesCollision = true;
+      console.warn('[AMALG] key collision in pvVotes — duplicate canonical part name; see _pvVotesCollision marker');
+    }
     console.log(`[PART VERDICTS][PER-VIEW] costedParts=${pvResult.costedParts.length} flaggedParts=${pvResult.flaggedParts.length}`);
     console.log('[PART VERDICTS][PER-VIEW] costedParts:', JSON.stringify(pvResult.costedParts));
     console.log('[PART VERDICTS][PER-VIEW] flaggedParts:', JSON.stringify(pvResult.flaggedParts));
