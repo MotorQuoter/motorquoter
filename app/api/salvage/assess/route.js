@@ -18,6 +18,7 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
+import { PANEL, PANEL_DISPLAY } from '@/lib/panelEnum.mjs';
 
 export const maxDuration = 300;
 
@@ -708,43 +709,87 @@ const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the 
 
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
-For each damage-relevant part you can assess in this photo, return one verdict line in this exact format, one per line, and nothing else:
+For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
 
-Damage-relevant parts include:
-- Body panels: front bumper, rear bumper, bonnet, boot lid, roof, door(s), wing(s), sill(s), quarter panel(s)
-- Structural components: chassis leg, subframe, inner wing, A/B/C-pillar, floor pan
-- Glass: windscreen, side glass, rear glass
-- Lamps and lenses: headlamp, tail lamp, fog lamp
-- Wheels and tyres
-- Any part that is visibly damaged or missing in this photo, regardless of category
+PART: <PANEL_ID> | iv:<true|false|na|missing> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
-Report exterior body panels and structural components even when undamaged (iv:false) — a clean view of a panel is needed to resolve a damaged report of the same panel in another view. Do not omit a clean exterior panel just because nothing in the photo is damaged.
+<PANEL_ID> must be one identifier from the closed vocabulary below, written exactly as shown (SCREAMING_SNAKE_CASE). If a part you observe does not fit any identifier, use OTHER.
 
-Do NOT report:
-- Interior components unless visibly damaged: buttons, switches, seat belt buckles, steering wheel trim, carpet, floor mats, gear lever, door cards
-- Under-bonnet ancillaries unless visibly damaged: fluid reservoirs, hoses, cables, filter housings, air intake
-- Antenna, number plates, badges, wiper blades, fuel cap
+CLOSED PANEL VOCABULARY:
 
-PART: <part name> | iv:<true|false|na|missing> | z:<front|rear|flank-damaged-side|roof|underside|interior>
+COST panels — carry a repair price when damaged:
+  FRONT_BUMPER      front bumper / bumper cover / front fascia
+  GRILLE            front grille / grille insert
+  BONNET            bonnet / hood
+  SLAM_PANEL        slam panel / rad support / front upper tie bar
+  FRONT_WING        front wing / front fender
+  HEADLAMP          front or rear headlamp / headlight (any position — do not invent FRONT_HEADLAMP)
+  FOG_LAMP          front or rear fog lamp / driving lamp
+  RADIATOR_PACK     radiator / condenser / cooling pack (costed as a unit on frontal hits)
+  FRONT_DOOR        front door / front door shell
+  REAR_DOOR         rear door / rear door shell / rear sliding door
+  SILL              structural sill / rocker panel (structural, not trim)
+  SIDE_SKIRT        side skirt / rocker trim / side trim strip (trim only, not structural)
+  DOOR_MIRROR       door mirror / wing mirror / side mirror
+  SIDE_GLASS        side glass / door glass (any door window)
+  REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
+  REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
+  REAR_LAMP         tail lamp / tail light / rear lamp cluster
+  BOOT_LID          boot lid / tailgate / trunk lid / hatchback rear door
+  REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
+  WINDSCREEN        windscreen / front windshield
+  REAR_GLASS        rear glass / rear windscreen / rear screen
+  ROOF              roof panel / roof skin
+  WHEEL             alloy or steel wheel — any corner; do not add a position qualifier
+  TYRE              tyre / tire — any corner; do not add a position qualifier
 
-The iv value has FOUR meanings in this task. Read these definitions carefully — they may differ from how iv is used elsewhere:
+STRUCTURAL FLAG — never costed; always flagged for inspection:
+  FRONT_STRUCTURE   chassis leg / inner wing / subframe / front upper structure / engine bay metal
+  REAR_STRUCTURE    rear chassis leg / boot floor structure / rear longitudinal
+  SIDE_STRUCTURE    A-pillar / B-pillar / C-pillar / inner sill reinforcement
 
-- iv:true  — the part is visible in this photo AND shows damage.
-- iv:false — the part is visible in this photo AND is undamaged. You can see it clearly and it is fine.
-- iv:na    — you CANNOT resolve this part in this photo: it is out of frame, occluded, too distant, at too oblique an angle, in shadow, or otherwise not clearly enough shown to judge damaged-or-undamaged. When in doubt, use iv:na.
-- iv:missing — the part is ABSENT: it has been torn away, is not present where it should be, or the mounting point is exposed with no part attached. Use this only when you are certain the part is gone — not merely damaged-but-present. A crumpled bumper still in place is iv:true. A bumper completely torn off leaving bare bodywork is iv:missing.
+VISIBLE FLAG — geometric evidence only:
+  DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
 
-The distinction between iv:false and iv:na is critical. iv:false is a positive statement that you have looked at the part and it is undamaged. iv:na means you could not look at it properly. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
+PRESENCE CHECK:
+  SPARE_WHEEL       spare wheel / spare tyre (visible in boot)
+  PARCEL_SHELF      parcel shelf / rear load cover
+
+ESCAPE:
+  OTHER             any damage-relevant part not listed above
+
+EV-CONDITIONAL — use only on electric or plug-in hybrid vehicles:
+  EV_BATTERY_ZONE      underfloor battery zone / battery pack area
+  EV_BATTERY_PRESENCE  high-voltage battery visible / battery tray
+
+The iv value has FOUR meanings. Read carefully:
+
+- iv:true    — visible in this photo AND damaged.
+- iv:false   — visible in this photo AND undamaged. You can see it clearly and it is fine.
+- iv:na      — you CANNOT resolve this part: out of frame, occluded, too distant, too oblique,
+               in shadow, or otherwise not clearly shown. When in doubt, use iv:na.
+- iv:missing — the part is ABSENT: torn away, not present where it should be, or the mounting
+               point is exposed with nothing attached. HIGH BAR — use ONLY when certain the part
+               is gone, not merely damaged-but-present. A crumpled bumper still in place is iv:true.
+               A bumper completely torn off leaving bare bodywork is iv:missing. "I don't see it
+               in this shot" is iv:na, not iv:missing.
+
+The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
 --- RESOLVABILITY THRESHOLD (tunable — this clause only) ---
-Only return iv:true or iv:false for a part that is fully and clearly in frame, shown square-on enough to judge its condition with confidence. A part that is partially shown, sharply angled, partly hidden behind another panel, or otherwise not fully and clearly presented is iv:na. Set the bar HIGH: if you are not confident you are seeing the whole part well enough to judge it, return iv:na.
+Only return iv:true or iv:false for a part fully and clearly in frame, shown square-on enough to judge its condition with confidence. A part partially shown, sharply angled, partly hidden, or otherwise not fully and clearly presented is iv:na. Set the bar HIGH: if not confident you see the whole part well enough to judge it, return iv:na.
 --- END RESOLVABILITY THRESHOLD ---
 
-Name parts naturally and specifically (e.g. "front bumper", "front headlamp", "bonnet"). Do not worry about matching names to any list — name what you see.
+Report exterior body panels even when undamaged (iv:false) — a clean view resolves a damaged report of the same panel from another view. Do not omit a clean exterior panel just because nothing in the photo is damaged.
 
-Do NOT write any prose, summary, narrative, cost, or commentary. Return ONLY the PART: lines. If you can identify no parts in this photo, return the single line: PART: none | iv:na | z:front
+Do NOT report (unless visibly damaged):
+- Interior components: buttons, switches, seat belt buckles, steering wheel trim, carpet, floor mats, gear lever, door cards
+- Under-bonnet ancillaries: fluid reservoirs, hoses, cables, filter housings, air intake
+- Antenna, number plates, badges, wiper blades, fuel cap
 
-Do not use the words "offside", "nearside", "left", or "right" in any part name. Use front/rear and the component name only (e.g. "front headlamp", not "offside headlamp").`;
+Do NOT write any prose, summary, cost, or commentary. Return ONLY the PART: lines.
+Do NOT use the words "offside", "nearside", "left", or "right" anywhere — WHEEL and TYRE are position-blind by design; for paired parts (headlamps, door mirrors) report once with the PANEL_ID and no position qualifier.
+If no damage-relevant parts are visible in this photo, return nothing (an empty response).`;
 
 const GROUPING_PROMPT = `Below are damage verdicts from several separate photographs of the SAME salvage vehicle. Each photo was assessed independently, so the same physical part may be named differently across photos (for example "headlight" in one and "headlamp" in another, or "front bumper" and "front bumper cover").
 
@@ -790,12 +835,25 @@ async function runPerViewAssess(image, idx) {
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx }; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const { costedParts } = parsePartVerdicts(raw);
-    const resolved = costedParts.filter(cp => cp.partName !== 'none');
-    resolved.forEach(cp => {
+    // Validate each emitted string against the closed PANEL vocabulary.
+    // Unknown strings (including the legacy 'none' sentinel) are routed to OTHER and logged.
+    const knownIds = new Set(Object.values(PANEL));
+    const enriched = costedParts
+      .map(cp => {
+        const rawId = cp.partName;
+        if (rawId.toLowerCase() === 'none') return null; // legacy sentinel — discard silently
+        if (knownIds.has(rawId)) {
+          return { ...cp, panelId: rawId, partName: PANEL_DISPLAY[rawId] };
+        }
+        console.warn(`[PER-VIEW][${idx}] unknown panel ID "${rawId}" — routed to OTHER`);
+        return { ...cp, panelId: PANEL.OTHER, partName: PANEL_DISPLAY[PANEL.OTHER] };
+      })
+      .filter(Boolean);
+    enriched.forEach(cp => {
       const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
-      console.log(`[PER-VIEW][${idx}] part="${cp.partName}" iv=${ivLabel} zone=${cp.zone}`);
+      console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}`);
     });
-    return { costedParts: resolved, idx };
+    return { costedParts: enriched, idx };
   } catch (err) {
     console.warn(`[PER-VIEW][${idx}] error:`, err.message);
     return { costedParts: [], idx };
@@ -807,7 +865,9 @@ async function runGrouping(allPerViewResults, mainPartNames = []) {
   const verdictLines = allPerViewResults.flatMap(({ costedParts, idx }) =>
     costedParts.map(cp => {
       const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
-      return `[view:${idx}] PART: ${cp.partName} | iv:${ivStr} | z:${cp.zone}`;
+      // Use panelId (SCREAMING_SNAKE_CASE) so the grouping call sees enum IDs, not display strings.
+      // amalgamate re-derives panelId from these lines; partName (display) is NOT carried here.
+      return `[view:${idx}] PART: ${cp.panelId} | iv:${ivStr} | z:${cp.zone}`;
     })
   );
   if (verdictLines.length === 0) {
@@ -866,8 +926,17 @@ function amalgamate(groups) {
   let pvVotesCollision = false;
   if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
   for (const group of groups) {
-    const canonical = group.part;
-    const members   = Array.isArray(group.members) ? group.members : [];
+    const members = Array.isArray(group.members) ? group.members : [];
+    // Derive panelId from the first member verdict line — authoritative because these strings
+    // are sourced from per-view parse output, not from the grouping call's group.part (which
+    // may differ if the grouping model rewrites the name). partName is ALWAYS sourced from
+    // PANEL_DISPLAY so the gate join works on the display string, never on the raw enum ID.
+    const rawId   = members[0]?.match(/PART:\s+([A-Z_]+)\s*\|/)?.[1] ?? group.part;
+    const panelId = PANEL_DISPLAY[rawId] ? rawId : PANEL.OTHER;
+    if (!PANEL_DISPLAY[rawId]) {
+      console.warn(`[AMALG] unrecognised panel ID "${rawId}" from grouping member — routed to OTHER`);
+    }
+    const partName = PANEL_DISPLAY[panelId]; // display string; the gate joins on this field
     const zone = (() => { const m = members[0]?.match(/\|\s*z:(\S+)/); return m ? m[1] : 'unknown'; })();
     const verdicts  = members.map(line => {
       const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
@@ -883,35 +952,35 @@ function amalgamate(groups) {
       // for absent, but you can easily fail to notice one that is gone. Missing+true also
       // costs: both agree replacement is needed.
       // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
-      console.log(`[AMALG] "${canonical}" missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
-      costedParts.push({ partName: canonical, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
+      console.log(`[AMALG] ${panelId} missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
     } else if (resolving === 0) {
-      console.log(`[AMALG] "${canonical}" 0 resolving — not-visible → floor`);
-      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
-      flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
+      console.log(`[AMALG] ${panelId} 0 resolving — not-visible → floor`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
+      flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
     } else if (damaged > 0 && clean === 0) {
-      console.log(`[AMALG] "${canonical}" ${damaged}/${resolving} damaged → cost`);
-      costedParts.push({ partName: canonical, zone, independentlyVisible: true, partHeight: null });
+      console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null });
     } else if (clean > 0 && damaged === 0) {
-      console.log(`[AMALG] "${canonical}" ${clean}/${resolving} clean → clear`);
-      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
+      console.log(`[AMALG] ${panelId} ${clean}/${resolving} clean → clear`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
     } else {
-      console.log(`[AMALG] "${canonical}" disagree (${damaged} damaged, ${clean} clean) → floor`);
-      costedParts.push({ partName: canonical, zone, independentlyVisible: false, partHeight: null });
-      flaggedParts.push({ partName: canonical, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
+      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → floor`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
+      flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
-    // Per-panel vote split — persisted to assessment._pvVotes at the call site.
+    // Per-panel vote split — keyed by panelId (enum ID — unmistakable in raw substrate).
     const branch = missing > 0              ? 'iv:missing-dominant'
                  : resolving === 0          ? 'not-visible'
                  : damaged > 0 && clean === 0 ? 'passed-costed'
                  : clean > 0 && damaged === 0 ? 'passed-clear'
                  : 'disagree';
-    let pvKey = canonical;
+    let pvKey = panelId;
     if (pvKey in pvVotesMap) {
       pvVotesCollision = true;
       let n = 2;
-      while (`${canonical}#${n}` in pvVotesMap) n++;
-      pvKey = `${canonical}#${n}`;
+      while (`${panelId}#${n}` in pvVotesMap) n++;
+      pvKey = `${panelId}#${n}`;
     }
     pvVotesMap[pvKey] = { views: members.length, resolving, damaged, clean, notVisible: missing, branch };
   }
@@ -2260,9 +2329,9 @@ export async function GET(request) {
     // displaced bumper. No other field, no cost path, no checklist.
     if (lampObs) {
       const apertureMap = new Map();
-      if (lampObs.rearApertureExposed === true) apertureMap.set('Rear quarter panel', AMALG_REASON_APERTURE_REAR);
-      if (lampObs.apertureExposed     === true) apertureMap.set('Front wing',         AMALG_REASON_APERTURE_WING);
-      if (lampObs.apertureExposed     === true) apertureMap.set('Front headlamp',      AMALG_REASON_APERTURE_LAMP);
+      if (lampObs.rearApertureExposed === true) apertureMap.set(PANEL_DISPLAY[PANEL.REAR_QUARTER], AMALG_REASON_APERTURE_REAR);
+      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL_DISPLAY[PANEL.FRONT_WING],   AMALG_REASON_APERTURE_WING);
+      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL_DISPLAY[PANEL.HEADLAMP],     AMALG_REASON_APERTURE_LAMP);
       if (apertureMap.size > 0) {
         for (const flag of assessment._flaggedParts) {
           if (flag._amalgDisagree && apertureMap.has(flag.partName)) {

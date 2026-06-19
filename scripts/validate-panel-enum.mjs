@@ -5,6 +5,7 @@ import {
   PANEL, PANEL_CLASS, PANEL_BEHAVIOUR, EV_PANEL_RESOLVED_CLASS,
   isElectricFuelType,
   BASE_PANEL_IDS, EV_PANEL_IDS, COST_PANEL_IDS,
+  PANEL_DISPLAY,
 } from '../lib/panelEnum.mjs';
 
 let pass = 0;
@@ -83,6 +84,27 @@ if (!missingBehaviour) {
 console.log('\n── 6. No duplicate values in PANEL ──');
 const valueSet = new Set(allIds);
 assert(`all ${allIds.length} PANEL values are unique`, valueSet.size, allIds.length);
+
+// ── 7. PANEL_DISPLAY covers every PANEL key — no ID missing a label ─────────────────────
+console.log('\n── 7. PANEL_DISPLAY coverage — every PANEL key has a display label ──');
+let missingDisplay = false;
+for (const id of allIds) {
+  if (!PANEL_DISPLAY[id]) {
+    console.log(`  FAIL — PANEL.${id} has no PANEL_DISPLAY entry`);
+    fail++;
+    missingDisplay = true;
+  }
+}
+if (!missingDisplay) {
+  console.log(`  PASS — all ${allIds.length} PANEL keys have a PANEL_DISPLAY entry`);
+  pass++;
+}
+// Spot-check a selection of display strings to confirm values are non-empty strings.
+assert('PANEL_DISPLAY[FRONT_BUMPER] = "Front bumper"',  PANEL_DISPLAY[PANEL.FRONT_BUMPER],       'Front bumper');
+assert('PANEL_DISPLAY[REAR_QUARTER] = "Rear quarter panel"', PANEL_DISPLAY[PANEL.REAR_QUARTER],  'Rear quarter panel');
+assert('PANEL_DISPLAY[HEADLAMP] = "Headlamp"',          PANEL_DISPLAY[PANEL.HEADLAMP],           'Headlamp');
+assert('PANEL_DISPLAY[OTHER] = "Other"',                PANEL_DISPLAY[PANEL.OTHER],              'Other');
+assert('PANEL_DISPLAY[EV_BATTERY_ZONE] = "EV battery zone"', PANEL_DISPLAY[PANEL.EV_BATTERY_ZONE], 'EV battery zone');
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
