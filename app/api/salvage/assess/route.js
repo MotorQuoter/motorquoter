@@ -791,24 +791,6 @@ Do NOT write any prose, summary, cost, or commentary. Return ONLY the PART: line
 Do NOT use the words "offside", "nearside", "left", or "right" anywhere — WHEEL and TYRE are position-blind by design; for paired parts (headlamps, door mirrors) report once with the PANEL_ID and no position qualifier.
 If no damage-relevant parts are visible in this photo, return nothing (an empty response).`;
 
-const GROUPING_PROMPT = `Below are damage verdicts from several separate photographs of the SAME salvage vehicle. Each photo was assessed independently, so the same physical part may be named differently across photos (for example "headlight" in one and "headlamp" in another, or "front bumper" and "front bumper cover").
-
-Your ONLY task is to group verdict lines that refer to the SAME physical part. Group purely by what the part IS — by name and synonymy. Two lines belong in the same group if and only if they name the same physical component of the car.
-
-Strict rules:
-- Group ONLY by synonymy of the part itself. "headlight" and "headlamp" are the same part. "front bumper" and "front bumper cover" are the same part.
-- Do NOT group two DIFFERENT parts because they are near each other or on the same area of the car. A fog lamp and a headlamp are different parts even if both are at the front. A bumper and a number plate are different parts. Keep different parts in different groups.
-- Do NOT split one part into two groups because the photos described it differently or saw it from different angles. Same part = one group, always.
-- Do NOT make any judgement about damage, visibility, cost, or which photo is "right". You are grouping names only. Ignore the iv values entirely — just carry them through.
-- You are working from TEXT ONLY. You have not seen the photos. Do not infer anything beyond what the part names say.
-
-The verdict lines below are numbered starting at 0. Return the groups as JSON and nothing else, no preamble and no code fences:
-
-[{ "part": "<canonical name>", "members": [ <integer indices of the verdict lines that belong to this group> ] }]
-
-Use integer indices (not the verdict text) in members — this keeps the response compact. Every index from 0 to N-1 must appear in exactly one group. Choose the clearest, most specific name as the "part" canonical name for each group.
-
-When a reference part name list is provided below, prefer a reference name as the canonical for a group if it is a synonym for the part described — use the reference spelling over a per-photo variant so that downstream name-matching is consistent. Apply reference names for synonymy only: never change which lines belong in a group, never merge or split groups, and never alter any damage or visibility reasoning.`;
 
 
 async function runPerViewAssess(image, idx) {
@@ -853,6 +835,7 @@ async function runPerViewAssess(image, idx) {
       const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
       console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}`);
     });
+    if (enriched.length === 0) console.log(`[PER-VIEW][${idx}] 0 valid enum IDs from this view — no records contributed`);
     return { costedParts: enriched, idx };
   } catch (err) {
     console.warn(`[PER-VIEW][${idx}] error:`, err.message);
@@ -860,63 +843,23 @@ async function runPerViewAssess(image, idx) {
   }
 }
 
-async function runGrouping(allPerViewResults, mainPartNames = []) {
-  // Build the flat verdict-line array — this is the ground truth for index resolution.
-  const verdictLines = allPerViewResults.flatMap(({ costedParts, idx }) =>
-    costedParts.map(cp => {
+function groupByPanelId(allPerViewResults) {
+  const map = new Map(); // panelId → verdict-line strings[]
+  for (const { costedParts, idx } of allPerViewResults) {
+    for (const cp of costedParts) {
+      if (!cp.panelId || !PANEL_DISPLAY[cp.panelId]) {
+        console.warn(`[GROUPBY] view ${idx} — invalid panelId "${cp.panelId}" — skipped`);
+        continue;
+      }
       const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
-      // Use panelId (SCREAMING_SNAKE_CASE) so the grouping call sees enum IDs, not display strings.
-      // amalgamate re-derives panelId from these lines; partName (display) is NOT carried here.
-      return `[view:${idx}] PART: ${cp.panelId} | iv:${ivStr} | z:${cp.zone}`;
-    })
-  );
-  if (verdictLines.length === 0) {
-    console.log('[AMALG][GROUP] no verdict lines — grouping skipped');
-    return [];
+      const line = `[view:${idx}] PART: ${cp.panelId} | iv:${ivStr} | z:${cp.zone}`;
+      if (!map.has(cp.panelId)) map.set(cp.panelId, []);
+      map.get(cp.panelId).push(line);
+    }
   }
-  // Number the lines so the model returns integer indices rather than echoing full strings.
-  // This collapses output size by ~10× — prevents overflow on large lots.
-  const numberedInput = verdictLines.map((line, i) => `${i}: ${line}`).join('\n');
-  const refSection = mainPartNames.length > 0
-    ? '\n\nReference part names from this vehicle\'s assessment:\n' + mainPartNames.join('\n')
-    : '';
-  const fullPrompt = GROUPING_PROMPT + refSection + '\n\nVerdicts:\n' + numberedInput;
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-opus-4-8',
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: fullPrompt }],
-      }),
-    });
-    if (!res.ok) { console.warn('[AMALG][GROUP] API error', res.status); return null; }
-    const apiData = await res.json();
-    console.log(`[TOKEN LOG][AMALG][GROUP] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason} Lines:${verdictLines.length}`);
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[AMALG][GROUP] max_tokens — response truncated; aborting grouping'); return null; }
-    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
-    const match = raw.match(/\[[\s\S]*\]/);
-    if (!match) { console.warn('[AMALG][GROUP] no JSON array in response:', raw.slice(0, 200)); return null; }
-    const indexGroups = JSON.parse(match[0]);
-    if (!Array.isArray(indexGroups)) { console.warn('[AMALG][GROUP] response was not a JSON array'); return null; }
-    // Resolve integer indices back to verdict strings; drop any out-of-range index with a warning.
-    const groups = indexGroups.map(g => ({
-      part: g.part,
-      members: (Array.isArray(g.members) ? g.members : []).map(i => {
-        if (typeof i !== 'number' || i < 0 || i >= verdictLines.length) {
-          console.warn(`[AMALG][GROUP] "${g.part}" — index ${i} out of range (${verdictLines.length} lines); skipped`);
-          return null;
-        }
-        return verdictLines[i];
-      }).filter(Boolean),
-    }));
-    groups.forEach(g => console.log(`[AMALG][GROUP] "${g.part}" ← ${g.members.length} member(s)`));
-    return groups;
-  } catch (err) {
-    console.warn('[AMALG][GROUP] error:', err.message);
-    return null;
-  }
+  const groups = [...map.entries()].map(([panelId, members]) => ({ panelId, members }));
+  console.log(`[GROUPBY] ${groups.length} panel group(s) from ${allPerViewResults.length} view(s)`);
+  return groups;
 }
 
 function amalgamate(groups) {
@@ -926,18 +869,14 @@ function amalgamate(groups) {
   let pvVotesCollision = false;
   if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
   for (const group of groups) {
-    const members = Array.isArray(group.members) ? group.members : [];
-    // Derive panelId from the first member verdict line — authoritative because these strings
-    // are sourced from per-view parse output, not from the grouping call's group.part (which
-    // may differ if the grouping model rewrites the name). partName is ALWAYS sourced from
-    // PANEL_DISPLAY so the gate join works on the display string, never on the raw enum ID.
-    const rawId   = members[0]?.match(/PART:\s+([A-Z_]+)\s*\|/)?.[1] ?? group.part;
-    const panelId = PANEL_DISPLAY[rawId] ? rawId : PANEL.OTHER;
-    if (!PANEL_DISPLAY[rawId]) {
-      console.warn(`[AMALG] unrecognised panel ID "${rawId}" from grouping member — routed to OTHER`);
+    const { panelId, members } = group; // panelId is the enum-ID group key from groupByPanelId
+    if (!Array.isArray(members) || members.length === 0) {
+      console.warn(`[AMALG] ${panelId} — empty members array; skipping (invariant: groupByPanelId never produces empty groups)`);
+      continue;
     }
     const partName = PANEL_DISPLAY[panelId]; // display string; the gate joins on this field
     const zone = (() => { const m = members[0]?.match(/\|\s*z:(\S+)/); return m ? m[1] : 'unknown'; })();
+    if (zone === 'unknown') console.warn(`[AMALG] ${panelId} zone unknown — first member line did not contain z: field`);
     const verdicts  = members.map(line => {
       const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
       return m ? m[1].toLowerCase() : 'na';
@@ -2145,9 +2084,8 @@ export async function GET(request) {
         cp._labourSafe = true; // deliberate null — gate must PASS, not strip
       }
     });
-    const mainPartNames  = rawParts.map(rp => rp.name);
     const perViewResults = await perViewResultsPromise;
-    const groups         = await runGrouping(perViewResults, mainPartNames);
+    const groups         = groupByPanelId(perViewResults);
     const pvResult       = amalgamate(groups);
     coreObs.costedParts  = pvResult.costedParts;
     coreObs.flaggedParts = pvResult.flaggedParts;
@@ -2173,8 +2111,7 @@ export async function GET(request) {
     // Note: detectedCorner.verdict is the RAW lamp-detect verdict — not
     // lampResult.effectiveVerdict, which is suppressed by LAMP_DETECTION_CONFIDENT_WORDING.
     if (lampObs?.apertureExposed === true && detectedCorner?.verdict === 'missing') {
-      const grilleNorm  = normName('front grille');
-      const grilleEntry = coreObs.costedParts.find(cp => normName(cp.partName) === grilleNorm);
+      const grilleEntry = coreObs.costedParts.find(cp => cp.panelId === PANEL.GRILLE);
       if (!grilleEntry) {
         console.log('[AMALG][APERTURE] grille established absent but no canonical match — LOGGED, not applied');
       } else {
@@ -2185,7 +2122,7 @@ export async function GET(request) {
         console.log(`[AMALG][APERTURE] "${grilleEntry.partName}" bumper-off + lamp-missing → force cost (replace), per-view said ${prior}`);
         grilleEntry.independentlyVisible = true;
         grilleEntry._amalgMissing = true;
-        const fi = coreObs.flaggedParts.findIndex(fp => normName(fp.partName) === normName(grilleEntry.partName));
+        const fi = coreObs.flaggedParts.findIndex(fp => fp.panelId === PANEL.GRILLE);
         if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
       }
     }
