@@ -18,7 +18,7 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
-import { PANEL, PANEL_DISPLAY } from '@/lib/panelEnum.mjs';
+import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS } from '@/lib/panelEnum.mjs';
 
 export const maxDuration = 300;
 
@@ -706,6 +706,7 @@ const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed th
 const AMALG_REASON_APERTURE_REAR  = 'Rear bumper displaced on this corner; the quarter panel behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the wing behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
+const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess in person before bidding';
 
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
@@ -877,6 +878,13 @@ function amalgamate(groups) {
     const partName = PANEL_DISPLAY[panelId]; // display string; the gate joins on this field
     const zone = (() => { const m = members[0]?.match(/\|\s*z:(\S+)/); return m ? m[1] : 'unknown'; })();
     if (zone === 'unknown') console.warn(`[AMALG] ${panelId} zone unknown — first member line did not contain z: field`);
+    const rawClass = PANEL_BEHAVIOUR[panelId];
+    const effClass = rawClass === PANEL_CLASS.EV_CONDITIONAL
+      ? EV_PANEL_RESOLVED_CLASS[panelId]
+      : rawClass;
+    const isFlagOnly = effClass === PANEL_CLASS.STRUCTURAL_FLAG
+                    || effClass === PANEL_CLASS.VISIBLE_FLAG
+                    || effClass === PANEL_CLASS.PRESENCE_CHECK;
     const verdicts  = members.map(line => {
       const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
       return m ? m[1].toLowerCase() : 'na';
@@ -886,20 +894,30 @@ function amalgamate(groups) {
     const clean     = verdicts.filter(v => v === 'false').length;
     const resolving = missing + damaged + clean;
     if (missing > 0) {
-      // Missing dominates: absence is not adjudicable by a view that didn't notice it.
-      // A clean vote cannot override a missing vote — you cannot mistake a present part
-      // for absent, but you can easily fail to notice one that is gone. Missing+true also
-      // costs: both agree replacement is needed.
-      // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
-      console.log(`[AMALG] ${panelId} missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
-      costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
+      if (isFlagOnly) {
+        console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+      } else {
+        // Missing dominates: absence is not adjudicable by a view that didn't notice it.
+        // A clean vote cannot override a missing vote — you cannot mistake a present part
+        // for absent, but you can easily fail to notice one that is gone. Missing+true also
+        // costs: both agree replacement is needed.
+        // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
+        console.log(`[AMALG] ${panelId} missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
+      }
     } else if (resolving === 0) {
       console.log(`[AMALG] ${panelId} 0 resolving — not-visible → floor`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
     } else if (damaged > 0 && clean === 0) {
-      console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
-      costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null });
+      if (isFlagOnly) {
+        console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged (flag-class) → flag (not cost)`);
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+      } else {
+        console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null });
+      }
     } else if (clean > 0 && damaged === 0) {
       console.log(`[AMALG] ${panelId} ${clean}/${resolving} clean → clear`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
