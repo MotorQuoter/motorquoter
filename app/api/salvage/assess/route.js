@@ -707,12 +707,13 @@ const AMALG_REASON_APERTURE_REAR  = 'Rear bumper displaced on this corner; the q
 const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the wing behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess in person before bidding';
+const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on inspection';
 
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
 For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
 
-PART: <PANEL_ID> | iv:<true|false|na|missing> | z:<front|rear|flank-damaged-side|roof|underside|interior>
+PART: <PANEL_ID> | iv:<true|false|na|missing> | sev:<SEVERE|MODERATE|MINOR|-> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
 <PANEL_ID> must be one identifier from the closed vocabulary below, written exactly as shown (SCREAMING_SNAKE_CASE). If a part you observe does not fit any identifier, use OTHER.
 
@@ -774,6 +775,11 @@ The iv value has FOUR meanings. Read carefully:
                is gone, not merely damaged-but-present. A crumpled bumper still in place is iv:true.
                A bumper completely torn off leaving bare bodywork is iv:missing. "I don't see it
                in this shot" is iv:na, not iv:missing.
+
+severity (on iv:true only; use - on false/na/missing):
+  SEVERE   = destroyed / replace-grade — torn, shredded, crushed, structural deformation
+  MODERATE = clear impact damage, repair-grade
+  MINOR    = cosmetic — scuff / scratch / light dent, refinish only
 
 The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
@@ -852,8 +858,9 @@ function groupByPanelId(allPerViewResults) {
         console.warn(`[GROUPBY] view ${idx} — invalid panelId "${cp.panelId}" — skipped`);
         continue;
       }
-      const ivStr = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
-      const line = `[view:${idx}] PART: ${cp.panelId} | iv:${ivStr} | z:${cp.zone}`;
+      const ivStr  = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
+      const sevStr = cp.severity ?? '-';
+      const line   = `[view:${idx}] PART: ${cp.panelId} | iv:${ivStr} | sev:${sevStr} | z:${cp.zone}`;
       if (!map.has(cp.panelId)) map.set(cp.panelId, []);
       map.get(cp.panelId).push(line);
     }
@@ -862,6 +869,8 @@ function groupByPanelId(allPerViewResults) {
   console.log(`[GROUPBY] ${groups.length} panel group(s) from ${allPerViewResults.length} view(s)`);
   return groups;
 }
+
+const MINOR_COSMETIC_FLAG_THRESHOLD = 1; // min MINOR-only damaged votes to trigger cosmetic flag
 
 function amalgamate(groups) {
   const costedParts  = [];
@@ -893,6 +902,14 @@ function amalgamate(groups) {
     const damaged   = verdicts.filter(v => v === 'true').length;
     const clean     = verdicts.filter(v => v === 'false').length;
     const resolving = missing + damaged + clean;
+    const damagedSevs = members
+      .filter(l => /\|\s*iv:true\s*\|/i.test(l))
+      .map(l => { const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i); return sm ? sm[1].toUpperCase() : 'MODERATE'; });
+    const hasSevere   = damagedSevs.some(s => s === 'SEVERE');
+    const hasModerate = damagedSevs.some(s => s === 'MODERATE');
+    const minorVotes  = damagedSevs.filter(s => s === 'MINOR').length;
+    const minorOnly   = damagedSevs.length > 0 && !hasSevere && !hasModerate;
+    console.log(`[AMALG][SEV] ${panelId} grades=[${damagedSevs.join(',')}] hasSevere=${hasSevere} minorOnly=${minorOnly}`);
     if (missing > 0) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
@@ -910,6 +927,17 @@ function amalgamate(groups) {
       console.log(`[AMALG] ${panelId} 0 resolving — not-visible → floor`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
+    } else if (hasSevere) {
+      if (isFlagOnly) {
+        console.log(`[AMALG] ${panelId} SEVERE damaged (flag-class) → flag (not cost)`);
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+      } else {
+        console.log(`[AMALG] ${panelId} SEVERE damaged (${damaged} damaged, ${clean} clean) → cost (SEVERE override, no floor)`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true });
+      }
+    } else if (!isFlagOnly && minorOnly && minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
+      console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
+      flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_COSMETIC, _amalgCosmetic: true });
     } else if (damaged > 0 && clean === 0) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged (flag-class) → flag (not cost)`);
@@ -1200,12 +1228,12 @@ function parsePartVerdicts(blockText) {
     // PART: name | iv:X | z:Y | ph:Z  (ph optional)
     const pm = t.match(
       new RegExp(
-        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
+        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*(?:\\|\\s*sev:(SEVERE|MODERATE|MINOR|-)\\s*)?\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
         'i'
       )
     );
     if (pm) {
-      const [, rawId, ivRaw, zone, phRaw] = pm;
+      const [, rawId, ivRaw, sevRaw, zone, phRaw] = pm;
       const panelId  = rawId.trim();
       const partName = PANEL_DISPLAY[panelId] ?? panelId;
       costedParts.push({
@@ -1213,6 +1241,7 @@ function parsePartVerdicts(blockText) {
         partName,
         zone,
         independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : ivRaw.toLowerCase() === 'missing' ? 'missing' : null,
+        severity:             (sevRaw && sevRaw !== '-') ? sevRaw.toUpperCase() : null,
         partHeight:           phRaw || null,
       });
       continue;
