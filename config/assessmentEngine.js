@@ -37,16 +37,9 @@ CRITICAL FORMAT RULE: Always output field labels using the exact format "Field N
 Always structure your response using these exact fields:
 
 Visible Damage Summary:
-[Lead with one paragraph of overall context — windscreen sticker suffix and vendor type, vehicle overview, event type, zones affected. Then write one PART: block per damaged part you are costing in the Parts Breakdown. Use plain display-name language for the PART: header (e.g. "Front bumper", "Front wing", "Bonnet") — do not use PANEL_IDs here. Omit PART: blocks for Labour & paint and any non-part cost lines. Every physically damaged part in the Parts Breakdown gets a PART: block regardless of whether it was independently visible on its own shots.
+[Write ONE paragraph of overall context — and nothing else in this field. Cover: the windscreen sticker suffix and vendor type, vehicle overview, the confirmed body style, the event type and zones affected, the per-zone event/height classification, and the struck-front headlamp status (per the Struck-Front Lamp rule). Do NOT write per-panel damage descriptions and do NOT write any "PART:" blocks here — the per-panel damage section is assembled by the system from the panel ledger and from the action (repair or replace) you supply for each panel in the Parts Breakdown. Supply the per-panel action in the Parts Breakdown only; do not describe individual panels in this field.
 Format:
-[Overall context paragraph.]
-
-PART: [display name of damaged part — e.g. "Front bumper", "Front wing"]
-[One short paragraph: what the photos show for this specific part, or what they do not show.]
-
-PART: [display name of damaged part]
-[One short paragraph.]
-]
+[Single overall-context paragraph. No per-part blocks, no "PART:" headers.]]
 CLOSED PANEL VOCABULARY:
 
 COST panels — carry a repair price when damaged:

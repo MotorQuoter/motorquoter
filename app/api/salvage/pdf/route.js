@@ -521,10 +521,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
   sectionTitle('Damage Assessment');
-  // VDS — structured per-part blocks; falls back to flat fieldBlock when no PART: headers
+  // VDS — model-authored opening context paragraph + code-assembled per-panel blocks
+  // (_vdsParts, Step 4c). parseVdsParts().preamble extracts the opening paragraph and
+  // strips any stray PART: text; the per-panel section is fully code-owned. Falls back to
+  // flat fieldBlock only when neither is present.
   {
-    const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary'] || '');
-    if (parts.length === 0) {
+    const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
+    const vdsParts = assessment._vdsParts || [];
+    if (!preamble && vdsParts.length === 0) {
       fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
     } else {
       checkPage(14);
@@ -542,12 +546,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
         for (const line of preambleLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
         y += 2;
       }
-      for (const { partName, prose } of parts) {
+      for (const { partName, action, prose } of vdsParts) {
         checkPage(12);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
         doc.setTextColor(80, 80, 80);
-        doc.text(str(partName), MARGIN, y);
+        doc.text(str(partName) + (action ? ` — ${action}` : ''), MARGIN, y);
         y += 4;
         const proseLines = doc.splitTextToSize(str(prose), CONTENT_W - 4);
         checkPage(proseLines.length * 4.5 + 3);

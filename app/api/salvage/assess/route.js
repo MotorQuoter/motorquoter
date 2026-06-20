@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  needsLampBackstop, BUMPER_OFF_SEAM_REASON, parseVdsParts, reassembleVds,
+  needsLampBackstop, assembleVdsParts,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -2240,44 +2240,12 @@ export async function GET(request) {
     }
     // ── End KCD scrub ─────────────────────────────────────────────────────────
 
-    // ── VDS scrub — reframe demoted-part blocks ───────────────────────────────
-    // parseVdsParts splits VDS into preamble + per-part PART: blocks.
-    // Demoted-part blocks have their prose replaced with BUMPER_OFF_SEAM_REASON.
-    // All other blocks are untouched. Every edge case fails safe toward keeping
-    // existing prose — see 2b spec.
-    if (bumperOffDemoted.length > 0 && assessment['Visible Damage Summary']) {
-      const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary']);
-      if (parts.length > 0) {
-        let scrubbed = false;
-        for (const part of parts) {
-          if (bumperOffDemoted.some(d => d.rx.test(part.partName))) {
-            part.prose = BUMPER_OFF_SEAM_REASON;
-            scrubbed = true;
-            console.log(`[VDS SCRUB] reframed block for "${part.partName}" — seam text substituted`);
-          }
-        }
-        for (const d of bumperOffDemoted) {
-          if (!parts.some(p => d.rx.test(p.partName))) {
-            console.log(`[VDS SCRUB] demoted part "${d.partName}" has no VDS block — no-op`);
-          }
-        }
-        // Name-seam caveat: coreObs.costedParts carries per-view canonical names which may differ
-        // from VDS block names — false-positive warnings expected here until seam is closed.
-        for (const cp of coreObs.costedParts.filter(c => !c._labourSafe && !c._bumperOffStripped)) {
-          if (!parts.some(p => normName(p.partName) === normName(cp.partName))) {
-            console.warn(`[VDS SCRUB] costed part "${cp.partName}" has no VDS block — model compliance gap`);
-          }
-        }
-        if (scrubbed) {
-          assessment['Visible Damage Summary'] = reassembleVds(preamble, parts);
-        }
-      } else {
-        for (const d of bumperOffDemoted) {
-          console.log(`[VDS SCRUB] demoted part "${d.partName}" has no VDS block — no-op (freeform prose)`);
-        }
-      }
-    }
-    // ── End VDS scrub ─────────────────────────────────────────────────────────
+    // ── VDS scrub retired (Step 4c) ───────────────────────────────────────────
+    // The model no longer authors per-panel VDS prose, so there is nothing to
+    // reframe — the per-panel damage section is code-assembled into _vdsParts after
+    // finalisation (see assembleVdsParts below). The bumper-off seam reason now
+    // reaches the buyer via the gate-generated Inspection Flag (BUMPER_OFF_SEAM_REASON
+    // in applyVisibilityGate) and the assembled VDS block for the demoted panel.
 
     // ── Red Flags scrub — full-line regex drop ────────────────────────────────
     // Full-line regex (not leading-token): catches combined-line entries with no
@@ -2316,24 +2284,36 @@ export async function GET(request) {
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
     );
 
-    // Aperture-confusion reword (scoped exception to post-merge wording deferral —
-    // corrects implied-damage-on-clean-panel credibility problem, not cosmetic polish).
-    // Mutates only the reason string on DISAGREE floors that sit behind a confirmed
-    // displaced bumper. No other field, no cost path, no checklist.
+    // Aperture-confusion reason (Step 4c — Path 2a: post-call, NOT in amalgamate).
+    // amalgamate runs pre-main-call and cannot know apertureExposed; lampObs is a
+    // main-call output. The aperture reason is therefore set HERE, on the ledger flag
+    // entry, keyed by panelId — replacing the former post-hoc flag overwrite. A DISAGREE
+    // floor sitting behind a confirmed displaced bumper is not genuine disagreement: the
+    // entry carries the neutral exposed-aperture wording natively, which the assembled VDS
+    // reads. (assessment._flaggedParts shares object refs with coreObs.flaggedParts, so
+    // the buyer flags list updates in lockstep.)
     if (lampObs) {
       const apertureMap = new Map();
-      if (lampObs.rearApertureExposed === true) apertureMap.set(PANEL_DISPLAY[PANEL.REAR_QUARTER], AMALG_REASON_APERTURE_REAR);
-      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL_DISPLAY[PANEL.FRONT_WING],   AMALG_REASON_APERTURE_WING);
-      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL_DISPLAY[PANEL.HEADLAMP],     AMALG_REASON_APERTURE_LAMP);
+      if (lampObs.rearApertureExposed === true) apertureMap.set(PANEL.REAR_QUARTER, AMALG_REASON_APERTURE_REAR);
+      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL.FRONT_WING,   AMALG_REASON_APERTURE_WING);
+      if (lampObs.apertureExposed     === true) apertureMap.set(PANEL.HEADLAMP,     AMALG_REASON_APERTURE_LAMP);
       if (apertureMap.size > 0) {
-        for (const flag of assessment._flaggedParts) {
-          if (flag._amalgDisagree && apertureMap.has(flag.partName)) {
-            console.log(`[APERTURE-REWORD] "${flag.partName}" reason updated (aperture-confusion, not genuine disagreement)`);
-            flag.reason = apertureMap.get(flag.partName);
+        for (const flag of coreObs.flaggedParts) {
+          if (flag._amalgDisagree && apertureMap.has(flag.panelId)) {
+            console.log(`[APERTURE-REASON] "${flag.partName}" reason set on ledger entry (aperture-confusion, not genuine disagreement)`);
+            flag.reason = apertureMap.get(flag.panelId);
+            flag._amalgAperture = true;
           }
         }
       }
     }
+
+    // Code-assembled Visible Damage Summary (Step 4c). One block per costed repair line
+    // (action + finalised figure) plus one per floored/flagged panel (code-owned reason).
+    // No model-authored per-panel prose survives — the per-panel path is fully code-owned.
+    // Reads the FINALISED ledger (post bumper-off demotion, post aperture-reason, post gate).
+    assessment._vdsParts = assembleVdsParts(coreObs.costedParts, coreObs.flaggedParts, gatedParts);
+    console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled block(s) — ${gatedParts.filter(p => !/labour|paint|prep/i.test(p.name)).length} costed row(s) + flagged ledger entries`);
 
     const parts_sum = sumPartsRealistic(gatedParts);
 

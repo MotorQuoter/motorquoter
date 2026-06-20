@@ -582,24 +582,22 @@ export default function SalvageSuccessPage() {
             <div className="section">
               <div className="section-title">Damage Assessment</div>
               <div className="section-body">
-                {assessment['Visible Damage Summary'] && (() => {
-                  const { preamble, parts } = parseVdsParts(assessment['Visible Damage Summary']);
-                  if (parts.length === 0) {
-                    return (
-                      <div className="field-row">
-                        <div className="field-key">Visible Damage Summary</div>
-                        <div className="field-val">{assessment['Visible Damage Summary']}</div>
-                      </div>
-                    );
-                  }
+                {(assessment['Visible Damage Summary'] || assessment._vdsParts?.length > 0) && (() => {
+                  // Opening context paragraph is model-authored (body style, sticker, zones,
+                  // headlamp status); parseVdsParts().preamble strips any stray PART: text.
+                  // The per-panel damage section is code-assembled (_vdsParts, Step 4c).
+                  const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
+                  const vdsParts = assessment._vdsParts || [];
                   return (
                     <div className="field-row">
                       <div className="field-key">Visible Damage Summary</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         {preamble && <div className="field-val">{preamble}</div>}
-                        {parts.map((p, i) => (
+                        {vdsParts.map((p, i) => (
                           <div key={i}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>{p.partName}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+                              {p.partName}{p.action ? ` — ${p.action}` : ''}
+                            </div>
                             <div className="field-val">{p.prose}</div>
                           </div>
                         ))}
