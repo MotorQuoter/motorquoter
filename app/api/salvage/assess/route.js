@@ -1764,6 +1764,11 @@ export async function GET(request) {
     let coreObs = null;
     let rawText = '';
 
+    // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
+    const perViewResults = await perViewResultsPromise;
+    const groups         = groupByPanelId(perViewResults);
+    const pvResult       = amalgamate(groups);
+
     const callClaude = (withTools, forced = false) => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -2084,9 +2089,7 @@ export async function GET(request) {
         cp._labourSafe = true; // deliberate null — gate must PASS, not strip
       }
     });
-    const perViewResults = await perViewResultsPromise;
-    const groups         = groupByPanelId(perViewResults);
-    const pvResult       = amalgamate(groups);
+    // (raw ledger computation moved above main call — Step 4a; assignments remain below)
     coreObs.costedParts  = pvResult.costedParts;
     coreObs.flaggedParts = pvResult.flaggedParts;
     assessment._pvVotes  = pvResult.pvVotesMap ?? null;
