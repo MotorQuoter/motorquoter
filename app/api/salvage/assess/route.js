@@ -871,6 +871,7 @@ function groupByPanelId(allPerViewResults) {
 }
 
 const MINOR_COSMETIC_FLAG_THRESHOLD = 1; // min MINOR-only damaged votes to trigger cosmetic flag
+const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
 
 function amalgamate(groups) {
   const costedParts  = [];
@@ -905,11 +906,12 @@ function amalgamate(groups) {
     const damagedSevs = members
       .filter(l => /\|\s*iv:true\s*\|/i.test(l))
       .map(l => { const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i); return sm ? sm[1].toUpperCase() : 'MODERATE'; });
-    const hasSevere   = damagedSevs.some(s => s === 'SEVERE');
-    const hasModerate = damagedSevs.some(s => s === 'MODERATE');
-    const minorVotes  = damagedSevs.filter(s => s === 'MINOR').length;
-    const minorOnly   = damagedSevs.length > 0 && !hasSevere && !hasModerate;
-    console.log(`[AMALG][SEV] ${panelId} grades=[${damagedSevs.join(',')}] hasSevere=${hasSevere} minorOnly=${minorOnly}`);
+    const severeVotes    = damagedSevs.filter(s => s === 'SEVERE').length;
+    const severeOverride = severeVotes >= SEVERE_OVERRIDE_THRESHOLD;
+    const hasModerate    = damagedSevs.some(s => s === 'MODERATE');
+    const minorVotes     = damagedSevs.filter(s => s === 'MINOR').length;
+    const minorOnly      = damagedSevs.length > 0 && severeVotes === 0 && !hasModerate;
+    console.log(`[AMALG][SEV] ${panelId} grades=[${damagedSevs.join(',')}] severeVotes=${severeVotes} override=${severeOverride} minorOnly=${minorOnly}`);
     if (missing > 0) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
@@ -927,7 +929,7 @@ function amalgamate(groups) {
       console.log(`[AMALG] ${panelId} 0 resolving — not-visible → floor`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_NOT_VISIBLE, _amalgNotVisible: true });
-    } else if (hasSevere) {
+    } else if (severeOverride) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} SEVERE damaged (flag-class) → flag (not cost)`);
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
