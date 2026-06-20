@@ -822,8 +822,8 @@ async function runPerViewAssess(image, idx) {
     const knownIds = new Set(Object.values(PANEL));
     const enriched = costedParts
       .map(cp => {
-        const rawId = cp.partName;
-        if (rawId.toLowerCase() === 'none') return null; // legacy sentinel — discard silently
+        const rawId = cp.panelId;
+        if (!rawId || rawId.toLowerCase() === 'none') return null; // legacy sentinel — discard silently
         if (knownIds.has(rawId)) {
           return { ...cp, panelId: rawId, partName: PANEL_DISPLAY[rawId] };
         }
@@ -924,6 +924,23 @@ function amalgamate(groups) {
     pvVotesMap[pvKey] = { views: members.length, resolving, damaged, clean, notVisible: missing, branch };
   }
   return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
+}
+
+function ledgerPreamble(pvResult) {
+  const lines = pvResult.costedParts.map(e => {
+    const word = e.independentlyVisible === true
+      ? (e._amalgMissing  ? 'MISSING' : 'COSTED')
+      : (e._perViewClear  ? 'CLEAR'   : 'FLOORED');
+    return `${word.padEnd(8)}${e.partName}  ${e.zone}`;
+  });
+  return (
+    'PANEL DAMAGE LEDGER — per-view analysis across all photos, already determined.\n' +
+    'COSTED  = damaged confirmed → cost it (repair or replace).\n' +
+    'MISSING = physically absent → cost it as replace.\n' +
+    'FLOORED = unresolved → do NOT cost; it belongs in flags.\n' +
+    'CLEAR   = confirmed undamaged → do NOT cost.\n\n' +
+    lines.join('\n')
+  );
 }
 
 function selectStruckCornerVerdict(corners) {
@@ -1144,7 +1161,10 @@ function parseParts(text) {
     const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|?\s*$/);
     if (!m) continue;
     const [, name, action, col3, col4] = m;
-    result.push({ name: name.trim(), action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
+    const rawName      = name.trim();
+    const panelId      = PANEL[rawName];
+    const resolvedName = PANEL_DISPLAY[panelId] ?? rawName;
+    result.push({ panelId, name: resolvedName, action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
   }
   return result;
 }
@@ -1167,9 +1187,12 @@ function parsePartVerdicts(blockText) {
       )
     );
     if (pm) {
-      const [, partName, ivRaw, zone, phRaw] = pm;
+      const [, rawId, ivRaw, zone, phRaw] = pm;
+      const panelId  = rawId.trim();
+      const partName = PANEL_DISPLAY[panelId] ?? panelId;
       costedParts.push({
-        partName:             partName.trim(),
+        panelId,
+        partName,
         zone,
         independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : ivRaw.toLowerCase() === 'missing' ? 'missing' : null,
         partHeight:           phRaw || null,
@@ -1185,8 +1208,10 @@ function parsePartVerdicts(blockText) {
       )
     );
     if (fm) {
-      const [, partName, zone, weight, reason] = fm;
-      flaggedParts.push({ partName: partName.trim(), zone, weight, reason: reason.trim() });
+      const [, rawId, zone, weight, reason] = fm;
+      const panelId  = rawId.trim();
+      const partName = PANEL_DISPLAY[panelId] ?? panelId;
+      flaggedParts.push({ panelId, partName, zone, weight, reason: reason.trim() });
     }
     // Unmatched lines silently skipped. Absent block → both arrays [].
   }
@@ -1768,6 +1793,7 @@ export async function GET(request) {
     const perViewResults = await perViewResultsPromise;
     const groups         = groupByPanelId(perViewResults);
     const pvResult       = amalgamate(groups);
+    messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
     const callClaude = (withTools, forced = false) => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -2067,28 +2093,6 @@ export async function GET(request) {
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
 
-    // Per-part verdicts — parsed from the separate Part Verdicts block; never touches buyer-facing output
-    const { costedParts, flaggedParts } = parsePartVerdicts(assessment['Part Verdicts'] || '');
-
-    // Labour-safety: mark gate-inert any costedParts entry that corresponds to a dash-action
-    // parseParts row. Primary signal: positional (same index, per prompt instruction).
-    // Fallback: normalised name match (catches position drift within normalisation tolerance).
-    // independentlyVisible=null → gate ignores entry regardless of Phase 2 visibility gate logic.
-    // Accepted residual: entry stays gate-eligible only when BOTH position AND normalised name drift
-    // — requires prompt non-compliance on a line that is also mispositioned.
-    const dashIndices = rawParts.reduce((acc, rp, i) => {
-      if (/^[-–—]+$/.test(rp.action)) acc.add(i);
-      return acc;
-    }, new Set());
-    const labourNamesNorm = new Set(
-      rawParts.filter((_, i) => dashIndices.has(i)).map(rp => normName(rp.name))
-    );
-    costedParts.forEach((cp, i) => {
-      if (dashIndices.has(i) || labourNamesNorm.has(normName(cp.partName))) {
-        cp.independentlyVisible = null;
-        cp._labourSafe = true; // deliberate null — gate must PASS, not strip
-      }
-    });
     // (raw ledger computation moved above main call — Step 4a; assignments remain below)
     coreObs.costedParts  = pvResult.costedParts;
     coreObs.flaggedParts = pvResult.flaggedParts;

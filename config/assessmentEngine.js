@@ -37,42 +37,99 @@ CRITICAL FORMAT RULE: Always output field labels using the exact format "Field N
 Always structure your response using these exact fields:
 
 Visible Damage Summary:
-[Lead with one paragraph of overall context — windscreen sticker suffix and vendor type, vehicle overview, event type, zones affected. Then write one PART: block per damaged part from your Parts Breakdown (same part name, same capitalisation, same string). Omit PART: blocks for Labour & paint and any non-part cost lines. Every physically damaged part in the Parts Breakdown gets a PART: block regardless of whether it was independently visible on its own shots.
+[Lead with one paragraph of overall context — windscreen sticker suffix and vendor type, vehicle overview, event type, zones affected. Then write one PART: block per damaged part you are costing in the Parts Breakdown. Use plain display-name language for the PART: header (e.g. "Front bumper", "Front wing", "Bonnet") — do not use PANEL_IDs here. Omit PART: blocks for Labour & paint and any non-part cost lines. Every physically damaged part in the Parts Breakdown gets a PART: block regardless of whether it was independently visible on its own shots.
 Format:
 [Overall context paragraph.]
 
-PART: [exact Part name from Parts Breakdown — same capitalisation, same string]
+PART: [display name of damaged part — e.g. "Front bumper", "Front wing"]
 [One short paragraph: what the photos show for this specific part, or what they do not show.]
 
-PART: [exact Part name from Parts Breakdown]
+PART: [display name of damaged part]
 [One short paragraph.]
+]
+CLOSED PANEL VOCABULARY:
 
-The PART: header is machine-read and must exactly match the Parts Breakdown part name.]
+COST panels — carry a repair price when damaged:
+  FRONT_BUMPER      front bumper / bumper cover / front fascia
+  GRILLE            front grille / grille insert
+  BONNET            bonnet / hood
+  SLAM_PANEL        slam panel / rad support / front upper tie bar
+  FRONT_WING        front wing / front fender
+  HEADLAMP          front or rear headlamp / headlight (any position — do not invent FRONT_HEADLAMP)
+  FOG_LAMP          front or rear fog lamp / driving lamp
+  RADIATOR_PACK     radiator / condenser / cooling pack (costed as a unit on frontal hits)
+  FRONT_DOOR        front door / front door shell
+  REAR_DOOR         rear door / rear door shell / rear sliding door
+  SILL              structural sill / rocker panel (structural, not trim)
+  SIDE_SKIRT        side skirt / rocker trim / side trim strip (trim only, not structural)
+  DOOR_MIRROR       door mirror / wing mirror / side mirror
+  SIDE_GLASS        side glass / door glass (any door window)
+  REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
+  REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
+  REAR_LAMP         tail lamp / tail light / rear lamp cluster
+  BOOT_LID          boot lid / tailgate / trunk lid / hatchback rear door
+  REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
+  WINDSCREEN        windscreen / front windshield
+  REAR_GLASS        rear glass / rear windscreen / rear screen
+  ROOF              roof panel / roof skin
+  WHEEL             alloy or steel wheel — any corner; do not add a position qualifier
+  TYRE              tyre / tire — any corner; do not add a position qualifier
+
+STRUCTURAL FLAG — never costed; always flagged for inspection:
+  FRONT_STRUCTURE   chassis leg / inner wing / subframe / front upper structure / engine bay metal
+  REAR_STRUCTURE    rear chassis leg / boot floor structure / rear longitudinal
+  SIDE_STRUCTURE    A-pillar / B-pillar / C-pillar / inner sill reinforcement
+
+VISIBLE FLAG — geometric evidence only:
+  DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
+
+PRESENCE CHECK:
+  SPARE_WHEEL       spare wheel / spare tyre (visible in boot)
+  PARCEL_SHELF      parcel shelf / rear load cover
+
+ESCAPE:
+  OTHER             any damage-relevant part not listed above
+
+EV-CONDITIONAL — use only on electric or plug-in hybrid vehicles:
+  EV_BATTERY_ZONE      underfloor battery zone / battery pack area
+  EV_BATTERY_PRESENCE  high-voltage battery visible / battery tray
+
+The iv value has FOUR meanings. Read carefully:
+
+- iv:true    — visible in this assessment AND damaged.
+- iv:false   — visible in this assessment AND undamaged. You can see it clearly and it is fine.
+- iv:na      — you CANNOT resolve this part: out of frame, occluded, too distant, too oblique, in shadow, or otherwise not clearly shown. When in doubt, use iv:na.
+- iv:missing — the part is ABSENT: torn away, not present where it should be, or the mounting point is exposed with nothing attached. HIGH BAR — use ONLY when certain the part is gone, not merely damaged-but-present. A crumpled bumper still in place is iv:true. A bumper completely torn off leaving bare bodywork is iv:missing. "I don't see it in this shot" is iv:na, not iv:missing.
+
+The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
+
 Parts Breakdown:
 [Numbered list — one line per damaged part plus a labour/paint line. Use this exact pipe-delimited format with four columns:
-1. [Part name] | [repair or replace] | £[OEM/new price] | £[used/breakers price or —]
+1. <PANEL_ID> | [repair or replace] | £[OEM/new price] | £[used/breakers price or —]
 ...
 N. Labour & paint | — | £[amount] | —
-Rules: OEM/new column — always a single £ integer (not a range). Used/breakers column — £ integer where the part can be sourced used; — where not applicable (labour, paint, airbags, glass when cracked through, structural welds). Include all visibly damaged parts. On any front-struck lot, include the front headlamp as a normal line at your best cost estimate when your Visible Damage Summary describes the lamp as uncertain, unconfirmable, or damaged — the engine reconciles it to the authoritative band. Omit the headlamp Parts Breakdown line when your Visible Damage Summary states the lamp is affirmatively intact and undisturbed. The sum of your used-where-available column (used price where present, OEM price where used is —) is the repair figure the server uses for margin computation.
-Body-style door count — reconcile before itemising side damage: Before listing side-impact panels, check the confirmed body style. A 5-door car has TWO separate doors on each side — a front door AND a rear door — plus the rear quarter panel as a distinct third panel behind the rear door. On a 5-door, never merge the rear door into the rear quarter; they are separate panels with separate costs. If a side impact runs through the doors and quarter, account for the front door, the rear door, AND the quarter as distinct line items where each is damaged. A 3-door car has one (longer) door per side then the quarter — only model it that way if the body style is confirmed 3-door. Match the door count in your parts list to the body style you have already confirmed at the top of your assessment.]
+Rules: OEM/new column — always a single £ integer (not a range). Used/breakers column — £ integer where the part can be sourced used; — where not applicable (labour, paint, airbags, glass when cracked through, structural welds). Include all visibly damaged parts. On any front-struck lot, include the front headlamp (HEADLAMP) as a normal line at your best cost estimate when your Visible Damage Summary describes the lamp as uncertain, unconfirmable, or damaged — the engine reconciles it to the authoritative band. Omit the HEADLAMP Parts Breakdown line when your Visible Damage Summary states the lamp is affirmatively intact and undisturbed. The sum of your used-where-available column (used price where present, OEM price where used is —) is the repair figure the server uses for margin computation.
+Body-style door count — reconcile before itemising side damage: Before listing side-impact panels, check the confirmed body style. A 5-door car has TWO separate doors on each side — FRONT_DOOR AND REAR_DOOR — plus REAR_QUARTER as a distinct third panel behind the rear door. On a 5-door, never merge REAR_DOOR into REAR_QUARTER; they are separate panels with separate costs. If a side impact runs through the doors and quarter, account for FRONT_DOOR, REAR_DOOR, AND REAR_QUARTER as distinct line items where each is damaged. A 3-door car has one (longer) door per side then the quarter — only model it that way if the body style is confirmed 3-door. Match the door count in your parts list to the body style you have already confirmed at the top of your assessment.
+You are given a PANEL DAMAGE LEDGER in the message below — the per-view analysis of each panel across all photos, already determined. Emit a Parts Breakdown line for each panel marked COSTED or MISSING. Do NOT cost a panel marked FLOORED or CLEAR. The ledger is the damage determination; your job is the action (repair/replace) and the cost figures. The sole exception is HEADLAMP: your lamp-status prose in the Visible Damage Summary governs headlamp inclusion per the Struck-Front Lamp rule below, which takes precedence over the HEADLAMP ledger entry.]
 Part Verdicts:
-[One PART: line per row from the Parts Breakdown (same order and same part name), then one FLAG: line per flagged part named in the Visible Damage Summary. This block is machine-read only — do not add prose, do not skip rows, do not reorder.
-Costed parts format: PART: [Part name] | iv:[true/false/na] | z:[zone] | ph:[low/mid/high]
-  iv: true = damage visibly confirmed on this part's own photos
-      false = not independently visible on this part's own shots
-      na = not applicable (labour, paint, materials — any non-part cost line)
+[One PART: line per row from the Parts Breakdown (same order and same PANEL_ID), then one FLAG: line per flagged part named in the Visible Damage Summary. This block is machine-read only — do not add prose, do not skip rows, do not reorder.
+Costed parts format: PART: <PANEL_ID> | iv:[true/false/na/missing] | z:[zone] | ph:[low/mid/high]
+  iv: true    = damage visibly confirmed on this part's own photos
+      false   = not independently visible on this part's own shots
+      na      = not applicable (Labour & paint and any non-part cost line)
+      missing = part is physically absent (same high bar as the vocabulary above)
   z: zone from: front | rear | flank-damaged-side | roof | underside | interior
   ph: this part's own vertical body position — OPTIONAL, omit if not clearly stated; do not fabricate
       low = sill/bumper/lower panel, mid = door/body-line, high = bonnet/roof/upper body
-Flagged parts format: FLAG: [Part name] | z:[zone] | weight:[low/medium/high] :: [reason]
+Flagged parts format: FLAG: <PANEL_ID> | z:[zone] | weight:[low/medium/high] :: [reason]
   weight: high = inspect before bidding; medium = worth checking; low = minor concern
   reason is free text to end of line — may contain any characters including pipe symbols
-Part names in this block must match the Parts Breakdown exactly. One PART: line per Parts Breakdown row.]
+Panel IDs in this block must match the Parts Breakdown exactly. One PART: line per Parts Breakdown row.]
 Key Cost Drivers:
-[One line per cost driver, 2–3 lines maximum. Each line MUST begin with the exact part name from your Parts Breakdown — same capitalisation, same string — followed by a colon and a brief reason why it drives the cost. This block is machine-read: code uses the leading part name (before the colon) to cross-reference the repair total. Do not add prose outside the per-driver lines.
+[One line per cost driver, 2–3 lines maximum. Each line begins with the part display name in plain language followed by a colon and a brief reason why it drives the cost. Do not add prose outside the per-driver lines.
 Format:
-- Part name from Parts Breakdown: reason this is a key cost driver
-- Part name from Parts Breakdown: reason
+- Part display name: reason this is a key cost driver
+- Part display name: reason
 Non-part cost concerns (hidden damage risk, structural uncertainty) belong in Red Flags, not here.]
 Red Flags: [anything that could make costs significantly higher]
 Alternative Damage Scenario: [if photos don't match description, state what else the visible evidence could indicate. Base the alternative on what the photos and damage description show — do not reason from salvage category]
@@ -415,7 +472,6 @@ Describe and cost ONLY damage actually visible in the photos. Do NOT infer or ad
 SCALE-INDEPENDENT — this rule applies at every level: zone, panel, and component, and for every damage type (impact deformation, heat/thermal discolouration, scuffing, chemical damage, or any other). Each panel is costed ONLY on damage that is independently visible on that panel. Do not infer that damage extends to, or runs across, an adjacent or intervening panel because a spreading pattern — a swipe, a fire front, a heat gradient, a collision arc — would typically include it. Visible on that panel = cost it; not independently visible on that panel = do not cost it, regardless of where the damage originated or which direction it was travelling.
 PER-ZONE DAMAGE CLASSIFICATION: For each damage zone you identify, state explicitly in the Visible Damage Summary: (a) the event type — impact, thermal, water, or other-non-impact; (b) for impact zones only: the strike-height band — low (sill/bumper/lower panel height), mid (door/body-line height), high (bonnet/roof/upper body), or indeterminate; (c) for non-impact zones (thermal, water, other): do not assign a height band — it is not meaningful and must not be stated.
 PER-PART VISIBILITY STATEMENT: Before costing any part, your prose must explicitly state that damage to that part is directly visible on that part's own photos. If damage to a part is inferred from a neighbouring panel, from mechanical adjacency, or from a spreading-pattern mechanism — rather than independently visible on that part's own shots — it is a FLAG, not a cost: name the part and do NOT list it in the Parts Breakdown. A bare flag is complete and valid when there is no specific basis for concern beyond lack of independent visibility — do not manufacture a mechanism story. Include a basis clause only where there is a real, stated reason. Correct forms — with basis: "Rear quarter: flagged — [specific stated basis] — no independent damage visible on the quarter itself; inspect before bidding." Without basis (default): "Rear quarter: flagged — not independently confirmed on its own shots; verify on inspection." Also add a corresponding FLAG: line in the Part Verdicts block for every part flagged here.
-PROSE-TO-PARTS DISCIPLINE: every component you list in the Parts Breakdown must be named or described as damaged in your Visible Damage Summary. A parts line with no matching prose description is an orphan — do not silently cost it. The sole exception is the front headlamp on front-struck lots, governed by the lamp-status rule in the Struck-Front Lamp section below.
 SURFACE-DECEPTIVE LOTS — OUTPUT DISCIPLINE: On any lot where surface-deceptive conditions apply (heat/fire damage, flood, chemical exposure), cost the visible damage at the severity it visibly shows — discolouration that reads as refinish is costed as refinish; blistering or melting that reads as replace is costed as replace. DEFAULT UNDER AMBIGUITY: REPLACE requires positively-visible substrate failure on that panel — blistering, melting, charring, or distortion you can actually see. Discolouration alone, without clearly-visible substrate failure, defaults to REFINISH; the possibility that heat penetrated deeper is carried by the depth WARNING below, NEVER by escalating the visible panel to replace. Do NOT itemise speculative hidden or deep damage as firm cost lines — for example, do not add 'wiring behind panel — replace £600' when no wiring damage is visible in the photos; do not escalate a panel from repair/refinish to replace on speculation about what the damage may have done behind or beneath it.
 Two uncertainty patterns, handled differently:
 BOUNDED uncertainty (a specific identifiable part — a lamp, a wheel — whose condition cannot be confirmed from photos): use the excluded-allowance line pattern (italic, flagged 'confirm on inspection, not included in repair total', plus a checklist item). A number is acceptable here because the part is real and identifiable even if its condition is uncertain.
