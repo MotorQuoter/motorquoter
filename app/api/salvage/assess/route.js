@@ -2308,12 +2308,12 @@ export async function GET(request) {
       }
     }
 
-    // Code-assembled Visible Damage Summary (Step 4c). One block per costed repair line
-    // (action + finalised figure) plus one per floored/flagged panel (code-owned reason).
-    // No model-authored per-panel prose survives — the per-panel path is fully code-owned.
-    // Reads the FINALISED ledger (post bumper-off demotion, post aperture-reason, post gate).
-    assessment._vdsParts = assembleVdsParts(coreObs.costedParts, coreObs.flaggedParts, gatedParts);
-    console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled block(s) — ${gatedParts.filter(p => !/labour|paint|prep/i.test(p.name)).length} costed row(s) + flagged ledger entries`);
+    // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
+    // real repair line (action + finalised figure). Floored/flagged panels live in the
+    // Inspection Flags surface, never here (one panel, one surface). No model-authored
+    // per-panel prose survives. Reads the FINALISED ledger (post bumper-off, post gate).
+    assessment._vdsParts = assembleVdsParts(coreObs.costedParts, gatedParts);
+    console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled costed block(s)`);
 
     const parts_sum = sumPartsRealistic(gatedParts);
 
