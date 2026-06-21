@@ -709,6 +709,12 @@ const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the 
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess in person before bidding';
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on inspection';
 
+// EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
+// Governing principle: never assert absence. The ONLY positive inference is presence-from-
+// running; the negative direction is always cannot-confirm → inspect, never "likely stripped".
+const EV_BATTERY_REASON_RUNS        = "Runs and drives — strong indication the HV battery is present and live (an EV can't move under its own power without it); confirm by diagnostic on inspection.";
+const EV_BATTERY_REASON_UNCONFIRMED = 'EV traction battery presence not confirmable remotely — verify the pack is fitted and reports voltage before bidding; a removed or damaged HV battery is the largest single value risk on a salvage EV.';
+
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
 For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
@@ -2279,6 +2285,30 @@ export async function GET(request) {
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
     const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
 
+    // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
+    // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). Computed
+    // here (moved above the weight-sort) so Step 2 can read it before the flag is re-weighted.
+    const isBev = isBevLot(enrichedVd);
+    assessment._isBev = isBev;
+    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}")`);
+
+    // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag enrich (FLAG-ONLY: reason + weight only).
+    // Mirrors the aperture-reason post-call mutation on coreObs.flaggedParts, but BEFORE the
+    // weight-sort below since weight changes. Fires ONLY when isBev — non-EV / HYBRID ELECTRIC /
+    // ICE lots are byte-identical. Mutates ONLY the flagged entry; the floored costedPart is
+    // never touched (no price, no iv flip, no zone change). Never asserts absence: positive
+    // inference only from runs-and-drives, otherwise cannot-confirm → inspect.
+    if (isBev) {
+      const runsAndDrives = /runs?\s+and\s+drives?/i.test(enrichedVd.runCondition || '');
+      for (const flag of coreObs.flaggedParts) {
+        if (flag.panelId !== PANEL.EV_BATTERY_PRESENCE) continue;
+        flag.weight = runsAndDrives ? 'low' : 'medium';
+        flag.reason = runsAndDrives ? EV_BATTERY_REASON_RUNS : EV_BATTERY_REASON_UNCONFIRMED;
+        flag._evPresence = true;
+        console.log(`[EV PRESENCE] EV_BATTERY_PRESENCE → weight=${flag.weight} (runsAndDrives=${runsAndDrives}, runCondition="${enrichedVd.runCondition ?? ''}")`);
+      }
+    }
+
     assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
@@ -2329,14 +2359,6 @@ export async function GET(request) {
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
-
-    // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
-    // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). This is
-    // the reliable "isBev" the later EV rules (presence check, dash branch, cooling/HV) will
-    // read; Step 1 only computes and records it — it does not yet gate any behaviour.
-    const isBev = isBevLot(enrichedVd);
-    assessment._isBev = isBev;
-    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}")`);
 
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
     // avoiding contradiction with already-confirmed wheel damage in the checklist.
