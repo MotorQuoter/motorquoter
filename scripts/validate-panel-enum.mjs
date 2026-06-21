@@ -3,7 +3,7 @@
 // No pipeline, no API calls, no Supabase. Pure module shape checks.
 import {
   PANEL, PANEL_CLASS, PANEL_BEHAVIOUR, EV_PANEL_RESOLVED_CLASS,
-  isElectricFuelType,
+  isBevLot,
   BASE_PANEL_IDS, EV_PANEL_IDS, COST_PANEL_IDS,
   PANEL_DISPLAY,
 } from '../lib/panelEnum.mjs';
@@ -51,19 +51,25 @@ console.log('\n── 3. EV resolved-class lookup ──');
 assert('EV_BATTERY_ZONE resolved → STRUCTURAL_FLAG',  EV_PANEL_RESOLVED_CLASS[PANEL.EV_BATTERY_ZONE],     PANEL_CLASS.STRUCTURAL_FLAG);
 assert('EV_BATTERY_PRESENCE resolved → PRESENCE_CHECK', EV_PANEL_RESOLVED_CLASS[PANEL.EV_BATTERY_PRESENCE], PANEL_CLASS.PRESENCE_CHECK);
 
-// ── 4. EV gate — exact DVLA string mapping ───────────────────────────────────────────────
-console.log('\n── 4. isElectricFuelType ──');
-assert('"ELECTRIC" → true',                                          isElectricFuelType('ELECTRIC'),                                    true);
-assert('"PLUG-IN HYBRID ELECTRIC VEHICLE (PHEV)" → true',           isElectricFuelType('PLUG-IN HYBRID ELECTRIC VEHICLE (PHEV)'),      true);
-assert('"HYBRID ELECTRIC" → false (self-charging — must be false)', isElectricFuelType('HYBRID ELECTRIC'),                             false);
-assert('"DIESEL" → false',                                           isElectricFuelType('DIESEL'),                                      false);
-assert('"PETROL" → false',                                           isElectricFuelType('PETROL'),                                      false);
-assert('null → false',                                               isElectricFuelType(null),                                          false);
-assert('undefined → false',                                          isElectricFuelType(undefined),                                     false);
-// Case-insensitivity checks (DVLA always returns uppercase, but be defensive)
-assert('"electric" (lowercase) → true',                              isElectricFuelType('electric'),                                    true);
-assert('"plug-in hybrid electric vehicle (phev)" (lowercase) → true', isElectricFuelType('plug-in hybrid electric vehicle (phev)'),    true);
-assert('"hybrid electric" (lowercase) → false',                      isElectricFuelType('hybrid electric'),                            false);
+// ── 4. BEV gate (isBevLot) — DVLA precedence, against the LIVE 226-lot feed set ──────────
+// Fixtures are the strings the feed ACTUALLY returns (live enumeration, 226 lots, 19 Jun 2026):
+//   DVLA fuelType ∈ { PETROL, ELECTRICITY, DIESEL, HYBRID ELECTRIC, absent }
+//   listing fuel  ∈ { Petrol, Electric, Diesel, absent }
+// The former fabricated strings ("ELECTRIC", "PLUG-IN HYBRID ELECTRIC VEHICLE (PHEV)") never
+// occur in the feed and are removed — they gave a green test over a broken gate.
+console.log('\n── 4. isBevLot (live-feed BEV gate) ──');
+assert('DVLA "ELECTRICITY" → true (the live BEV string)',              isBevLot({ fuelType: 'ELECTRICITY' }),                  true);
+assert('DVLA "PETROL" → false',                                        isBevLot({ fuelType: 'PETROL' }),                       false);
+assert('DVLA "DIESEL" → false',                                        isBevLot({ fuelType: 'DIESEL' }),                       false);
+assert('DVLA "HYBRID ELECTRIC" → false (self-charging, ICE path)',     isBevLot({ fuelType: 'HYBRID ELECTRIC' }),              false);
+assert('DVLA absent + listing "Electric" → true (fallback)',           isBevLot({ fuelType: null, fuel: 'Electric' }),         true);
+assert('DVLA undefined + listing "Electric" → true (fallback)',        isBevLot({ fuel: 'Electric' }),                         true);
+assert('DVLA absent + listing absent → false',                         isBevLot({ fuelType: null, fuel: null }),               false);
+assert('DVLA "PETROL" + listing "Electric" → false (DVLA precedence)', isBevLot({ fuelType: 'PETROL', fuel: 'Electric' }),     false);
+// Case-insensitivity (DVLA returns uppercase, listing title-case — be defensive)
+assert('DVLA "electricity" (lowercase) → true',                        isBevLot({ fuelType: 'electricity' }),                  true);
+assert('listing "electric" (lowercase) fallback → true',               isBevLot({ fuel: 'electric' }),                         true);
+assert('DVLA "hybrid electric" (lowercase) → false',                   isBevLot({ fuelType: 'hybrid electric' }),              false);
 
 // ── 5. PANEL_BEHAVIOUR covers every PANEL key ────────────────────────────────────────────
 console.log('\n── 5. Coverage — every PANEL key has a PANEL_BEHAVIOUR entry ──');

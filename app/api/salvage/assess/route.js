@@ -18,7 +18,7 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
-import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS } from '@/lib/panelEnum.mjs';
+import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 
 export const maxDuration = 300;
 
@@ -2329,6 +2329,14 @@ export async function GET(request) {
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
+
+    // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
+    // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). This is
+    // the reliable "isBev" the later EV rules (presence check, dash branch, cooling/HV) will
+    // read; Step 1 only computes and records it — it does not yet gate any behaviour.
+    const isBev = isBevLot(enrichedVd);
+    assessment._isBev = isBev;
+    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}")`);
 
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
     // avoiding contradiction with already-confirmed wheel damage in the checklist.
