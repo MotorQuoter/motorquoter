@@ -2601,33 +2601,57 @@ export async function GET(request) {
     }
 
     // Seed buyer-flag items onto the checklist after all curated/deterministic items.
-    // De-dupe rules: (1) WHEEL/TYRE always suppressed — wheel-net item already covers all corners;
-    // (2) lamp flags suppressed when tier2Fired — curated lamp entries already cover the aperture;
-    // (3) all others: phrase-match against current checklist text (conservative — won't suppress
-    //     unless the part name appears verbatim; model-authored items match when model uses the
-    //     same canonical part name it was given in the Call-1 prompt).
+    // De-dupe rules:
+    // Rule 1: WHEEL/TYRE/DISPLACED_WHEEL → always suppress (wheel-net covers all corners).
+    // Rule 2: lamp panels when tier2Fired → suppress (curated lamp entries cover the aperture).
+    // Rule 3 (concept-based): structural panels (FRONT/REAR/SIDE_STRUCTURE) → suppress only
+    //   when their specific curated concern is ACTUALLY PRESENT in this lot's checklist text —
+    //   verified per-lot with detection keywords, never assumed. Falls through to seed when
+    //   the concern is absent (e.g. a lot where the model omitted the chassis-leg item).
+    //   Detection keywords are keyed by panelId (stable), not by display partName (drift-prone).
+    // Fallback: verbatim normName phrase-match for all remaining non-structural panels.
     {
+      const STRUCTURAL_CONCERN_KEYWORDS = new Map([
+        [PANEL.FRONT_STRUCTURE, ['chassis']],
+        [PANEL.REAR_STRUCTURE,  ['longitudinal', 'boot floor']],
+        [PANEL.SIDE_STRUCTURE,  ['inner sill', 'b-pillar', 'c-pillar']],
+      ]);
+
       const buyerFlags = buildBuyerFlags(assessment);
       if (buyerFlags.length > 0) {
         let checklistText = (assessment['WhatsApp Inspection Checklist'] || '').trim();
         if (checklistText) {
+          // Single counter initialised once — do not re-parse the text on every append.
+          let nextItem = (checklistText.match(/^\d+[.)]/mg) || []).length + 1;
           for (const flag of buyerFlags) {
             const part = (flag.partName || '').trim();
             if (!part) continue;
-            // Rule 1: wheel/tyre always covered by wheel-net
+            // Rule 1: wheel/tyre/displaced-wheel → wheel-net covers unconditionally
             if (/\b(?:wheel|tyre|tire|rim|alloy)\b/i.test(part)) {
-              console.log(`[SEED] skip "${part}" — wheel-net covers wheel/tyre unconditionally`);
+              console.log(`[SEED] skip "${part}" reason=wheelnet`);
               continue;
             }
-            // Rule 2: lamp flags covered by curated lamp checklist entries when tier2Fired
+            // Rule 2: lamp panels when tier2Fired → curated lamp entries cover the aperture
             if (isLampLine(part) && lampResult?.tier2Fired) {
-              console.log(`[SEED] skip "${part}" — tier2Fired lamp entry already in checklist`);
+              console.log(`[SEED] skip "${part}" reason=lamp-tier2`);
               continue;
             }
-            // Rule 3: phrase match against current checklist (recomputed per iteration as items accrue)
-            if (checklistText.toLowerCase().includes(normName(part).toLowerCase())) {
-              console.log(`[SEED] skip "${part}" — phrase already in checklist`);
-              continue;
+            // Rule 3: concept-map — structural panels keyed by panelId
+            const clLower = checklistText.toLowerCase(); // recomputed per iteration so appended items accrue
+            const pid = flag.panelId || null;
+            if (pid && STRUCTURAL_CONCERN_KEYWORDS.has(pid)) {
+              const keywords = STRUCTURAL_CONCERN_KEYWORDS.get(pid);
+              if (keywords.some(kw => clLower.includes(kw))) {
+                console.log(`[SEED] skip "${part}" reason=concept-map:${pid}`);
+                continue;
+              }
+              // Concern absent from this lot's checklist — fall through and seed.
+            } else {
+              // Fallback: verbatim phrase-match for non-structural panels
+              if (clLower.includes(normName(part).toLowerCase())) {
+                console.log(`[SEED] skip "${part}" reason=phrase-match`);
+                continue;
+              }
             }
             let seedItem;
             if (flag._bumperOffStripped) {
@@ -2645,9 +2669,9 @@ export async function GET(request) {
             } else {
               seedItem = `Show ${part} close-up — condition could not be confirmed from the listing photos.`;
             }
-            const itemCount = (checklistText.match(/^\d+[.)]/mg) || []).length;
-            checklistText += `\n${itemCount + 1}. ${seedItem}`;
-            console.log(`[SEED] added "${part}" as item ${itemCount + 1}`);
+            checklistText += `\n${nextItem}. ${seedItem}`;
+            console.log(`[SEED] add "${part}" as item ${nextItem}`);
+            nextItem++;
           }
           assessment['WhatsApp Inspection Checklist'] = checklistText;
         } else {
