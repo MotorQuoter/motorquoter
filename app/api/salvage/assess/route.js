@@ -698,6 +698,51 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
   }
 }
 
+async function runDashClusterRead(images) {
+  const DASH_PROMPT = `You are reading instrument cluster state from salvage vehicle auction photos.
+
+Apply this three-step decision in order:
+1. Is a cluster/instrument panel visible in any photo? If no → return cluster "no-photo".
+2. Is the cluster present but unlit or dark (engine not running, display off, photo too dark to judge)? If yes → return cluster "no-photo". A dark cluster tells you nothing and must NOT be read as clean.
+3. Cluster is visible AND lit/powered. Are any warning telltale icons lit? If yes → return cluster "warning". If no → return cluster "clean".
+
+Return a raw JSON object only — no markdown, no explanation, no surrounding text:
+{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe lit icons when warning; empty string otherwise>" }`;
+
+  try {
+    const imageBlocks = images.slice(0, 20).map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const m = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) { mediaType = m[1]; data = m[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 256,
+        system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
+      }),
+    });
+    if (!res.ok) { console.warn('[DASH READ] API error:', res.status); return { cluster: 'no-photo', telltales: '' }; }
+    const apiData = await res.json();
+    console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting no-photo'); return { cluster: 'no-photo', telltales: '' }; }
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return { cluster: 'no-photo', telltales: '' }; }
+    const parsed = JSON.parse(match[0]);
+    const cluster = ['no-photo', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
+    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '' };
+  } catch (err) {
+    console.warn('[DASH READ] error:', err.message);
+    return { cluster: 'no-photo', telltales: '' };
+  }
+}
+
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; inspect in person before bidding';
 const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; inspect in person before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
@@ -800,9 +845,16 @@ Do NOT report (unless visibly damaged):
 - Under-bonnet ancillaries: fluid reservoirs, hoses, cables, filter housings, air intake
 - Antenna, number plates, badges, wiper blades, fuel cap
 
-Do NOT write any prose, summary, cost, or commentary. Return ONLY the PART: lines.
+In addition to PART: lines, emit exactly one HV: line per photo:
+
+HV: <visible|absent|na>
+  visible : an EV/HV high-voltage warning label (orange triangle, lightning bolt, or "HIGH VOLTAGE" text) is clearly legible in this view.
+  absent  : this view clearly shows surfaces where such a label would appear if present and there is none. HIGH BAR — only when the label-bearing surface is fully visible and unobscured; any doubt → na.
+  na      : cannot determine from this view (the common case).
+
+Do NOT write any prose, summary, cost, or commentary. Return ONLY PART: lines and the one HV: line.
 Do NOT use the words "offside", "nearside", "left", or "right" anywhere — WHEEL and TYRE are position-blind by design; for paired parts (headlamps, door mirrors) report once with the PANEL_ID and no position qualifier.
-If no damage-relevant parts are visible in this photo, return nothing (an empty response).`;
+If no damage-relevant parts are visible in this photo, still emit the HV: line — the sticker observation is independent of panel damage.`;
 
 
 
@@ -824,12 +876,14 @@ async function runPerViewAssess(image, idx) {
         ]}],
       }),
     });
-    if (!res.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res.status}`); return { costedParts: [], idx }; }
+    if (!res.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res.status}`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const apiData = await res.json();
     console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
-    if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx }; }
+    if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const { costedParts } = parsePartVerdicts(raw);
+    const hvLabelSeen = parseHvLines(raw);
+    if (hvLabelSeen) console.log(`[PER-VIEW][${idx}] HV: visible`);
     // Validate each emitted string against the closed PANEL vocabulary.
     // Unknown strings (including the legacy 'none' sentinel) are routed to OTHER and logged.
     const knownIds = new Set(Object.values(PANEL));
@@ -849,10 +903,10 @@ async function runPerViewAssess(image, idx) {
       console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}`);
     });
     if (enriched.length === 0) console.log(`[PER-VIEW][${idx}] 0 valid enum IDs from this view — no records contributed`);
-    return { costedParts: enriched, idx };
+    return { costedParts: enriched, idx, hvLabelSeen };
   } catch (err) {
     console.warn(`[PER-VIEW][${idx}] error:`, err.message);
-    return { costedParts: [], idx };
+    return { costedParts: [], idx, hvLabelSeen: false };
   }
 }
 
@@ -1272,6 +1326,16 @@ function parsePartVerdicts(blockText) {
   }
 
   return { costedParts, flaggedParts };
+}
+
+// Returns true if any line in the per-view output is "HV: visible".
+// Distinct from parsePartVerdicts — HV: lines have a different prefix and are not PART: records.
+function parseHvLines(blockText) {
+  if (!blockText) return false;
+  for (const line of blockText.split('\n')) {
+    if (/^HV:\s*visible\s*$/i.test(line.trim())) return true;
+  }
+  return false;
 }
 
 // isLampLine / reconcileParts / sumPartsRealistic / normName / the visibility
@@ -1832,6 +1896,8 @@ export async function GET(request) {
 
     // Fire lamp detection in parallel with the Claude assess call — joins after
     const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
+    // Fire dash cluster read on ALL lots (not gated on isBev or frontStruck) — joins in post-call region
+    const dashReadPromise = runDashClusterRead(images);
 
     // Call 1 tools: LAMP_OBS_TOOL always offered (item 14 — trigger input-integrity).
     // Force guard (iter===0 && hasImpactZone): fires on front OR rear impact lots from listing data.
@@ -1846,6 +1912,8 @@ export async function GET(request) {
 
     // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
     const perViewResults = await perViewResultsPromise;
+    const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
+    console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
     const groups         = groupByPanelId(perViewResults);
     const pvResult       = amalgamate(groups);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
@@ -2288,9 +2356,9 @@ export async function GET(request) {
     // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
     // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). Computed
     // here (moved above the weight-sort) so Step 2 can read it before the flag is re-weighted.
-    const isBev = isBevLot(enrichedVd);
+    const isBev = isBevLot(enrichedVd, hvLabelSeen);
     assessment._isBev = isBev;
-    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}")`);
+    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}" hvLabelSeen=${hvLabelSeen})`);
 
     // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag enrich (FLAG-ONLY: reason + weight only).
     // Mirrors the aperture-reason post-call mutation on coreObs.flaggedParts, but BEFORE the
@@ -2337,6 +2405,12 @@ export async function GET(request) {
         }
       }
     }
+
+    // EV-integrity Step 3 — dash/cluster read (ran in parallel with main call, joins here).
+    // Fires on ALL lots; not gated on isBev. Three states only: no-photo | clean | warning.
+    const dashRead = await dashReadPromise;
+    assessment._dashState = dashRead.cluster;
+    console.log(`[DASH READ] cluster=${dashRead.cluster} telltales="${dashRead.telltales}"`);
 
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
     // real repair line (action + finalised figure). Floored/flagged panels live in the
