@@ -97,6 +97,7 @@ export default function SalvageSuccessPage() {
   const [showComparison, setShowComparison] = useState(false);
   const [bregoData, setBregoData] = useState(null);
   const [rerunLimitReached, setRerunLimitReached] = useState(false);
+  const [overloadedMessage, setOverloadedMessage] = useState('');
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -142,6 +143,7 @@ export default function SalvageSuccessPage() {
       const ct = res.headers.get('content-type') || '';
       const data = ct.includes('application/json') ? await res.json() : null;
       if (data?.aborted) {
+        setOverloadedMessage(data.message || '');
         setStatus('overloaded');
         return;
       }
@@ -373,7 +375,7 @@ export default function SalvageSuccessPage() {
           <div className="error-wrap">
             <div className="error-box">
               <div className="error-title">High Demand</div>
-              <div className="error-msg">Our servers are experiencing high demand right now and your assessment couldn&apos;t be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.</div>
+              <div className="error-msg">{overloadedMessage}</div>
               <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
                 Try Again
               </button>

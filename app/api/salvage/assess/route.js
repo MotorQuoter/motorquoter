@@ -2145,7 +2145,7 @@ export async function GET(request) {
       call2Data = await call2Res.json();
     }
     const call2Latency = Date.now() - call2Start;
-    if (call2Data) console.log(`[CALL2] stop_reason=${call2Data.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
+    if (call2Data) console.log(`[CALL2] stop_reason=${call2Data?.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
     if (call2Data?.stop_reason === 'max_tokens') {
       console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone array may be incomplete or absent');
     }
@@ -2507,19 +2507,30 @@ export async function GET(request) {
         } else {
           await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
         }
-        if (paymentIntentId && chargeAmount) {
+        let refundStatus = 'no_charge';
+        let abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Please try again in a few minutes.";
+        if (!promoToken && paymentIntentId == null) {
+          // Charged session but paymentIntentId not captured — manual reconciliation needed
+          refundStatus = 'refund_failed';
+          abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away.";
+        } else if (paymentIntentId && chargeAmount) {
           try {
             const stripeInst = new Stripe(process.env.STRIPE_SECRET_KEY);
             const refund = await stripeInst.refunds.create({ payment_intent: paymentIntentId, amount: chargeAmount });
             console.log(`[529 ABORT] refund issued refundId=${refund.id} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
+            refundStatus = 'refunded';
+            abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.";
           } catch (refErr) {
             console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refErr.message);
+            refundStatus = 'refund_failed';
+            abortMessage = `Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away. (Reference: ${paymentIntentId}).`;
           }
         }
         return NextResponse.json({
           aborted: true,
           reason: 'overloaded',
-          message: "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.",
+          refundStatus,
+          message: abortMessage,
         }, { status: 503 });
       } else if (_exhaustedCalls.size > 0) {
         console.log(`[529 OK] degraded-within-tolerance lostViews=${_pvExhaustedCount}`);
