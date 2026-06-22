@@ -696,6 +696,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 3;
   }
 
+  if (assessment._dashLine) fieldBlock('Dashboard', assessment._dashLine);
   fieldBlock('Red Flags',                   assessment['Red Flags']);
   fieldBlock('Alternative Damage Scenario', assessment['Alternative Damage Scenario']);
   fieldBlock('Airbags',                     assessment['Airbags']);

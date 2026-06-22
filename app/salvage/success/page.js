@@ -596,6 +596,12 @@ export default function SalvageSuccessPage() {
             <div className="section">
               <div className="section-title">Damage Assessment</div>
               <div className="section-body">
+                {vehicleDetails?.runCondition && (
+                  <div className="field-row">
+                    <div className="field-key">Run Condition</div>
+                    <div className="field-val">{vehicleDetails.runCondition}</div>
+                  </div>
+                )}
                 {(assessment['Visible Damage Summary'] || assessment._vdsParts?.length > 0) && (() => {
                   // Opening context paragraph is model-authored (body style, sticker, zones,
                   // headlamp status); parseVdsParts().preamble strips any stray PART: text.
@@ -727,6 +733,12 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
+                {assessment._dashLine && (
+                  <div className="field-row">
+                    <div className="field-key">Dashboard</div>
+                    <div className="field-val">{assessment._dashLine}</div>
+                  </div>
+                )}
                 {['Red Flags', 'Alternative Damage Scenario', 'Airbags'].map(field => (
                   assessment[field] ? (
                     <div className="field-row" key={field}>

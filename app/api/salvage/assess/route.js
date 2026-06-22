@@ -738,8 +738,14 @@ Apply this three-step decision in order:
 2. Is the cluster present but unlit or dark (engine not running, display off, photo too dark to judge)? If yes → return cluster "no-photo". A dark cluster tells you nothing and must NOT be read as clean.
 3. Cluster is visible AND lit/powered. Are any warning telltale icons lit? If yes → return cluster "warning". If no → return cluster "clean".
 
+AIRBAG FIELD — three states, image-grounded only:
+- "no-photo": cluster not visible / dark / unlit (same condition family as cluster no-photo above)
+- "not-lit": cluster lit AND no airbag warning telltale is illuminated
+- "warning-lit": cluster lit AND airbag warning telltale is visibly illuminated
+Do NOT infer airbag deployment from steering wheel damage or cabin trim — those are separate visual observations. Report only what the cluster telltale light shows.
+
 Return a raw JSON object only — no markdown, no explanation, no surrounding text:
-{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe lit icons when warning; empty string otherwise>" }`;
+{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe all lit icons when warning; empty string otherwise>", "airbag": "no-photo" | "not-lit" | "warning-lit" }`;
 
   try {
     const imageBlocks = images.slice(0, 20).map(img => {
@@ -754,25 +760,26 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-opus-4-8',
-        max_tokens: 256,
+        max_tokens: 512,
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
       }),
     }));
-    if (exhausted) { onExhaust?.(); return { cluster: 'no-photo', telltales: '' }; }
-    if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return { cluster: 'no-photo', telltales: '' }; }
+    if (exhausted) { onExhaust?.(); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
+    if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting no-photo'); return { cluster: 'no-photo', telltales: '' }; }
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting no-photo'); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return { cluster: 'no-photo', telltales: '' }; }
+    if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
     const parsed = JSON.parse(match[0]);
     const cluster = ['no-photo', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
-    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '' };
+    const airbag  = ['no-photo', 'not-lit', 'warning-lit'].includes(parsed.airbag) ? parsed.airbag : 'no-photo';
+    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '', airbag };
   } catch (err) {
     console.warn('[DASH READ] error:', err.message);
-    return { cluster: 'no-photo', telltales: '' };
+    return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' };
   }
 }
 
@@ -2489,8 +2496,24 @@ export async function GET(request) {
     // EV-integrity Step 3 — dash/cluster read (ran in parallel with main call, joins here).
     // Fires on ALL lots; not gated on isBev. Three states only: no-photo | clean | warning.
     const dashRead = await dashReadPromise;
-    assessment._dashState = dashRead.cluster;
-    console.log(`[DASH READ] cluster=${dashRead.cluster} telltales="${dashRead.telltales}"`);
+    assessment._dashState  = dashRead.cluster;
+    assessment._airbagState = dashRead.airbag;
+    console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales="${dashRead.telltales}"`);
+
+    // Assemble code-owned dashboard line (replaces model VDS cluster assertion).
+    const _dashLine = dashRead.cluster === 'warning'
+      ? `Dashboard read: warning light(s) shown — ${dashRead.telltales}`
+      : dashRead.cluster === 'clean'
+      ? 'Dashboard read: cluster lit, no warning lights shown.'
+      : 'Dashboard not visible in the listing photos.';
+    assessment._dashLine = _dashLine;
+
+    // Assemble code-owned Airbags line from _airbagState (overwrites any model-authored field).
+    assessment['Airbags'] = dashRead.airbag === 'warning-lit'
+      ? 'Airbag warning light shown on the cluster — airbag system fault or deployment likely; confirm on inspection.'
+      : dashRead.airbag === 'not-lit'
+      ? 'No airbag warning light shown on the cluster; no deployed bags visible in the cabin shots. Confirm on inspection.'
+      : 'Dashboard not visible — airbag state could not be confirmed from photos. Confirm on inspection.';
 
     // 529 abort decision — fires before report assembly.
     // ABORT if any single-instance call exhausted (Call-1/Call-2/lamp-detect/dash-read),
