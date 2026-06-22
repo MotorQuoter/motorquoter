@@ -910,6 +910,19 @@ async function runPerViewAssess(image, idx) {
   }
 }
 
+// Runs per-view calls in sequential waves of batchSize to prevent burst-rate stampede.
+// Global idx (i + j) preserved so groupByPanelId log lines are accurate.
+// Behaviour-identical to Promise.all except more views survive under rate pressure.
+async function runPerViewWaves(images, batchSize) {
+  const results = [];
+  for (let i = 0; i < images.length; i += batchSize) {
+    const wave = images.slice(i, i + batchSize);
+    const waveResults = await Promise.all(wave.map((img, j) => runPerViewAssess(img, i + j)));
+    results.push(...waveResults);
+  }
+  return results;
+}
+
 function groupByPanelId(allPerViewResults) {
   const map = new Map(); // panelId → verdict-line strings[]
   for (const { costedParts, idx } of allPerViewResults) {
@@ -1574,10 +1587,11 @@ export async function GET(request) {
       return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
     }
 
-    // Per-view assess calls fire here in parallel with the main call.
-    // Grouping + amalgamate run inline after parseParts so the main-call part names
-    // can anchor the grouping canonical names (name-seam fix).
-    const perViewResultsPromise = Promise.all(images.map((img, i) => runPerViewAssess(img, i)));
+    // Per-view assess calls fire here in sequential waves (PER_VIEW_CONCURRENCY per wave).
+    // Waves prevent the burst-rate stampede that caused index 12 to 529 on BL75JAU (twice).
+    // Behaviour-identical to the prior unbounded Promise.all except more views survive.
+    const PER_VIEW_CONCURRENCY = 5; // wave size — kills the burst stampede; one-line tune
+    const perViewResultsPromise = runPerViewWaves(images, PER_VIEW_CONCURRENCY);
 
     const enrichedVd = normaliseLot(vd);
 
@@ -1894,11 +1908,6 @@ export async function GET(request) {
     const rearStruck     = /rear/i.test(enrichedVd.primaryDamage  || '') || /rear/i.test(enrichedVd.secondaryDamage  || '');
     const hasImpactZone  = frontStruck || rearStruck; // derived from listing descriptors only — no prose
 
-    // Fire lamp detection in parallel with the Claude assess call — joins after
-    const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
-    // Fire dash cluster read on ALL lots (not gated on isBev or frontStruck) — joins in post-call region
-    const dashReadPromise = runDashClusterRead(images);
-
     // Call 1 tools: LAMP_OBS_TOOL always offered (item 14 — trigger input-integrity).
     // Force guard (iter===0 && hasImpactZone): fires on front OR rear impact lots from listing data.
     // Non-impact lots (fire/flood/theft/mechanical): hasImpactZone=false — tool offered but not
@@ -1910,8 +1919,19 @@ export async function GET(request) {
     let coreObs = null;
     let rawText = '';
 
-    // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
+    // raw per-view ledger: drain all waves before firing Opus secondaries
     const perViewResults = await perViewResultsPromise;
+
+    // Survivor-count diagnostic — coarse health signal (not the billing gate)
+    const viewsFired  = images.length;
+    const viewsLanded = perViewResults.filter(r => r.costedParts.length > 0 || r.hvLabelSeen).length;
+    console.log(`[PER-VIEW WAVES] fired=${viewsFired} landed≈${viewsLanded} K=${PER_VIEW_CONCURRENCY}`);
+
+    // Opus bucket now drained — fire lamp-detect + dash-read into clear headroom.
+    // Both dispatched together (two calls, no stampede); both join in the post-call region.
+    const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
+    const dashReadPromise = runDashClusterRead(images);
+
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
     const groups         = groupByPanelId(perViewResults);
