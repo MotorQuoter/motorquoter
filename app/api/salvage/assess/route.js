@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  needsLampBackstop, assembleVdsParts,
+  needsLampBackstop, assembleVdsParts, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -783,16 +783,16 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
   }
 }
 
-const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; inspect in person before bidding';
-const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; inspect in person before bidding';
+const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
+const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; request on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
 // confirmed displaced bumper. States only the situation and uncertainty — no damage verb,
 // no damage claim, no "inspect in person" (buyers have no Copart access).
 const AMALG_REASON_APERTURE_REAR  = 'Rear bumper displaced on this corner; the quarter panel behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the wing behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
-const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess in person before bidding';
-const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on inspection';
+const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess on the WhatsApp inspection before bidding';
+const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
 
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
@@ -2597,6 +2597,62 @@ export async function GET(request) {
         assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. ${netItem}`;
       } else {
         console.warn('[WHEEL NET] checklist section empty — item not appended; model may have used a non-standard section header');
+      }
+    }
+
+    // Seed buyer-flag items onto the checklist after all curated/deterministic items.
+    // De-dupe rules: (1) WHEEL/TYRE always suppressed — wheel-net item already covers all corners;
+    // (2) lamp flags suppressed when tier2Fired — curated lamp entries already cover the aperture;
+    // (3) all others: phrase-match against current checklist text (conservative — won't suppress
+    //     unless the part name appears verbatim; model-authored items match when model uses the
+    //     same canonical part name it was given in the Call-1 prompt).
+    {
+      const buyerFlags = buildBuyerFlags(assessment);
+      if (buyerFlags.length > 0) {
+        let checklistText = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+        if (checklistText) {
+          for (const flag of buyerFlags) {
+            const part = (flag.partName || '').trim();
+            if (!part) continue;
+            // Rule 1: wheel/tyre always covered by wheel-net
+            if (/\b(?:wheel|tyre|tire|rim|alloy)\b/i.test(part)) {
+              console.log(`[SEED] skip "${part}" — wheel-net covers wheel/tyre unconditionally`);
+              continue;
+            }
+            // Rule 2: lamp flags covered by curated lamp checklist entries when tier2Fired
+            if (isLampLine(part) && lampResult?.tier2Fired) {
+              console.log(`[SEED] skip "${part}" — tier2Fired lamp entry already in checklist`);
+              continue;
+            }
+            // Rule 3: phrase match against current checklist (recomputed per iteration as items accrue)
+            if (checklistText.toLowerCase().includes(normName(part).toLowerCase())) {
+              console.log(`[SEED] skip "${part}" — phrase already in checklist`);
+              continue;
+            }
+            let seedItem;
+            if (flag._bumperOffStripped) {
+              seedItem = `Show ${part} behind the displaced bumper — confirm whether the panel itself is damaged or just the exposed seam.`;
+            } else if (flag._amalgDisagree) {
+              seedItem = `Show ${part} close-up — condition could not be resolved across views in the listing photos.`;
+            } else if (flag._amalgNotVisible) {
+              seedItem = `Show ${part} close-up — not visible in any of the listing photos.`;
+            } else if (flag._gateGenerated) {
+              seedItem = `Show ${part} close-up — could not be confirmed from the listing photos.`;
+            } else if (flag.weight === 'high') {
+              seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;
+            } else if (flag.weight === 'low') {
+              seedItem = `Show ${part} close-up — confirm the cosmetic damage extent.`;
+            } else {
+              seedItem = `Show ${part} close-up — condition could not be confirmed from the listing photos.`;
+            }
+            const itemCount = (checklistText.match(/^\d+[.)]/mg) || []).length;
+            checklistText += `\n${itemCount + 1}. ${seedItem}`;
+            console.log(`[SEED] added "${part}" as item ${itemCount + 1}`);
+          }
+          assessment['WhatsApp Inspection Checklist'] = checklistText;
+        } else {
+          console.warn('[SEED] checklist empty — flag items not seeded');
+        }
       }
     }
 
