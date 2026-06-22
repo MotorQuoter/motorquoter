@@ -85,7 +85,7 @@ function slotVerdictColor(verdict) {
 
 export default function SalvageSuccessPage() {
   const router = useRouter();
-  const [status, setStatus] = useState('loading'); // loading | success | error
+  const [status, setStatus] = useState('loading'); // loading | success | error | overloaded
   const [assessment, setAssessment] = useState(null);
   const [vehicleDetails, setVehicleDetails] = useState(null);
   const [market, setMarket] = useState('GB');
@@ -139,15 +139,15 @@ export default function SalvageSuccessPage() {
         ? `/api/salvage/assess?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
         : `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
       const res = await fetch(url);
-      if (!res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          const err = await res.json();
-          throw new Error(err.error || `Assessment failed (${res.status})`);
-        }
-        throw new Error(`Assessment failed (${res.status})`);
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : null;
+      if (data?.aborted) {
+        setStatus('overloaded');
+        return;
       }
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || `Assessment failed (${res.status})`);
+      }
       setAssessment(data.assessment);
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');
@@ -366,6 +366,18 @@ export default function SalvageSuccessPage() {
             <div className="loading-title">Running Assessment</div>
             <div className="loading-msg">{LOADING_MESSAGES[msgIdx]}</div>
             <div className="loading-sub">This takes 20–60 seconds.<br />Please keep this page open.</div>
+          </div>
+        )}
+
+        {status === 'overloaded' && (
+          <div className="error-wrap">
+            <div className="error-box">
+              <div className="error-title">High Demand</div>
+              <div className="error-msg">Our servers are experiencing high demand right now and your assessment couldn&apos;t be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.</div>
+              <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
+                Try Again
+              </button>
+            </div>
           </div>
         )}
 

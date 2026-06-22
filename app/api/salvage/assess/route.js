@@ -646,7 +646,38 @@ async function resizeToHaikuSafe(img) {
   }
 }
 
-async function runLampDetection(images) {
+// Retry wrapper for Anthropic 529/503 (server-side overload). Documented fix: bounded
+// exponential backoff + jitter. Jitter is mandatory — un-jittered concurrent retries
+// self-DoS and amplify the overload. MAX_RETRIES=3 → up to 4 attempts.
+// Returns { res, exhausted, lastRequestId }. Network errors return exhausted=false so the
+// caller's existing non-ok path handles them; 529-exhaustion sets exhausted=true.
+const MAX_RETRIES = 3;
+
+async function with529Retry(name, fetchThunk) {
+  let attempt = 0;
+  let lastRequestId = null;
+  while (true) {
+    let res;
+    try { res = await fetchThunk(); } catch (_) {
+      return { res: null, exhausted: false, lastRequestId };
+    }
+    lastRequestId = res.headers?.get('request-id') || res.headers?.get('x-request-id') || null;
+    if (res.status !== 529 && res.status !== 503) {
+      if (attempt > 0) console.log(`[529 RECOVERED] call=${name} after=${attempt}`);
+      return { res, exhausted: false, lastRequestId };
+    }
+    if (attempt >= MAX_RETRIES) {
+      console.error(`[529 EXHAUSTED] call=${name} request_id=${lastRequestId}`);
+      return { res, exhausted: true, lastRequestId };
+    }
+    const backoff = 1000 * Math.pow(2, attempt) + Math.floor(Math.random() * 1000);
+    console.warn(`[529 RETRY] call=${name} attempt=${attempt + 1}/${MAX_RETRIES} request_id=${lastRequestId} backoff=${backoff}ms`);
+    await new Promise(r => setTimeout(r, backoff));
+    attempt++;
+  }
+}
+
+async function runLampDetection(images, onExhaust) {
   try {
     const imageBlocks = images.slice(0, 20).map(img => {
       let mediaType = 'image/jpeg';
@@ -668,7 +699,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
     "evidence": "one sentence describing what you can see"
   }
 ]`;
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const { res, exhausted } = await with529Retry('lamp-detect', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -681,8 +712,9 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
       }),
-    });
-    if (!res.ok) { console.warn('[LAMP DETECT] API error:', res.status); return null; }
+    }));
+    if (exhausted) { onExhaust?.(); return null; }
+    if (!res?.ok) { console.warn('[LAMP DETECT] API error:', res?.status); return null; }
     const data = await res.json();
     console.log('[TOKEN LOG] lamp-detect Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
     if (data.stop_reason === 'max_tokens') { console.warn('[LAMP DETECT] max_tokens — response truncated; lamp path returning null'); return null; }
@@ -698,7 +730,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
   }
 }
 
-async function runDashClusterRead(images) {
+async function runDashClusterRead(images, onExhaust) {
   const DASH_PROMPT = `You are reading instrument cluster state from salvage vehicle auction photos.
 
 Apply this three-step decision in order:
@@ -717,7 +749,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
       if (m) { mediaType = m[1]; data = m[2]; }
       return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     });
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const { res, exhausted } = await with529Retry('dash-read', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -726,8 +758,9 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
       }),
-    });
-    if (!res.ok) { console.warn('[DASH READ] API error:', res.status); return { cluster: 'no-photo', telltales: '' }; }
+    }));
+    if (exhausted) { onExhaust?.(); return { cluster: 'no-photo', telltales: '' }; }
+    if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return { cluster: 'no-photo', telltales: '' }; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
     if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting no-photo'); return { cluster: 'no-photo', telltales: '' }; }
@@ -858,13 +891,13 @@ If no damage-relevant parts are visible in this photo, still emit the HV: line �
 
 
 
-async function runPerViewAssess(image, idx) {
+async function runPerViewAssess(image, idx, onExhaust) {
   try {
     let mediaType = 'image/jpeg';
     let data = image;
     const m = image.match(/^data:([^;]+);base64,(.+)$/);
     if (m) { mediaType = m[1]; data = m[2]; }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const { res, exhausted } = await with529Retry(`per-view-${idx}`, () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -875,8 +908,9 @@ async function runPerViewAssess(image, idx) {
           { type: 'text', text: PER_VIEW_PROMPT },
         ]}],
       }),
-    });
-    if (!res.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res.status}`); return { costedParts: [], idx, hvLabelSeen: false }; }
+    }));
+    if (exhausted) { onExhaust?.(); return { costedParts: [], idx, hvLabelSeen: false }; }
+    if (!res?.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res?.status}`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const apiData = await res.json();
     console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
@@ -908,19 +942,6 @@ async function runPerViewAssess(image, idx) {
     console.warn(`[PER-VIEW][${idx}] error:`, err.message);
     return { costedParts: [], idx, hvLabelSeen: false };
   }
-}
-
-// Runs per-view calls in sequential waves of batchSize to prevent burst-rate stampede.
-// Global idx (i + j) preserved so groupByPanelId log lines are accurate.
-// Behaviour-identical to Promise.all except more views survive under rate pressure.
-async function runPerViewWaves(images, batchSize) {
-  const results = [];
-  for (let i = 0; i < images.length; i += batchSize) {
-    const wave = images.slice(i, i + batchSize);
-    const waveResults = await Promise.all(wave.map((img, j) => runPerViewAssess(img, i + j)));
-    results.push(...waveResults);
-  }
-  return results;
 }
 
 function groupByPanelId(allPerViewResults) {
@@ -1422,6 +1443,11 @@ export async function GET(request) {
   const salvageId = searchParams.get('salvage_id');
   const promoToken = searchParams.get('promo_token');
 
+  // Captured at Stripe verification; used for abort-refund if 529s exhaust all retries.
+  // Only set for non-promo sessions (promo has no charge to refund).
+  let paymentIntentId = null;
+  let chargeAmount    = null;
+
   if (!salvageId || (!stripeSessionId && !promoToken)) {
     return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
   }
@@ -1451,6 +1477,8 @@ export async function GET(request) {
       if (stripeSession.payment_status !== 'paid') {
         return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
       }
+      paymentIntentId = stripeSession.payment_intent || null;
+      chargeAmount    = stripeSession.amount_total   || null;
     }
 
     if (promoToken) {
@@ -1587,11 +1615,14 @@ export async function GET(request) {
       return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
     }
 
-    // Per-view assess calls fire here in sequential waves (PER_VIEW_CONCURRENCY per wave).
-    // Waves prevent the burst-rate stampede that caused index 12 to 529 on BL75JAU (twice).
-    // Behaviour-identical to the prior unbounded Promise.all except more views survive.
-    const PER_VIEW_CONCURRENCY = 5; // wave size — kills the burst stampede; one-line tune
-    const perViewResultsPromise = runPerViewWaves(images, PER_VIEW_CONCURRENCY);
+    // Per-view assess calls fire here in parallel with the main call.
+    // Grouping + amalgamate run inline after parseParts so the main-call part names
+    // can anchor the grouping canonical names (name-seam fix).
+    let _pvExhaustedCount = 0;
+    const _exhaustedCalls = new Set();
+    const perViewResultsPromise = Promise.all(images.map((img, i) =>
+      runPerViewAssess(img, i, () => { _pvExhaustedCount++; _exhaustedCalls.add(`per-view-${i}`); })
+    ));
 
     const enrichedVd = normaliseLot(vd);
 
@@ -1653,7 +1684,7 @@ export async function GET(request) {
     let photoOdometer = null;
     try {
       const preExtractBlocks = await Promise.all(images.map(resizeToHaikuSafe));
-      const haikuRes = await fetch('https://api.anthropic.com/v1/messages', {
+      const { res: haikuRes, exhausted: haikuOdoExhausted } = await with529Retry('haiku-odo', () => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1666,8 +1697,8 @@ export async function GET(request) {
           system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
           messages: [{ role: 'user', content: preExtractBlocks }],
         }),
-      });
-      if (haikuRes.ok) {
+      }));
+      if (!haikuOdoExhausted && haikuRes?.ok) {
         const haikuData = await haikuRes.json();
         const raw = (haikuData.content?.[0]?.text || '').trim();
         const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
@@ -1676,9 +1707,8 @@ export async function GET(request) {
         const uniq = [...new Set(nums)];
         const parsed = uniq.length === 1 ? uniq[0] : NaN;
         if (!isNaN(parsed)) photoOdometer = parsed;
-      } else {
-        // non-2xx from Haiku — photoOdometer stays null, downstream hierarchy takes over
       }
+      // exhausted or non-2xx: photoOdometer stays null, downstream hierarchy takes over
     } catch { /* Haiku threw — photoOdometer stays null */ }
 
     // Sanity-check photo read against last DVSA MOT mileage (valuation hygiene only).
@@ -1919,18 +1949,20 @@ export async function GET(request) {
     let coreObs = null;
     let rawText = '';
 
-    // raw per-view ledger: drain all waves before firing Opus secondaries
+    // Fire lamp detection in parallel with the Claude assess call — joins after
+    const lampDetectionPromise = frontStruck
+      ? runLampDetection(images, () => _exhaustedCalls.add('lamp-detect'))
+      : Promise.resolve(null);
+    // Fire dash cluster read on ALL lots (not gated on isBev or frontStruck) — joins in post-call region
+    const dashReadPromise = runDashClusterRead(images, () => _exhaustedCalls.add('dash-read'));
+
+    // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
     const perViewResults = await perViewResultsPromise;
 
     // Survivor-count diagnostic — coarse health signal (not the billing gate)
     const viewsFired  = images.length;
     const viewsLanded = perViewResults.filter(r => r.costedParts.length > 0 || r.hvLabelSeen).length;
-    console.log(`[PER-VIEW WAVES] fired=${viewsFired} landed≈${viewsLanded} K=${PER_VIEW_CONCURRENCY}`);
-
-    // Opus bucket now drained — fire lamp-detect + dash-read into clear headroom.
-    // Both dispatched together (two calls, no stampede); both join in the post-call region.
-    const lampDetectionPromise = frontStruck ? runLampDetection(images) : Promise.resolve(null);
-    const dashReadPromise = runDashClusterRead(images);
+    console.log(`[PER-VIEW] fired=${viewsFired} landed≈${viewsLanded}`);
 
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
@@ -1938,10 +1970,8 @@ export async function GET(request) {
     const pvResult       = amalgamate(groups);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
-    const callClaude = (withTools, forced = false) => fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
+    const callClaude = async (withTools, forced = false) => {
+      const body = JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 16000,
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
@@ -1950,8 +1980,19 @@ export async function GET(request) {
           tools: claudeTools,
           ...(forced ? { tool_choice: { type: 'any' } } : {}),
         } : {}),
-      }),
-    }).then(res => res.json().then(data => ({ res, data })));
+      });
+      const { res, exhausted } = await with529Retry('call1', () => fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+        body,
+      }));
+      if (exhausted || !res) {
+        if (exhausted) _exhaustedCalls.add('call1');
+        return { res: null, data: null, exhausted: exhausted ?? false };
+      }
+      const data = await res.json();
+      return { res, data, exhausted: false };
+    };
 
     // Tool-use loop — keep calling with tools while the model keeps recording observations,
     // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
@@ -1961,7 +2002,9 @@ export async function GET(request) {
     // rounds have tool_result context and must be free to end_turn into prose naturally.
     const MAX_TOOL_ROUNDS = 4;
     for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
-      const { res: apiRes, data: apiData } = await callClaude(true, iter === 0 && hasImpactZone);
+      const { res: apiRes, data: apiData, exhausted: call1Exhausted } = await callClaude(true, iter === 0 && hasImpactZone);
+      if (call1Exhausted) break; // _exhaustedCalls.add('call1') already done inside callClaude
+      if (!apiRes) throw new Error(`Claude API network error (call1 iter=${iter})`);
       console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
       console.log(`[CACHE] iter=${iter} write=` + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
       if (!apiRes.ok) throw new Error(apiData.error?.message || `Claude API error (iter ${iter})`);
@@ -1999,14 +2042,17 @@ export async function GET(request) {
     // Force the prose if the loop ended without text (e.g. the model was still mid tool-use
     // when MAX_TOOL_ROUNDS was hit) — final call with no tools available, same as the existing
     // lamp flow's second call.
-    if (!rawText) {
-      const { res: finalRes, data: finalData } = await callClaude(false);
-      console.log('[TOKEN LOG] iter=final Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
-      console.log('[CACHE] iter=final write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
-      if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (final)');
-      if (finalData.stop_reason === 'max_tokens') throw new Error('[MAX_TOKENS] main assess call truncated (final) — response ceiling hit');
-      if (finalData.stop_reason === 'refusal')   throw new Error('[REFUSAL] main assess call refused (final) — content policy');
-      rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    if (!rawText && !_exhaustedCalls.has('call1')) {
+      const { res: finalRes, data: finalData, exhausted: finalExhausted } = await callClaude(false);
+      if (!finalExhausted) {
+        if (!finalRes) throw new Error('Claude API network error (call1-final)');
+        console.log('[TOKEN LOG] iter=final Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
+        console.log('[CACHE] iter=final write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
+        if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (final)');
+        if (finalData.stop_reason === 'max_tokens') throw new Error('[MAX_TOKENS] main assess call truncated (final) — response ceiling hit');
+        if (finalData.stop_reason === 'refusal')   throw new Error('[REFUSAL] main assess call refused (final) — content policy');
+        rawText = (finalData.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+      }
     }
 
     // Call 2 — Haiku structured extraction from committed prose
@@ -2075,7 +2121,7 @@ export async function GET(request) {
     };
 
     const call2Start = Date.now();
-    const call2Response = await fetch('https://api.anthropic.com/v1/messages', {
+    const { res: call2Res, exhausted: call2Exhausted } = await with529Retry('call2', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
@@ -2088,15 +2134,23 @@ export async function GET(request) {
           content: `Extract the windscreen sticker, body style, provenance verdicts, and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
         }],
       }),
-    });
-    const call2Data = await call2Response.json();
+    }));
+    let call2Data = null;
+    if (call2Exhausted) {
+      _exhaustedCalls.add('call2');
+      console.error('[CALL2] 529-exhausted — coreObs floor default will fire');
+    } else if (!call2Res?.ok) {
+      console.error(`[CALL2] API error ${call2Res?.status}`);
+    } else {
+      call2Data = await call2Res.json();
+    }
     const call2Latency = Date.now() - call2Start;
-    console.log(`[CALL2] stop_reason=${call2Data.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
-    if (call2Data.stop_reason === 'max_tokens') {
+    if (call2Data) console.log(`[CALL2] stop_reason=${call2Data.stop_reason} input=${call2Data.usage?.input_tokens} output=${call2Data.usage?.output_tokens} latency=${call2Latency}ms`);
+    if (call2Data?.stop_reason === 'max_tokens') {
       console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone array may be incomplete or absent');
     }
 
-    const call2ToolBlock = (call2Data.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
+    const call2ToolBlock = (call2Data?.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
     if (call2ToolBlock?.input) {
       console.log('[CALL2] raw tool_use input:', JSON.stringify(call2ToolBlock.input));
       const inp = call2ToolBlock.input;
@@ -2118,7 +2172,7 @@ export async function GET(request) {
       };
       console.log(`[CALL2] extracted sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
     } else {
-      console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data.stop_reason} latency=${call2Latency}ms`);
+      console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
     }
 
@@ -2149,9 +2203,9 @@ export async function GET(request) {
     // Uses the full Call-1 thread (Opus — thread carries 1568px images, Haiku-safe resize not applicable).
     // Expected input: ~22–33K tokens (system prefix cached + messages thread). max_tokens=512 covers
     // one tool_use block; observed backstop output at BL75JAU iter=0: 97 tokens.
-    if (needsLampBackstop(coreObs.perZone, lampObs)) {
+    if (!_exhaustedCalls.has('call1') && needsLampBackstop(coreObs.perZone, lampObs)) {
       console.log('[LAMP] Layer 2 backstop triggered — front/impact in perZone, no observation from Call 1');
-      const backstopFetch = await fetch('https://api.anthropic.com/v1/messages', {
+      const { res: backstopRes, exhausted: backstopExhausted } = await with529Retry('backstop', () => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
@@ -2166,22 +2220,28 @@ export async function GET(request) {
           tools: [LAMP_OBS_TOOL],
           tool_choice: { type: 'any' },
         }),
-      });
-      const backstopData = await backstopFetch.json();
-      console.log(`[LAMP] Layer 2: stop=${backstopData.stop_reason} input=${backstopData.usage?.input_tokens} output=${backstopData.usage?.output_tokens}`);
-      const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordLampObservation');
-      if (backstopBlock?.input) {
-        lampObs = {
-          struckSide:      backstopBlock.input?.struckSide      || 'central',
-          apertureExposed: Boolean(backstopBlock.input?.apertureExposed),
-          damageSpan:      backstopBlock.input?.damageSpan      || 'single_corner',
-        };
-        lampObsSource = 'layer2-backstop';
-        console.log(`[LAMP] Layer 2 observation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
-      } else {
+      }));
+      if (backstopExhausted || !backstopRes?.ok) {
         lampObs = { struckSide: 'central', apertureExposed: false };
         lampObsSource = 'layer2-backstop';
-        console.log('[LAMP] Layer 2 backstop failed — no tool block returned; tier-1 floor applied (apertureExposed:false)');
+        console.warn('[LAMP] Layer 2 backstop 529-exhausted or error — tier-1 floor applied (apertureExposed:false)');
+      } else {
+        const backstopData = await backstopRes.json();
+        console.log(`[LAMP] Layer 2: stop=${backstopData.stop_reason} input=${backstopData.usage?.input_tokens} output=${backstopData.usage?.output_tokens}`);
+        const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordLampObservation');
+        if (backstopBlock?.input) {
+          lampObs = {
+            struckSide:      backstopBlock.input?.struckSide      || 'central',
+            apertureExposed: Boolean(backstopBlock.input?.apertureExposed),
+            damageSpan:      backstopBlock.input?.damageSpan      || 'single_corner',
+          };
+          lampObsSource = 'layer2-backstop';
+          console.log(`[LAMP] Layer 2 observation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
+        } else {
+          lampObs = { struckSide: 'central', apertureExposed: false };
+          lampObsSource = 'layer2-backstop';
+          console.log('[LAMP] Layer 2 backstop failed — no tool block returned; tier-1 floor applied (apertureExposed:false)');
+        }
       }
     }
 
@@ -2431,6 +2491,40 @@ export async function GET(request) {
     const dashRead = await dashReadPromise;
     assessment._dashState = dashRead.cluster;
     console.log(`[DASH READ] cluster=${dashRead.cluster} telltales="${dashRead.telltales}"`);
+
+    // 529 abort decision — fires before report assembly.
+    // ABORT if any single-instance call exhausted (Call-1/Call-2/lamp-detect/dash-read),
+    // or if more than 2 per-view calls exhausted (3+ lost = beyond redundancy).
+    {
+      const singleExhausted = ['call1', 'call2', 'lamp-detect', 'dash-read']
+        .some(k => _exhaustedCalls.has(k));
+      const shouldAbort = singleExhausted || _pvExhaustedCount > 2;
+      if (shouldAbort) {
+        const reason = singleExhausted ? 'singleInstanceCall' : 'perView>2';
+        console.error(`[529 ABORT] reason=${reason} exhausted=[${[..._exhaustedCalls].join(', ')}]`);
+        if (promoToken) {
+          await supabase.from('salvage_sessions').update({ status: 'promo_redeemed' }).eq('id', salvageId).eq('status', 'processing');
+        } else {
+          await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
+        }
+        if (paymentIntentId && chargeAmount) {
+          try {
+            const stripeInst = new Stripe(process.env.STRIPE_SECRET_KEY);
+            const refund = await stripeInst.refunds.create({ payment_intent: paymentIntentId, amount: chargeAmount });
+            console.log(`[529 ABORT] refund issued refundId=${refund.id} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
+          } catch (refErr) {
+            console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refErr.message);
+          }
+        }
+        return NextResponse.json({
+          aborted: true,
+          reason: 'overloaded',
+          message: "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.",
+        }, { status: 503 });
+      } else if (_exhaustedCalls.size > 0) {
+        console.log(`[529 OK] degraded-within-tolerance lostViews=${_pvExhaustedCount}`);
+      }
+    }
 
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
     // real repair line (action + finalised figure). Floored/flagged panels live in the
