@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
+import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const MARGIN = 20;
 const PAGE_W = 210;
@@ -521,14 +522,23 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
   sectionTitle('Damage Assessment');
-  // VDS — model-authored opening context paragraph + code-assembled per-panel blocks
-  // (_vdsParts, Step 4c). parseVdsParts().preamble extracts the opening paragraph and
-  // strips any stray PART: text; the per-panel section is fully code-owned. Falls back to
-  // flat fieldBlock only when neither is present.
+  // VDS — code-assembled Asset ID line + model standfirst + code-assembled per-panel blocks.
+  // (_vdsParts, Step 4c). parseVdsParts().preamble extracts the model standfirst and
+  // strips any stray PART: text; the per-panel section is fully code-owned.
   {
     const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
     const vdsParts = assessment._vdsParts || [];
-    if (!preamble && vdsParts.length === 0) {
+    const bodyStyle = assessment._bodyStyle || '';
+    const stickerSuffix = assessment._stickerSuffix || '';
+    const vendorEntry = stickerSuffix && stickerSuffix !== 'UNREADABLE'
+      ? (VENDOR_SUFFIX_MAP[stickerSuffix]?.vendorType
+          ? `${stickerSuffix} — ${VENDOR_SUFFIX_MAP[stickerSuffix].vendorType}`
+          : stickerSuffix)
+      : stickerSuffix === 'UNREADABLE' ? 'Vendor suffix not legible' : null;
+    const assetIdLine = bodyStyle
+      ? (vendorEntry ? `${bodyStyle}  ·  Vendor: ${vendorEntry}` : bodyStyle)
+      : null;
+    if (!preamble && vdsParts.length === 0 && !assetIdLine) {
       fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
     } else {
       checkPage(14);
@@ -537,6 +547,15 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setTextColor(100, 100, 100);
       doc.text('VISIBLE DAMAGE SUMMARY', MARGIN, y);
       y += 4;
+      if (assetIdLine) {
+        const assetLines = doc.splitTextToSize(str(assetIdLine).toUpperCase(), CONTENT_W);
+        checkPage(assetLines.length * 4.5 + 3);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(120, 120, 120);
+        for (const line of assetLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
+        y += 2;
+      }
       if (preamble) {
         const preambleLines = doc.splitTextToSize(str(preamble), CONTENT_W);
         checkPage(preambleLines.length * 4.5 + 4);

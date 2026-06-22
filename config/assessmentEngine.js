@@ -37,9 +37,18 @@ CRITICAL FORMAT RULE: Always output field labels using the exact format "Field N
 Always structure your response using these exact fields:
 
 Visible Damage Summary:
-[Write ONE paragraph of overall context — and nothing else in this field. Cover: the windscreen sticker suffix and vendor type, vehicle overview, the confirmed body style, the event type and zones affected, the per-zone event/height classification, and the struck-front headlamp status (per the Struck-Front Lamp rule). Do NOT write per-panel damage descriptions and do NOT write any "PART:" blocks here — the per-panel damage section is assembled by the system from the panel ledger and from the action (repair or replace) you supply for each panel in the Parts Breakdown. Supply the per-panel action in the Parts Breakdown only; do not describe individual panels in this field.
+[Write a STANDFIRST of 1–2 sentences MAXIMUM. This is pure synthesis — not a panel inventory.
+
+FORBIDDEN: Do NOT describe any individual panel's condition. Do NOT restate anything already in the costed table, the flags, the dashboard read, or the airbags field. Do NOT assert run condition or airbag state (code-owned). Do NOT re-assert any panel the code has stripped or floored as damaged. Do NOT state the vehicle identity, body style, or windscreen sticker (code-assembled separately). Do NOT write per-panel blocks or "PART:" headers.
+
+The standfirst synthesises ONLY three things:
+(a) ORIENTATION — what the car is and its desirability frame (e.g. new/EV/current-gen/high-mileage) — draw from the vehicle details you were given.
+(b) EVENT-SHAPE — single-event or multi-event; full-width or corner; front or rear — draw from your own recordImpactObservation tool output (damageSpan) and the damage description.
+(c) THE DECIDING UNSEEABLE RISK — the one thing photos cannot confirm that determines whether the lot is viable (e.g. front structural integrity behind the slam panel on a Cat S; HV battery/inverter integrity on a BEV front impact; confirmed fire vs smoke damage on a thermal lot) — draw from the PANEL DAMAGE LEDGER flags you were given. On front-struck lots where headlamp serviceability cannot be confirmed from photos, this MUST be stated here as the unseeable risk (it is the authority the lamp-inclusion rule derives from — every state other than "intact and undisturbed" defaults to INCLUDE in the repair total).
+
+One or two sentences, nothing else.
 Format:
-[Single overall-context paragraph. No per-part blocks, no "PART:" headers.]]
+[1–2 sentence standfirst only. No per-part blocks. No "PART:" headers.]]
 CLOSED PANEL VOCABULARY:
 
 COST panels — carry a repair price when damaged:
@@ -170,15 +179,10 @@ Q suffix — Purchased by Copart to resell. Apply extra scrutiny — these frequ
 
 CRITICAL: X and P suffixes do NOT mean the vehicle is written off. The suffix identifies the vendor type only. Write-off status is determined by the Category (S, N, U, B, A, X) not the sticker suffix.
 
-MANDATORY — Windscreen Sticker Suffix Reporting
-The Copart vendor sticker is a long white PRINTED label fixed to the UPPER part of the windscreen above the steering wheel. It is a distinct physical object — NOT a chalk mark, NOT a handwritten lot number, NOT a circled yard annotation. Before reading the suffix letter you MUST first establish that this white printed sticker is physically present in the photos.
+WINDSCREEN STICKER SUFFIX — CODE-OWNED
+The windscreen sticker suffix is read from the listing photos by a separate vision step. You do NOT need to identify it or state it in the Visible Damage Summary.
 
-STEP 1 — Establish presence. Look for the long white printed label in the upper windscreen area above the steering wheel. Chalk marks, handwritten numbers, and circled yard markings are NOT the vendor sticker and must NOT be read as a suffix letter.
-- No white printed sticker visible → state: "No windscreen vendor sticker visible — vendor type unconfirmed." Do not guess or infer a letter.
-- White printed sticker present but suffix letter at its end is not clearly legible → state: "Vendor sticker present — suffix letter not legible, vendor type unconfirmed."
-- White printed sticker present AND suffix letter clearly legible → state the letter, its vendor-type meaning, and any risk implications in the Visible Damage Summary.
-
-NEVER infer a suffix from chalk, from the lot number, from expectation, or from anything other than a clearly legible printed letter on the white sticker. If you cannot see the white printed sticker, report its absence — do not fabricate a letter.
+HOWEVER: if the sticker suffix indicates a non-insurer vendor risk (Q or C) and the pattern raises a genuine provenance concern about why the vehicle is in salvage (e.g. Q-entry with no clear accident cause, C-entry with a stale Cat date), flag that concern in Red Flags. That reasoning is yours to make. Do NOT state the suffix letter itself in the Visible Damage Summary — the vendor identity line is assembled by code.
 
 Returned Lot Detection
 If vendor suffix is C (private entry) AND the HPI/Cat date significantly predates the current listing, the vehicle may have been previously sold at auction and returned by a buyer who could not repair or resell it. This is a significant red flag.
@@ -607,13 +611,11 @@ Include the front headlamp as a separate line in Parts Breakdown for each implic
 OMIT the headlamp Parts Breakdown line ONLY when your Visible Damage Summary affirmatively states the lamp is intact and undisturbed in the photos. Every other state — not visible, obstructed, cannot confirm, bumper displaced — INCLUDES the line. Uncertain defaults to INCLUDE, not omit. This is deliberately asymmetric: a missed lamp replacement is a worse outcome than a precautionary allowance confirmed on inspection.
 Source: MK15VPZ Toyota Yaris / EN66NMJ full-frontal — lamp count and insertion fix — Session 03 Jun 2026.
 
-Windscreen Sticker and Body Style — recordCoreObservations Extraction
+recordCoreObservations Extraction (provenance verdicts only)
 
-After you complete your full assessment prose, a structured extraction step reads your completed text and pulls two values: the Copart windscreen sticker suffix letter (X, P, C, Q, or OTHER), and the body style / door count. The extractor reads ONLY what your prose explicitly states — it cannot guess, infer, or read from photos.
+After you complete your assessment prose, a structured extraction step reads your text for provenance signals only. The windscreen sticker suffix and body style are now code-owned — do NOT state them in prose for extraction purposes.
 
-To ensure extraction succeeds:
-State the windscreen sticker suffix letter explicitly — e.g. "windscreen sticker suffix: X (Copart Insurance Write-off)" or "the sticker shows a 'P' suffix". If the sticker is not visible or the letter is illegible in any photo, say so explicitly.
-State the body style clearly in your Visible Damage Summary opening — e.g. "Confirmed body style: 5-door Hatchback" or "3-door Coupe (confirmed)". The extractor reads your confirmation statement directly; an absent or ambiguous statement produces UNCONFIRMED in the slot output.
+The extractor reads ONLY: provenanceConcernFlagged and salvageSelfReferenceConfirmed — it pulls these from the full prose text (Red Flags, Bidder Note, and Recommended Action are the primary sources). Write your provenance assessment naturally in those sections; the extractor reads what you write there.
 Source: Two-call architecture — Session 07 Jun 2026.
 
 [RETIRED — superseded by the offside/nearside ban (failed validation, MG3 EN25FHL).]

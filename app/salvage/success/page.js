@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
+import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -603,15 +604,30 @@ export default function SalvageSuccessPage() {
                   </div>
                 )}
                 {(assessment['Visible Damage Summary'] || assessment._vdsParts?.length > 0) && (() => {
-                  // Opening context paragraph is model-authored (body style, sticker, zones,
-                  // headlamp status); parseVdsParts().preamble strips any stray PART: text.
-                  // The per-panel damage section is code-assembled (_vdsParts, Step 4c).
+                  // Asset ID line: code-assembled from Brego vehicle_desc + dash-read sticker.
+                  // Standfirst (1-2 sentences) is model-authored synthesis.
+                  // Per-panel section is code-assembled (_vdsParts, Step 4c).
                   const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
                   const vdsParts = assessment._vdsParts || [];
+                  const bodyStyle = assessment._bodyStyle || '';
+                  const stickerSuffix = assessment._stickerSuffix || '';
+                  const vendorEntry = stickerSuffix && stickerSuffix !== 'UNREADABLE'
+                    ? (VENDOR_SUFFIX_MAP[stickerSuffix]?.vendorType
+                        ? `${stickerSuffix} — ${VENDOR_SUFFIX_MAP[stickerSuffix].vendorType}`
+                        : stickerSuffix)
+                    : stickerSuffix === 'UNREADABLE' ? 'Vendor suffix not legible' : null;
+                  const assetIdLine = bodyStyle
+                    ? (vendorEntry ? `${bodyStyle}  ·  Vendor: ${vendorEntry}` : bodyStyle)
+                    : null;
                   return (
                     <div className="field-row">
                       <div className="field-key">Visible Damage Summary</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {assetIdLine && (
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {assetIdLine}
+                          </div>
+                        )}
                         {preamble && <div className="field-val">{preamble}</div>}
                         {vdsParts.map((p, i) => (
                           <div key={i}>

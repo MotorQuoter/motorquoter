@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  needsLampBackstop, assembleVdsParts, buildBuyerFlags,
+  assembleVdsParts, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -168,9 +168,9 @@ function tagSelfReference(shResult, vd) {
 // every CORE slot, per CC_Brief_CORE_SlotEngine_Phase1.md.
 // ---------------------------------------------------------------------------
 
-// Reads the windscreen-sticker letter the MODEL saw (vision-only — Vincent confirmed 06 Jun
-// the suffix is on the sticker photo, never in listing text) and resolves it through the
-// code-owned VENDOR_SUFFIX_MAP. source: 'model' so two-pass cross-checks the sticker read.
+// Reads the windscreen-sticker letter from coreObs.windscreenSticker (backfilled from the
+// vision dash-read after it awaits; no longer from Call-2 prose) and resolves it through
+// the code-owned VENDOR_SUFFIX_MAP.
 function resolveVendorSuffix(coreObs) {
   const sticker = coreObs.windscreenSticker || {};
   const visible = Boolean(sticker.visible);
@@ -233,37 +233,35 @@ function extractDoorCount(text) {
 // calling it "confirmed", imposing a stricter bar than the model applies to itself — the slot
 // said "unconfirmed — none clearly visible" while the prose said "3-door Coupe (confirmed)".)
 function buildBodyStyleSlot(enrichedVd, coreObs) {
-  const listing = (enrichedVd.bodyStyle || '').trim();
-  const observed = (coreObs.bodyStyle?.observed || '').trim();
-  const listingDoors = extractDoorCount(listing);
-  const observedDoors = extractDoorCount(observed);
+  // Source: Brego vehicle_desc (code-owned, populated for all GB lots with a live valuation
+  // call). Falls back to Copart listing bodyStyle (usually empty). Body-style mismatch comes
+  // from the vision dash-read cross-check, not from Call-2 prose.
+  const descriptor = (enrichedVd.bregoValuation?.vehicle_desc || enrichedVd.bodyStyle || '').trim();
+  const mismatch   = coreObs.bodyStyleMismatch || 'unclear';
 
-  if (!observed) {
+  if (!descriptor) {
     return buildSlot({
-      id: 'body-style', label: 'Body style matches listing',
+      id: 'body-style', label: 'Body style',
       kind: 'confirmation', verdict: 'unconfirmed',
-      detail: listing
-        ? `Listing says ${listing} — body style not clearly visible in the photos`
-        : 'No body style given on the listing and none clearly visible in the photos',
-      confidence: listing ? 'inferred' : 'hidden', source: 'code+model',
+      detail: 'No body style data available from valuation or listing sources',
+      confidence: 'hidden', source: 'code',
     });
   }
-  if (listing && listingDoors != null && observedDoors != null && listingDoors !== observedDoors) {
+  if (mismatch === 'mismatch') {
     return buildSlot({
-      id: 'body-style', label: 'Body style matches listing',
+      id: 'body-style', label: 'Body style',
       kind: 'confirmation', verdict: 'discrepancy',
-      detail: `Listing says ${listing} (${listingDoors}-door) — photos look like a ${observedDoors}-door ${observed}`,
+      detail: `Data describes ${descriptor} — but the photos appear to show a different vehicle type; verify identity before bidding`,
       confidence: 'visible', source: 'code+model',
-      flag: { severity: 'caution', whatsapp: `Listing says ${listingDoors}-door but the car in the photos looks like a ${observedDoors}-door — confirm the derivative/body style before bidding`, tier: 1 },
+      flag: { severity: 'red', whatsapp: `Body-style mismatch — data describes ${descriptor} but the photos appear to show a different vehicle type; verify vehicle identity before bidding`, tier: 1 },
     });
   }
   return buildSlot({
-    id: 'body-style', label: 'Body style matches listing',
+    id: 'body-style', label: 'Body style',
     kind: 'confirmation', verdict: 'confirmed',
-    detail: listing
-      ? `Listing: ${listing} · Photos: ${observed} — consistent`
-      : `Photos clearly show a ${observed} — listing carries no body style to compare against, but the photo read is confident`,
-    confidence: listing ? 'corroborated' : 'visible', source: 'code+model',
+    detail: descriptor,
+    confidence: mismatch === 'match' ? 'corroborated' : 'inferred',
+    source: 'code',
   });
 }
 
@@ -730,7 +728,10 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
   }
 }
 
-async function runDashClusterRead(images, onExhaust) {
+async function runDashClusterRead(images, onExhaust, vehicleDesc) {
+  const mismatchBlock = vehicleDesc
+    ? `\nBODY-STYLE CROSS-CHECK — one field only:\nYou are given this data descriptor for this vehicle: "${vehicleDesc}". Scan ALL photos. Does any photo CLEARLY show this is a different vehicle TYPE — e.g. the descriptor says hatchback but the car is unmistakably a van, lorry, or motorbike? This is a STRICT mismatch test: default "match" or "unclear" unless the contradiction is beyond any doubt. Borderline SUV-vs-hatchback = "unclear". Fire "mismatch" ONLY on unambiguous cross-type contradiction (identity risk).`
+    : '';
   const DASH_PROMPT = `You are reading instrument cluster state from salvage vehicle auction photos.
 
 Apply this three-step decision in order:
@@ -744,9 +745,16 @@ AIRBAG FIELD — three states, image-grounded only:
 - "warning-lit": cluster lit AND airbag warning telltale is visibly illuminated
 Do NOT infer airbag deployment from steering wheel damage or cabin trim — those are separate visual observations. Report only what the cluster telltale light shows.
 
+WINDSCREEN STICKER SUFFIX — one field only:
+Look for the long white PRINTED Copart vendor sticker on the UPPER windscreen above the steering wheel. NOT chalk marks, NOT handwritten lot numbers, NOT circled yard annotations.
+- No white printed sticker visible → sticker: ""
+- Sticker present but the suffix letter at its right end is not clearly legible → sticker: "UNREADABLE"
+- Sticker present AND suffix letter clearly legible → sticker: that single letter (one of: X, P, C, Q; use "OTHER" for any other letter)
+${mismatchBlock}
 Return a raw JSON object only — no markdown, no explanation, no surrounding text:
-{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe all lit icons when warning; empty string otherwise>", "airbag": "no-photo" | "not-lit" | "warning-lit" }`;
+{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe all lit icons when warning; empty string otherwise>", "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear" }`;
 
+  const FLOOR = { cluster: 'no-photo', telltales: '', airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear' };
   try {
     const imageBlocks = images.slice(0, 20).map(img => {
       let mediaType = 'image/jpeg';
@@ -765,21 +773,25 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
       }),
     }));
-    if (exhausted) { onExhaust?.(); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
-    if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
+    if (exhausted) { onExhaust?.(); return FLOOR; }
+    if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return FLOOR; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting no-photo'); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting floor'); return FLOOR; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' }; }
+    if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return FLOOR; }
     const parsed = JSON.parse(match[0]);
     const cluster = ['no-photo', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
     const airbag  = ['no-photo', 'not-lit', 'warning-lit'].includes(parsed.airbag) ? parsed.airbag : 'no-photo';
-    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '', airbag };
+    const rawSticker = typeof parsed.sticker === 'string' ? parsed.sticker.trim().toUpperCase() : '';
+    const VALID_STICKER = ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE', ''];
+    const sticker = VALID_STICKER.includes(rawSticker) ? rawSticker : 'UNREADABLE';
+    const bodyStyleMismatch = ['match', 'mismatch', 'unclear'].includes(parsed.bodyStyleMismatch) ? parsed.bodyStyleMismatch : 'unclear';
+    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '', airbag, sticker, bodyStyleMismatch };
   } catch (err) {
     console.warn('[DASH READ] error:', err.message);
-    return { cluster: 'no-photo', telltales: '', airbag: 'no-photo' };
+    return FLOOR;
   }
 }
 
@@ -1961,7 +1973,7 @@ export async function GET(request) {
       ? runLampDetection(images, () => _exhaustedCalls.add('lamp-detect'))
       : Promise.resolve(null);
     // Fire dash cluster read on ALL lots (not gated on isBev or frontStruck) — joins in post-call region
-    const dashReadPromise = runDashClusterRead(images, () => _exhaustedCalls.add('dash-read'));
+    const dashReadPromise = runDashClusterRead(images, () => _exhaustedCalls.add('dash-read'), enrichedVd.bregoValuation?.vehicle_desc || null);
 
     // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
     const perViewResults = await perViewResultsPromise;
@@ -2063,32 +2075,15 @@ export async function GET(request) {
     }
 
     // Call 2 — Haiku structured extraction from committed prose
-    // Text-only (no images re-sent), forced tool_choice. Extracts windscreenSticker + bodyStyle
-    // from the prose Call 1 just produced. Structurally decoupled: slots derive from prose
-    // conclusions, cannot diverge from what the model actually wrote.
+    // Text-only (no images re-sent), forced tool_choice. Extracts provenance verdicts and
+    // per-zone damage classification from Call-1 prose. windscreenSticker and bodyStyle are
+    // now code-owned (dash-read vision + Brego vehicle_desc) — no longer extracted here.
     const CORE_EXTRACTION_TOOL = {
       name: 'recordCoreObservations',
-      description: 'Extract windscreen sticker suffix letter, body style, two prose-faithfulness verdicts, and per-zone damage event classification from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
+      description: 'Extract two provenance-faithfulness verdicts and per-zone damage event classification from the assessment text below. Transcribe exactly what the assessment states — do not interpret, infer, or add anything beyond what is written.',
       input_schema: {
         type: 'object',
         properties: {
-          windscreenSticker: {
-            type: 'object',
-            description: 'The Copart vendor sticker — the long white PRINTED label on the upper windscreen. Chalk marks and handwritten lot numbers are NOT this sticker.',
-            properties: {
-              visible: { type: 'boolean', description: 'true ONLY if the assessment explicitly confirms the white printed vendor sticker is physically present on the windscreen. false if the assessment states the sticker is absent, not visible, chalk-only, or "vendor type unconfirmed" without establishing the sticker.' },
-              suffixLetter: { type: 'string', enum: ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE'], description: 'The suffix letter at the right end of the printed sticker. Set UNREADABLE when visible is false, or when the sticker is present but the letter is not legible in the assessment.' },
-            },
-            required: ['visible', 'suffixLetter'],
-          },
-          bodyStyle: {
-            type: 'object',
-            properties: {
-              observed: { type: 'string' },
-              doorCountVisible: { type: 'boolean' },
-            },
-            required: ['observed', 'doorCountVisible'],
-          },
           provenanceConcernFlagged: {
             type: 'boolean',
             description: 'Set true ONLY if the assessment explicitly raises a concern about why this vehicle is in salvage, the vendor entry channel (Q- or C-suffix non-insurer risk, Copart re-entry risk), or uses language such as "establish why before bidding" or "provenance concern". Set false if the assessment is silent on provenance risk or gives the vehicle a clean provenance read. Default false when uncertain.',
@@ -2123,7 +2118,7 @@ export async function GET(request) {
             },
           },
         },
-        required: ['windscreenSticker', 'bodyStyle', 'provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone'],
+        required: ['provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone'],
       },
     };
 
@@ -2138,7 +2133,7 @@ export async function GET(request) {
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract the windscreen sticker, body style, provenance verdicts, and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
+          content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
         }],
       }),
     }));
@@ -2162,32 +2157,24 @@ export async function GET(request) {
       console.log('[CALL2] raw tool_use input:', JSON.stringify(call2ToolBlock.input));
       const inp = call2ToolBlock.input;
       coreObs = {
-        windscreenSticker: {
-          visible:      Boolean(inp.windscreenSticker?.visible),
-          suffixLetter: inp.windscreenSticker?.suffixLetter || 'UNREADABLE',
-        },
-        bodyStyle: {
-          observed:         inp.bodyStyle?.observed || '',
-          doorCountVisible: Boolean(inp.bodyStyle?.doorCountVisible),
-        },
         corners: [],
         proseFlags: {
-          provenanceConcernFlagged:     typeof inp.provenanceConcernFlagged === 'boolean'     ? inp.provenanceConcernFlagged     : null,
+          provenanceConcernFlagged:      typeof inp.provenanceConcernFlagged === 'boolean'      ? inp.provenanceConcernFlagged      : null,
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
         perZone: Array.isArray(inp.perZone) ? inp.perZone : [],
       };
-      console.log(`[CALL2] extracted sticker=${coreObs.windscreenSticker.suffixLetter}(visible=${coreObs.windscreenSticker.visible}) bodyStyle="${coreObs.bodyStyle.observed}" provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
+      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
     }
 
     // Guarantee CORE observations — floor defaults if Call 2 failed to return a tool block.
+    // windscreenSticker and bodyStyleMismatch are NOT in this floor — they are backfilled
+    // from the vision dash-read (runDashClusterRead) after it awaits at line ~2498.
     if (!coreObs) {
       coreObs = {
-        windscreenSticker: { visible: false, suffixLetter: 'UNREADABLE' },
-        bodyStyle: { observed: '', doorCountVisible: false },
         corners: [],
         proseFlags: { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null },
         perZone:     [],
@@ -2206,12 +2193,13 @@ export async function GET(request) {
         : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
     }
 
-    // Layer 2 backstop (item 14): perZone identifies front/impact but no lampObs from Call 1.
+    // Layer 2 backstop (item 14): frontStruck=true but no lampObs from Call 1.
+    // Migrated from perZone-based trigger to code-owned frontStruck — no prose dependency.
     // Uses the full Call-1 thread (Opus — thread carries 1568px images, Haiku-safe resize not applicable).
     // Expected input: ~22–33K tokens (system prefix cached + messages thread). max_tokens=512 covers
     // one tool_use block; observed backstop output at BL75JAU iter=0: 97 tokens.
-    if (!_exhaustedCalls.has('call1') && needsLampBackstop(coreObs.perZone, lampObs)) {
-      console.log('[LAMP] Layer 2 backstop triggered — front/impact in perZone, no observation from Call 1');
+    if (!_exhaustedCalls.has('call1') && frontStruck && !lampObs) {
+      console.log('[LAMP] Layer 2 backstop triggered — frontStruck=true, no Call-1 lamp observation');
       const { res: backstopRes, exhausted: backstopExhausted } = await with529Retry('backstop', () => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -2494,11 +2482,29 @@ export async function GET(request) {
     }
 
     // EV-integrity Step 3 — dash/cluster read (ran in parallel with main call, joins here).
-    // Fires on ALL lots; not gated on isBev. Three states only: no-photo | clean | warning.
+    // Fires on ALL lots; not gated on isBev. Now also extracts sticker suffix + body-style
+    // mismatch (Part C) so Call-2 no longer mines prose for those values.
     const dashRead = await dashReadPromise;
     assessment._dashState  = dashRead.cluster;
     assessment._airbagState = dashRead.airbag;
     console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales="${dashRead.telltales}"`);
+
+    // Part B — body-style owner: Brego vehicle_desc (code-owned for all GB lots with a live
+    // valuation call). Degrades gracefully to make/model/year if vehicle_desc absent (~7%
+    // of lots where Brego is unavailable). Never fabricates a class word.
+    assessment._bodyStyle = enrichedVd.bregoValuation?.vehicle_desc ||
+      [enrichedVd.make, enrichedVd.model, enrichedVd.year].filter(Boolean).join(' ') || null;
+
+    // Part C — sticker suffix from vision dash-read (migrated from Call-2 prose extraction).
+    // Backfill coreObs.windscreenSticker so resolveVendorSuffix() works unchanged downstream.
+    const _rawSticker = dashRead.sticker || '';
+    assessment._stickerSuffix = _rawSticker || 'UNREADABLE';
+    coreObs.windscreenSticker = {
+      visible:      Boolean(_rawSticker && _rawSticker !== 'UNREADABLE'),
+      suffixLetter: _rawSticker || 'UNREADABLE',
+    };
+    coreObs.bodyStyleMismatch = dashRead.bodyStyleMismatch || 'unclear';
+    console.log(`[BODY/STICKER] bodyStyle="${assessment._bodyStyle}" stickerSuffix=${assessment._stickerSuffix} bodyStyleMismatch=${coreObs.bodyStyleMismatch}`);
 
     // Assemble code-owned dashboard line (replaces model VDS cluster assertion).
     const _dashLine = dashRead.cluster === 'warning'
