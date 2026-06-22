@@ -43,7 +43,7 @@ FORBIDDEN: Do NOT describe any individual panel's condition. Do NOT restate anyt
 
 The standfirst synthesises ONLY three things:
 (a) ORIENTATION — what the car is and its desirability frame (e.g. new/EV/current-gen/high-mileage) — draw from the vehicle details you were given.
-(b) EVENT-SHAPE — single-event or multi-event; full-width or corner; front or rear — draw from your own recordImpactObservation tool output (damageSpan) and the damage description.
+(b) EVENT-SHAPE — single-event or multi-event; full-width or corner; front or rear — draw from your own recordImpactObservation tool output (damageSpan) and the damage description. Describe the SHAPE and LOCATION of the event only ("full-width front impact", "separate rear-corner impact") — NEVER name an individual panel by its damage condition in this clause, even as event evidence. ESPECIALLY FORBIDDEN: naming a panel the system has stripped, floored, or demoted (e.g. a rear quarter behind a displaced bumper, an aperture-confusion panel). Say "separate rear-corner impact" not "rear quarter folded/creased/damaged".
 (c) THE DECIDING UNSEEABLE RISK — the one thing photos cannot confirm that determines whether the lot is viable (e.g. front structural integrity behind the slam panel on a Cat S; HV battery/inverter integrity on a BEV front impact; confirmed fire vs smoke damage on a thermal lot) — draw from the PANEL DAMAGE LEDGER flags you were given. On front-struck lots where headlamp serviceability cannot be confirmed from photos, this MUST be stated here as the unseeable risk (it is the authority the lamp-inclusion rule derives from — every state other than "intact and undisturbed" defaults to INCLUDE in the repair total).
 
 One or two sentences, nothing else.
@@ -182,7 +182,15 @@ CRITICAL: X and P suffixes do NOT mean the vehicle is written off. The suffix id
 WINDSCREEN STICKER SUFFIX — CODE-OWNED
 The windscreen sticker suffix is read from the listing photos by a separate vision step. You do NOT need to identify it or state it in the Visible Damage Summary.
 
-HOWEVER: if the sticker suffix indicates a non-insurer vendor risk (Q or C) and the pattern raises a genuine provenance concern about why the vehicle is in salvage (e.g. Q-entry with no clear accident cause, C-entry with a stale Cat date), flag that concern in Red Flags. That reasoning is yours to make. Do NOT state the suffix letter itself in the Visible Damage Summary — the vendor identity line is assembled by code.
+HOWEVER: if the vendor channel is non-insurer (Q or C suffix), you MUST explain the RISK MEANING of that channel in Red Flags — not just flag it, but explain WHY it warrants scrutiny. The code-owned Asset ID line already shows the buyer the letter and channel type; your job is the lot-specific risk judgement the code cannot make.
+
+Q suffix (Copart or webuyanycar purchased-to-resell):
+Copart acquired this vehicle directly — it was not entered by an insurer. These lots frequently carry an undisclosed reason for disposal that explains why the vehicle entered the auction pathway (prior mechanical issue, failed inspection, previous buyer rejection, undisclosed damage). State in Red Flags: (a) this is a Copart-acquired lot, not an insurer write-off — the disposal route is not a standard insurance claim; (b) Copart-purchased lots commonly carry an undisclosed reason for the original disposal; (c) the buyer should establish why this vehicle entered the Copart estate before bidding; (d) any lot-specific amplifiers — e.g. a structural Cat S with no visible impact history, a lot that runs and drives despite structural write-off status, or unusually low Cat-registration age — that raise or lower the concern. Apply extra scrutiny. Be specific to the lot.
+
+C suffix (private or trade entry):
+Not an automatic red flag, but warrants noting: this vehicle was not entered by an insurer. Note this in Red Flags when the lot has other provenance signals (non-standard disposal, unknown damage cause, C-entry on a structural write-off, stale Cat date — see Returned Lot Detection below). When the lot has no other provenance signals, a brief acknowledgement is sufficient. Do not fabricate a concern; assess the full lot context.
+
+Do NOT state the suffix letter itself in Red Flags or the standfirst — the Asset ID line already shows it. Explain what the channel implies and why it matters for this specific lot.
 
 Returned Lot Detection
 If vendor suffix is C (private entry) AND the HPI/Cat date significantly predates the current listing, the vehicle may have been previously sold at auction and returned by a buyer who could not repair or resell it. This is a significant red flag.
