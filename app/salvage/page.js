@@ -36,8 +36,20 @@ export default function SalvagePage() {
   const [zipAssessmentId, setZipAssessmentId] = useState('');
   const [zipDragging, setZipDragging] = useState(false);
   const [vrnAutoFilled, setVrnAutoFilled] = useState(false);
+  const [pendingSubmit, setPendingSubmit] = useState(false);
 
   const price = PRICING.salvageAssessment.price;
+
+  // Auto-proceed: if submit was attempted while zip was still extracting, fire it
+  // the moment extraction finishes. Clears on error so a retry is needed.
+  useEffect(() => {
+    if (zipStatus === 'ready' && pendingSubmit) {
+      setPendingSubmit(false);
+      handleSubmit();
+    } else if (zipStatus === 'error' && pendingSubmit) {
+      setPendingSubmit(false);
+    }
+  }, [zipStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -218,8 +230,16 @@ export default function SalvagePage() {
   };
 
   const handleSubmit = async () => {
+    if (zipStatus === 'extracting') {
+      setPendingSubmit(true);
+      return;
+    }
+    if (zipStatus === 'error') {
+      setError(zipError || 'Zip extraction failed — tap the zip zone to retry.');
+      return;
+    }
     if (zipImagePaths.length === 0 && images.length === 0) {
-      setError('Please drop the Copart zip or upload photos.');
+      setError('Drop the Copart zip or upload photos to continue.');
       return;
     }
     setError('');
@@ -701,9 +721,17 @@ export default function SalvagePage() {
           <button
             className="btn-pay"
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || zipStatus === 'extracting'}
           >
-            {loading ? '⏳ Saving...' : isRerun ? '↺ Re-run Assessment (free)' : appliedPromo?.discount_type === 'free' ? '🎟 Redeem & Assess' : `🔨 Pay £${price.toFixed(2)} and Assess`}
+            {loading
+              ? '⏳ Saving...'
+              : zipStatus === 'extracting'
+                ? '⏳ Loading photos…'
+                : isRerun
+                  ? '↺ Re-run Assessment (free)'
+                  : appliedPromo?.discount_type === 'free'
+                    ? '🎟 Redeem & Assess'
+                    : `🔨 Pay £${price.toFixed(2)} and Assess`}
           </button>
         </div>
 
