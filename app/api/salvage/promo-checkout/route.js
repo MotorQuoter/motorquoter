@@ -52,11 +52,27 @@ export async function POST(request) {
       return NextResponse.json({ error: 'This code is not valid for this product' }, { status: 400 });
     }
 
-    // Increment uses immediately — before session creation to prevent double-use on retry
-    await supabase
-      .from('promo_codes')
-      .update({ uses_so_far: promo.uses_so_far + 1 })
-      .eq('code', code);
+    // Atomic conditional increment using optimistic concurrency.
+    // For limited codes the WHERE clause pins the value we read; if another concurrent request
+    // already incremented, the update matches 0 rows → we reject rather than double-counting.
+    if (promo.max_uses !== null) {
+      const { data: claimed } = await supabase
+        .from('promo_codes')
+        .update({ uses_so_far: promo.uses_so_far + 1 })
+        .eq('code', code)
+        .eq('active', true)
+        .eq('uses_so_far', promo.uses_so_far)
+        .select('code')
+        .maybeSingle();
+      if (!claimed) {
+        return NextResponse.json({ error: 'Promo code has no uses remaining' }, { status: 400 });
+      }
+    } else {
+      await supabase
+        .from('promo_codes')
+        .update({ uses_so_far: promo.uses_so_far + 1 })
+        .eq('code', code);
+    }
 
     const promoToken = randomUUID();
     const roiTierKey = market === 'IE' ? (roiTier || 'roi_free') : null;
