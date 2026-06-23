@@ -815,7 +815,7 @@ const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-
 const EV_BATTERY_REASON_RUNS        = "Runs and drives — strong indication the HV battery is present and live (an EV can't move under its own power without it); confirm by diagnostic on inspection.";
 const EV_BATTERY_REASON_UNCONFIRMED = 'EV traction battery presence not confirmable remotely — verify the pack is fitted and reports voltage before bidding; a removed or damaged HV battery is the largest single value risk on a salvage EV.';
 
-const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
+export const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
 For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
 
