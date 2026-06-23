@@ -21,8 +21,8 @@ export async function POST(request) {
   if (!assessmentId || !UUID_RE.test(assessmentId)) {
     return NextResponse.json({ error: 'Invalid assessment ID' }, { status: 400 });
   }
-  if (!Number.isInteger(count) || count < 1 || count > 20) {
-    return NextResponse.json({ error: 'count must be 1–20' }, { status: 400 });
+  if (!Number.isInteger(count) || count < 1 || count > 35) {
+    return NextResponse.json({ error: 'count must be 1–35' }, { status: 400 });
   }
 
   const supabase = getSupabase();
