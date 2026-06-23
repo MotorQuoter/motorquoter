@@ -19,6 +19,7 @@ import {
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
+import { derivePriceBand } from '@/lib/priceBand.mjs';
 
 export const maxDuration = 300;
 
@@ -2422,7 +2423,14 @@ export async function GET(request) {
     const grilleAllowance     = (grilleIsMissing && !grilleAlreadyPriced) ? 250 : 0;
     if (grilleAllowance > 0) console.log('[GRILLE BAND] front grille established missing, not in main-call Parts Breakdown — queuing £250 allowance');
 
-    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance);
+    const bandKey = derivePriceBand(enrichedVd.bregoValuation?.trade_average_valuation ?? null);
+    if (bandKey) {
+      console.log(`[PRICE TABLE] band=${bandKey} (trade_avg=£${enrichedVd.bregoValuation.trade_average_valuation})`);
+    } else {
+      console.log('[PRICE TABLE] no trade_average_valuation — all panels retain model figures (Q2 fallback)');
+    }
+
+    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
