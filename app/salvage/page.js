@@ -26,6 +26,16 @@ export default function SalvagePage() {
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoError, setPromoError] = useState(null);
   const fileInputRef = useRef(null);
+  const zipFileInputRef = useRef(null);
+
+  // Zip ingest state
+  const [zipStatus, setZipStatus] = useState(''); // '' | 'extracting' | 'ready' | 'error'
+  const [zipError, setZipError] = useState('');
+  const [zipLotNumber, setZipLotNumber] = useState(null);
+  const [zipImagePaths, setZipImagePaths] = useState([]);
+  const [zipAssessmentId, setZipAssessmentId] = useState('');
+  const [zipDragging, setZipDragging] = useState(false);
+  const [vrnAutoFilled, setVrnAutoFilled] = useState(false);
 
   const price = PRICING.salvageAssessment.price;
 
@@ -152,41 +162,106 @@ export default function SalvagePage() {
     }
   };
 
+  // ── Paste-in helpers ───────────────────────────────────────────────────
+  function extractVrnFromText(text) {
+    const m = text.match(/VRN:\s*\n?\s*([A-Z0-9]{2,9})/i);
+    return m ? m[1].toUpperCase().replace(/\s+/g, '') : null;
+  }
+
+  function extractLotFromText(text) {
+    const m = text.match(/Lot number:\s*\n?\s*(\d+)/i);
+    return m ? m[1] : null;
+  }
+
+  const handleDescriptionChange = (text) => {
+    const vrn = extractVrnFromText(text);
+    const lot = extractLotFromText(text);
+    setDetails(p => ({
+      ...p,
+      damageDescription: text,
+      ...(vrn && !p.vrm ? { vrm: vrn } : {}),
+      ...(lot && !p.lotNumber ? { lotNumber: lot } : {}),
+    }));
+    if (vrn && !details.vrm) {
+      setVrnAutoFilled(true);
+      setDvlaStatus('');
+      handleVrmLookup(vrn);
+    }
+  };
+
+  const handleZipFile = async (file) => {
+    if (!file || !/\.zip$/i.test(file.name)) {
+      setZipError('Please drop a .zip file (the Copart download)');
+      setZipStatus('error');
+      return;
+    }
+    const id = crypto.randomUUID();
+    setZipAssessmentId(id);
+    setZipStatus('extracting');
+    setZipError('');
+    setZipLotNumber(null);
+    setZipImagePaths([]);
+    try {
+      const fd = new FormData();
+      fd.append('zip', file);
+      fd.append('assessmentId', id);
+      const res = await fetch('/api/salvage/extract-zip', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Zip extraction failed');
+      setZipImagePaths(data.imagePaths || []);
+      setZipLotNumber(data.zipLotNumber || null);
+      setZipStatus('ready');
+    } catch (e) {
+      setZipStatus('error');
+      setZipError(e.message || 'Failed to process zip');
+    }
+  };
+
   const handleSubmit = async () => {
-    if (images.length === 0) { setError('Please upload at least one photo of the vehicle.'); return; }
+    if (zipImagePaths.length === 0 && images.length === 0) {
+      setError('Please drop the Copart zip or upload photos.');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      // Step 1: generate a UUID for this upload batch and get signed upload URLs
-      const assessmentId = crypto.randomUUID();
-      const urlRes = await fetch('/api/salvage/upload-urls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessmentId, count: images.length }),
-      });
-      if (!urlRes.ok) {
-        const ct = urlRes.headers.get('content-type') || '';
-        const msg = ct.includes('application/json') ? (await urlRes.json()).error : null;
-        throw new Error(msg || 'Failed to prepare image upload');
-      }
-      const { uploadUrls } = await urlRes.json();
+      let assessmentId, imagePaths;
 
-      // Step 2: upload all images in parallel — a failed upload aborts the whole run
-      const imagePaths = await Promise.all(images.map(async (img, i) => {
-        const { path, uploadUrl } = uploadUrls[i];
-        const blob = await fetch(img.base64).then(r => r.blob());
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'image/jpeg' },
-          body: blob,
+      if (zipImagePaths.length > 0) {
+        // Zip path — images already stored during drop
+        assessmentId = zipAssessmentId;
+        imagePaths = zipImagePaths;
+      } else {
+        // Legacy individual upload path
+        assessmentId = crypto.randomUUID();
+        const urlRes = await fetch('/api/salvage/upload-urls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assessmentId, count: images.length }),
         });
-        if (!uploadRes.ok) {
-          throw new Error(`Failed to upload image ${i + 1} of ${images.length} — please try again`);
+        if (!urlRes.ok) {
+          const ct = urlRes.headers.get('content-type') || '';
+          const msg = ct.includes('application/json') ? (await urlRes.json()).error : null;
+          throw new Error(msg || 'Failed to prepare image upload');
         }
-        return path;
-      }));
+        const { uploadUrls } = await urlRes.json();
 
-      // Step 3: proceed to checkout/promo/rerun with storage paths (a few KB regardless of image count)
+        imagePaths = await Promise.all(images.map(async (img, i) => {
+          const { path, uploadUrl } = uploadUrls[i];
+          const blob = await fetch(img.base64).then(r => r.blob());
+          const uploadRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'image/jpeg' },
+            body: blob,
+          });
+          if (!uploadRes.ok) {
+            throw new Error(`Failed to upload image ${i + 1} of ${images.length} — please try again`);
+          }
+          return path;
+        }));
+      }
+
+      // Proceed to checkout/promo/rerun with storage paths
       const vehicleDetails = {
         ...details,
         copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null,
@@ -369,6 +444,99 @@ export default function SalvagePage() {
             <div className="cancel-box">Payment cancelled — your photos are still saved. You can try again below.</div>
           )}
 
+          {/* Copart Listing paste box */}
+          <div>
+            <div className="field-label">Copart Listing <span>(paste the whole page — VRM and lot extracted automatically)</span></div>
+            <textarea
+              className="textarea-input"
+              style={{ minHeight: 160 }}
+              placeholder={'Select All on the Copart listing page (Ctrl+A / Cmd+A), then paste here.\n\nVRM, lot number, and damage details are extracted automatically.'}
+              value={details.damageDescription}
+              onChange={e => handleDescriptionChange(e.target.value)}
+            />
+            {vrnAutoFilled && details.vrm && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                Auto-extracted — VRM: <strong style={{ color: 'var(--text)' }}>{details.vrm}</strong>{details.lotNumber ? ` · Lot: ${details.lotNumber}` : ''}
+              </div>
+            )}
+          </div>
+
+          {/* Photos — ZIP drop zone */}
+          <div>
+            <div className="field-label">Photos <span>(drop the Copart zip — no extraction needed)</span></div>
+            <div
+              className={`upload-zone ${zipDragging ? 'dragging' : ''}`}
+              onDrop={e => { e.preventDefault(); setZipDragging(false); if (e.dataTransfer.files[0]) handleZipFile(e.dataTransfer.files[0]); }}
+              onDragOver={e => { e.preventDefault(); setZipDragging(true); }}
+              onDragLeave={() => setZipDragging(false)}
+              onClick={() => zipStatus !== 'extracting' && zipFileInputRef.current?.click()}
+              style={{ cursor: zipStatus === 'extracting' ? 'wait' : 'pointer' }}
+            >
+              {zipStatus === '' && (
+                <>
+                  <div className="upload-icon">🗜</div>
+                  <div className="upload-title">Drop Copart zip here or tap</div>
+                  <div className="upload-sub">Drag the downloaded zip directly — no need to extract</div>
+                </>
+              )}
+              {zipStatus === 'extracting' && (
+                <>
+                  <div className="upload-icon">⏳</div>
+                  <div className="upload-title">Extracting photos…</div>
+                  <div className="upload-sub">Uploading images from zip</div>
+                </>
+              )}
+              {zipStatus === 'ready' && (
+                <>
+                  <div className="upload-icon">✓</div>
+                  <div className="upload-title">{zipImagePaths.length} photos ready</div>
+                  {zipLotNumber && <div className="upload-sub">Lot {zipLotNumber} · tap to replace</div>}
+                </>
+              )}
+              {zipStatus === 'error' && (
+                <>
+                  <div className="upload-icon">⚠</div>
+                  <div className="upload-title">Zip failed — tap to retry</div>
+                  <div className="upload-sub" style={{ color: '#f87171' }}>{zipError}</div>
+                </>
+              )}
+            </div>
+            <input
+              ref={zipFileInputRef}
+              type="file"
+              accept=".zip"
+              style={{ display: 'none' }}
+              onChange={e => { if (e.target.files[0]) handleZipFile(e.target.files[0]); e.target.value = ''; }}
+            />
+            {/* Lot cross-check warning */}
+            {zipLotNumber && details.lotNumber && zipLotNumber !== details.lotNumber && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#f5c842', padding: '8px 12px', background: 'rgba(245,200,66,0.08)', borderRadius: 8, border: '1px solid rgba(245,200,66,0.2)' }}>
+                ⚠ Photos are for lot {zipLotNumber} but the pasted description shows lot {details.lotNumber} — check you have the right listing.
+              </div>
+            )}
+            {/* Individual photo fallback */}
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+              >
+                or upload individual photos instead
+              </button>
+              {images.length > 0 && (
+                <span style={{ fontSize: 11, color: 'var(--orange)', marginLeft: 8 }}>{images.length} photo{images.length !== 1 ? 's' : ''} selected</span>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={e => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ''; }}
+              />
+            </div>
+          </div>
+
           {/* Auction Source */}
           <div>
             <div className="field-label">Auction Source</div>
@@ -382,52 +550,6 @@ export default function SalvagePage() {
               <option value="manheim">Manheim</option>
               <option value="other">Other / Private</option>
             </select>
-          </div>
-
-          {/* Photo upload */}
-          <div>
-            <div className="field-label">
-              Photos <span>(min 1, max 20 — drag & drop or click)</span>
-            </div>
-
-            <div
-              className={`upload-zone ${dragging ? 'dragging' : ''} ${images.length > 0 ? 'has-images' : ''}`}
-              onDrop={onDrop}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onClick={() => images.length === 0 && fileInputRef.current?.click()}
-            >
-              {images.length === 0 ? (
-                <>
-                  <div className="upload-icon">📸</div>
-                  <div className="upload-title">Drop photos here or tap to upload</div>
-                  <div className="upload-sub">All listing photos — exterior, interior, engine, dashboard</div>
-                </>
-              ) : (
-                <>
-                  <div className="photo-grid">
-                    {images.map((img, idx) => (
-                      <div key={idx} className="photo-thumb">
-                        <img src={img.base64} alt={`Photo ${idx + 1}`} />
-                        <button className="photo-remove" onClick={(e) => { e.stopPropagation(); removeImage(idx); }}>✕</button>
-                      </div>
-                    ))}
-                    {images.length < 20 && (
-                      <div className="add-more" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>+</div>
-                    )}
-                  </div>
-                  <div className="upload-count">{images.length} / 20 photos</div>
-                </>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              style={{ display: 'none' }}
-              onChange={(e) => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ''; }}
-            />
           </div>
 
           {/* Vehicle details */}
@@ -528,12 +650,6 @@ export default function SalvagePage() {
                 />
                 <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>Enter the mileage shown on the Copart listing. If blank, we'll use the last MOT mileage from DVSA.</div>
               </div>
-              <textarea
-                className="textarea-input"
-                placeholder="Damage description (copy from listing — helps AI compare against photos)"
-                value={details.damageDescription}
-                onChange={e => setDetails(p => ({ ...p, damageDescription: e.target.value }))}
-              />
             </div>
           </div>
 
