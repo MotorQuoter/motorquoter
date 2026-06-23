@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 
 export const maxDuration = 300;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,18 +13,32 @@ function getSupabase() {
 }
 
 export async function POST(request) {
-  const { salvage_id } = await request.json();
-  if (!salvage_id) return NextResponse.json({ error: 'Missing salvage_id' }, { status: 400 });
+  let body;
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  }
+
+  const { salvage_id, session_id, promo_token } = body;
+  if (!salvage_id || !UUID_RE.test(String(salvage_id))) {
+    return NextResponse.json({ error: 'Missing or invalid salvage_id' }, { status: 400 });
+  }
 
   const supabase = getSupabase();
 
   const { data, error } = await supabase
     .from('salvage_sessions')
-    .select('rerun_count, assessment')
+    .select('rerun_count, assessment, stripe_session_id, vehicle_details')
     .eq('id', salvage_id)
     .single();
 
   if (error || !data) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+
+  // Ownership: caller must supply a credential that matches the stored session record
+  const ownsViaStripe = session_id && data.stripe_session_id && data.stripe_session_id === session_id;
+  const ownsViaPromo  = promo_token && data.vehicle_details?.promoToken && data.vehicle_details.promoToken === promo_token;
+  if (!ownsViaStripe && !ownsViaPromo) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 403 });
+  }
 
   const currentCount = data.rerun_count ?? 0;
   if (currentCount >= 1) return NextResponse.json({ error: 'Re-run limit reached' }, { status: 403 });

@@ -169,7 +169,10 @@ export default function SalvageSuccessPage() {
       const res = await fetch('/api/salvage/rerun', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salvage_id: salvageIdRef.current }),
+        body: JSON.stringify({
+          salvage_id: salvageIdRef.current,
+          ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -192,15 +195,13 @@ export default function SalvageSuccessPage() {
     if (!assessment) return;
     setPdfLoading(true);
     try {
-      const vd = vehicleDetails || {};
-      const identifier = vd.vrm || vd.lotNumber || [vd.make, vd.model, vd.year].filter(Boolean).join(' ') || 'Salvage';
-      const assessmentForPdf = { ...assessment };
-      delete assessmentForPdf._raw;
-      delete assessmentForPdf._market;
       const res = await fetch('/api/salvage/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment: assessmentForPdf, vehicleDetails: vd, market, identifier, bregoData: bregoData || null }),
+        body: JSON.stringify({
+          salvage_id: salvageIdRef.current,
+          ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
+        }),
       });
       if (!res.ok) throw new Error('PDF generation failed');
       const buf = await res.arrayBuffer();
@@ -209,7 +210,9 @@ export default function SalvageSuccessPage() {
       const now = new Date();
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       const datePart = `${now.getDate()}${months[now.getMonth()]}${now.getFullYear()}`;
-      const ref = (identifier).replace(/\s+/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'Salvage';
+      const vd = vehicleDetails || {};
+      const ref = (vd.vrm || vd.lotNumber || [vd.make, vd.model, vd.year].filter(Boolean).join(' ') || 'Salvage')
+        .replace(/\s+/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'Salvage';
       link.href = URL.createObjectURL(blob);
       link.download = `${ref}Assessment${datePart}.pdf`;
       link.click();

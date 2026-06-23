@@ -1,6 +1,14 @@
 import { jsPDF } from 'jspdf';
+import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
 
 const MARGIN = 20;
 const PAGE_W = 210;
@@ -869,25 +877,58 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
 export async function POST(request) {
   try {
-    const { assessment, vehicleDetails, market, identifier, bregoData } = await request.json();
-    if (!assessment) {
-      return Response.json({ error: 'Missing assessment data' }, { status: 400 });
+    let body;
+    try { body = await request.json(); } catch {
+      return Response.json({ error: 'Invalid request body' }, { status: 400 });
     }
+
+    const { salvage_id, session_id, promo_token } = body;
+    if (!salvage_id) {
+      return Response.json({ error: 'Missing salvage_id' }, { status: 400 });
+    }
+
+    const supabase = getSupabase();
+    const { data: session, error } = await supabase
+      .from('salvage_sessions')
+      .select('assessment, vehicle_details, market, stripe_session_id')
+      .eq('id', salvage_id)
+      .single();
+
+    if (error || !session) {
+      return Response.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Ownership: caller must supply a credential that matches the stored session record
+    const ownsViaStripe = session_id && session.stripe_session_id && session.stripe_session_id === session_id;
+    const ownsViaPromo  = promo_token && session.vehicle_details?.promoToken && session.vehicle_details.promoToken === promo_token;
+    if (!ownsViaStripe && !ownsViaPromo) {
+      return Response.json({ error: 'Unauthorised' }, { status: 403 });
+    }
+
+    const { assessment } = session;
+    if (!assessment) {
+      return Response.json({ error: 'Assessment not ready' }, { status: 404 });
+    }
+
+    const vd         = session.vehicle_details || {};
+    const market     = session.market || 'GB';
+    const bregoData  = vd.bregoValuation || null;
+    const identifier = vd.vrm || vd.lotNumber || [vd.make, vd.model, vd.year].filter(Boolean).join(' ') || 'Salvage';
 
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const datePart = `${now.getDate()}${months[now.getMonth()]}${now.getFullYear()}`;
-    const ref = (identifier || 'Salvage').replace(/\s+/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'Salvage';
+    const ref = identifier.replace(/\s+/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'Salvage';
     const filename = `${ref}Assessment${datePart}.pdf`;
     const today = now.toLocaleDateString('en-GB');
 
     const pdfBuffer = buildAssessmentPdf(
       assessment,
-      vehicleDetails || {},
-      market || 'GB',
-      identifier || '',
+      vd,
+      market,
+      identifier,
       today,
-      bregoData || null
+      bregoData
     );
 
     return new Response(pdfBuffer, {
