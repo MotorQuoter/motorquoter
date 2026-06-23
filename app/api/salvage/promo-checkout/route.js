@@ -24,8 +24,8 @@ export async function POST(request) {
     if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
       return NextResponse.json({ error: 'At least one image is required' }, { status: 400 });
     }
-    if (imagePaths.length > 20) {
-      return NextResponse.json({ error: 'Maximum 20 images allowed' }, { status: 400 });
+    if (imagePaths.length > 35) {
+      return NextResponse.json({ error: 'Maximum 35 images allowed' }, { status: 400 });
     }
 
     const code = promoCode.trim().toUpperCase();

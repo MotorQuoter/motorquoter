@@ -76,10 +76,10 @@ export default function SalvagePage() {
   });
 
   const handleFiles = useCallback(async (files) => {
-    const toAdd = Array.from(files).slice(0, 20 - images.length);
+    const toAdd = Array.from(files).slice(0, 35 - images.length);
     if (toAdd.length === 0) return;
     const processed = await Promise.all(toAdd.map(compressImage));
-    setImages(prev => [...prev, ...processed].slice(0, 20));
+    setImages(prev => [...prev, ...processed].slice(0, 35));
   }, [images.length]);
 
   const removeImage = (idx) => setImages(prev => prev.filter((_, i) => i !== idx));
@@ -466,7 +466,7 @@ export default function SalvagePage() {
             <div className="field-label">Photos <span>(drop the Copart zip — no extraction needed)</span></div>
             <div
               className={`upload-zone ${zipDragging ? 'dragging' : ''}`}
-              onDrop={e => { e.preventDefault(); setZipDragging(false); if (e.dataTransfer.files[0]) handleZipFile(e.dataTransfer.files[0]); }}
+              onDrop={e => { e.preventDefault(); setZipDragging(false); const files = e.dataTransfer.files; if (!files.length) return; files[0].name.toLowerCase().endsWith('.zip') ? handleZipFile(files[0]) : handleFiles(files); }}
               onDragOver={e => { e.preventDefault(); setZipDragging(true); }}
               onDragLeave={() => setZipDragging(false)}
               onClick={() => zipStatus !== 'extracting' && zipFileInputRef.current?.click()}
@@ -515,26 +515,27 @@ export default function SalvagePage() {
               </div>
             )}
             {/* Individual photo fallback */}
-            <div style={{ marginTop: 8 }}>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-              >
-                or upload individual photos instead
-              </button>
+            <div
+              style={{ marginTop: 10, borderRadius: 8, border: '1px solid var(--border-dim)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: 'var(--bg2)' }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1 }}>📸</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>Upload individual photos</div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>Click to pick files, or drag images onto the zone above</div>
+              </div>
               {images.length > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--orange)', marginLeft: 8 }}>{images.length} photo{images.length !== 1 ? 's' : ''} selected</span>
+                <span style={{ fontSize: 12, color: 'var(--orange)', whiteSpace: 'nowrap' }}>{images.length} selected</span>
               )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                style={{ display: 'none' }}
-                onChange={e => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ''; }}
-              />
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: 'none' }}
+              onChange={e => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ''; }}
+            />
           </div>
 
           {/* Auction Source */}

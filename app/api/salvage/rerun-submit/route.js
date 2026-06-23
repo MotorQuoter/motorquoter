@@ -17,6 +17,9 @@ export async function POST(request) {
   if (!salvage_id || !imagePaths?.length) {
     return NextResponse.json({ error: 'Missing salvage_id or image paths' }, { status: 400 });
   }
+  if (imagePaths.length > 35) {
+    return NextResponse.json({ error: 'Maximum 35 images allowed' }, { status: 400 });
+  }
 
   const supabase = getSupabase();
 

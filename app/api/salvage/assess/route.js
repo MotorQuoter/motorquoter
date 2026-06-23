@@ -678,7 +678,8 @@ async function with529Retry(name, fetchThunk) {
 
 async function runLampDetection(images, onExhaust) {
   try {
-    const imageBlocks = images.slice(0, 20).map(img => {
+    if (images.length > 35) console.warn(`[LAMP DETECT] image set truncated to 35 (received ${images.length})`);
+    const imageBlocks = images.slice(0, 35).map(img => {
       let mediaType = 'image/jpeg';
       let data = img;
       const m = img.match(/^data:([^;]+);base64,(.+)$/);
@@ -757,7 +758,8 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
 
   const FLOOR = { cluster: 'no-photo', telltales: '', airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear' };
   try {
-    const imageBlocks = images.slice(0, 20).map(img => {
+    if (images.length > 35) console.warn(`[DASH READ] image set truncated to 35 (received ${images.length})`);
+    const imageBlocks = images.slice(0, 35).map(img => {
       let mediaType = 'image/jpeg';
       let data = img;
       const m = img.match(/^data:([^;]+);base64,(.+)$/);
