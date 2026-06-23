@@ -923,16 +923,17 @@ async function runPerViewAssess(image, idx, onExhaust) {
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 2048,
+        system: [{ type: 'text', text: PER_VIEW_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
-          { type: 'text', text: PER_VIEW_PROMPT },
         ]}],
       }),
     }));
     if (exhausted) { onExhaust?.(); return { costedParts: [], idx, hvLabelSeen: false }; }
     if (!res?.ok) { console.warn(`[PER-VIEW][${idx}] API error ${res?.status}`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const apiData = await res.json();
-    console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${apiData.usage?.input_tokens} Output:${apiData.usage?.output_tokens} Stop:${apiData.stop_reason}`);
+    const _u = apiData.usage || {};
+    console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${_u.input_tokens} Output:${_u.output_tokens} CacheWrite:${_u.cache_creation_input_tokens ?? 0} CacheRead:${_u.cache_read_input_tokens ?? 0} Stop:${apiData.stop_reason}`);
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const { costedParts } = parsePartVerdicts(raw);
