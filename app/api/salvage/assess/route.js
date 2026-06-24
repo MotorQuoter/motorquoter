@@ -1133,20 +1133,20 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
     if (!corr) { result.push(group); continue; }        // non-flank panel or not in map
     // ── Safety gate 1: floored / low-confidence / uncertain pairs ─────────────────────
     if (corr.floored) {
-      console.log(`[G] ${panelId} floored=true → pooled`);
+      console.log(`[G] ${panelId} floored=true action=floor`);
       result.push(group); continue;
     }
     if (corr.confidence === 'low') {
-      console.log(`[G] ${panelId} confidence=low → pooled`);
+      console.log(`[G] ${panelId} confidence=low action=floor`);
       result.push(group); continue;
     }
     if ((corr.uncertain_view_pairs?.length ?? 0) > 0) {
-      console.log(`[G] ${panelId} uncertain_pairs=${corr.uncertain_view_pairs.length} → pooled`);
+      console.log(`[G] ${panelId} uncertain_pairs=${corr.uncertain_view_pairs.length} action=floor`);
       result.push(group); continue;
     }
     const instanceGroups = (corr.instance_groups || []).filter(g => Array.isArray(g) && g.length > 0);
     if (instanceGroups.length < 2) {
-      console.log(`[G] ${panelId} instances=${instanceGroups.length} (< 2) → pooled`);
+      console.log(`[G] ${panelId} instances=${instanceGroups.length} (< 2) action=floor`);
       result.push(group); continue;
     }
     // ── Build per-instance member lists from the existing verdict strings ──────────────
@@ -1163,7 +1163,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       splitGroups.push({ panelId, _instanceKey: `${panelId}#${i + 1}`, members: instanceMembers });
     }
     if (splitGroups.length < 2) {
-      console.log(`[G] ${panelId} split yielded ${splitGroups.length} group(s) — pooled`);
+      console.log(`[G] ${panelId} split-yield=${splitGroups.length} action=floor`);
       result.push(group); continue;
     }
     // ── Safety gate 2: never cost a clean-majority instance ───────────────────────────
@@ -1175,7 +1175,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       return damagedVotes > 0 && cleanVotes > damagedVotes;
     });
     if (wouldCostCleanMajority) {
-      console.log(`[G] ${panelId} SAFETY ABORT — split would produce clean-majority instance → pooled`);
+      console.log(`[G] ${panelId} SAFETY_ABORT=clean-majority action=floor`);
       result.push(group); continue;
     }
     // ── Split accepted ────────────────────────────────────────────────────────────────
@@ -2194,8 +2194,11 @@ export async function GET(request) {
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
     const correspondenceMap = await runCorrespondencePass(perViewResults, images, () => _exhaustedCalls.add('correspondence'));
+    console.log(`[G] correspondenceMap size=${correspondenceMap.size} panels=${[...correspondenceMap.keys()].join(',') || 'none'}`);
     const rawGroups         = groupByPanelId(perViewResults);
     const groups            = splitGroupsByInstance(rawGroups, correspondenceMap);
+    const splitKeys         = groups.map(g => g._instanceKey).filter(Boolean);
+    if (splitKeys.length > 0) console.log(`[G] split produced ${splitKeys.length} instance-group(s): ${splitKeys.join(', ')}`);
     const pvResult          = amalgamate(groups);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
