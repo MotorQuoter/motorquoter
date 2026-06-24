@@ -1145,46 +1145,91 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       result.push(group); continue;
     }
     const instanceGroups = (corr.instance_groups || []).filter(g => Array.isArray(g) && g.length > 0);
-    if (instanceGroups.length < 2) {
-      console.log(`[G] ${panelId} instances=${instanceGroups.length} (< 2) action=floor`);
+    if (instanceGroups.length === 0) {
+      console.log(`[G] ${panelId} instances=0 action=floor`);
       result.push(group); continue;
     }
-    // ── Build per-instance member lists from the existing verdict strings ──────────────
+    // ── Build memberByView — shared by Case A (≥2 instances) and Case B (1 instance) ──
     const viewIdxOf  = m => { const r = m.match(/^\[view:(\d+)\]/); return r ? parseInt(r[1], 10) : -1; };
     const memberByView = new Map();
     for (const member of members) {
       const idx = viewIdxOf(member);
       if (idx >= 0) memberByView.set(idx, member);
     }
-    const splitGroups = [];
-    for (let i = 0; i < instanceGroups.length; i++) {
-      const instanceMembers = instanceGroups[i].map(idx => memberByView.get(idx)).filter(Boolean);
-      if (instanceMembers.length === 0) continue;
-      splitGroups.push({ panelId, _instanceKey: `${panelId}#${i + 1}`, members: instanceMembers });
+    if (instanceGroups.length >= 2) {
+      // ── Case A: two-sided — split per instance ────────────────────────────────────────
+      const splitGroups = [];
+      for (let i = 0; i < instanceGroups.length; i++) {
+        const instanceMembers = instanceGroups[i].map(idx => memberByView.get(idx)).filter(Boolean);
+        if (instanceMembers.length === 0) continue;
+        splitGroups.push({ panelId, _instanceKey: `${panelId}#${i + 1}`, members: instanceMembers });
+      }
+      if (splitGroups.length < 2) {
+        console.log(`[G] ${panelId} split-yield=${splitGroups.length} action=floor`);
+        result.push(group); continue;
+      }
+      // Safety gate 2: never cost a clean-majority instance
+      const wouldCostCleanMajority = splitGroups.some(g => {
+        const damagedVotes = g.members.filter(m => /\|\s*iv:true\s*\|/i.test(m)).length;
+        const cleanVotes   = g.members.filter(m => /\|\s*iv:false\s*\|/i.test(m)).length;
+        return damagedVotes > 0 && cleanVotes > damagedVotes;
+      });
+      if (wouldCostCleanMajority) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=clean-majority action=floor`);
+        result.push(group); continue;
+      }
+      console.log(`[G] ${panelId} instances=${splitGroups.length} groups=${JSON.stringify(instanceGroups)} confidence=${corr.confidence} action=split`);
+      result.push(...splitGroups);
+      const assignedViews = new Set(instanceGroups.flat());
+      const unassignedCount = [...memberByView.keys()].filter(idx => !assignedViews.has(idx)).length;
+      if (unassignedCount > 0) console.log(`[G] ${panelId} ${unassignedCount} unassigned view(s) excluded (iv:na / not in correspondence)`);
+    } else {
+      // ── Case B/C: one damaged instance identified ─────────────────────────────────────
+      const damagedViewSet  = new Set(instanceGroups[0]);
+      const allViewIndices  = [...memberByView.keys()];
+      const excludedIndices = allViewIndices.filter(idx => !damagedViewSet.has(idx));
+      if (excludedIndices.length === 0) {
+        // Case C: damaged instance covers all views — no opposite-side dilution to fix
+        console.log(`[G] ${panelId} instances=1 no-excluded-views action=floor (damaged instance covers all views)`);
+        result.push(group); continue;
+      }
+      // S2: never drop an iv:true view — excluding a real damage observation is incoherent
+      const hasIvTrueExcluded = excludedIndices.some(idx => /\|\s*iv:true\s*\|/i.test(memberByView.get(idx) ?? ''));
+      if (hasIvTrueExcluded) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=iv-true-in-excluded action=floor`);
+        result.push(group); continue;
+      }
+      // S2b: the damaged instance must be all-damaged — no iv:false inside the struck bucket.
+      // Symmetric with S2: S2 forbids dropping real damage; S2b forbids including a clean
+      // observation in the damaged bucket. Either means the model mis-grouped; floor is safe.
+      // iv:na inside the instance is acceptable — unresolvable, not contradictory.
+      const hasCleanInDamagedInstance = instanceGroups[0].some(idx =>
+        /\|\s*iv:false\s*\|/i.test(memberByView.get(idx) ?? ''));
+      if (hasCleanInDamagedInstance) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=clean-vote-in-damaged-instance action=floor`);
+        result.push(group); continue;
+      }
+      // Build damaged instance's member list
+      const instanceMembers = instanceGroups[0].map(idx => memberByView.get(idx)).filter(Boolean);
+      if (instanceMembers.length === 0) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=empty-instance action=floor`);
+        result.push(group); continue;
+      }
+      // S1: damaged instance must be majority-damaged (backstop after S2/S2b)
+      const instDamagedVotes = instanceMembers.filter(m => /\|\s*iv:true\s*\|/i.test(m)).length;
+      const instCleanVotes   = instanceMembers.filter(m => /\|\s*iv:false\s*\|/i.test(m)).length;
+      if (instCleanVotes >= instDamagedVotes) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=instance-not-majority-damaged damaged=${instDamagedVotes} clean=${instCleanVotes} action=floor`);
+        result.push(group); continue;
+      }
+      // Case B accepted: one group carrying only the damaged instance's views
+      console.log(`[G] ${panelId} instances=1 excluded=${excludedIndices.length} damaged=${instDamagedVotes} clean=${instCleanVotes} confidence=${corr.confidence} action=split`);
+      result.push({ panelId, _instanceKey: `${panelId}#1`, members: instanceMembers });
+      excludedIndices.forEach(idx => {
+        const iv = (memberByView.get(idx) ?? '').match(/\|\s*iv:(true|false|na|missing)\s*\|/i)?.[1] ?? '?';
+        console.log(`[G] ${panelId} excluded view:${idx} iv:${iv} (opposite-side — not part of damaged instance)`);
+      });
     }
-    if (splitGroups.length < 2) {
-      console.log(`[G] ${panelId} split-yield=${splitGroups.length} action=floor`);
-      result.push(group); continue;
-    }
-    // ── Safety gate 2: never cost a clean-majority instance ───────────────────────────
-    // An instance with more clean votes than damaged votes must never be costed.
-    // In practice only SEVERE override can cost such an instance; this guard catches it.
-    const wouldCostCleanMajority = splitGroups.some(g => {
-      const damagedVotes = g.members.filter(m => /\|\s*iv:true\s*\|/i.test(m)).length;
-      const cleanVotes   = g.members.filter(m => /\|\s*iv:false\s*\|/i.test(m)).length;
-      return damagedVotes > 0 && cleanVotes > damagedVotes;
-    });
-    if (wouldCostCleanMajority) {
-      console.log(`[G] ${panelId} SAFETY_ABORT=clean-majority action=floor`);
-      result.push(group); continue;
-    }
-    // ── Split accepted ────────────────────────────────────────────────────────────────
-    console.log(`[G] ${panelId} instances=${splitGroups.length} groups=${JSON.stringify(instanceGroups)} confidence=${corr.confidence} action=split`);
-    result.push(...splitGroups);
-    // Unassigned views (iv:na or not mentioned to G) — log; don't add to split groups
-    const assignedViews = new Set(instanceGroups.flat());
-    const unassignedCount = [...memberByView.keys()].filter(idx => !assignedViews.has(idx)).length;
-    if (unassignedCount > 0) console.log(`[G] ${panelId} ${unassignedCount} unassigned view(s) excluded (iv:na / not in correspondence)`);
   }
   return result;
 }
