@@ -1256,7 +1256,7 @@ function amalgamate(groups) {
       } else {
         console.log(`[AMALG] ${panelId} SEVERE damaged (${damaged} damaged, ${clean} clean) → cost (SEVERE override, no floor)`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true,
-          ...(_instanceKey ? { _gOwned: true, _gSeverity: 'SEVERE' } : {}) });
+          ...(_instanceKey ? { _gOwned: true, _gSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : 'MODERATE' } : {}) });
       }
     } else if (!isFlagOnly && minorOnly && minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
       console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
@@ -1268,7 +1268,7 @@ function amalgamate(groups) {
       } else {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null,
-          ...(_instanceKey ? { _gOwned: true, _gSeverity: 'MODERATE' } : {}) });
+          ...(_instanceKey ? { _gOwned: true, _gSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : 'MODERATE' } : {}) });
       }
     } else if (clean > 0 && damaged === 0) {
       console.log(`[AMALG] ${panelId} ${clean}/${resolving} clean → clear`);
