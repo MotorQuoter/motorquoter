@@ -1354,6 +1354,8 @@ function ledgerPreamble(pvResult) {
       : (e._perViewClear  ? 'CLEAR'   : 'FLOORED');
     return `${word.padEnd(8)}${e.partName}  ${e.zone}`;
   });
+  const _gOwnedIds = pvResult.costedParts.filter(e => e._gOwned).map(e => e.panelId);
+  console.log(`[LEDGER DEBUG] gOwned=[${_gOwnedIds.join(',')}] ledgerLines="${lines.join(' | ')}"`);
   return (
     'PANEL DAMAGE LEDGER — per-view analysis across all photos, already determined.\n' +
     'COSTED  = damaged confirmed → cost it (repair or replace).\n' +
@@ -2555,6 +2557,7 @@ export async function GET(request) {
 
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const rawParts = parseParts(assessment['Parts Breakdown'] || '');
+    console.log('[RAW PARTS DEBUG]', JSON.stringify(rawParts.map(p => ({ panelId: p.panelId, name: p.name, used: p.used, oem: p.oem }))));
 
     // (raw ledger computation moved above main call — Step 4a; assignments remain below)
     coreObs.costedParts  = pvResult.costedParts;
