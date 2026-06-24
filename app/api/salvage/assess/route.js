@@ -798,6 +798,135 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
   }
 }
 
+// Paired-flank panels: exactly TWO physical instances (left + right) on every car.
+// Option G (cross-view correspondence pass) runs ONLY on these eight panels.
+// WHEEL/TYRE (four instances each) are explicitly excluded — their four-corner problem
+// is a separate fix to be built after G proves out on doors.
+const PAIRED_FLANK_PANELS = new Set([
+  PANEL.FRONT_DOOR, PANEL.REAR_DOOR, PANEL.FRONT_WING, PANEL.REAR_QUARTER,
+  PANEL.SILL, PANEL.SIDE_SKIRT, PANEL.DOOR_MIRROR, PANEL.SIDE_GLASS,
+]);
+
+// Option G — cross-view panel-correspondence pass.
+// Per-view already got the iv verdicts right; G's ONLY job is correspondence: are the
+// iv:true views and the iv:false views looking at the SAME physical instance, or
+// DIFFERENT physical instances? Fires only when at least one paired-flank panel has
+// BOTH damaged (iv:true) and clean (iv:false) votes — otherwise it is a no-op.
+// Returns Map<panelId, { instance_groups, uncertain_view_pairs, confidence, floored }>.
+// floored=true → panel stays on the pooled/floor path (the safe default).
+async function runCorrespondencePass(perViewResults, images, onExhaust) {
+  // 1. Collect per-panel iv observations for paired-flank panels only
+  const panelObsMap = new Map();
+  for (const { costedParts, idx } of perViewResults) {
+    for (const cp of costedParts) {
+      if (!PAIRED_FLANK_PANELS.has(cp.panelId)) continue;
+      if (!panelObsMap.has(cp.panelId)) panelObsMap.set(cp.panelId, { damaged: [], clean: [] });
+      const obs = panelObsMap.get(cp.panelId);
+      if (cp.independentlyVisible === true)  obs.damaged.push(idx);
+      if (cp.independentlyVisible === false) obs.clean.push(idx);
+    }
+  }
+  // Only fire for panels that have BOTH damaged and clean views (the disagree condition)
+  const mixedPanels = [...panelObsMap.entries()]
+    .filter(([, obs]) => obs.damaged.length > 0 && obs.clean.length > 0);
+  if (mixedPanels.length === 0) {
+    console.log('[CORR] no mixed-vote flank panels — correspondence pass skipped');
+    return new Map();
+  }
+  const floorAll = () => new Map(
+    mixedPanels.map(([pid]) => [pid, { instance_groups: [], uncertain_view_pairs: [], floored: true }])
+  );
+  // 2. Build observation lines: view idx → panelId → iv verdict
+  const obsLines = [];
+  for (const [panelId, obs] of mixedPanels) {
+    for (const idx of obs.damaged) obsLines.push(`view ${idx} → ${panelId} → iv:true`);
+    for (const idx of obs.clean)   obsLines.push(`view ${idx} → ${panelId} → iv:false`);
+  }
+  // 3. Build image blocks — full-size, no resize (Opus path; same as lamp-detect)
+  const corrImageBlocks = images.slice(0, 35).map(img => {
+    let mediaType = 'image/jpeg';
+    let data = img;
+    const m = img.match(/^data:([^;]+);base64,(.+)$/);
+    if (m) { mediaType = m[1]; data = m[2]; }
+    return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+  });
+  // 4. Build question — NO side naming anywhere
+  const corrN = corrImageBlocks.length;
+  const corrQuestion = `These are ${corrN} photos of one vehicle, numbered view 0 through view ${corrN - 1} in the order they appear in this message.
+
+Per-view analysis flagged these observations:
+${obsLines.join('\n')}
+
+Each of the panels above exists as a LEFT and a RIGHT physical instance — one each side of the car (two front doors, two rear doors, two sills, etc.). Looking at the images: for each panel, how many PHYSICALLY DISTINCT damaged instances are there?
+
+For each distinct damaged instance, list the view indices showing it. Group views showing the SAME physical instance together. Do NOT name sides — group only by same-vs-different physical instance. If you cannot tell whether two views show the same or different instances, say so for that pair — it will be treated as unresolved and floored (the safe default).
+
+Respond with ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
+{
+  "panels": [
+    {
+      "panelId": "<PANEL_ID from the observations above>",
+      "distinct_damaged_instances": <number>,
+      "instance_groups": [[<view indices for instance 1>], [<view indices for instance 2 if present>]],
+      "uncertain_view_pairs": [[<a>, <b>]],
+      "confidence": "low" | "med" | "high"
+    }
+  ]
+}`;
+  // 5. Opus 4.8 call — same pattern as lamp-detect / dash-read
+  const { res: corrRes, exhausted: corrExhausted } = await with529Retry('correspondence', () => fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+      messages: [{ role: 'user', content: [...corrImageBlocks, { type: 'text', text: corrQuestion }] }],
+    }),
+  }));
+  if (corrExhausted) { onExhaust?.(); return floorAll(); }
+  if (!corrRes?.ok)  { console.warn('[CORR] API error:', corrRes?.status, '— flooring all flank panels'); return floorAll(); }
+  const corrApiData = await corrRes.json();
+  console.log('[TOKEN LOG] correspondence Input:', corrApiData.usage?.input_tokens, '| Output:', corrApiData.usage?.output_tokens, '| Stop:', corrApiData.stop_reason, '| Model:', corrApiData.model || 'unknown');
+  if (corrApiData.stop_reason === 'max_tokens') { console.warn('[CORR] max_tokens — flooring all flank panels');  return floorAll(); }
+  if (corrApiData.stop_reason === 'refusal')   { console.warn('[CORR] refusal — flooring all flank panels');      return floorAll(); }
+  // 6. Parse JSON from the text block
+  const corrRawText = ((corrApiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+  console.log('[CORR] raw model output:', corrRawText.slice(0, 800));
+  let corrParsed;
+  try { const jm = corrRawText.match(/\{[\s\S]*\}/); corrParsed = jm ? JSON.parse(jm[0]) : null; } catch { corrParsed = null; }
+  if (!corrParsed?.panels || !Array.isArray(corrParsed.panels)) {
+    console.error('[CORR] parse failure — flooring all flank panels');
+    return floorAll();
+  }
+  // 7. Build and return result map
+  const corrResult = new Map();
+  for (const entry of corrParsed.panels) {
+    const { panelId, distinct_damaged_instances, instance_groups, uncertain_view_pairs, confidence } = entry;
+    if (!PAIRED_FLANK_PANELS.has(panelId)) { console.warn(`[CORR] unknown panelId "${panelId}" in response — skipped`); continue; }
+    if (confidence === 'low') {
+      console.log(`[CORR] ${panelId} confidence=low → floored`);
+      corrResult.set(panelId, { instance_groups: [], uncertain_view_pairs: [], floored: true });
+      continue;
+    }
+    corrResult.set(panelId, {
+      instance_groups:      Array.isArray(instance_groups)      ? instance_groups      : [],
+      uncertain_view_pairs: Array.isArray(uncertain_view_pairs) ? uncertain_view_pairs : [],
+      confidence:           confidence ?? 'low',
+      floored:              false,
+    });
+    console.log(`[CORR] ${panelId} instances=${distinct_damaged_instances ?? '?'} confidence=${confidence} uncertain=${uncertain_view_pairs?.length ?? 0}`);
+  }
+  // Any mixed panel absent from model response → floor it
+  for (const [panelId] of mixedPanels) {
+    if (!corrResult.has(panelId)) {
+      console.warn(`[CORR] ${panelId} absent from model response — floored`);
+      corrResult.set(panelId, { instance_groups: [], uncertain_view_pairs: [], floored: true });
+    }
+  }
+  return corrResult;
+}
+
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
 const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; request on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
