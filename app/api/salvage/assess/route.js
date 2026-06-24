@@ -748,7 +748,7 @@ AIRBAG FIELD — three states, image-grounded only:
 Do NOT infer airbag deployment from steering wheel damage or cabin trim — those are separate visual observations. Report only what the cluster telltale light shows.
 
 WINDSCREEN STICKER SUFFIX — one field only:
-Look for the long white PRINTED Copart vendor sticker on the UPPER windscreen above the steering wheel. NOT chalk marks, NOT handwritten lot numbers, NOT circled yard annotations.
+Look for a long white PRINTED Copart lot-number sticker on the windscreen — usually near the top, but its exact position varies by vehicle type (vans and high-roof vehicles sit it higher or off-centre). It shows a multi-digit lot number followed by a single capital letter suffix (X, P, C, or Q). Read that trailing capital letter. It is a PRINTED sticker — NOT chalk marks, NOT handwritten yard annotations, NOT circled numbers on the glass.
 - No white printed sticker visible → sticker: ""
 - Sticker present but the suffix letter at its right end is not clearly legible → sticker: "UNREADABLE"
 - Sticker present AND suffix letter clearly legible → sticker: that single letter (one of: X, P, C, Q; use "OTHER" for any other letter)
@@ -790,6 +790,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     const rawSticker = typeof parsed.sticker === 'string' ? parsed.sticker.trim().toUpperCase() : '';
     const VALID_STICKER = ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE', ''];
     const sticker = VALID_STICKER.includes(rawSticker) ? rawSticker : 'UNREADABLE';
+    console.log(`[DASH READ] rawSticker="${rawSticker}" → sticker="${sticker}"`);
     const bodyStyleMismatch = ['match', 'mismatch', 'unclear'].includes(parsed.bodyStyleMismatch) ? parsed.bodyStyleMismatch : 'unclear';
     return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '', airbag, sticker, bodyStyleMismatch };
   } catch (err) {

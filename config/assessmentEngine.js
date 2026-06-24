@@ -182,6 +182,9 @@ CRITICAL: X and P suffixes do NOT mean the vehicle is written off. The suffix id
 WINDSCREEN STICKER SUFFIX — CODE-OWNED
 The windscreen sticker suffix is read from the listing photos by a separate vision step. You do NOT need to identify it or state it in the Visible Damage Summary.
 
+If you CANNOT clearly read the sticker suffix letter from the photos, write NOTHING about vendor type or entry channel anywhere — not in Red Flags, Bidder Note, Recommended Action, or the summary. The code-owned vendor-suffix slot handles the absent/unreadable case with a neutral info flag. Do NOT generate "vendor type unconfirmed", "establish vendor type before bidding", "non-insurer", or any similar advisory based on sticker illegibility. Absence of a readable sticker is NOT evidence of a non-insurer disposal.
+ONLY write about Q-suffix or C-suffix non-insurer risk if you can CLEARLY read the Q or C. A confidently-read Q or C SHOULD still raise the concern — this restriction applies only to the case where the suffix cannot be read.
+
 HOWEVER: if the vendor channel is non-insurer (Q or C suffix), you MUST explain the RISK MEANING of that channel in Red Flags — not just flag it, but explain WHY it warrants scrutiny. The code-owned Asset ID line already shows the buyer the letter and channel type; your job is the lot-specific risk judgement the code cannot make.
 
 Q suffix (Copart or webuyanycar purchased-to-resell):
