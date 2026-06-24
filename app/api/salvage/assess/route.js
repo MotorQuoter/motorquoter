@@ -19,7 +19,7 @@ import {
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
-import { derivePriceBand } from '@/lib/priceBand.mjs';
+import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 
 export const maxDuration = 300;
 
@@ -2654,6 +2654,37 @@ export async function GET(request) {
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
     const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+
+    // Option G — inject code-owned cost lines for G-split COSTED instances.
+    // These entries were filtered out of the model-facing ledger (see ledgerPreamble) so the
+    // model emitted no Parts Breakdown row for them. Code prices them here from PANEL_PRICE_TABLE
+    // at the lot's band figure. Injected post-gate: the gate only sees reconciledParts (model
+    // output); injected rows are never gated, never deduped, summed by sumPartsRealistic identically
+    // to any normal row. Two COSTED instances of the same panel → two injected lines → 2× table
+    // figure. Locked Option A reconciliation is preserved: no new sum path, no divergence flag.
+    for (const e of coreObs.costedParts) {
+      if (!e._gOwned) continue;
+      if (!bandKey) {
+        console.log(`[G INJECT] ${e.panelId} floored — no band (no Brego trade valuation)`);
+        continue;
+      }
+      const tableEntry = PANEL_PRICE_TABLE[e.panelId]?.[bandKey];
+      if (!tableEntry) {
+        console.log(`[G INJECT] ${e.panelId} floored — no table entry for band "${bandKey}"`);
+        continue;
+      }
+      const action = e._gSeverity === 'SEVERE' ? 'replace' : 'repair';
+      gatedParts.push({
+        panelId:  e.panelId,
+        name:     PANEL_DISPLAY[e.panelId],
+        action,
+        oem:      tableEntry.oem,
+        used:     tableEntry.used,
+        _tableMandated: true,
+        _gOwned:  true,
+      });
+      console.log(`[G INJECT] ${e.panelId} action=${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
+    }
 
     // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
     // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). Computed
