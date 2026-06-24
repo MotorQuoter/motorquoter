@@ -1242,7 +1242,8 @@ function amalgamate(groups) {
         // costs: both agree replacement is needed.
         // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
         console.log(`[AMALG] ${panelId} missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true });
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true,
+          ...(_instanceKey ? { _gOwned: true, _gSeverity: 'SEVERE' } : {}) });
       }
     } else if (resolving === 0) {
       console.log(`[AMALG] ${panelId} 0 resolving — not-visible → floor`);
@@ -1254,7 +1255,8 @@ function amalgamate(groups) {
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
       } else {
         console.log(`[AMALG] ${panelId} SEVERE damaged (${damaged} damaged, ${clean} clean) → cost (SEVERE override, no floor)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true });
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true,
+          ...(_instanceKey ? { _gOwned: true, _gSeverity: 'SEVERE' } : {}) });
       }
     } else if (!isFlagOnly && minorOnly && minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
       console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
@@ -1265,7 +1267,8 @@ function amalgamate(groups) {
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
       } else {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null });
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null,
+          ...(_instanceKey ? { _gOwned: true, _gSeverity: 'MODERATE' } : {}) });
       }
     } else if (clean > 0 && damaged === 0) {
       console.log(`[AMALG] ${panelId} ${clean}/${resolving} clean → clear`);
@@ -1296,7 +1299,11 @@ function amalgamate(groups) {
 }
 
 function ledgerPreamble(pvResult) {
-  const lines = pvResult.costedParts.map(e => {
+  // _gOwned entries are G-split COSTED instances: code injects their cost lines post-gate.
+  // Filter them out so the model never sees a COSTED ledger line for them and emits no
+  // Parts Breakdown row. CLEAR and FLOORED split-instance entries are NOT _gOwned and
+  // remain in the ledger — model correctly skips them per the existing CLEAR/FLOORED rule.
+  const lines = pvResult.costedParts.filter(e => !e._gOwned).map(e => {
     const word = e.independentlyVisible === true
       ? (e._amalgMissing  ? 'MISSING' : 'COSTED')
       : (e._perViewClear  ? 'CLEAR'   : 'FLOORED');
