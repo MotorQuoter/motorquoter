@@ -927,6 +927,56 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
   return corrResult;
 }
 
+// Sill rocker-discrimination read. Fires only when SILL is in the costed set.
+// Per-view votes SILL iv:true on struck-side views where a torn door bottom meets
+// sill height — correct perception, wrong attribution. This asks the question the
+// per-view pass never asks: is the rocker structure ITSELF deformed?
+// Returns { rocker_independently_deformed: bool, confidence: 'low'|'med'|'high' }
+// or null on any failure (caller treats null as uncertain → floor to inspection flag).
+async function runSillRockerRead(images, onExhaust) {
+  try {
+    const imageBlocks = images.slice(0, 35).map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const m = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) { mediaType = m[1]; data = m[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    const question = `These photos show one vehicle with damage along one flank. Look ONLY at the SILL / ROCKER PANEL — the structural member along the bottom of the body between the front and rear wheels, BELOW the doors.
+
+Is the rocker panel's OWN structure deformed — crushed, buckled, dented, or its lower body line displaced — INDEPENDENT of the door skins above it? If the only damage near sill height is the bottom edge of DOOR damage (a tear or crease reaching down to sill height), that is DOOR damage — answer false. Answer true ONLY if the rocker's own structure is visibly deformed separate from the doors.
+
+Respond with ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
+{ "rocker_independently_deformed": true | false, "confidence": "low" | "med" | "high" }`;
+    const { res, exhausted } = await with529Retry('sill-rocker', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 256,
+        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return null; }
+    if (!res?.ok) { console.warn('[SILL ROCKER] API error:', res?.status); return null; }
+    const data = await res.json();
+    console.log('[TOKEN LOG] sill-rocker Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    if (data.stop_reason === 'max_tokens') { console.warn('[SILL ROCKER] max_tokens — returning null'); return null; }
+    const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) { console.warn('[SILL ROCKER] no JSON in response:', raw.slice(0, 200)); return null; }
+    return JSON.parse(match[0]);
+  } catch (err) {
+    console.warn('[SILL ROCKER] error:', err.message);
+    return null;
+  }
+}
+
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
 const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; request on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
@@ -2679,6 +2729,45 @@ export async function GET(request) {
 
     // Perception probe retired — bumper-off rule demotes wing/quarter panels
     // deterministically before reconcile. Completeness probe will be built separately.
+
+    // ── Sill rocker-discrimination read ──────────────────────────────────────
+    // Fires ONLY when SILL is in the costed set (independentlyVisible=true after
+    // amalgamate + bumper-off rule). Per-view votes SILL iv:true where a torn
+    // door bottom meets sill height — correct perception, wrong attribution.
+    // This call asks the discriminating question per-view never asks; code owns
+    // the cost consequence: deformed+confident → cost; not-deformed → flag;
+    // uncertain / null → floor to inspection flag (never costs a guess).
+    {
+      const sillEntry = coreObs.costedParts.find(cp => cp.panelId === PANEL.SILL && cp.independentlyVisible === true);
+      if (sillEntry) {
+        const sillResult = await runSillRockerRead(images, () => _exhaustedCalls.add('sill-rocker'));
+        const confident  = sillResult?.confidence === 'med' || sillResult?.confidence === 'high';
+        const deformed   = sillResult?.rocker_independently_deformed === true;
+        let action;
+        if (sillResult === null) {
+          action = 'flag-uncertain';
+        } else if (deformed && confident) {
+          action = 'cost';
+        } else if (!deformed) {
+          action = 'flag-clean';
+        } else {
+          // deformed=true, confidence=low
+          action = 'flag-uncertain';
+        }
+        console.log(`[SILL ROCKER] deformed=${sillResult?.rocker_independently_deformed ?? 'null'} confidence=${sillResult?.confidence ?? 'null'} → action=${action}`);
+        if (action !== 'cost') {
+          const reason = action === 'flag-clean'
+            ? 'Sill/rocker condition: low damage at sill height reads as door-edge, not rocker deformation — verify inner sill on inspection.'
+            : 'Sill condition not independently confirmable from photos — verify rocker/inner-sill on inspection.';
+          const sillIdx = coreObs.costedParts.indexOf(sillEntry);
+          if (sillIdx !== -1) coreObs.costedParts.splice(sillIdx, 1);
+          coreObs.flaggedParts.push({ panelId: PANEL.SILL, partName: sillEntry.partName, zone: sillEntry.zone, weight: 'medium', reason });
+        }
+      } else {
+        console.log('[SILL ROCKER] no SILL costed entry — skipped');
+      }
+    }
+    // ── End sill rocker-discrimination read ───────────────────────────────────
 
     // Grille-set allowance detection: fires when per-view or aperture rule established
     // the front grille missing (_amalgMissing) and the main call did not price it.
