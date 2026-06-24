@@ -1116,6 +1116,79 @@ function groupByPanelId(allPerViewResults) {
   return groups;
 }
 
+// Option G — split pooled-flank groups by physical instance (Commit 2 of G build).
+// Consumes the correspondenceMap from runCorrespondencePass.  For each paired-flank panel
+// with a valid, actionable correspondence result, replaces the single pooled group with
+// per-instance groups carrying a bare panelId + a separate _instanceKey:
+//   { panelId: 'FRONT_DOOR', _instanceKey: 'FRONT_DOOR#1', members: [...] }
+// amalgamate then runs its unchanged severity/disagree truth table on each instance
+// independently.  ALL safety conditions are checked here — any failure keeps the panel
+// on the pooled/floor path.
+function splitGroupsByInstance(rawGroups, correspondenceMap) {
+  if (!correspondenceMap?.size) return rawGroups;
+  const result = [];
+  for (const group of rawGroups) {
+    const { panelId, members } = group;
+    const corr = correspondenceMap.get(panelId);
+    if (!corr) { result.push(group); continue; }        // non-flank panel or not in map
+    // ── Safety gate 1: floored / low-confidence / uncertain pairs ─────────────────────
+    if (corr.floored) {
+      console.log(`[G] ${panelId} floored=true → pooled`);
+      result.push(group); continue;
+    }
+    if (corr.confidence === 'low') {
+      console.log(`[G] ${panelId} confidence=low → pooled`);
+      result.push(group); continue;
+    }
+    if ((corr.uncertain_view_pairs?.length ?? 0) > 0) {
+      console.log(`[G] ${panelId} uncertain_pairs=${corr.uncertain_view_pairs.length} → pooled`);
+      result.push(group); continue;
+    }
+    const instanceGroups = (corr.instance_groups || []).filter(g => Array.isArray(g) && g.length > 0);
+    if (instanceGroups.length < 2) {
+      console.log(`[G] ${panelId} instances=${instanceGroups.length} (< 2) → pooled`);
+      result.push(group); continue;
+    }
+    // ── Build per-instance member lists from the existing verdict strings ──────────────
+    const viewIdxOf  = m => { const r = m.match(/^\[view:(\d+)\]/); return r ? parseInt(r[1], 10) : -1; };
+    const memberByView = new Map();
+    for (const member of members) {
+      const idx = viewIdxOf(member);
+      if (idx >= 0) memberByView.set(idx, member);
+    }
+    const splitGroups = [];
+    for (let i = 0; i < instanceGroups.length; i++) {
+      const instanceMembers = instanceGroups[i].map(idx => memberByView.get(idx)).filter(Boolean);
+      if (instanceMembers.length === 0) continue;
+      splitGroups.push({ panelId, _instanceKey: `${panelId}#${i + 1}`, members: instanceMembers });
+    }
+    if (splitGroups.length < 2) {
+      console.log(`[G] ${panelId} split yielded ${splitGroups.length} group(s) — pooled`);
+      result.push(group); continue;
+    }
+    // ── Safety gate 2: never cost a clean-majority instance ───────────────────────────
+    // An instance with more clean votes than damaged votes must never be costed.
+    // In practice only SEVERE override can cost such an instance; this guard catches it.
+    const wouldCostCleanMajority = splitGroups.some(g => {
+      const damagedVotes = g.members.filter(m => /\|\s*iv:true\s*\|/i.test(m)).length;
+      const cleanVotes   = g.members.filter(m => /\|\s*iv:false\s*\|/i.test(m)).length;
+      return damagedVotes > 0 && cleanVotes > damagedVotes;
+    });
+    if (wouldCostCleanMajority) {
+      console.log(`[G] ${panelId} SAFETY ABORT — split would produce clean-majority instance → pooled`);
+      result.push(group); continue;
+    }
+    // ── Split accepted ────────────────────────────────────────────────────────────────
+    console.log(`[G] ${panelId} instances=${splitGroups.length} groups=${JSON.stringify(instanceGroups)} confidence=${corr.confidence} action=split`);
+    result.push(...splitGroups);
+    // Unassigned views (iv:na or not mentioned to G) — log; don't add to split groups
+    const assignedViews = new Set(instanceGroups.flat());
+    const unassignedCount = [...memberByView.keys()].filter(idx => !assignedViews.has(idx)).length;
+    if (unassignedCount > 0) console.log(`[G] ${panelId} ${unassignedCount} unassigned view(s) excluded (iv:na / not in correspondence)`);
+  }
+  return result;
+}
+
 const MINOR_COSMETIC_FLAG_THRESHOLD = 1; // min MINOR-only damaged votes to trigger cosmetic flag
 const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
 
@@ -1126,7 +1199,7 @@ function amalgamate(groups) {
   let pvVotesCollision = false;
   if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
   for (const group of groups) {
-    const { panelId, members } = group; // panelId is the enum-ID group key from groupByPanelId
+    const { panelId, members, _instanceKey } = group; // panelId is the enum-ID group key from groupByPanelId
     if (!Array.isArray(members) || members.length === 0) {
       console.warn(`[AMALG] ${panelId} — empty members array; skipping (invariant: groupByPanelId never produces empty groups)`);
       continue;
@@ -1202,13 +1275,15 @@ function amalgamate(groups) {
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
-    // Per-panel vote split — keyed by panelId (enum ID — unmistakable in raw substrate).
+    // Per-panel vote split — keyed by _instanceKey when G split this panel, else bare panelId.
+    // _instanceKey (e.g. 'FRONT_DOOR#1') keeps pvVotesMap entries distinct for G-split instances
+    // while all downstream consumers (gate, VDS, seeder) still see bare panelId on the object.
     const branch = missing > 0              ? 'iv:missing-dominant'
                  : resolving === 0          ? 'not-visible'
                  : damaged > 0 && clean === 0 ? 'passed-costed'
                  : clean > 0 && damaged === 0 ? 'passed-clear'
                  : 'disagree';
-    let pvKey = panelId;
+    let pvKey = _instanceKey ?? panelId;
     if (pvKey in pvVotesMap) {
       pvVotesCollision = true;
       let n = 2;
@@ -2118,8 +2193,10 @@ export async function GET(request) {
 
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
-    const groups         = groupByPanelId(perViewResults);
-    const pvResult       = amalgamate(groups);
+    const correspondenceMap = await runCorrespondencePass(perViewResults, images, () => _exhaustedCalls.add('correspondence'));
+    const rawGroups         = groupByPanelId(perViewResults);
+    const groups            = splitGroupsByInstance(rawGroups, correspondenceMap);
+    const pvResult          = amalgamate(groups);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
     const callClaude = async (withTools, forced = false) => {
