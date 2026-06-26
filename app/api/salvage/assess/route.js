@@ -900,6 +900,19 @@ const PAIRED_FLANK_PANELS = new Set([
   PANEL.SILL, PANEL.SIDE_SKIRT, PANEL.DOOR_MIRROR, PANEL.SIDE_GLASS,
 ]);
 
+// Silence-as-clean (Defect-2 / option C) — DELIBERATELY scoped to REAR_PANEL only.
+// A view that imaged a co-visible rear neighbour but emitted NO line for the target panel
+// counts as an implicit-clean vote (the panel was in frame; the model looked and didn't flag
+// it). This inverts the single-view-genuine→cost protection, so it is restricted to panels
+// where (a) co-visibility with the neighbours below is geometrically reliable and (b) the
+// false-positive mode (seam/shadow/bumper-snag) is the known failure. REAR_PANEL qualifies;
+// BOOT_LID and REAR_GLASS do NOT (single-angle boot dents / glass cracks are real). The set
+// contains only non-flank panels by construction, so flank panels keep their G-pass logic.
+const SILENCE_AS_CLEAN_PANELS = new Set([PANEL.REAR_PANEL]);
+// Explicit co-visible neighbours — a view that observed any of these had the rear panel
+// (between/around them) in frame. Tighter than z:rear, which also tags REAR_QUARTER corner shots.
+const PANEL_REAR_NEIGHBOURS  = new Set([PANEL.REAR_BUMPER, PANEL.REAR_LAMP, PANEL.BOOT_LID]);
+
 // Option G — cross-view panel-correspondence pass.
 // Per-view already got the iv verdicts right; G's ONLY job is correspondence: are the
 // iv:true views and the iv:false views looking at the SAME physical instance, or
@@ -1080,6 +1093,7 @@ const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the 
 const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess on the WhatsApp inspection before bidding';
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
+const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
 
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
@@ -1398,7 +1412,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
 const MINOR_COSMETIC_FLAG_THRESHOLD = 1; // min MINOR-only damaged votes to trigger cosmetic flag
 const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
 
-function amalgamate(groups) {
+function amalgamate(groups, viewPanelSets) {
   const costedParts  = [];
   const flaggedParts = [];
   const pvVotesMap   = {};
@@ -1468,9 +1482,28 @@ function amalgamate(groups) {
       console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
       flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_COSMETIC, _amalgCosmetic: true });
     } else if (damaged > 0 && clean === 0) {
+      // Silence-as-clean implicit corroboration (REAR_PANEL only). Count views that imaged a
+      // co-visible rear neighbour but emitted no line for this panel — each is an implicit-clean
+      // vote (panel in frame, model looked, didn't flag). effectiveClean = explicit + implicit.
+      let implicitClean = 0;
+      if (viewPanelSets && SILENCE_AS_CLEAN_PANELS.has(panelId)) {
+        for (const panelSet of viewPanelSets.values()) {
+          if (panelSet.has(panelId)) continue;                                    // view DID flag/observe it — not silent
+          if ([...PANEL_REAR_NEIGHBOURS].some(nb => panelSet.has(nb))) implicitClean++;
+        }
+      }
+      const effectiveClean = clean + implicitClean;
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged (flag-class) → flag (not cost)`);
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+      } else if (SILENCE_AS_CLEAN_PANELS.has(panelId) && damaged < 2 && effectiveClean >= 1) {
+        // Single damaged read, but co-visible neighbours seen in other views did NOT flag this
+        // panel → uncorroborated → floor to inspection (not cost). Reached only when severeOverride
+        // is false (a lone SEVERE is severeVotes=1 < threshold), so it is independent of override.
+        // SILENCE_AS_CLEAN_PANELS holds only non-flank panels, so flank G-pass logic is untouched.
+        console.log(`[AMALG] ${panelId} ${damaged} damaged + ${implicitClean} implicit-clean (neighbour-seen, panel-silent) → uncorroborated → floor`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgUncorroborated: true });
+        flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_UNCORROBORATED, _amalgUncorroborated: true });
       } else {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null,
@@ -2432,7 +2465,13 @@ export async function GET(request) {
     const groups            = splitGroupsByInstance(rawGroups, correspondenceMap);
     const splitKeys         = groups.map(g => g._instanceKey).filter(Boolean);
     if (splitKeys.length > 0) console.log(`[G] split produced ${splitKeys.length} instance-group(s): ${splitKeys.join(', ')}`);
-    const pvResult          = amalgamate(groups);
+    // Per-view panel sets (view idx → Set of panelIds that view emitted). Feeds amalgamate's
+    // silence-as-clean inference (option C): a view that imaged a rear neighbour but emitted no
+    // REAR_PANEL line is an implicit-clean vote. Built from the raw per-view results.
+    const viewPanelSets = new Map(
+      perViewResults.map(r => [r.idx, new Set((r.costedParts || []).map(cp => cp.panelId).filter(Boolean))])
+    );
+    const pvResult          = amalgamate(groups, viewPanelSets);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
     const callClaude = async (withTools, forced = false) => {
