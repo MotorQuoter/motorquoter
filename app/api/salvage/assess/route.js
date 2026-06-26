@@ -2942,6 +2942,15 @@ export async function GET(request) {
     // figure. Locked Option A reconciliation is preserved: no new sum path, no divergence flag.
     for (const e of coreObs.costedParts) {
       if (!e._gOwned) continue;
+      // Honour the bumper-off/gate demotion: a _gOwned entry that was demoted to inspection
+      // (independentlyVisible=false / _bumperOffStripped) must NOT be re-costed here. The
+      // demotion is a fact set on coreObs.costedParts; the gate already stripped the row and
+      // moved it to inspection flags. Re-injecting full table cost would put a stripped panel
+      // back into the repair total (it must stay in inspection flags only).
+      if (e.independentlyVisible === false || e._bumperOffStripped === true) {
+        console.log(`[G INJECT] ${e.panelId} skipped — demoted (iv=false/_bumperOffStripped); not re-costed`);
+        continue;
+      }
       if (!bandKey) {
         console.log(`[G INJECT] ${e.panelId} floored — no band (no Brego trade valuation)`);
         continue;
