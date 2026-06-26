@@ -92,6 +92,10 @@ export default function SalvagePage() {
     if (toAdd.length === 0) return;
     const processed = await Promise.all(toAdd.map(compressImage));
     setImages(prev => [...prev, ...processed].slice(0, 35));
+    // Photos added — clear any latched zip-error so the "Zip failed" banner
+    // doesn't lie about state once the user has chosen the individual path.
+    setZipStatus('');
+    setZipError('');
   }, [images.length]);
 
   const removeImage = (idx) => setImages(prev => prev.filter((_, i) => i !== idx));
@@ -234,7 +238,10 @@ export default function SalvagePage() {
       setPendingSubmit(true);
       return;
     }
-    if (zipStatus === 'error') {
+    // Zip-error feedback applies ONLY when there are no individual photos to fall
+    // back on. With photos present, skip it and fall through to the convergent
+    // else-branch (which uploads `images`).
+    if (zipStatus === 'error' && images.length === 0) {
       setError(zipError || 'Zip extraction failed — tap the zip zone to retry.');
       return;
     }
