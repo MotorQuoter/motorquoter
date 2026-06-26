@@ -913,6 +913,14 @@ const SILENCE_AS_CLEAN_PANELS = new Set([PANEL.REAR_PANEL]);
 // (between/around them) in frame. Tighter than z:rear, which also tags REAR_QUARTER corner shots.
 const PANEL_REAR_NEIGHBOURS  = new Set([PANEL.REAR_BUMPER, PANEL.REAR_LAMP, PANEL.BOOT_LID]);
 
+// Hidden / exposed-only front-internal cost parts that get a STRAIGHT corroboration floor
+// (require ≥2 damaged views to cost). This is the ORIGINAL viewsThatSaw mechanism — sound here
+// because these parts are emitted in MULTIPLE views (so ≥2 views saw it but <2 confirmed damage
+// = uncorroborated). It is NOT silence-as-clean (no neighbour anchor) — REAR_PANEL's mechanism
+// above is separate and untouched. SLAM_PANEL only here; RADIATOR_PACK floors POST-amalgamate
+// (its escape-hatch proxy isn't available during amalgamate — see the RADIATOR_PACK rule).
+const HIDDEN_CORROBORATION_PANELS = new Set([PANEL.SLAM_PANEL]);
+
 // Option G — cross-view panel-correspondence pass.
 // Per-view already got the iv verdicts right; G's ONLY job is correspondence: are the
 // iv:true views and the iv:false views looking at the SAME physical instance, or
@@ -1094,6 +1102,7 @@ const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the 
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess on the WhatsApp inspection before bidding';
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
 const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
+const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
 
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
@@ -1441,7 +1450,11 @@ function amalgamate(groups, viewPanelSets) {
     const missing   = verdicts.filter(v => v === 'missing').length;
     const damaged   = verdicts.filter(v => v === 'true').length;
     const clean     = verdicts.filter(v => v === 'false').length;
+    const na        = verdicts.filter(v => v === 'na').length;
     const resolving = missing + damaged + clean;
+    // Views that SAW this panel = present-area observations (damaged + clean + na), excl. 'missing'.
+    // The corroboration-floor denominator for HIDDEN_CORROBORATION_PANELS (distinct from `damaged`).
+    const viewsThatSaw = damaged + clean + na;
     const damagedSevs = members
       .filter(l => /\|\s*iv:true\s*\|/i.test(l))
       .map(l => { const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i); return sm ? sm[1].toUpperCase() : 'MODERATE'; });
@@ -1496,6 +1509,15 @@ function amalgamate(groups, viewPanelSets) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged (flag-class) → flag (not cost)`);
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+      } else if (HIDDEN_CORROBORATION_PANELS.has(panelId) && viewsThatSaw >= 2 && damaged < 2) {
+        // Straight corroboration floor for hidden exposed-only cost parts (SLAM_PANEL): ≥2 views
+        // saw it but <2 confirmed damage → uncorroborated → floor to inspection. NOT silence-as-clean
+        // (no neighbour anchor) — distinct from the REAR_PANEL branch below. On SF69YBB SLAM_PANEL is
+        // 4/4 SEVERE → handled by severeOverride above, never reaches here; the floor only bites a
+        // single-grade-among-na SLAM_PANEL. Reached only when severeOverride is false.
+        console.log(`[AMALG] ${panelId} ${damaged}/${viewsThatSaw} single-grade among views that saw it → uncorroborated → floor`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgUncorroborated: true });
+        flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_UNCORROBORATED, _amalgUncorroborated: true });
       } else if (SILENCE_AS_CLEAN_PANELS.has(panelId) && damaged < 2 && effectiveClean >= 1) {
         // Single damaged read, but co-visible neighbours seen in other views did NOT flag this
         // panel → uncorroborated → floor to inspection (not cost). Reached only when severeOverride
@@ -2376,10 +2398,6 @@ export async function GET(request) {
       })(),
     ].filter(Boolean).join('\n');
 
-    // TEMP CAT-AUDIT — REMOVE after both commits validated
-    const _catLines = contextLines.split('\n').filter(l => /\bcategory\b/i.test(l));
-    console.log('[CAT AUDIT] category check: ' + (_catLines.length ? 'FOUND' : 'ABSENT') + (_catLines.length ? '\n' + _catLines.join('\n') : ''));
-
     const imageBlocks = images
       .map((img, i) => {
         let mediaType = 'image/jpeg';
@@ -2866,6 +2884,42 @@ export async function GET(request) {
       }
     }
     // ── End bumper-off rule ────────────────────────────────────────────────────
+
+    // ── RADIATOR_PACK corroboration floor + low-centre escape hatch (post-amalgamate) ──
+    // RADIATOR_PACK is hidden — only in frame when the front is torn open. A single damaged grade
+    // among na's can false-cost £300. Floor it to inspection UNLESS the ledger shows a low-centre
+    // front structural impact, which corroborates the rad by geometry (Vincent's trade ruling).
+    // Lives HERE, not in amalgamate: the proxy (SLAM/FRONT_STRUCTURE severity) and the geometry
+    // signals are produced after amalgamate and group iteration order is undefined, so the ledger
+    // isn't reliably present during amalgamate. Code-owned proxy ONLY — NOT struckSide (defaults to
+    // 'central' on absence → unsound) or heightBand (null on most runs). pvVotesMap is returned by
+    // amalgamate and pvResult is in scope here; coreObs.costedParts/flaggedParts already assigned.
+    {
+      const radVotes = pvResult.pvVotesMap?.RADIATOR_PACK;
+      const radEntry = coreObs.costedParts.find(cp => cp.panelId === PANEL.RADIATOR_PACK && cp.independentlyVisible === true);
+      if (radEntry && radVotes && radVotes.damaged < 2) {
+        // Escape-hatch proxy, read from the costed/flagged ledger (deterministic, code-owned):
+        //   SLAM_PANEL severe — costed entry carries _severeOverride (≥2-SEVERE path) or _ledgerSeverity==='SEVERE'.
+        //   FRONT_STRUCTURE severe — flag-class, so it lives in flaggedParts as the high-weight damage
+        //     flag (weight:'high' + AMALG_REASON_FLAG_CLASS; the not-visible flag is weight:'medium').
+        const slamSevere = coreObs.costedParts.some(cp =>
+          cp.panelId === PANEL.SLAM_PANEL && cp.independentlyVisible === true &&
+          (cp._severeOverride === true || cp._ledgerSeverity === 'SEVERE'));
+        const frontStructureSevere = coreObs.flaggedParts.some(f =>
+          f.panelId === PANEL.FRONT_STRUCTURE && f.weight === 'high' && f.reason === AMALG_REASON_FLAG_CLASS);
+        if (slamSevere || frontStructureSevere) {
+          console.log(`[RAD FLOOR] RADIATOR_PACK damaged=${radVotes.damaged} (single-grade, views=${radVotes.views}) BUT low-centre proxy fired (slamSevere=${slamSevere} frontStructureSevere=${frontStructureSevere}) → hatch=fired → £cost retained`);
+        } else {
+          // Mirror the bumper-off demotion: iv=false in place → the gate strips it from the total
+          // and the G-inject guard skips it. Push the specific inspection flag here so the gate's
+          // generic strip reason is deduped out (it keys on partName).
+          radEntry.independentlyVisible = false;
+          radEntry._radUncorroborated = true;
+          coreObs.flaggedParts.push({ panelId: PANEL.RADIATOR_PACK, partName: PANEL_DISPLAY[PANEL.RADIATOR_PACK], zone: radEntry.zone, weight: 'medium', reason: AMALG_REASON_RAD_UNCORROBORATED, _radUncorroborated: true });
+          console.log(`[RAD FLOOR] RADIATOR_PACK damaged=${radVotes.damaged} (single-grade, views=${radVotes.views}) AND no low-centre proxy (slamSevere=false frontStructureSevere=false) → floor to inspection`);
+        }
+      }
+    }
 
     // ── KCD scrub — drop demoted-part driver lines ────────────────────────────
     // Structured KCD (part-name-first before ':' on each line) lets code locate
