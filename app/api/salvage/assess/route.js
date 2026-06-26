@@ -1448,7 +1448,7 @@ function amalgamate(groups) {
         // costs: both agree replacement is needed.
         // _amalgMissing: forward-provisioning for buyer-facing missing-vs-damaged wording.
         console.log(`[AMALG] ${panelId} missing (${missing} missing, ${damaged} damaged, ${clean} clean) → cost (replace)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true,
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _amalgMissing: true, _ledgerSeverity: 'SEVERE',
           ...(_instanceKey ? { _gOwned: true, _gSeverity: 'SEVERE' } : {}) });
       }
     } else if (resolving === 0) {
@@ -1461,7 +1461,7 @@ function amalgamate(groups) {
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
       } else {
         console.log(`[AMALG] ${panelId} SEVERE damaged (${damaged} damaged, ${clean} clean) → cost (SEVERE override, no floor)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true,
+        costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true, _ledgerSeverity: 'SEVERE',
           ...(_instanceKey ? { _gOwned: true, _gSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : 'MODERATE' } : {}) });
       }
     } else if (!isFlagOnly && minorOnly && minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
@@ -1474,6 +1474,7 @@ function amalgamate(groups) {
       } else {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged → cost`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null,
+          _ledgerSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : (hasModerate ? 'MODERATE' : 'MINOR'),
           ...(_instanceKey ? { _gOwned: true, _gSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : 'MODERATE' } : {}) });
       }
     } else if (clean > 0 && damaged === 0) {
@@ -2377,7 +2378,7 @@ export async function GET(request) {
           },
           apertureExposed: {
             type: 'boolean',
-            description: 'True if the front bumper is visibly displaced or removed on the struck corner, exposing the lamp mounting recess.',
+            description: 'True if the front bumper is visibly displaced or removed on the struck corner, exposing the front-wing-to-bumper seam or the lamp mounting recess. Set on lots with front bumper displacement; omit or set false if the front bumper is intact. Assess the front and rear apertures INDEPENDENTLY — a front-primary impact does not mean the rear bumper is intact.',
           },
           damageSpan: {
             type: 'string',
@@ -2386,7 +2387,7 @@ export async function GET(request) {
           },
           rearApertureExposed: {
             type: 'boolean',
-            description: 'True if the rear bumper is torn away or displaced from the body on the struck corner, exposing the rear-quarter-to-bumper seam or fold. Set on lots with rear bumper displacement; omit or set false if the rear bumper is intact.',
+            description: 'True if the rear bumper is torn away or displaced from the body on the struck corner, exposing the rear-quarter-to-bumper seam or fold. Set on lots with rear bumper displacement; omit or set false if the rear bumper is intact. Assess this INDEPENDENTLY of the front — set it whenever the rear bumper is displaced, even if the primary impact is at the front.',
           },
         },
         required: ['struckSide', 'apertureExposed', 'damageSpan'],
@@ -2655,7 +2656,7 @@ export async function GET(request) {
           messages: [
             ...messages,
             { role: 'assistant', content: rawText },
-            { role: 'user', content: 'You identified front impact damage in your assessment above. Call recordLampObservation now to record your observation of the struck front corner — bumper displacement (apertureExposed) and damage span — based on the photos and your assessment.' },
+            { role: 'user', content: 'You identified impact damage in your assessment above. Call recordLampObservation now, based on the photos and your assessment: record struckSide and damageSpan; set apertureExposed if the FRONT bumper is displaced or removed exposing the wing-to-bumper or lamp seam; and set rearApertureExposed if the REAR bumper is torn or displaced exposing the rear-quarter seam. Assess the front and rear apertures independently — do not assume the rear bumper is intact because the main impact is at the front.' },
           ],
           tools: [LAMP_OBS_TOOL],
           tool_choice: { type: 'any' },
@@ -2797,9 +2798,22 @@ export async function GET(request) {
     // regardless of how the bumper left.
     const bumperOffDemoted = []; // { partName, rx } — fed to KCD scrub below
     {
-      const frontBumperOff = lampObs?.apertureExposed === true;
-      const rearBumperOff  = lampObs?.rearApertureExposed === true;
-      console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} rearBumperOff=${rearBumperOff}`);
+      // Adjacent-bumper LEDGER signal (code-owned fact) OR'd with the model flag.
+      // A severe/displaced/missing bumper means the wing/quarter seam behind it is exposed →
+      // the panel is aperture-suspect and cannot be certainly visible → floor to inspect, even
+      // if the front-framed impact prompt never elicited the model aperture flag, and even if
+      // the panel was SEVERE-overridden. Severity is read from the costed entry: _severeOverride
+      // (≥2-SEVERE-vote path) OR _ledgerSeverity==='SEVERE' (stamped on every costed entry,
+      // catching the normal damaged>0/clean===0 path and missing too). Bumpers aren't G-split,
+      // so _gSeverity is never present on them — _ledgerSeverity is the field that covers them.
+      const bumperSevereInLedger = (pid) => coreObs.costedParts.some(cp =>
+        cp.panelId === pid && cp.independentlyVisible === true &&
+        (cp._severeOverride === true || cp._ledgerSeverity === 'SEVERE'));
+      const frontBumperSevere = bumperSevereInLedger(PANEL.FRONT_BUMPER);
+      const rearBumperSevere  = bumperSevereInLedger(PANEL.REAR_BUMPER);
+      const frontBumperOff = (lampObs?.apertureExposed === true)     || frontBumperSevere;
+      const rearBumperOff  = (lampObs?.rearApertureExposed === true) || rearBumperSevere;
+      console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (model=${lampObs?.apertureExposed === true} ledger=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (model=${lampObs?.rearApertureExposed === true} ledger=${rearBumperSevere})`);
       for (const cp of coreObs.costedParts) {
         if (cp.independentlyVisible !== true || cp._labourSafe || cp._amalgMissing === true) continue;
         const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
