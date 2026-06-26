@@ -1934,6 +1934,7 @@ function buildHammerLadder(exitValue) {
 }
 
 export async function GET(request) {
+  console.log(`[DEPLOY] sha=${process.env.VERCEL_GIT_COMMIT_SHA || 'n/a'} dep=${process.env.VERCEL_DEPLOYMENT_ID || 'n/a'} url=${process.env.VERCEL_URL || 'n/a'} env=${process.env.VERCEL_ENV || 'n/a'}`);
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
   const salvageId = searchParams.get('salvage_id');
