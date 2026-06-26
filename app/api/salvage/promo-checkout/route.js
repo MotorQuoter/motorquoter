@@ -28,6 +28,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Maximum 35 images allowed' }, { status: 400 });
     }
 
+    const _ta = (vehicleDetails || {}).typeApproval;
+    if (!_ta || !['M1', 'N1', 'M2'].includes(_ta)) {
+      return NextResponse.json({ error: 'Vehicle type not supported' }, { status: 400 });
+    }
+
     const code = promoCode.trim().toUpperCase();
     const supabase = getSupabase();
 

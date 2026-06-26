@@ -11,7 +11,6 @@ function getSupabase() {
 }
 
 export async function POST(request) {
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   try {
     const { vehicleDetails, imagePaths, market, roiTier } = await request.json();
 
@@ -21,6 +20,13 @@ export async function POST(request) {
     if (imagePaths.length > 35) {
       return NextResponse.json({ error: 'Maximum 35 images allowed' }, { status: 400 });
     }
+
+    const _ta = (vehicleDetails || {}).typeApproval;
+    if (!_ta || !['M1', 'N1', 'M2'].includes(_ta)) {
+      return NextResponse.json({ error: 'Vehicle type not supported' }, { status: 400 });
+    }
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
     const roiTierKey = market === 'IE' ? (roiTier || 'roi_free') : null;
     const roiTierMeta = roiTierKey ? ROI_TIERS.find(t => t.key === roiTierKey) : null;

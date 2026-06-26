@@ -99,6 +99,7 @@ export default function SalvageSuccessPage() {
   const [bregoData, setBregoData] = useState(null);
   const [rerunLimitReached, setRerunLimitReached] = useState(false);
   const [overloadedMessage, setOverloadedMessage] = useState('');
+  const [bodyTypeSelect, setBodyTypeSelect] = useState('');
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -188,6 +189,30 @@ export default function SalvageSuccessPage() {
     } catch(e) {
       setErrorMsg(e.message);
       setStatus('error');
+    }
+  };
+
+  const handleBodyTypeFix = async () => {
+    if (!bodyTypeSelect) return;
+    try {
+      const res = await fetch('/api/salvage/patch-body-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salvage_id: salvageIdRef.current,
+          body_style: bodyTypeSelect,
+          ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to update vehicle type');
+      }
+      setStatus('loading');
+      setMsgIdx(0);
+      runAssessment();
+    } catch (e) {
+      setErrorMsg(e.message);
     }
   };
 
@@ -394,6 +419,26 @@ export default function SalvageSuccessPage() {
                 <>
                   <div className="error-title">Re-run Limit Reached</div>
                   <div className="error-msg">{errorMsg}</div>
+                </>
+              ) : /body type/i.test(errorMsg) ? (
+                <>
+                  <div className="error-title">Vehicle Type Required</div>
+                  <div className="error-msg">The vehicle body type couldn&apos;t be confirmed automatically. Select the type below — your images and details are saved, no re-upload needed.</div>
+                  <select
+                    value={bodyTypeSelect}
+                    onChange={e => setBodyTypeSelect(e.target.value)}
+                    style={{ width: '100%', margin: '12px 0 16px', background: 'var(--bg2)', border: '1.5px solid var(--border-dim)', borderRadius: 8, padding: '10px 14px', color: 'var(--text)', fontSize: 14, fontFamily: "'Barlow', sans-serif", outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="">Select body type...</option>
+                    <option value="Panel van">Panel van</option>
+                    <option value="Crew van">Crew van</option>
+                    <option value="Pickup">Pickup</option>
+                    <option value="Luton van">Luton / box van</option>
+                    <option value="Dropside tipper flatbed">Dropside / tipper / flatbed</option>
+                  </select>
+                  <button className="btn-retry" onClick={handleBodyTypeFix} disabled={!bodyTypeSelect} style={{ opacity: !bodyTypeSelect ? 0.45 : 1 }}>
+                    Run Assessment
+                  </button>
                 </>
               ) : (
                 <>

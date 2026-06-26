@@ -21,6 +21,98 @@ import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 
+// ── Body-class resolution ──────────────────────────────────────────────────────
+// Keyword set from 270-session string enumeration (25 Jun 2026).
+// M1/M2 → top-level class from typeApproval alone.
+// N1 → sub-split from Brego vehicle_desc + Copart Body style.
+// UNRESOLVED: both sources absent, or sources conflict → caller rejects/escalates.
+const _PICKUP_RE     = /pick[\s-]?up/i;
+const _PANEL_VAN_RE  = /\bvan\b/i;
+const _COACHBUILT_RE = /luton|dropside|drop\s*side|tipper|chassis\s*cab|box\s*van|flatbed|curtain/i;
+// Minibus corroboration for the N1-edge / M2-absent case. GUARDED: the bare word "minibus"
+// only — NEVER a seat-count. A1 proved "[N seats]" appears on ordinary M1 cars (Kia Picanto
+// "[4 seats]"), so any N-seat regex is a known trap and is deliberately absent.
+const _MINIBUS_RE    = /\bminibus\b/i;
+
+function _classifyBodyString(s) {
+  if (!s || !s.trim()) return null;
+  if (_MINIBUS_RE.test(s))    return 'minibus';
+  if (_PICKUP_RE.test(s))     return 'pickup';
+  if (_COACHBUILT_RE.test(s)) return 'coachbuilt';
+  if (_PANEL_VAN_RE.test(s))  return 'panel_van';
+  return null;
+}
+
+// resolveBodyClass — pure, no model call.
+// Returns { bodyClass, source, conflict, conflictDetail? }
+// bodyClass ∈ { 'car' | 'people_carrier' | 'minibus' | 'panel_van' | 'pickup' | 'coachbuilt' | 'UNRESOLVED' | null }
+// null = typeApproval absent (pre-Part-1 session) — caller must NOT enforce N1 rules.
+function resolveBodyClass(typeApproval, vehicleDesc, copartBodyStyle) {
+  const ta = (typeApproval || '').toUpperCase().trim();
+  if (!ta) return { bodyClass: null, source: 'typeApproval_absent', conflict: false };
+  if (ta === 'M1') return { bodyClass: 'car', source: 'typeApproval', conflict: false };
+  if (ta === 'M2') return { bodyClass: 'minibus', source: 'typeApproval', conflict: false };
+  if (ta !== 'N1') return { bodyClass: null, source: 'typeApproval_other', conflict: false };
+
+  const fromDesc  = _classifyBodyString(vehicleDesc);
+  const fromStyle = _classifyBodyString(copartBodyStyle);
+
+  if (fromDesc && fromStyle) {
+    if (fromDesc === fromStyle) return { bodyClass: fromDesc, source: 'both', conflict: false };
+    // Disagreement: do NOT pick one — force ask-user path
+    return { bodyClass: 'UNRESOLVED', source: 'conflict', conflict: true, conflictDetail: `vehicle_desc→${fromDesc} copartBodyStyle→${fromStyle}` };
+  }
+  if (fromDesc)  return { bodyClass: fromDesc,  source: 'vehicle_desc', conflict: false };
+  if (fromStyle) return { bodyClass: fromStyle, source: 'copart_body_style', conflict: false };
+  return { bodyClass: 'UNRESOLVED', source: 'none', conflict: false };
+}
+
+// Coachbuilt body panels — out-of-model when bodyClass = 'coachbuilt'.
+// These are the Stage-1 van/pickup body panels that map to non-cab body structure.
+// Cab/front panels (BONNET, FRONT_BUMPER, FRONT_WING, etc.) are NOT listed here
+// and remain in the costed set for coachbuilt vehicles.
+const COACHBUILT_BODY_PANELS = new Set([
+  'SLIDING_DOOR_SOLID', 'SLIDING_DOOR_GLAZED',
+  'BARN_DOOR_L', 'BARN_DOOR_R',
+  'LOAD_BULKHEAD', 'CREW_WINDOW', 'BODY_SIDE_GLAZING', 'TAILGATE_GLAZED',
+  'BED_SIDE_L', 'BED_SIDE_R', 'BED_FLOOR', 'DROP_TAILGATE', 'CAB_REAR_PANEL',
+]);
+
+// ── Body-class panel-eligibility (allow-set) ──────────────────────────────────
+// Universals every class may cost: front section, doors/sides, glass, rear bumper/
+// lamp/panel, roof, wheels/tyres, all structural flags, presence checks, OTHER, EV.
+// Per-class additions sit on top. The gate strips any costed/flagged panel NOT in the
+// resolved class's set (cross-body misattribution — e.g. BOOT_LID costed on a pickup).
+const _ELIGIBLE_UNIVERSAL = [
+  PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING,
+  PANEL.HEADLAMP, PANEL.FOG_LAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_DOOR, PANEL.REAR_DOOR,
+  PANEL.SILL, PANEL.SIDE_SKIRT, PANEL.DOOR_MIRROR, PANEL.SIDE_GLASS, PANEL.REAR_BUMPER,
+  PANEL.REAR_LAMP, PANEL.WINDSCREEN, PANEL.ROOF, PANEL.WHEEL, PANEL.TYRE, PANEL.REAR_PANEL,
+  PANEL.FRONT_STRUCTURE, PANEL.REAR_STRUCTURE, PANEL.SIDE_STRUCTURE, PANEL.DISPLACED_WHEEL,
+  PANEL.SPARE_WHEEL, PANEL.PARCEL_SHELF, PANEL.OTHER, PANEL.EV_BATTERY_ZONE, PANEL.EV_BATTERY_PRESENCE,
+];
+const ELIGIBLE_PANELS = Object.freeze({
+  car: new Set([
+    ..._ELIGIBLE_UNIVERSAL,
+    PANEL.BOOT_LID, PANEL.REAR_QUARTER, PANEL.REAR_GLASS,
+  ]),
+  pickup: new Set([
+    ..._ELIGIBLE_UNIVERSAL,
+    PANEL.BED_SIDE_L, PANEL.BED_SIDE_R, PANEL.BED_FLOOR, PANEL.DROP_TAILGATE,
+    PANEL.CAB_REAR_PANEL, PANEL.CAB_REAR_GLASS,
+  ]),
+  panel_van: new Set([
+    ..._ELIGIBLE_UNIVERSAL,
+    PANEL.SLIDING_DOOR_SOLID, PANEL.SLIDING_DOOR_GLAZED, PANEL.BARN_DOOR_L, PANEL.BARN_DOOR_R,
+    PANEL.LOAD_BULKHEAD, PANEL.CREW_WINDOW, PANEL.TAILGATE_GLAZED,
+  ]),
+  minibus: new Set([
+    ..._ELIGIBLE_UNIVERSAL,
+    PANEL.BOOT_LID, PANEL.REAR_QUARTER, PANEL.REAR_GLASS, PANEL.BODY_SIDE_GLAZING,
+    PANEL.SLIDING_DOOR_GLAZED, PANEL.BARN_DOOR_L, PANEL.BARN_DOOR_R, PANEL.TAILGATE_GLAZED,
+  ]),
+});
+
 export const maxDuration = 300;
 
 function getSupabase() {
@@ -1015,21 +1107,39 @@ COST panels — carry a repair price when damaged:
   FOG_LAMP          front or rear fog lamp / driving lamp
   RADIATOR_PACK     radiator / condenser / cooling pack (costed as a unit on frontal hits)
   FRONT_DOOR        front door / front door shell
-  REAR_DOOR         rear door / rear door shell / rear sliding door
+  REAR_DOOR         rear door / rear door shell (car rear door only — NOT a van sliding door; use SLIDING_DOOR_SOLID or SLIDING_DOOR_GLAZED for sliding doors)
   SILL              structural sill / rocker panel (structural, not trim)
   SIDE_SKIRT        side skirt / rocker trim / side trim strip (trim only, not structural)
   DOOR_MIRROR       door mirror / wing mirror / side mirror
-  SIDE_GLASS        side glass / door glass (any door window)
+  SIDE_GLASS        side glass / door glass (any door window — glass pane struck in isolation; if the whole sliding door skin is struck use SLIDING_DOOR_GLAZED instead)
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
-  BOOT_LID          boot lid / tailgate / trunk lid / hatchback rear door
+  BOOT_LID          boot lid / trunk lid / hatchback rear door (car only — for van rear closures use BARN_DOOR_L/R or TAILGATE_GLAZED; do not route van barn doors or van tailgates here)
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
   WINDSCREEN        windscreen / front windshield
   REAR_GLASS        rear glass / rear windscreen / rear screen
   ROOF              roof panel / roof skin
   WHEEL             alloy or steel wheel — any corner; do not add a position qualifier
   TYRE              tyre / tire — any corner; do not add a position qualifier
+
+Van/passenger body panels:
+  SLIDING_DOOR_SOLID   panel van solid sliding side door / plain metal sliding door — whole door skin struck (track and runner folded in); do not use for glazed passenger-van doors
+  SLIDING_DOOR_GLAZED  passenger van glazed sliding door / glazed side door with glass panel — whole door struck including glass; if only the glass pane is broken use SIDE_GLASS instead
+  BARN_DOOR_L          left rear barn door (van / minibus) — split rear closure, left leaf
+  BARN_DOOR_R          right rear barn door (van / minibus) — split rear closure, right leaf
+  LOAD_BULKHEAD        load bulkhead / cab divider / partition panel behind cab seats
+  CREW_WINDOW          crew van glazed body-side window / second-row side window bonded into body (not a door glass — use SIDE_GLASS for door glass)
+  BODY_SIDE_GLAZING    people-carrier or minibus bonded body-side glazing / fixed passenger window (not a door)
+  TAILGATE_GLAZED      van single top-hinged glazed tailgate / single-piece rear door with glass (not barn doors; not BOOT_LID)
+
+Pickup-only panels:
+  BED_SIDE_L       pickup load-bed left side panel / left bed wall
+  BED_SIDE_R       pickup load-bed right side panel / right bed wall
+  BED_FLOOR        pickup load-bed floor / bed deck
+  DROP_TAILGATE    pickup drop tailgate / pickup rear bed closure (distinct from van barn door or car hatchback tailgate)
+  CAB_REAR_PANEL   pickup cab rear wall / back wall of the cab (body-on-frame rear cab panel)
+  CAB_REAR_GLASS   pickup double-cab rear cab window / rear cab glass behind the seats (bonded fixed glazing; NOT a door glass — use SIDE_GLASS for door glass; NOT the cab rear metal wall — use CAB_REAR_PANEL for that; NOT the load-bed)
 
 STRUCTURAL FLAG — never costed; always flagged for inspection:
   FRONT_STRUCTURE   chassis leg / inner wing / subframe / front upper structure / engine bay metal
@@ -2111,6 +2221,25 @@ export async function GET(request) {
       }
     }
 
+    // ── Body-class resolution (Stage 5) ───────────────────────────────────────
+    // Runs after Brego resolves so vehicle_desc is available as tier-1 source.
+    // typeApproval null (pre-Part-1 sessions) → bodyClassResult.bodyClass === null → no enforcement.
+    const bodyClassResult = resolveBodyClass(
+      enrichedVd.typeApproval,
+      enrichedVd.bregoValuation?.vehicle_desc,
+      enrichedVd.bodyStyle,
+    );
+    console.log(`[BODY_CLASS] typeApproval=${enrichedVd.typeApproval ?? 'absent'} bodyClass=${bodyClassResult.bodyClass} source=${bodyClassResult.source} conflict=${bodyClassResult.conflict}${bodyClassResult.conflictDetail ? ` detail="${bodyClassResult.conflictDetail}"` : ''}`);
+
+    if (bodyClassResult.bodyClass === 'UNRESOLVED') {
+      // N1 sub-class unresolvable — reset session so the call is retryable, then reject.
+      // Throw routes through the outer catch which handles promo/non-promo status reset.
+      const errMsg = bodyClassResult.conflict
+        ? `Body type conflict — automated sources disagree on vehicle sub-type (${bodyClassResult.conflictDetail}). Please verify the vehicle type and re-submit.`
+        : 'Vehicle type could not be confirmed — this N1 vehicle requires body type selection (van, pickup, or specialist body) before assessment. Please re-submit with body type selected.';
+      throw new Error(errMsg);
+    }
+
     const AUCTION_SOURCE_LABELS = {
       copart: 'Copart UK',
       bca: 'BCA',
@@ -2826,6 +2955,65 @@ export async function GET(request) {
         _gOwned:  true,
       });
       console.log(`[G INJECT] ${e.panelId} stripped-model-rows=${strippedCount} action=${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
+    }
+
+    // ── Coachbuilt body-panel strip (Stage 5) ────────────────────────────────
+    // When body class resolves to coachbuilt, the van/pickup body panels are
+    // out-of-model. Cab/front panels (not in COACHBUILT_BODY_PANELS) are retained.
+    if (bodyClassResult.bodyClass === 'coachbuilt') {
+      const strippedPanels = [];
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        if (COACHBUILT_BODY_PANELS.has(gatedParts[i].panelId)) {
+          strippedPanels.push(gatedParts[i].panelId);
+          gatedParts.splice(i, 1);
+        }
+      }
+      // Mirror strip in coreObs.flaggedParts (removes flags for stripped panels)
+      for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
+        if (COACHBUILT_BODY_PANELS.has(coreObs.flaggedParts[i].panelId)) {
+          coreObs.flaggedParts.splice(i, 1);
+        }
+      }
+      console.log(`[COACHBUILT] body-panel strip: removed [${strippedPanels.join(', ')}]. Cab/front section retained.`);
+      // Inject a high-weight flag so the buyer knows the body is out of model
+      coreObs.flaggedParts.push({
+        panelId: null,
+        partName: 'Coachbuilt body — out of model',
+        zone: 'rear',
+        weight: 'high',
+        reason: 'Coachbuilt specialist body detected — body structure not in model. Cost above covers cab/front section only. Inspect the full load body on site before bidding.',
+      });
+    }
+
+    // ── Body-class panel-eligibility gate (Stage 5, allow-set) ───────────────
+    // Strip any costed/flagged panel that the resolved bodyClass cannot carry
+    // (e.g. a BOOT_LID costed on a pickup, or van body panels on a car). Mirrors
+    // the coachbuilt deny-strip above. Bypass by construction: bodyClass === null
+    // (pre-Part-1, no enforcement) and 'coachbuilt' (own deny-strip) are absent
+    // from ELIGIBLE_PANELS → _eligibleSet undefined → skip; 'UNRESOLVED' throws
+    // upstream and never reaches here. Only car/panel_van/pickup/minibus gate.
+    const _eligibleSet = ELIGIBLE_PANELS[bodyClassResult.bodyClass];
+    if (_eligibleSet) {
+      const removed = [];
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        const pid = gatedParts[i].panelId;
+        // Strip only KEYED panel rows outside the allow-set. Non-panel rows
+        // (labour / paint / sundries / blend — no panelId, see parts.mjs gate)
+        // are never cross-body misattributions; leave them in the total.
+        if (pid != null && !_eligibleSet.has(pid)) {
+          removed.push(pid);
+          gatedParts.splice(i, 1);
+        }
+      }
+      // Mirror strip in coreObs.flaggedParts. Null-panelId flags (free-text/structural
+      // prose, coachbuilt notice) are never keyed — leave them untouched.
+      for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
+        const pid = coreObs.flaggedParts[i].panelId;
+        if (pid != null && !_eligibleSet.has(pid)) {
+          coreObs.flaggedParts.splice(i, 1);
+        }
+      }
+      console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${removed.join(', ')}]`);
     }
 
     // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).

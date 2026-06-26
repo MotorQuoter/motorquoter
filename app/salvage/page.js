@@ -7,7 +7,7 @@ import { PRICING } from '@/config/pricing';
 export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
-  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '' });
+  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '', bodyStyle: '' });
   const [market, setMarket] = useState('GB');
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -289,7 +289,26 @@ export default function SalvagePage() {
         dvlaVerified: dvlaStatus === 'found',
         motMileageFlag: motWarning || null,
         motHistory: dvlaData?.motHistory ?? null,
+        typeApproval: dvlaData?.typeApproval || null,
+        wheelplan: dvlaData?.wheelplan || null,
+        revenueWeight: dvlaData?.revenueWeight ?? null,
       };
+
+      // Scope gate — pre-payment. Only M1/N1/M2 admitted. Reruns exempt (already paid/admitted).
+      if (!isRerun) {
+        const ta = vehicleDetails.typeApproval;
+        const IN_SCOPE = ['M1', 'N1', 'M2'];
+        if (!ta) {
+          setError('A registration is required so we can confirm the vehicle type. Please enter the VRM to continue.');
+          setLoading(false);
+          return;
+        }
+        if (!IN_SCOPE.includes(ta)) {
+          setError(`This vehicle type (${ta}) isn't supported — MotorQuoter covers cars, vans, pickups and minibuses only.`);
+          setLoading(false);
+          return;
+        }
+      }
 
       if (appliedPromo?.discount_type === 'free') {
         const res = await fetch('/api/salvage/promo-checkout', {
@@ -661,6 +680,20 @@ export default function SalvagePage() {
                 value={details.lotNumber}
                 onChange={e => setDetails(p => ({ ...p, lotNumber: e.target.value }))}
               />
+              <select
+                className="select-input"
+                value={details.bodyStyle}
+                onChange={e => setDetails(p => ({ ...p, bodyStyle: e.target.value }))}
+              >
+                <option value="">Body type (optional)</option>
+                <option value="Panel van">Panel van</option>
+                <option value="Crew van">Crew van</option>
+                <option value="Pickup">Pickup</option>
+                <option value="People carrier">People carrier</option>
+                <option value="Minibus">Minibus</option>
+                <option value="Luton van">Luton / box van</option>
+                <option value="Dropside tipper flatbed">Dropside / tipper / flatbed</option>
+              </select>
               <div>
                 <input
                   className="text-input"

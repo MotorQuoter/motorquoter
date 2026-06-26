@@ -63,7 +63,7 @@ for (const { input, expected, label } of cases) {
 
 // ── PANEL_PRICE_TABLE integrity checks ───────────────────────────────────────
 console.log('\n── PANEL_PRICE_TABLE integrity ──');
-const EXPECTED_PANELS = 22;
+const EXPECTED_PANELS = 36;
 const panelIds = Object.keys(PANEL_PRICE_TABLE);
 let integrityFail = 0;
 
