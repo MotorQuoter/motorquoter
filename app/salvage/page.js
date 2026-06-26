@@ -291,6 +291,10 @@ export default function SalvagePage() {
       // Proceed to checkout/promo/rerun with storage paths
       const vehicleDetails = {
         ...details,
+        // Immutable original Copart paste — captured untouched at first submit. parseCopart
+        // reads THIS (not the mutable/cleaned damageDescription), so re-assess/rerun are
+        // idempotent. Server enforces write-once: inserts set it, updates preserve it.
+        rawCopartPaste: details.damageDescription,
         copartListedMileage: copartMileage ? parseInt(copartMileage, 10) : null,
         auctionSource,
         dvlaVerified: dvlaStatus === 'found',

@@ -49,6 +49,10 @@ export async function POST(request) {
       image_paths: imagePaths,
       vehicle_details: {
         ...(vehicleDetails || {}),
+        // Carry forward the immutable original paste (write-once): the stored value wins over
+        // a possibly paste-less rerun form. A rerun re-derives the whole Copart block from it
+        // via normaliseLot — it must NOT be replaced/discarded by the form submit.
+        rawCopartPaste: (session.vehicle_details?.rawCopartPaste || vehicleDetails?.rawCopartPaste) || null,
         ...(session.vehicle_details?.promoToken && { promoToken: session.vehicle_details.promoToken }),
       },
       market: market || 'GB',
