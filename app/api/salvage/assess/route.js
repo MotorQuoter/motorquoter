@@ -1216,6 +1216,10 @@ severity (on iv:true only; use - on false/na/missing):
   MODERATE = clear impact damage, repair-grade
   MINOR    = cosmetic — scuff / scratch / light dent, refinish only
 
+--- LOWER-FLANK GROUNDING (SILL, SIDE_SKIRT, and the lower extent of the doors) ---
+Lower rocker, sill and side-skirt panels routinely carry PRE-EXISTING kerb-rash, road film, dirt, stone-chips, light surface scuffs and shadow that are NOT fresh collision damage. Do NOT grade or cost these as damage. For SILL or SIDE_SKIRT to be iv:true, the photo must show actual DEFORMATION or IMPACT — a crease, dent, crack, gouge, or displacement consistent with the collision event. Surface scuff, scratch, dirt, road film, shadow, or kerb/abrasion rash ALONE on these lower-flank panels is iv:false (seen and undamaged) — it is NOT MINOR and NOT MODERATE. If the lower-flank condition is ambiguous between surface contamination / pre-existing kerb-rash and genuine light impact, use iv:na — do NOT default to grading it damaged. Apply the same judgement an assessor reaches in prose: scuffing that reads as pre-existing kerb/abrasion rather than fresh impact is not a costed panel. This rule is scoped to the lower-flank panels named here; it does NOT change how scuffs are graded on any other panel.
+--- END LOWER-FLANK GROUNDING ---
+
 The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
 --- RESOLVABILITY THRESHOLD (tunable — this clause only) ---
