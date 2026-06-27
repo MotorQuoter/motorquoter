@@ -907,6 +907,71 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
   }
 }
 
+// Fault 1a — aperture torn-vs-seam read. Dedicated single-purpose vision pass (mirrors
+// runDashClusterRead): a bumper-off rear-quarter / front-wing is byte-identical on every
+// existing field between a genuinely torn panel and an intact seam merely exposed by the
+// missing bumper. This read is the ONLY signal that separates them. It judges the PANEL'S
+// OWN METAL: torn/folded/buckled = genuine impact (keep cost); straight intact seam = no
+// panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
+// Fail-safe: any failure/exhaust → null; invalid verdict → 'ambiguous'. Both keep cost
+// (policy: on structure, ambiguity falls to assume-damage).
+async function runAperturePanelRead(images, lampObs, onExhaust) {
+  // Corner steer from the structured impact obs (hint only — model self-locates as lamp-detect does).
+  const sideWord  = (lampObs?.struckSide === 'offside' || lampObs?.struckSide === 'nearside') ? lampObs.struckSide : '';
+  const apertures = [];
+  if (lampObs?.apertureExposed)     apertures.push('front');
+  if (lampObs?.rearApertureExposed) apertures.push('rear');
+  const cornerHint = `${sideWord ? sideWord + ' ' : ''}${apertures.join(' and ')}`.trim() || 'damaged';
+  const APERTURE_PROMPT = `You are judging a single salvage vehicle from auction photos. The ${apertures.includes('rear') ? 'rear bumper' : 'front bumper'} is displaced or torn away on the ${cornerHint} corner, exposing the body panel behind it (the rear quarter panel for a rear corner, the front wing for a front corner).
+
+Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
+
+TORN = the panel's own metal is folded, torn, buckled, creased, or crumpled; panel edges are displaced; the body line is deformed. This is genuine impact to the panel.
+SEAM = a straight, intact factory seam or join line is now visible only because the bumper is gone, with NO metal deformation on the panel face itself. The panel is undamaged; you are seeing a normal join the bumper used to cover.
+
+Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
+{ "verdict": "torn" | "seam" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see>" }
+
+Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn or seam.`;
+  try {
+    if (images.length > 35) console.warn(`[APERTURE PANEL] image set truncated to 35 (received ${images.length})`);
+    const imageBlocks = images.slice(0, 35).map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const m = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) { mediaType = m[1]; data = m[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    const { res, exhausted } = await with529Retry('aperture-panel', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 512,
+        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: APERTURE_PROMPT }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return null; }
+    if (!res?.ok) { console.warn('[APERTURE PANEL] API error:', res?.status); return null; }
+    const apiData = await res.json();
+    console.log('[TOKEN LOG] aperture-panel Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[APERTURE PANEL] max_tokens — truncated; returning null (keep-cost fail-safe)'); return null; }
+    if (apiData.stop_reason === 'refusal')   { console.warn('[APERTURE PANEL] refusal — content policy; returning null (keep-cost fail-safe)'); return null; }
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) { console.warn('[APERTURE PANEL] no JSON object in response:', raw.slice(0, 200)); return null; }
+    const parsed = JSON.parse(match[0]);
+    const verdict  = ['torn', 'seam', 'ambiguous'].includes(parsed.verdict) ? parsed.verdict : 'ambiguous';
+    const evidence = typeof parsed.evidence === 'string' ? parsed.evidence : '';
+    console.log(`[APERTURE PANEL] verdict=${verdict} evidence="${evidence.slice(0, 80)}"`);
+    return { verdict, evidence };
+  } catch (err) {
+    console.warn('[APERTURE PANEL] error:', err.message);
+    return null;
+  }
+}
+
 // Paired-flank panels: exactly TWO physical instances (left + right) on every car.
 // Option G (cross-view correspondence pass) runs ONLY on these eight panels.
 // WHEEL/TYRE (four instances each) are explicitly excluded — their four-corner problem
@@ -2804,6 +2869,15 @@ export async function GET(request) {
     lampObsSource = lampObsSource || 'no-arm';
     console.log(`[LAMP][TRIGGER] source=${lampObsSource}`);
 
+    // Fault 1a — fire the aperture torn-vs-seam read now that lampObs is final. Gated on
+    // bumper-off (same source the demotion uses); on non-bumper-off lots it never calls.
+    // Fired here as a promise so its fetch overlaps the synchronous reconciliation work
+    // below; awaited just before the demotion loop so apertureVerdict is in hand there.
+    const aperturePanelPromise =
+      (lampObs?.apertureExposed === true || lampObs?.rearApertureExposed === true)
+        ? runAperturePanelRead(images, lampObs, () => _exhaustedCalls.add('aperture-panel'))
+        : Promise.resolve(null);
+
     let lampResult = null;
     if (lampObs) {
       const derivedLampType = deriveLampType(enrichedVd);
@@ -2895,6 +2969,12 @@ export async function GET(request) {
       throw new Error('Assessment could not be completed — please retry');
     }
 
+    // Fault 1a — resolve the aperture verdict before the demotion decision. 'torn'/'ambiguous'/
+    // null all keep cost (assume-damage on structure); only 'seam' demotes. null = call skipped
+    // (not bumper-off), failed, exhausted, or unparseable — all fail safe toward cost.
+    const aperturePanelRaw = await aperturePanelPromise;
+    const apertureVerdict  = aperturePanelRaw?.verdict ?? null; // 'torn' | 'seam' | 'ambiguous' | null
+
     // ── Bumper-off rule ────────────────────────────────────────────────────────
     // Code-owned, no model call. Runs BEFORE perception probe so the probe never
     // challenges a panel already demoted here.
@@ -2924,7 +3004,14 @@ export async function GET(request) {
         if (cp.independentlyVisible !== true || cp._labourSafe || cp._amalgMissing === true) continue;
         const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
         const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
-        if ((isFW && frontBumperOff) || (isRQ && rearBumperOff)) {
+        const bumperOffHere = (isFW && frontBumperOff) || (isRQ && rearBumperOff);
+        if (bumperOffHere) {
+          // Fault 1a — gate the demotion on the torn-vs-seam vision verdict. Demote ONLY on a
+          // confirmed intact seam; 'torn'/'ambiguous'/null keep cost (cost survives via the
+          // existing G-inject table path for _gOwned, or applyVisibilityGate for a model row).
+          const apertureSaysDemote = (apertureVerdict === 'seam');
+          console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${apertureVerdict} → ${apertureSaysDemote ? 'demote' : 'keep-cost'}`);
+          if (!apertureSaysDemote) continue;
           cp.independentlyVisible = false;
           cp._bumperOffStripped = true;
           // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
