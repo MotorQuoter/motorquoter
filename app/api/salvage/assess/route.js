@@ -1406,6 +1406,19 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
         console.log(`[G] ${panelId} SAFETY_ABORT=instance-not-majority-damaged damaged=${instDamagedVotes} clean=${instCleanVotes} action=floor`);
         result.push(group); continue;
       }
+      // S2c (symmetric to S2): an EXCLUDED view that SAW this flank panel and graded it CLEAN
+      // (iv:false) is a positive disagreement with a lone damaged grade. For PAIRED_FLANK_PANELS,
+      // an uncorroborated single damaged instance (instDamagedVotes < 2) contradicted by ≥1 such
+      // excluded clean view is floored to inspection, not cost — closes the single-view flank gap
+      // (FRONT_WING/REAR_DOOR). Anchor is a POSITIVE clean observation only: iv:na (couldn't
+      // resolve) does NOT count, and a view that never saw the panel is absent from excludedIndices
+      // entirely — so a genuine single-angle dent (only one view had the angle) is NOT floored.
+      const excludedCleanViews = excludedIndices.filter(idx =>
+        /\|\s*iv:false\s*\|/i.test(memberByView.get(idx) ?? ''));
+      if (PAIRED_FLANK_PANELS.has(panelId) && instDamagedVotes < 2 && excludedCleanViews.length > 0) {
+        console.log(`[G] ${panelId} SAFETY_ABORT=excluded-clean-uncorroborated damaged=${instDamagedVotes} excludedCleanViews=[${excludedCleanViews.join(',')}] action=floor`);
+        result.push(group); continue;
+      }
       // Case B accepted: one group carrying only the damaged instance's views
       console.log(`[G] ${panelId} instances=1 excluded=${excludedIndices.length} damaged=${instDamagedVotes} clean=${instCleanVotes} confidence=${corr.confidence} action=split`);
       result.push({ panelId, _instanceKey: `${panelId}#1`, members: instanceMembers });
