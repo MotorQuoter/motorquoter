@@ -647,7 +647,7 @@ function PaymentSuccessContent() {
       const resolvedRoiTier = verifyData.roiTier || roiTierParam;
       const resolvedMarket  = verifyData.market  || market;
 
-      const params = new URLSearchParams({ vrm, verified: 'true', market: resolvedMarket });
+      const params = new URLSearchParams({ vrm, verified: 'true', market: resolvedMarket, session_id: sessionId });
       if (resolvedRoiTier && resolvedMarket === 'IE') {
         params.set('roiTier', resolvedRoiTier);
       } else {

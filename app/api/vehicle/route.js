@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
 import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
@@ -109,7 +110,6 @@ export async function GET(request) {
   const mileage = searchParams.get('mileage') || '';
   const market = (searchParams.get('market') || 'GB').toUpperCase();
   const tier = searchParams.get('tier');
-  const isVerified = searchParams.get('verified') === 'true';
   const paymentIntentId = searchParams.get('paymentIntentId') || null;
 
   if (!vrm) {
@@ -196,10 +196,6 @@ const dvla = await safeJson(dvlaRes);
   }
 
   // ── PAID LOOKUP ──────────────────────────────────────────────────────────────
-  if (!isVerified) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
-  }
-
   const checksParam = searchParams.get('checks') || '';
   const checks = checksParam.split(',').map(s => s.trim()).filter(Boolean);
   const roiTierParam = searchParams.get('roiTier');
@@ -207,6 +203,78 @@ const dvla = await safeJson(dvlaRes);
   if (checks.length === 0 && !roiTierParam) {
     return NextResponse.json({ error: 'No checks specified' }, { status: 400 });
   }
+
+  // ── Payment verification — server-side Stripe truth (replaces the spoofable verified=true) ──
+  // Mirrors the salvage/assess in-route retrieve (assess/route.js:2080-2087): retrieve the checkout
+  // session, require payment_status==='paid', then bind the paid scope to this request — exact VRM
+  // match + requested checks (GB) / roiTier (IE) ⊆ paid metadata — and replay-bind so one session
+  // can't trigger the paid One Auto fan-out more than once at this route. NO query param
+  // (verified / tier) is trusted; the Stripe session is the only proof of payment. Every paid call
+  // downstream (GB autocheck/brego/previousadverts/marketdemand/salvagecheck; ROI cartell/percayso;
+  // IE cartell/brego-ie) sits behind this block — none in front.
+  const stripeSessionId = searchParams.get('session_id');
+  if (!stripeSessionId) {
+    return NextResponse.json({ error: 'Unauthorised — payment session required' }, { status: 401 });
+  }
+  let paidSession;
+  try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    paidSession = await stripe.checkout.sessions.retrieve(stripeSessionId);
+  } catch (stripeErr) {
+    console.warn('[VEHICLE AUTH] session retrieve failed:', stripeErr.message);
+    return NextResponse.json({ error: 'Payment could not be verified' }, { status: 401 });
+  }
+  if (paidSession?.payment_status !== 'paid') {
+    return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
+  }
+  // Exact VRM match — normalise the paid VRM the SAME way as cleanVrm (toUpperCase + strip spaces).
+  const paidVrm = (paidSession.metadata?.vrm || '').toUpperCase().replace(/\s/g, '');
+  if (!paidVrm || paidVrm !== cleanVrm) {
+    console.warn(`[VEHICLE AUTH] VRM mismatch — paid=${paidVrm || '∅'} requested=${cleanVrm}`);
+    return NextResponse.json({ error: 'Payment does not match this vehicle' }, { status: 403 });
+  }
+  // Checks / tier subset — every requested check (GB) or the roiTier (IE) must be covered by what
+  // the session actually paid for. A requested item absent from the paid metadata → reject.
+  if (market === 'IE' && roiTierParam) {
+    if ((paidSession.metadata?.roiTier || '') !== roiTierParam) {
+      console.warn(`[VEHICLE AUTH] roiTier not covered — paid=${paidSession.metadata?.roiTier || '∅'} requested=${roiTierParam}`);
+      return NextResponse.json({ error: 'Requested tier not covered by payment' }, { status: 403 });
+    }
+  } else {
+    const paidChecks = (paidSession.metadata?.checks || '').split(',').map(s => s.trim()).filter(Boolean);
+    const unpaid = checks.filter(c => !paidChecks.includes(c));
+    if (unpaid.length > 0) {
+      console.warn(`[VEHICLE AUTH] checks not covered — unpaid=[${unpaid.join(',')}] paid=[${paidChecks.join(',')}]`);
+      return NextResponse.json({ error: 'Requested checks not covered by payment' }, { status: 403 });
+    }
+  }
+  // Replay binding — DISTINCT namespaced key (`vehicle:<id>`) so it never collides with
+  // /api/stripe/verify's plain-session_id record in used_sessions (already consumed at
+  // payment-success). The legitimate FIRST /api/vehicle call after payment-success is therefore
+  // never false-rejected; a SECOND call with the same session (only reachable by replay — the
+  // success page can't re-verify a single-use session) hits the PK unique constraint → 403, before
+  // any paid call.
+  const vehicleBindKey = `vehicle:${stripeSessionId}`;
+  {
+    const { data: bound } = await supabase
+      .from('used_sessions')
+      .select('session_id')
+      .eq('session_id', vehicleBindKey)
+      .maybeSingle();
+    if (bound) {
+      return NextResponse.json({ error: 'This payment has already been used for a lookup' }, { status: 403 });
+    }
+    const { error: bindErr } = await supabase
+      .from('used_sessions')
+      .insert({ session_id: vehicleBindKey });
+    if (bindErr?.code === '23505') {
+      return NextResponse.json({ error: 'This payment has already been used for a lookup' }, { status: 403 });
+    }
+    if (bindErr) {
+      console.error('[VEHICLE AUTH] replay-bind insert error (non-fatal):', bindErr.message);
+    }
+  }
+  console.log(`[VEHICLE AUTH] verified session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm} scope=${market === 'IE' && roiTierParam ? `roiTier:${roiTierParam}` : `checks:[${checks.join(',')}]`}`);
 
   // ── ROI TIER PAID PATH ───────────────────────────────────────────────────────
   if (market === 'IE' && roiTierParam) {
