@@ -393,7 +393,12 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   const cat = (enrichedVd.category || '').trim();
   const hasDamageText = Boolean((enrichedVd.primaryDamage || '').trim() || (enrichedVd.secondaryDamage || '').trim());
 
-  const proseFlagged = proseFlags?.provenanceConcernFlagged === true;
+  // Reason-gated: a bare boolean may not drive a buyer-facing assertion. The proseFlagged
+  // contributor fires ONLY when the model both set the flag AND named a substantive reason.
+  // flag===true with an empty/absent reason → suppressed (treated as no model concern); the
+  // code paths (codePathA / qcCatSFlag) still render on their own merits, unchanged.
+  const proseReason  = (proseFlags?.provenanceConcernReason || '').trim();
+  const proseFlagged = proseFlags?.provenanceConcernFlagged === true && proseReason.length > 0;
   const proseNull    = proseFlags?.provenanceConcernFlagged === null; // Call 2 unavailable
 
   if (ageYears == null || brMileage == null || !cat) {
@@ -402,9 +407,9 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
       return buildSlot({
         id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
         kind: 'confirmation', verdict: 'discrepancy',
-        detail: 'Provenance concern flagged in assessment body (insufficient listing data for code arithmetic)',
+        detail: `Provenance concern: ${proseReason} (insufficient listing data for code arithmetic)`,
         confidence: 'inferred', source: 'code+model',
-        flag: { severity: 'red', whatsapp: 'Assessment flagged a provenance concern — ask the handler directly why this vehicle is in salvage before bidding', tier: 1 },
+        flag: { severity: 'red', whatsapp: `Provenance concern raised: ${proseReason}. Ask the handler directly why this vehicle is in salvage before bidding`, tier: 1 },
       });
     }
     return buildSlot({
@@ -433,11 +438,11 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     const signals = [];
     if (codePathA)    signals.push(`unusually clean for salvage (${Math.round(milesPerYear).toLocaleString('en-GB')} mi/yr at ${cat}, minimal damage described)`);
     if (qcCatSFlag)   signals.push('non-insurer entry on a structural write-off (Q/C suffix + Cat S)');
-    if (proseFlagged) signals.push('provenance concern flagged in assessment body');
+    if (proseFlagged) signals.push(proseReason);
     const whatsappParts = [];
     if (codePathA)    whatsappParts.push(`unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described`);
     if (qcCatSFlag)   whatsappParts.push('non-insurer vendor entry (Q/C suffix) on a Cat S structural write-off');
-    if (proseFlagged) whatsappParts.push('assessment body flagged a provenance concern');
+    if (proseFlagged) whatsappParts.push(`provenance concern raised — ${proseReason}`);
     return buildSlot({
       id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
       kind: 'confirmation', verdict: 'discrepancy',
@@ -2603,7 +2608,11 @@ export async function GET(request) {
         properties: {
           provenanceConcernFlagged: {
             type: 'boolean',
-            description: 'Set true ONLY if the assessment explicitly raises a concern about why this vehicle is in salvage, the vendor entry channel (Q- or C-suffix non-insurer risk, Copart re-entry risk), or uses language such as "establish why before bidding" or "provenance concern". Set false if the assessment is silent on provenance risk or gives the vehicle a clean provenance read. Default false when uncertain.',
+            description: 'Set true ONLY if the assessment raises a SUBSTANTIVE concern about WHY this vehicle is in salvage or about the vendor entry channel — specifically one of: a non-insurer vendor suffix (Q- or C-suffix), a Copart re-entry / salvage-self-reference risk (the record may be a prior write-off re-entered rather than the current event), or explicit doubt that the described damage explains the write-off. DO NOT set true for any of these (they are NOT provenance concerns): generic "before bidding" / "resolve before any bid" / inspection-checklist language; partial-V5, documentation, or re-registration notes; mechanical, HV/EV, electrical, or warning-light fault concerns. Set false — the common case — if the assessment is silent on provenance, gives a clean provenance read, or only raises the non-provenance matters just listed. When you set true you MUST also fill provenanceConcernReason with the specific concern; if you cannot name a concrete one, set false. Default false when uncertain.',
+          },
+          provenanceConcernReason: {
+            type: 'string',
+            description: 'REQUIRED whenever provenanceConcernFlagged is true: a specific, substantive sentence naming the actual provenance concern — e.g. "Q-suffix non-insurer vendor entry on a structural write-off" or "single salvage record may be a prior write-off re-entered, not the current event". Empty string when provenanceConcernFlagged is false. If you cannot write a concrete why-in-salvage / vendor-channel reason, set provenanceConcernFlagged=false rather than writing a vague or boilerplate reason.',
           },
           salvageSelfReferenceConfirmed: {
             type: 'boolean',
@@ -2677,11 +2686,12 @@ export async function GET(request) {
         corners: [],
         proseFlags: {
           provenanceConcernFlagged:      typeof inp.provenanceConcernFlagged === 'boolean'      ? inp.provenanceConcernFlagged      : null,
+          provenanceConcernReason:       (typeof inp.provenanceConcernReason === 'string' && inp.provenanceConcernReason.trim()) ? inp.provenanceConcernReason.trim() : null,
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
         perZone: Array.isArray(inp.perZone) ? inp.perZone : [],
       };
-      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
+      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
@@ -2693,7 +2703,7 @@ export async function GET(request) {
     if (!coreObs) {
       coreObs = {
         corners: [],
-        proseFlags: { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null },
+        proseFlags: { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null },
         perZone:     [],
         costedParts: [],
         flaggedParts: [],
@@ -3442,7 +3452,7 @@ export async function GET(request) {
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
     // enrichedVd/bregoData (code-owned data). Phase 1: identity, mileage, physical (wheel/tyre).
     // proseFlags: Call-2 prose-faithfulness conclusions; null fields = Call 2 unavailable.
-    const proseFlags = coreObs.proseFlags ?? { provenanceConcernFlagged: null, salvageSelfReferenceConfirmed: null };
+    const proseFlags = coreObs.proseFlags ?? { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null };
     assessment._slots = assembleCoreSlots([
       buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags),
       buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags),
