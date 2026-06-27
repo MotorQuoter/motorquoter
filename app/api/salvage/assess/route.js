@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  assembleVdsParts, buildBuyerFlags,
+  assembleVdsParts, buildBuyerFlags, BUMPER_OFF_SEAM_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -1119,6 +1119,10 @@ const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component �
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
 const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
 const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
+// Byte-for-byte copy of the gate's inline RQ rider (parts.mjs :282) — appended to
+// BUMPER_OFF_SEAM_REASON for rear-quarter so the no-model-row push matches the gate's
+// with-model-row flag reason exactly. Leading space is intentional (concatenation join).
+const BUMPER_OFF_RQ_RIDER = ' Inner structural integrity not visible from exterior shots — confirm on the WhatsApp inspection before bidding.';
 
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
@@ -2923,6 +2927,21 @@ export async function GET(request) {
         if ((isFW && frontBumperOff) || (isRQ && rearBumperOff)) {
           cp.independentlyVisible = false;
           cp._bumperOffStripped = true;
+          // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
+          // gateStripped, so the gate's :281-288 bumper-off flag never fires for it and the
+          // panel vanishes (no cost, no flag). Push the inspection flag at the demotion site,
+          // mirroring the RAD hatch (:2963). The gate's strip-loop dedup (parts.mjs :279,
+          // keyed on normName(partName), no _gateGenerated clause) suppresses its own push
+          // when a model row DOES exist, since this push lands first. reason matches the gate
+          // byte-for-byte (BUMPER_OFF_SEAM_REASON + RQ rider). Additive only — no cost path.
+          coreObs.flaggedParts.push({
+            panelId:  cp.panelId,
+            partName: cp.partName,
+            zone:     cp.zone,
+            weight:   'medium',
+            reason:   isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON,
+            _bumperOffStripped: true,
+          });
           bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
           console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
         }
