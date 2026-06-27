@@ -35,15 +35,22 @@ function parseParts(text) {
   if (!text) return [];
   const result = [];
   for (const line of text.split('\n')) {
-    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    // 5-field: name | action | OEM | S/H | Repair cost
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
     if (!m) continue;
-    const [, name, action, col3, col4] = m;
+    const [, name, action, col3, col4, col5] = m;
     const parseP = s => {
       if (!s || /^[—\-–]+$|n\/a/i.test(s.trim())) return null;
       const n = s.replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
       return n ? Math.round(parseFloat(n[0])) : null;
     };
-    result.push({ name: name.trim(), action: action.trim(), oem: parseP(col3), used: parseP(col4) });
+    // Reconstruct {oem, used} to match the _reconciledParts objects exactly, so the one table-
+    // render path works identically on both sources: replace → oem=OEM, used=S/H; repair →
+    // used=Repair; labour/non-part → oem=Repair (figure lives in oem, matching the model shape).
+    const act = action.trim().toLowerCase();
+    const oem  = act === 'replace' ? parseP(col3) : act === 'repair' ? null : parseP(col5);
+    const used = act === 'replace' ? parseP(col4) : act === 'repair' ? parseP(col5) : null;
+    result.push({ name: name.trim(), action: action.trim(), oem, used });
   }
   return result;
 }
@@ -713,6 +720,11 @@ export default function SalvageSuccessPage() {
                   const oemTotal = shTotal != null
                     ? parts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
                     : null;
+                  // Three cost columns: replace → OEM+S/H; repair/labour → Repair cost = (used ?? oem).
+                  // Never both. Position only — figure source unchanged; the totals above are untouched.
+                  const costCells = (p) => (p.action || '').toLowerCase() === 'replace'
+                    ? { oem: p.oem ?? null, sh: p.used ?? null, repair: null }
+                    : { oem: null, sh: null, repair: p.used ?? p.oem ?? null };
                   return (
                     <div className="field-row">
                       <div className="field-key">Parts Breakdown</div>
@@ -722,29 +734,32 @@ export default function SalvageSuccessPage() {
                             <th style={headSt('left')}>Part</th>
                             <th style={headSt('center')}>Action</th>
                             <th style={headSt('right')}>OEM</th>
-                            <th style={headSt('right')}>Used/SH</th>
+                            <th style={headSt('right')}>S/H</th>
+                            <th style={headSt('right')}>Repair cost</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {parts.map((p, i) => (
+                          {parts.map((p, i) => { const c = costCells(p); return (
                             <tr key={i}>
                               <td style={colSt('left')}>{p.name}</td>
                               <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11 }}>{p.action}</td>
-                              <td style={colSt('right')}>{fmtP(p.oem)}</td>
-                              <td style={colSt('right', true)}>{fmtP(p.used)}</td>
+                              <td style={colSt('right')}>{fmtP(c.oem)}</td>
+                              <td style={colSt('right', c.sh != null)}>{fmtP(c.sh)}</td>
+                              <td style={colSt('right', c.repair != null)}>{fmtP(c.repair)}</td>
                             </tr>
-                          ))}
+                          ); })}
                           {allowanceParts.map((p, i) => (
                             <tr key={`al-${i}`} style={{ opacity: 0.65 }}>
                               <td style={{ ...colSt('left'), fontStyle: 'italic' }}>{p.name}</td>
                               <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, fontStyle: 'italic' }}>inspect</td>
                               <td style={colSt('right')}>—</td>
                               <td style={{ ...colSt('right'), fontStyle: 'italic' }}>~{fmtP(p.used)}</td>
+                              <td style={colSt('right')}>—</td>
                             </tr>
                           ))}
                           {allowanceParts.length > 0 && (
                             <tr>
-                              <td colSpan={4} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
+                              <td colSpan={5} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
                                 Italic rows: inspection allowance — confirm on inspection, not in repair total. See Inspection Flags for other excluded items.
                               </td>
                             </tr>
@@ -756,9 +771,10 @@ export default function SalvageSuccessPage() {
                                 <div>{fmtP(oemTotal)}</div>
                                 <div style={{ fontSize: 9, marginTop: 1 }}>New</div>
                               </td>
+                              <td style={{ padding: '7px 4px', borderTop: '2px solid var(--text-dim)' }}></td>
                               <td style={{ fontSize: 13, fontWeight: 700, color: 'var(--orange)', textAlign: 'right', padding: '7px 4px', borderTop: '2px solid var(--text-dim)' }}>
                                 <div>{fmtP(shTotal)}</div>
-                                <div style={{ fontSize: 9, color: 'var(--text-dim)', fontWeight: 400, marginTop: 1 }}>S/H</div>
+                                <div style={{ fontSize: 9, color: 'var(--text-dim)', fontWeight: 400, marginTop: 1 }}>Bid (S/H)</div>
                               </td>
                             </tr>
                           )}

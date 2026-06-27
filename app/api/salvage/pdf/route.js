@@ -97,15 +97,20 @@ function parsePdfParts(text) {
   if (!text) return [];
   const result = [];
   for (const line of text.split('\n')) {
-    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
+    // 5-field: name | action | OEM | S/H | Repair cost
+    const m = line.match(/^(?:\d+[.)]\s*)?(.+?)\s*\|\s*(.+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*$/);
     if (!m) continue;
-    const [, name, action, col3, col4] = m;
+    const [, name, action, col3, col4, col5] = m;
     const parseP = s => {
       if (!s || /^[—\-–]+$|n\/a/i.test(s.trim())) return null;
       const n = s.replace(/,/g, '').match(/\d+(?:\.\d{1,2})?/);
       return n ? Math.round(parseFloat(n[0])) : null;
     };
-    result.push({ name: name.trim(), action: action.trim(), oem: parseP(col3), used: parseP(col4) });
+    // Reconstruct {oem, used} to match _reconciledParts exactly (see success/page.js parseParts).
+    const act = action.trim().toLowerCase();
+    const oem  = act === 'replace' ? parseP(col3) : act === 'repair' ? null : parseP(col5);
+    const used = act === 'replace' ? parseP(col4) : act === 'repair' ? parseP(col5) : null;
+    result.push({ name: name.trim(), action: action.trim(), oem, used });
   }
   return result;
 }
@@ -608,33 +613,47 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     doc.setTextColor(100, 100, 100);
     doc.text('PARTS BREAKDOWN', MARGIN, y);
     y += 4;
-    const COL_PART  = CONTENT_W * 0.44;
-    const COL_ACT   = CONTENT_W * 0.14;
-    const COL_OEM   = CONTENT_W * 0.21;
-    const COL_USED  = CONTENT_W * 0.21;
-    const xAct  = MARGIN + COL_PART;
-    const xOem  = xAct + COL_ACT;
-    const xUsed = xOem + COL_OEM;
+    // Five columns: PART | ACTION | OEM | S/H | REPAIR. Widths sum to 1.0 so the REPAIR right
+    // edge lands exactly on the right margin (xRepair + COL_REPAIR = MARGIN + CONTENT_W).
+    const COL_PART   = CONTENT_W * 0.36;
+    const COL_ACT    = CONTENT_W * 0.12;
+    const COL_OEM    = CONTENT_W * 0.17;
+    const COL_SH     = CONTENT_W * 0.17;
+    const COL_REPAIR = CONTENT_W * 0.18;
+    const xAct    = MARGIN + COL_PART;
+    const xOem    = xAct + COL_ACT;
+    const xSh     = xOem + COL_OEM;
+    const xRepair = xSh + COL_SH;
+    // Three cost columns: replace → OEM+S/H; repair/labour → Repair cost = (used ?? oem). Never both.
+    // Position only — figure source unchanged; the totals below are untouched.
+    const costCells = (p) => (p.action || '').toLowerCase() === 'replace'
+      ? { oem: p.oem ?? null, sh: p.used ?? null, repair: null }
+      : { oem: null, sh: null, repair: p.used ?? p.oem ?? null };
     // Header
     doc.setFontSize(7); doc.setTextColor(140, 140, 140);
     doc.text('PART',   MARGIN, y);
     doc.text('ACTION', xAct,   y);
-    doc.text('OEM',    xOem + COL_OEM,   y, { align: 'right' });
-    doc.text('USED/SH', xUsed + COL_USED, y, { align: 'right' });
+    doc.text('OEM',    xOem + COL_OEM,       y, { align: 'right' });
+    doc.text('S/H',    xSh + COL_SH,         y, { align: 'right' });
+    doc.text('REPAIR', xRepair + COL_REPAIR, y, { align: 'right' });
     y += 3;
     doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
     y += 2;
     for (const p of pdfParts) {
+      const c = costCells(p);
       checkPage(6);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
       doc.text(str(p.name),   MARGIN, y);
       doc.setTextColor(130, 130, 130); doc.setFontSize(7.5);
       doc.text(str(p.action), xAct,   y);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
-      doc.text(str(fmtPP(p.oem)),  xOem  + COL_OEM,   y, { align: 'right' });
-      doc.setFont('helvetica', 'bold');
-      doc.text(str(fmtPP(p.used)), xUsed + COL_USED, y, { align: 'right' });
+      doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.setFont('helvetica', 'normal');
+      doc.text(str(fmtPP(c.oem)),    xOem + COL_OEM,       y, { align: 'right' });
+      doc.setFont('helvetica', c.sh != null ? 'bold' : 'normal');
+      doc.text(str(fmtPP(c.sh)),     xSh + COL_SH,         y, { align: 'right' });
+      doc.setFont('helvetica', c.repair != null ? 'bold' : 'normal');
+      doc.text(str(fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
       y += 5;
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
@@ -648,7 +667,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.text('inspect', xAct, y);
       doc.text('—', xOem + COL_OEM, y, { align: 'right' });
       doc.setFont('helvetica', 'bolditalic');
-      doc.text(`~£${Number(p.used).toLocaleString('en-GB')}`, xUsed + COL_USED, y, { align: 'right' });
+      doc.text(`~£${Number(p.used).toLocaleString('en-GB')}`, xSh + COL_SH, y, { align: 'right' });
+      doc.setFont('helvetica', 'italic');
+      doc.text('—', xRepair + COL_REPAIR, y, { align: 'right' });
       y += 5;
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
@@ -659,7 +680,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.text('Italic rows: inspection allowance — confirm on inspection, not included in repair total. See Inspection Flags for other excluded items.', MARGIN, y);
       y += 5;
     }
-    // Column totals row — New (OEM) vs S/H. S/H = stored parts_sum (bid figure); New = oem??used per row.
+    // Column totals row — New (OEM) vs S/H bid. S/H = stored parts_sum (bid figure); New = oem??used per row.
     // Render-only: oemTotal never written to any stored field; no downstream calc reads it.
     if (assessment._partsReconciliation?.parts_sum > 0) {
       const oemTotal = pdfParts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0);
@@ -673,11 +694,11 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(130, 130, 130);
       doc.text(str(fmtPP(oemTotal)), xOem + COL_OEM, y, { align: 'right' });
       doc.setFont('helvetica', 'bold'); doc.setTextColor(240, 90, 26);
-      doc.text(str(fmtPP(shTotal)),  xUsed + COL_USED, y, { align: 'right' });
+      doc.text(str(fmtPP(shTotal)),  xRepair + COL_REPAIR, y, { align: 'right' });
       y += 3.5;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(150, 150, 150);
       doc.text('New', xOem + COL_OEM, y, { align: 'right' });
-      doc.text('S/H', xUsed + COL_USED, y, { align: 'right' });
+      doc.text('S/H', xRepair + COL_REPAIR, y, { align: 'right' });
       y += 3;
     }
     y += 3;

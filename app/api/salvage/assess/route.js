@@ -1902,10 +1902,16 @@ function parseHvLines(blockText) {
 // imports the literal shipped functions.
 
 function renderParts(parts) {
+  // Three cost columns: OEM | S/H | Repair cost. A row populates EITHER OEM+S/H (replace) OR
+  // Repair cost (repair / labour / non-part), NEVER both. Position only — the summed figure is
+  // (used ?? oem), exactly as sumPartsRealistic reads it; no value is recomputed here.
+  const fmt = v => v != null ? `£${v}` : '—';
   return parts.map((p, i) => {
-    const oem  = p.oem  != null ? `£${p.oem}`  : '—';
-    const used = p.used != null ? `£${p.used}` : '—';
-    return `${i + 1}. ${p.name} | ${p.action} | ${oem} | ${used}`;
+    const isReplace  = (p.action || '').toLowerCase() === 'replace';
+    const oemCell    = isReplace ? fmt(p.oem)            : '—';
+    const shCell     = isReplace ? fmt(p.used)           : '—';
+    const repairCell = isReplace ? '—'                   : fmt(p.used ?? p.oem);
+    return `${i + 1}. ${p.name} | ${p.action} | ${oemCell} | ${shCell} | ${repairCell}`;
   }).join('\n');
 }
 
