@@ -922,17 +922,19 @@ async function runAperturePanelRead(images, lampObs, onExhaust) {
   if (lampObs?.apertureExposed)     apertures.push('front');
   if (lampObs?.rearApertureExposed) apertures.push('rear');
   const cornerHint = `${sideWord ? sideWord + ' ' : ''}${apertures.join(' and ')}`.trim() || 'damaged';
-  const APERTURE_PROMPT = `You are judging a single salvage vehicle from auction photos. The ${apertures.includes('rear') ? 'rear bumper' : 'front bumper'} is displaced or torn away on the ${cornerHint} corner, exposing the body panel behind it (the rear quarter panel for a rear corner, the front wing for a front corner).
+  const APERTURE_PROMPT = `You are inspecting the body PANEL behind a displaced bumper on a salvage car — the rear quarter panel (rear corner) or the front wing (front corner), the painted panel above the wheel. The bumper on the damaged corner has been torn or displaced, so the area RIGHT AT THE BUMPER EDGE looks disturbed on every car like this. IGNORE the bumper area completely — it tells you nothing about the panel.
 
-Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
+Survey ALL photos to locate the ${cornerHint} corner, then look ONLY at the PANEL FACE — the painted metal ABOVE and FORWARD of where the bumper sits, the area a bumper never covers. Judge that region only:
 
-TORN = the panel's own metal is folded, torn, buckled, creased, or crumpled; panel edges are displaced; the body line is deformed. This is genuine impact to the panel.
-SEAM = a straight, intact factory seam or join line is now visible only because the bumper is gone, with NO metal deformation on the panel face itself. The panel is undamaged; you are seeing a normal join the bumper used to cover.
+TORN = the panel face itself is creased, caved, folded, or buckled; the body swage line along the panel is bent or broken; reflections across the panel are distorted or step out of line. The deformation extends INTO the panel, away from the bumper edge. Genuine impact to the panel.
+SEAM = the panel face above and forward of the bumper is smooth and undamaged; the body line is straight and continuous; reflections run unbroken across it. The only disturbance is right at the bumper edge where the bumper is gone. The panel itself was not hit — you are seeing bumper damage and an exposed seam, not panel damage.
+
+Decide on the panel face AWAY from the bumper, NOT on the bumper area.
 
 Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
-{ "verdict": "torn" | "seam" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see>" }
+{ "verdict": "torn" | "seam" | "ambiguous", "evidence": "<one short sentence on the panel face you can see>" }
 
-Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn or seam.`;
+Use "ambiguous" ONLY if the panel face away from the bumper genuinely cannot be seen in any photo (occluded, out of frame). Do NOT use it as a hedge — if you can see the panel face, decide torn or seam.`;
   try {
     if (images.length > 35) console.warn(`[APERTURE PANEL] image set truncated to 35 (received ${images.length})`);
     const imageBlocks = images.slice(0, 35).map(img => {
