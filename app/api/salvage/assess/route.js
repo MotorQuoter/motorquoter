@@ -386,6 +386,16 @@ function buildCategorySlot(enrichedVd) {
 const PROVENANCE_WARRANTY_AGE_YEARS = 3;
 const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
 
+// Structural floor (NOT a meaning-test): a model provenance reason may quote into the buyer-facing
+// slot only if it is sentence-shaped — ≥20 trimmed chars AND ≥4 whitespace-delimited words. This
+// rejects fragments ("concern", "salvage", "Q suffix") that pass a bare non-empty check. What
+// COUNTS as a real provenance concern stays the Call-2 schema's job; this only refuses to render a
+// non-sentence as a reason. Deliberately crude — no keyword lists, no semantic judgement.
+function isSubstantiveReason(s) {
+  const t = (s || '').trim();
+  return t.length >= 20 && t.split(/\s+/).filter(Boolean).length >= 4;
+}
+
 function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
   const currentYear = new Date().getFullYear();
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
@@ -394,11 +404,12 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   const hasDamageText = Boolean((enrichedVd.primaryDamage || '').trim() || (enrichedVd.secondaryDamage || '').trim());
 
   // Reason-gated: a bare boolean may not drive a buyer-facing assertion. The proseFlagged
-  // contributor fires ONLY when the model both set the flag AND named a substantive reason.
-  // flag===true with an empty/absent reason → suppressed (treated as no model concern); the
-  // code paths (codePathA / qcCatSFlag) still render on their own merits, unchanged.
+  // contributor fires ONLY when the model both set the flag AND named a SUBSTANTIVE (sentence-
+  // shaped) reason — see isSubstantiveReason. flag===true with an empty/absent/fragment reason →
+  // suppressed (treated as no model concern); the code paths (codePathA / qcCatSFlag) still render
+  // on their own merits, unchanged.
   const proseReason  = (proseFlags?.provenanceConcernReason || '').trim();
-  const proseFlagged = proseFlags?.provenanceConcernFlagged === true && proseReason.length > 0;
+  const proseFlagged = proseFlags?.provenanceConcernFlagged === true && isSubstantiveReason(proseReason);
   const proseNull    = proseFlags?.provenanceConcernFlagged === null; // Call 2 unavailable
 
   if (ageYears == null || brMileage == null || !cat) {
