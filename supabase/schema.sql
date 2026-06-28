@@ -40,6 +40,22 @@ CREATE INDEX IF NOT EXISTS reg_lookup_cache_created_at_idx
 ALTER TABLE reg_lookup_cache ENABLE ROW LEVEL SECURITY;
 -- No permissive policies — all access is via the service role key, which bypasses RLS.
 
+-- 2026-06-28: live reg_lookup_cache rebuilt by hand to match the
+-- CREATE TABLE above (lines 14-33). The live table had drifted to
+-- (id/reg/result/expires_at); both read and write 400'd in preview
+-- AND production, so the cache stored nothing. Dropped and recreated
+-- to the canonical shape via the Supabase SQL editor. Recorded here
+-- so the committed schema and the live table can no longer drift
+-- silently. SQL that was run (already applied — do NOT re-run blindly):
+--   DROP TABLE IF EXISTS reg_lookup_cache;
+--   CREATE TABLE reg_lookup_cache (
+--     reg_plate  text        NOT NULL,
+--     tier       text        NOT NULL,
+--     payload    jsonb       NOT NULL,
+--     created_at timestamptz NOT NULL DEFAULT now(),
+--     PRIMARY KEY (reg_plate, tier)
+--   );
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. used_sessions

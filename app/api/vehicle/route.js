@@ -57,7 +57,7 @@ function getSupabase() {
 async function getCachedResult(supabase, cleanVrm, cacheKey) {
   const cutoff = new Date(Date.now() - CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString();
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('reg_lookup_cache')
       .select('*')
       .eq('reg_plate', cleanVrm)
@@ -65,23 +65,28 @@ async function getCachedResult(supabase, cleanVrm, cacheKey) {
       .gte('created_at', cutoff)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
+    if (error) {
+      console.error(`[CACHE READ] reg_lookup_cache failed: ${error.code} ${error.message}`);
+    }
     return data || null;
-  } catch {
+  } catch (err) {
+    console.error('[CACHE READ] threw:', err.message);
     return null;
   }
 }
 
 async function storeCachedResult(supabase, cleanVrm, cacheKey, payload) {
   try {
-    await supabase
+    const { error } = await supabase
       .from('reg_lookup_cache')
       .upsert(
         { reg_plate: cleanVrm, tier: cacheKey, payload, created_at: new Date().toISOString() },
         { onConflict: 'reg_plate,tier' }
       );
+    if (error) console.error(`[CACHE WRITE] reg_lookup_cache failed: ${error.code} ${error.message}`);
   } catch (err) {
-    console.error('Cache write error:', err);
+    console.error('[CACHE WRITE] threw:', err.message);
   }
 }
 
