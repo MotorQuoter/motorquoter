@@ -3231,6 +3231,36 @@ export async function GET(request) {
       console.log(`[G INJECT] ${e.panelId} stripped-model-rows=${strippedCount} action=${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
     }
 
+    // ── WHEEL / TYRE injection (Fault 3, table-sourced) ──────────────────────
+    // Amalgamate-confirmed wheel/tyre damage (an iv=true entry in coreObs.costedParts)
+    // frequently carries no model Parts Breakdown row → no cost line today. Inject the
+    // band figure, mirroring G-inject. Strip any model wheel/tyre row first so a model
+    // line can never double with the injected one. One row each, 1× (four-corner counting
+    // deferred). Clean / na / hidden read → inject NEITHER (confirmed damage only).
+    for (const [pid, logTag] of [[PANEL.WHEEL, 'WHEEL_INJECT'], [PANEL.TYRE, 'TYRE_INJECT']]) {
+      const confirmed = coreObs.costedParts.some(cp => cp.panelId === pid && cp.independentlyVisible === true);
+      if (!confirmed) continue;
+      const wtEntry = bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] : null;
+      if (!wtEntry) {
+        console.log(`[${logTag}] ${pid} confirmed iv=true but skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}`);
+        continue;
+      }
+      let wtStripped = 0;
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        if (gatedParts[i].panelId === pid) { gatedParts.splice(i, 1); wtStripped++; }
+      }
+      gatedParts.push({
+        panelId: pid,
+        name:    PANEL_DISPLAY[pid],
+        action:  'replace',
+        oem:     wtEntry.oem,
+        used:    wtEntry.used,
+        _tableMandated: true,
+        _gOwned:  true,
+      });
+      console.log(`[${logTag}] ${pid} band=${bandKey} used=£${wtEntry.used} (oem=£${wtEntry.oem}) stripped-model-rows=${wtStripped}`);
+    }
+
     // ── Coachbuilt body-panel strip (Stage 5) ────────────────────────────────
     // When body class resolves to coachbuilt, the van/pickup body panels are
     // out-of-model. Cab/front panels (not in COACHBUILT_BODY_PANELS) are retained.
