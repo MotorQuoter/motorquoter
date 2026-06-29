@@ -949,6 +949,9 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
       if (m) { mediaType = m[1]; data = m[2]; }
       return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     });
+    // Shared-image cache breakpoint — same 35-image payload + same system as correspondence;
+    // this read fires after correspondence's cache write → cache READ ($0.50/M vs fresh $5/M).
+    if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
     const { res, exhausted } = await with529Retry('aperture-panel', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -1052,6 +1055,13 @@ async function runCorrespondencePass(perViewResults, images, onExhaust) {
     if (m) { mediaType = m[1]; data = m[2]; }
     return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
   });
+  // Shared-image cache breakpoint. These 3 reads (correspondence, aperture, sill-rocker)
+  // send the IDENTICAL 35-image payload AND the identical system string, so a cache_control
+  // on the last image block makes the [system + 35 images] prefix reusable across them.
+  // correspondence fires first → cache WRITE (1.25×); aperture/sill-rocker fire later within
+  // the 5-min window → cache READ ($0.50/M vs fresh $5/M). Read-specific prompt text sits
+  // AFTER this block, uncached (negligible). Only pays off because ≥2 reads reuse the prefix.
+  if (corrImageBlocks.length) corrImageBlocks[corrImageBlocks.length - 1].cache_control = { type: 'ephemeral' };
   // 4. Build question — NO side naming anywhere
   const corrN = corrImageBlocks.length;
   const corrQuestion = `These are ${corrN} photos of one vehicle, numbered view 0 through view ${corrN - 1} in the order they appear in this message.
@@ -1144,6 +1154,9 @@ async function runSillRockerRead(images, onExhaust) {
       if (m) { mediaType = m[1]; data = m[2]; }
       return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     });
+    // Shared-image cache breakpoint — same 35-image payload + same system as correspondence;
+    // this read fires after correspondence's cache write → cache READ ($0.50/M vs fresh $5/M).
+    if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
     const question = `These photos show one vehicle with damage along one flank. Look ONLY at the SILL / ROCKER PANEL — the structural member along the bottom of the body between the front and rear wheels, BELOW the doors.
 
 Is the rocker panel's OWN structure deformed — crushed, buckled, dented, or its lower body line displaced — INDEPENDENT of the door skins above it? If the only damage near sill height is the bottom edge of DOOR damage (a tear or crease reaching down to sill height), that is DOOR damage — answer false. Answer true ONLY if the rocker's own structure is visibly deformed separate from the doors.
