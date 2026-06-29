@@ -312,8 +312,15 @@ function buildVendorSuffixSlot(vendorSuffix) {
 
 function extractDoorCount(text) {
   if (!text) return null;
-  const m = String(text).match(/(\d)\s*[- ]?\s*door/i);
-  return m ? parseInt(m[1], 10) : null;
+  const s = String(text);
+  // Auction shorthand: "3DR" / "3 DR" (Copart paste form). Bounded 2-5 — door
+  // counts outside that range are not real body configs and must not match.
+  const dr = s.match(/\b([2-5])\s?DR\b/i);
+  if (dr) return parseInt(dr[1], 10);
+  // Word form: "3 door" / "3-door" / "3door".
+  const word = s.match(/\b([2-5])\s*[- ]?\s*door/i);
+  if (word) return parseInt(word[1], 10);
+  return null; // null = unknown — callers MUST fail open (never assume a default).
 }
 
 // Targets the specific "3-door/5-door wander" the design notes flag — door-count is the only
@@ -3281,6 +3288,30 @@ export async function GET(request) {
         }
       }
       console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${removed.join(', ')}]`);
+    }
+
+    // ── Door-count strip (Stage 5) ───────────────────────────────────────────
+    // A body with ≤3 doors physically has no REAR_DOOR — a rear car door is a
+    // 4/5-door-only panel. Strip any REAR_DOOR row when the listing AFFIRMS ≤3
+    // doors (e.g. a 3-door Defender 90), mirroring BODY_CLASS_STRIP's mechanism
+    // and pipeline point exactly. REAR_QUARTER and all other panels are untouched
+    // — a genuinely torn rear quarter survives this strip.
+    // FAIL OPEN: extractDoorCount returns null when the paste has no door token.
+    // null = unknown, NOT a default — we strip ONLY on an affirmative ≤3 reading,
+    // so a missing/legacy paste field can never delete a real REAR_DOOR on a 5-door.
+    const _doorCount = extractDoorCount(enrichedVd.rawCopartPaste);
+    if (_doorCount !== null && _doorCount <= 3) {
+      let _doorStripped = 0;
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        if (gatedParts[i].panelId === PANEL.REAR_DOOR) { gatedParts.splice(i, 1); _doorStripped++; }
+      }
+      // Mirror strip in coreObs.flaggedParts (removes any REAR_DOOR flag too).
+      for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
+        if (coreObs.flaggedParts[i].panelId === PANEL.REAR_DOOR) { coreObs.flaggedParts.splice(i, 1); }
+      }
+      console.log(`[DOOR_STRIP] doors=${_doorCount} (≤3) → REAR_DOOR removed (cost rows=${_doorStripped})`);
+    } else {
+      console.log(`[DOOR_STRIP] doors=${_doorCount === null ? 'unknown' : _doorCount} → no strip (fail-open)`);
     }
 
     // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
