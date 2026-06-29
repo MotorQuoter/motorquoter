@@ -979,96 +979,6 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
   }
 }
 
-// SRS airbag deployment read. Dedicated single-purpose vision pass (mirrors runDashClusterRead /
-// runAperturePanelRead). Airbag deployment + extent is the ONLY signal not otherwise photo-
-// derivable: the per-view closed vocabulary collapses a fired bag to an opaque OTHER/interior
-// read (no airbag identity, no zone), and the dash cluster read sees only the telltale, never the
-// bag (and is forbidden from inferring deployment). This read returns a structured, photo-derived
-// { deployed, zones } that CODE turns into a tier — never the model's Parts Breakdown prose.
-// Fail-safe: any failure / exhaust / poor cabin view → { deployed:false, zones:[] } (no inject;
-// airbag stays an inspection flag). Unknown ≠ deployed.
-const SRS_ZONE_ENUM = ['driver', 'passenger', 'curtain_l', 'curtain_r', 'side', 'knee'];
-async function runSrsDeploymentRead(images, onExhaust) {
-  const FLOOR = { deployed: false, zones: [], evidence: '' };
-  const SRS_PROMPT = `You are inspecting the CABIN of a salvage vehicle from auction photos to determine which airbags (SRS) have DEPLOYED (fired).
-
-A DEPLOYED airbag is a fired bag visibly present: a deflated/hanging white/grey fabric bag at the steering-wheel hub, the passenger fascia/dashboard, the roof rail / A-pillar (curtain), or a seat side bolster; OR a burst airbag module cover (an "SRS"/"AIRBAG" embossed flap split open). Torn roof-lining at the A-pillar with a curtain bag hanging counts as a curtain deployment.
-
-VISIBLE BAG FABRIC IS SUFFICIENT — report it as deployed. A deflated or hanging bag at any of those locations is a confirmed deployment even when the photo is imperfect: angle, glare, low light, reflections, or a partial view do NOT downgrade a bag you can actually see. Do not hold out for a pristine, square-on shot — if you can see fired bag material, that is a deployment.
-
-Guardrails against FALSE positives — these still hold:
-- Do NOT infer deployment from a dashboard airbag WARNING LIGHT — a lit telltale is not a fired bag.
-- Do NOT infer from exterior impact severity ("a crash like this usually fires them").
-- Only a VISIBLE fired bag or burst module counts — NOT steering-wheel scuffs, NOT cabin trim damage on its own.
-
-Return deployed:false ONLY when the cabin is genuinely not shown in any photo, OR no fired bag / burst module is visible anywhere in the cabin views. "Shown too poorly to judge" applies to a cabin you cannot see — it does NOT apply when a bag IS visible in a less-than-perfect photo. When in doubt and bag fabric is visible, deployed:true.
-
-zones is a CLOSED set — use only these tokens, one per deployed bag you can see:
-  "driver"    — steering-wheel hub bag
-  "passenger" — dashboard/fascia bag
-  "curtain_l" — left roof-rail / A-pillar curtain bag
-  "curtain_r" — right roof-rail / A-pillar curtain bag
-  "side"      — seat-mounted side / thorax bag
-  "knee"      — knee bolster bag
-
-Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
-{ "deployed": true | false, "zones": ["driver", ...], "evidence": "<one short sentence on what you can see in the cabin>" }
-
-If deployment is clearly present but you cannot pin the exact zones, return deployed:true with the zones you ARE sure of — an empty zones list is acceptable (it is treated conservatively as a single-zone kit). Deployed-but-zones-unresolved is STILL deployed:true, never false. Only list zones you can actually see; never guess a zone.`;
-  try {
-    if (images.length > 35) console.warn(`[SRS_READ] image set truncated to 35 (received ${images.length})`);
-    const imageBlocks = images.slice(0, 35).map(img => {
-      let mediaType = 'image/jpeg';
-      let data = img;
-      const m = img.match(/^data:([^;]+);base64,(.+)$/);
-      if (m) { mediaType = m[1]; data = m[2]; }
-      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
-    });
-    const { res, exhausted } = await with529Retry('srs-read', () => fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-opus-4-8',
-        max_tokens: 512,
-        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
-        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: SRS_PROMPT }] }],
-      }),
-    }));
-    if (exhausted) { onExhaust?.(); return FLOOR; }
-    if (!res?.ok) { console.warn('[SRS_READ] API error:', res?.status); return FLOOR; }
-    const apiData = await res.json();
-    console.log('[TOKEN LOG] srs-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[SRS_READ] max_tokens — truncated; defaulting floor (no deploy)'); return FLOOR; }
-    if (apiData.stop_reason === 'refusal')   { console.warn('[SRS_READ] refusal — content policy; defaulting floor (no deploy)'); return FLOOR; }
-    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) { console.warn('[SRS_READ] no JSON object in response:', raw.slice(0, 200)); return FLOOR; }
-    const parsed = JSON.parse(match[0]);
-    const deployed = parsed.deployed === true;
-    const zones = Array.isArray(parsed.zones)
-      ? [...new Set(parsed.zones.filter(z => SRS_ZONE_ENUM.includes(z)))]
-      : [];
-    const evidence = typeof parsed.evidence === 'string' ? parsed.evidence : '';
-    console.log(`[SRS_READ] deployed=${deployed} zones=[${zones.join(', ')}] evidence="${evidence.slice(0, 80)}"`);
-    return { deployed, zones, evidence };
-  } catch (err) {
-    console.warn('[SRS_READ] error:', err.message);
-    return FLOOR;
-  }
-}
-
-// Tier from the SRS read's photo-derived zones — CODE-owned, never model prose.
-//   any curtain/side (multi-zone)              → T3
-//   ≥2 front zones (driver/passenger/knee)     → T2
-//   single zone, or deployed-but-zones-unresolved (conservative LOWER) → T1
-function srsTierFromZones(zones) {
-  const set = new Set(zones || []);
-  if (set.has('curtain_l') || set.has('curtain_r') || set.has('side')) return 3;
-  const frontCount = ['driver', 'passenger', 'knee'].filter(z => set.has(z)).length;
-  if (frontCount >= 2) return 2;
-  return 1;
-}
-
 // Paired-flank panels: exactly TWO physical instances (left + right) on every car.
 // Option G (cross-view correspondence pass) runs ONLY on these eight panels.
 // WHEEL/TYRE (four instances each) are explicitly excluded — their four-corner problem
@@ -3026,23 +2936,6 @@ export async function GET(request) {
     console.log('[PART VERDICTS][PER-VIEW] costedParts:', JSON.stringify(pvResult.costedParts));
     console.log('[PART VERDICTS][PER-VIEW] flaggedParts:', JSON.stringify(pvResult.flaggedParts));
 
-    // ── SRS deployment read — gated fire (awaited at the injection point below) ──
-    // Fire the dedicated SRS vision read ONLY when there is interior signal worth a
-    // call: either the per-view vision pass resolved interior damage (an OTHER read
-    // in the interior zone, iv:true), OR the listing primary/secondary damage points
-    // at a frontal / cabin-relevant impact. A clean rear-end lot with no interior
-    // signal skips the call entirely (no extra cost, airbag simply stays unflagged).
-    // Fired as a promise so the fetch overlaps the synchronous reconciliation below.
-    const _srsInteriorVision = coreObs.costedParts.some(cp =>
-      cp.panelId === PANEL.OTHER && cp.zone === 'interior' && cp.independentlyVisible === true);
-    const _srsCabinImpact = frontStruck
-      || /front|cabin|interior|air\s?bag|roll[\s-]?over/i.test(`${enrichedVd.primaryDamage || ''} ${enrichedVd.secondaryDamage || ''}`);
-    const _srsGateOpen = _srsInteriorVision || _srsCabinImpact;
-    console.log(`[SRS GATE] open=${_srsGateOpen} (interiorVision=${_srsInteriorVision} cabinImpact=${_srsCabinImpact})`);
-    const srsReadPromise = _srsGateOpen
-      ? runSrsDeploymentRead(images, () => _exhaustedCalls.add('srs-read'))
-      : Promise.resolve({ deployed: false, zones: [], evidence: '' });
-
     // ── Aperture-grille cost rule ──────────────────────────────────────────────
     // Code-owned, no model call. Condition: front bumper physically displaced
     // (apertureExposed) AND lamp-detect confirmed headlamp mount empty
@@ -3368,23 +3261,28 @@ export async function GET(request) {
       console.log(`[${logTag}] ${pid} band=${bandKey} used=£${wtEntry.used} (oem=£${wtEntry.oem}) stripped-model-rows=${wtStripped}`);
     }
 
-    // ── SRS airbag injection (dedicated vision read, tiered) ─────────────────
-    // Trigger AND extent come ONLY from the dedicated SRS vision read (photo-derived
-    // structured zones) — never the model's Parts Breakdown text. The model airbag
-    // row is now ONLY a strip target so it can't double-count. Band from bandKey;
-    // no band / no table entry → skip inject (airbag stays an inspection flag).
-    // NO labour rider (SRS fitting absorbed in Labour & paint). Fail-open: the read
-    // floors to deployed:false on any failure → no inject. [SRS_STRIP] fires in
-    // lockstep with [SRS_INJECT]; the model row is never the trigger or tier source.
-    const srsRead = await srsReadPromise;
-    if (srsRead.deployed) {
-      const srsTier  = srsTierFromZones(srsRead.zones);
+    // ── SRS airbag injection (Call-1 detection, table-sourced) ───────────────
+    // Deployment is detected from the MAIN model's Call-1 output: an airbag/SRS row in
+    // the Parts Breakdown (rawParts). The main model reliably LISTS a deployed bag as a
+    // part every run — only its £ figure drifts (£1,800 one run, uncosted the next). We
+    // replace that drifting number with the band table figure. The dedicated vision read
+    // (runSrsDeploymentRead) was removed: it false-negatived on listing photos across
+    // repeated fresh-build runs and didn't earn its ~$0.22 Opus cost. Tier is conservative
+    // — T1 (single/driver) floor; escalate to T2 only if the model row names a front pair,
+    // T3 only if it names a curtain/side/multi-zone. Band from bandKey; no band / no table
+    // entry → model row retained. NO labour rider. [SRS_STRIP] lockstep with [SRS_INJECT].
+    const SRS_ROW_RE   = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
+    const srsModelRows = rawParts.filter(p => SRS_ROW_RE.test(p.name || ''));
+    if (srsModelRows.length > 0) {
+      const srsBlob      = srsModelRows.map(p => p.name).join(' ');
+      const SRS_MULTI_RE = /curtain|\bside\b|a-?pillar|\broof\b|head[\s-]?airbag|seat[\s-]?airbag|multi|several/i;
+      const SRS_PAIR_RE  = /\bpair\b|passenger|both|driver and passenger|\btwo\b|front airbags|dual/i;
+      const srsTier = SRS_MULTI_RE.test(srsBlob) ? 3 : SRS_PAIR_RE.test(srsBlob) ? 2 : 1;
       const srsEntry = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsTier}`]?.[bandKey] : null;
       if (!srsEntry) {
-        console.log(`[SRS_INJECT] tier=T${srsTier} skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}; airbag remains an inspection flag`);
+        console.log(`[SRS_INJECT] tier=T${srsTier} skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}; model airbag row retained`);
       } else {
-        // Strip any model free-text airbag row from the repair total (mirror G-inject).
-        const SRS_ROW_RE = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
+        // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject).
         let srsStripped = 0;
         for (let i = gatedParts.length - 1; i >= 0; i--) {
           if (SRS_ROW_RE.test(gatedParts[i].name || '')) { gatedParts.splice(i, 1); srsStripped++; }
@@ -3399,7 +3297,7 @@ export async function GET(request) {
           _tableMandated: true,
           _gOwned:  true,
         });
-        console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) zones=[${srsRead.zones.join(', ')}] stripped-model-rows=${srsStripped}`);
+        console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) source=call1-parts stripped-model-rows=${srsStripped}`);
       }
     }
 
