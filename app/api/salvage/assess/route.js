@@ -992,9 +992,16 @@ async function runSrsDeploymentRead(images, onExhaust) {
   const FLOOR = { deployed: false, zones: [], evidence: '' };
   const SRS_PROMPT = `You are inspecting the CABIN of a salvage vehicle from auction photos to determine which airbags (SRS) have DEPLOYED (fired).
 
-A DEPLOYED airbag is a fired bag visibly present: a deflated white/grey fabric bag hanging from the steering-wheel hub, from the passenger fascia/dashboard, from the roof rail / A-pillar (curtain), or from a seat side bolster; OR a burst airbag module cover (an "SRS"/"AIRBAG" embossed flap split open). Torn roof-lining at the A-pillar with a curtain bag hanging counts as a curtain deployment.
+A DEPLOYED airbag is a fired bag visibly present: a deflated/hanging white/grey fabric bag at the steering-wheel hub, the passenger fascia/dashboard, the roof rail / A-pillar (curtain), or a seat side bolster; OR a burst airbag module cover (an "SRS"/"AIRBAG" embossed flap split open). Torn roof-lining at the A-pillar with a curtain bag hanging counts as a curtain deployment.
 
-Report ONLY airbags you can SEE deployment evidence for. Do NOT infer deployment from a dashboard warning light, from exterior impact severity, or from "a crash like this usually fires them" — only a visible fired bag / burst module counts. If the cabin is not shown, or shown too poorly to judge, return deployed:false with an empty zones list. Unknown is NOT deployed.
+VISIBLE BAG FABRIC IS SUFFICIENT — report it as deployed. A deflated or hanging bag at any of those locations is a confirmed deployment even when the photo is imperfect: angle, glare, low light, reflections, or a partial view do NOT downgrade a bag you can actually see. Do not hold out for a pristine, square-on shot — if you can see fired bag material, that is a deployment.
+
+Guardrails against FALSE positives — these still hold:
+- Do NOT infer deployment from a dashboard airbag WARNING LIGHT — a lit telltale is not a fired bag.
+- Do NOT infer from exterior impact severity ("a crash like this usually fires them").
+- Only a VISIBLE fired bag or burst module counts — NOT steering-wheel scuffs, NOT cabin trim damage on its own.
+
+Return deployed:false ONLY when the cabin is genuinely not shown in any photo, OR no fired bag / burst module is visible anywhere in the cabin views. "Shown too poorly to judge" applies to a cabin you cannot see — it does NOT apply when a bag IS visible in a less-than-perfect photo. When in doubt and bag fabric is visible, deployed:true.
 
 zones is a CLOSED set — use only these tokens, one per deployed bag you can see:
   "driver"    — steering-wheel hub bag
@@ -1007,7 +1014,7 @@ zones is a CLOSED set — use only these tokens, one per deployed bag you can se
 Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
 { "deployed": true | false, "zones": ["driver", ...], "evidence": "<one short sentence on what you can see in the cabin>" }
 
-If deployment is clearly present but you cannot pin the exact zones, return deployed:true with the zones you ARE sure of (an empty list is acceptable) — do not guess zones you cannot see.`;
+If deployment is clearly present but you cannot pin the exact zones, return deployed:true with the zones you ARE sure of — an empty zones list is acceptable (it is treated conservatively as a single-zone kit). Deployed-but-zones-unresolved is STILL deployed:true, never false. Only list zones you can actually see; never guess a zone.`;
   try {
     if (images.length > 35) console.warn(`[SRS_READ] image set truncated to 35 (received ${images.length})`);
     const imageBlocks = images.slice(0, 35).map(img => {
