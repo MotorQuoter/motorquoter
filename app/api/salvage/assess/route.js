@@ -3300,6 +3300,9 @@ export async function GET(request) {
       .map(f => assessment[f] || '').join('\n');
     const srsProseDeployed = srsProseBlob.split(/(?<=[.!?\n])\s+/).some(s =>
       SRS_ROW_RE.test(s) && SRS_DEPLOY_CUE.test(s) && !SRS_NEG_LOCAL.test(s));
+    // TEMP [SRS_DEBUG] — diagnose prose-empty-at-injection (remove once resolved). Logs the
+    // injection-time lengths of the scanned fields + whether _raw (guaranteed-populated) would fire.
+    console.log(`[SRS_DEBUG] proseBlobLen=${srsProseBlob.length} vds=${(assessment['Visible Damage Summary'] || '').length} rf=${(assessment['Red Flags'] || '').length} kcd=${(assessment['Key Cost Drivers'] || '').length} airbags=${(assessment['Airbags'] || '').length} rows=${srsModelRows.length} proseDeployed=${srsProseDeployed} rawLen=${(assessment._raw || '').length} rawHasDeploy=${/air\s?bag/i.test(assessment._raw || '') && /deployed|deployment|fired/i.test(assessment._raw || '')}`);
     const srsDeployed = srsProseDeployed || srsModelRows.length > 0;
     if (srsDeployed) {
       const srsTierText = [srsModelRows.map(p => p.name).join(' '), srsProseBlob].join('\n');
