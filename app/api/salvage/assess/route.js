@@ -3274,26 +3274,48 @@ export async function GET(request) {
       console.log(`[${logTag}] ${pid} band=${bandKey} used=£${wtEntry.used} (oem=£${wtEntry.oem}) stripped-model-rows=${wtStripped}`);
     }
 
-    // ── SRS airbag injection (Call-1 detection, table-sourced) ───────────────
-    // Deployment is detected from the MAIN model's Call-1 output: an airbag/SRS row in
-    // the Parts Breakdown (rawParts). The main model reliably LISTS a deployed bag as a
-    // part every run — only its £ figure drifts (£1,800 one run, uncosted the next). We
-    // replace that drifting number with the band table figure. The dedicated vision read
-    // (runSrsDeploymentRead) was removed: it false-negatived on listing photos across
-    // repeated fresh-build runs and didn't earn its ~$0.22 Opus cost. Tier is conservative
-    // — T1 (single/driver) floor; escalate to T2 only if the model row names a front pair,
-    // T3 only if it names a curtain/side/multi-zone. Band from bandKey; no band / no table
-    // entry → model row retained. NO labour rider. [SRS_STRIP] lockstep with [SRS_INJECT].
-    const SRS_ROW_RE   = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
+    // ── SRS airbag injection (Call-1 detection: prose OR parts row) ──────────
+    // The MAIN model reliably DESCRIBES the deployed bag in Call-1 prose every run, but
+    // does NOT reliably emit a Parts Breakdown row for it (and when it does, the £ drifts).
+    // Detect from EITHER path:
+    //   (a) PROSE — a deployment mention in the narrative fields (Visible Damage Summary /
+    //       Red Flags / Key Cost Drivers / Airbags): an airbag/SRS reference AND a deployment
+    //       cue (deployed/fired/blown/deflated/hanging/burst/curtain/steering-wheel bag), in
+    //       the SAME sentence, with NO local negation/intact qualifier. The cue + per-sentence
+    //       scope is the guard so a bare "check airbags on inspection" or "airbags intact"
+    //       does NOT trigger. The WhatsApp checklist is deliberately NOT scanned. (The Airbags
+    //       field still holds model text here — it isn't code-overwritten until later, ~:3487.)
+    //   (b) ROW — an airbag/SRS row already in rawParts (the model costed it).
+    // On either, strip any model airbag PARTS row (avoid double-count) and inject
+    // SRS_AIRBAG_T{n} at band. Tier (single curtain = a 2-bag event, not top tier): T1 floor
+    // (single bag); T2 if a front pair OR a front bag + a single curtain; T3 reserved for side
+    // bags, MULTIPLE curtains, or explicit multi-zone / full cabin. NO labour rider. The
+    // dedicated runSrsDeploymentRead read was removed — it false-negatived on listing photos.
+    // [SRS_STRIP] lockstep [SRS_INJECT].
+    const SRS_ROW_RE     = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
+    const SRS_DEPLOY_CUE = /\b(deployed|deployment|fired|blown|detonated|deflated|hanging|burst|ruptured|spent|gone off)\b|\bcurtain\b|steering[\s-]?wheel[^.\n]{0,20}\bbag\b/i;
+    const SRS_NEG_LOCAL  = /\b(no|not|n'?t|without|never|un-?deployed|intact|undamaged|serviceable|did not|have not|appears? (?:fine|intact|undamaged|ok))\b/i;
     const srsModelRows = rawParts.filter(p => SRS_ROW_RE.test(p.name || ''));
-    if (srsModelRows.length > 0) {
-      const srsBlob      = srsModelRows.map(p => p.name).join(' ');
-      const SRS_MULTI_RE = /curtain|\bside\b|a-?pillar|\broof\b|head[\s-]?airbag|seat[\s-]?airbag|multi|several/i;
-      const SRS_PAIR_RE  = /\bpair\b|passenger|both|driver and passenger|\btwo\b|front airbags|dual/i;
-      const srsTier = SRS_MULTI_RE.test(srsBlob) ? 3 : SRS_PAIR_RE.test(srsBlob) ? 2 : 1;
-      const srsEntry = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsTier}`]?.[bandKey] : null;
+    const srsProseBlob = ['Visible Damage Summary', 'Red Flags', 'Key Cost Drivers', 'Airbags']
+      .map(f => assessment[f] || '').join('\n');
+    const srsProseDeployed = srsProseBlob.split(/(?<=[.!?\n])\s+/).some(s =>
+      SRS_ROW_RE.test(s) && SRS_DEPLOY_CUE.test(s) && !SRS_NEG_LOCAL.test(s));
+    const srsDeployed = srsProseDeployed || srsModelRows.length > 0;
+    if (srsDeployed) {
+      const srsTierText = [srsModelRows.map(p => p.name).join(' '), srsProseBlob].join('\n');
+      // T3 = the big events only: a side/thorax bag, MULTIPLE curtains, or explicit multi-zone.
+      const srsT3 = /\bside\b[^.\n]{0,15}air\s?bag|air\s?bag[^.\n]{0,15}\bside\b|thorax|seat[\s-]?mounted[^.\n]{0,12}air\s?bag/i.test(srsTierText)
+        || /\bcurtains\b|both[^.\n]{0,15}curtain|two[^.\n]{0,15}curtain|multiple[^.\n]{0,15}curtain|curtain[^.\n]{0,40}curtain/i.test(srsTierText)
+        || /multi[\s-]?zone|full cabin|multiple air\s?bags|several air\s?bags/i.test(srsTierText);
+      // T2 = a two-bag event: a named front pair, OR a front bag + a single curtain.
+      const srsFront = /\bdriver\b|\bpassenger\b|steering[\s-]?wheel|\bdash|\bfascia|front air\s?bag/i.test(srsTierText);
+      const srsT2 = /\bpair\b|driver and passenger|both front|front air\s?bags|dual air\s?bag|two air\s?bags/i.test(srsTierText)
+        || (/\bcurtain\b/i.test(srsTierText) && srsFront);
+      const srsTier = srsT3 ? 3 : srsT2 ? 2 : 1;
+      const srsEntry  = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsTier}`]?.[bandKey] : null;
+      const srsSource = srsModelRows.length > 0 ? (srsProseDeployed ? 'call1-prose+parts' : 'call1-parts') : 'call1-prose';
       if (!srsEntry) {
-        console.log(`[SRS_INJECT] tier=T${srsTier} skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}; model airbag row retained`);
+        console.log(`[SRS_INJECT] tier=T${srsTier} skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}; model airbag treatment retained`);
       } else {
         // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject).
         let srsStripped = 0;
@@ -3310,7 +3332,7 @@ export async function GET(request) {
           _tableMandated: true,
           _gOwned:  true,
         });
-        console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) source=call1-parts stripped-model-rows=${srsStripped}`);
+        console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) source=${srsSource} stripped-model-rows=${srsStripped}`);
       }
     }
 
