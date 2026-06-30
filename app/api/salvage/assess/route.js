@@ -1540,7 +1540,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
   return result;
 }
 
-const MINOR_COSMETIC_FLAG_THRESHOLD = 1; // min MINOR-only damaged votes to trigger cosmetic flag
+const MINOR_COSMETIC_FLAG_THRESHOLD = 2; // min MINOR-only damaged votes to trigger cosmetic flag (two-vote minimum; a single unsupported MINOR clears — LP71NSU boot-lid phantom)
 const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
 
 function amalgamate(groups, viewPanelSets) {
@@ -1613,9 +1613,20 @@ function amalgamate(groups, viewPanelSets) {
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true, _ledgerSeverity: 'SEVERE',
           ...(_instanceKey ? { _gOwned: true, _gSeverity: damagedSevs.includes('SEVERE') ? 'SEVERE' : 'MODERATE' } : {}) });
       }
-    } else if (!isFlagOnly && minorOnly && minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
-      console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
-      flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_COSMETIC, _amalgCosmetic: true });
+    } else if (!isFlagOnly && minorOnly) {
+      // Cosmetic (MINOR-only) panels: require TWO independent MINOR votes to surface a
+      // buyer-facing cosmetic flag. A single unsupported MINOR vote CLEARS — same
+      // _perViewClear marker a genuinely-clean panel gets, so it produces NO buyer
+      // artifact at all (no flag, no cost, no note). Capture ALL minorOnly here so a
+      // sub-threshold panel can never fall through to the cost/disagree branches below
+      // (a bare threshold bump would re-route single-MINOR to cost/floor). LP71NSU boot-lid.
+      if (minorVotes >= MINOR_COSMETIC_FLAG_THRESHOLD) {
+        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
+        flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_COSMETIC, _amalgCosmetic: true });
+      } else {
+        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → cleared (no flag, no cost)`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
+      }
     } else if (damaged > 0 && clean === 0) {
       // Silence-as-clean implicit corroboration (REAR_PANEL only). Count views that imaged a
       // co-visible rear neighbour but emitted no line for this panel — each is an implicit-clean
