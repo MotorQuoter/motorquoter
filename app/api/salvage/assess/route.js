@@ -1543,6 +1543,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
 
 const MINOR_COSMETIC_FLAG_THRESHOLD = 2; // min MINOR-only damaged votes to trigger cosmetic flag (two-vote minimum; a single unsupported MINOR clears — LP71NSU boot-lid phantom)
 const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
+const STICKY_COST_THRESHOLD         = 0.70; // min damaged/resolving ratio to RESCUE a disagree-floored COST panel back to cost (post-amalgamate sticky pass; tunable — see [AMALG][STICKY])
 
 function amalgamate(groups, viewPanelSets) {
   const costedParts  = [];
@@ -3201,6 +3202,107 @@ export async function GET(request) {
       }
     }
     // ── End sill rocker-discrimination read ───────────────────────────────────
+
+    // ── In-zone sticky cost rescue (Option B) ─────────────────────────────────
+    // Code-owned, no model call. Promotes a disagree-FLOORED panel back to cost when the
+    // vote split is lopsided toward damage AND the panel sits in a struck zone. Kills the
+    // disagree→floor knife-edge swing (LP71NSU £3,685↔£2,965): amalgamate's disagree branch
+    // (:1672) floors any panel with BOTH damaged>0 AND clean>0, ignoring the damaged:clean
+    // ratio, so model run-to-run variance on a single clean vote flips a heavily-damaged
+    // panel in/out of the total. This pass restores the panel when ≥STICKY_COST_THRESHOLD of
+    // resolving views called it damaged.
+    //
+    // ONE-WAY: this pass ONLY sets independentlyVisible false→true on _amalgDisagree entries.
+    // It never demotes, never touches a non-disagree-floored panel. Its input set
+    // ({iv:false + _amalgDisagree}) is DISJOINT from the demotion rules above (bumper-off/rad/
+    // sill all act on iv:true only), so a rescued panel cannot be re-demoted here and order
+    // is immaterial — running last makes the promotion sticky.
+    //
+    // The cost materialises only because the model authored a Parts Breakdown row for the
+    // panel: the gate keeps that row iff the matching verdict is iv:true (lib/parts.mjs :254),
+    // it does NOT inject rows. So we GUARD on a matching rawParts row — without one, flipping
+    // iv:true would drop the flag and produce no cost (the panel would vanish). No row → leave
+    // floored, flag intact.
+    {
+      // Struck set: model-classified zones (coreObs.perZone, ANY eventType) ∪ listing-derived
+      // front/rear. Byte-identical to the _struckZoneSet built later at the FLAG SUPPRESS block,
+      // computed earlier here where perZone + frontStruck/rearStruck are already in scope.
+      const stickyStruck = new Set((coreObs.perZone || []).map(z => z?.zone).filter(Boolean));
+      if (frontStruck) stickyStruck.add('front');
+      if (rearStruck)  stickyStruck.add('rear');
+
+      // Count _amalgDisagree flags per panelId so we only rescue an UNAMBIGUOUS match — a
+      // G-split instance (pvVotes keyed by _instanceKey) or a bare-panelId collision cannot be
+      // matched to amalgamate's own vote counts with certainty → skip (fail-safe: stay floored).
+      const disagreeCountByPanel = new Map();
+      for (const f of coreObs.flaggedParts) {
+        if (f._amalgDisagree) disagreeCountByPanel.set(f.panelId, (disagreeCountByPanel.get(f.panelId) || 0) + 1);
+      }
+
+      const pvVotes = pvResult.pvVotesMap || {};
+      // Snapshot the flag list — we splice rescued entries out of coreObs.flaggedParts inside the loop.
+      for (const flag of [...coreObs.flaggedParts]) {
+        if (!flag._amalgDisagree) continue;
+        const panelId = flag.panelId;
+
+        // (a) unambiguous disagree match + amalgamate's OWN damaged/resolving (no recompute).
+        if ((disagreeCountByPanel.get(panelId) || 0) !== 1) {
+          console.log(`[AMALG][STICKY] ${panelId} — ${disagreeCountByPanel.get(panelId)} disagree flags share this panelId (G-split/collision) → ambiguous vote match, floor retained`);
+          continue;
+        }
+        const votes = pvVotes[panelId];
+        if (!votes || votes.branch !== 'disagree' || !(votes.resolving > 0)) {
+          console.log(`[AMALG][STICKY] ${panelId} — no clean disagree vote entry in pvVotesMap (branch=${votes?.branch ?? 'absent'}) → floor retained`);
+          continue;
+        }
+        const ratio = votes.damaged / votes.resolving;
+
+        // (d) COST class only — the disagree branch does NOT gate on isFlagOnly, so a flag-class
+        // panel can carry a disagree floor; never promote one. effClass exactly as amalgamate (:1562).
+        const rawClass = PANEL_BEHAVIOUR[panelId];
+        const effClass = rawClass === PANEL_CLASS.EV_CONDITIONAL ? EV_PANEL_RESOLVED_CLASS[panelId] : rawClass;
+        if (effClass !== PANEL_CLASS.COST) {
+          console.log(`[AMALG][STICKY] ${panelId} ratio=${ratio.toFixed(3)} — effClass=${effClass} not COST → floor retained`);
+          continue;
+        }
+
+        // (b) lopsided toward damage and (c) zone struck.
+        if (ratio < STICKY_COST_THRESHOLD) continue;
+        if (!stickyStruck.has(flag.zone)) {
+          console.log(`[AMALG][STICKY] ${panelId} damaged=${votes.damaged}/${votes.resolving} ratio=${ratio.toFixed(3)} zone=${flag.zone} NOT struck=[${[...stickyStruck].join(', ')}] → floor retained`);
+          continue;
+        }
+
+        // GUARD: cost only materialises if the model authored a Parts Breakdown row for this
+        // panel (the gate keeps it; it never injects). No row → flipping iv would vanish the
+        // panel (no cost, no flag) → leave floored.
+        if (!rawParts.some(p => p.panelId === panelId)) {
+          console.log(`[AMALG][STICKY] ${panelId} damaged=${votes.damaged}/${votes.resolving} ratio=${ratio.toFixed(3)} zone=${flag.zone} struck — no model Parts row to cost; floor retained`);
+          continue;
+        }
+
+        // Locate the bare disagree-floor costed twin: iv:false carrying NONE of the other
+        // floor/clear markers (the disagree branch at :1674 pushes exactly this shape).
+        const twin = coreObs.costedParts.find(cp =>
+          cp.panelId === panelId &&
+          cp.independentlyVisible === false &&
+          !cp._perViewClear && !cp._amalgMissing && !cp._amalgUncorroborated &&
+          !cp._amalgNotVisible && !cp._radUncorroborated && !cp._bumperOffStripped);
+        if (!twin) {
+          console.log(`[AMALG][STICKY] ${panelId} ratio=${ratio.toFixed(3)} — no bare disagree-floor costed twin found → floor retained`);
+          continue;
+        }
+
+        // Promote: iv true (gate keeps the model row → costs once) + drop the flag so it does
+        // not ALSO surface in Inspection Flags (_flaggedParts is built downstream at FLAG SUPPRESS).
+        twin.independentlyVisible = true;
+        twin._stickyRescued = true;
+        const fi = coreObs.flaggedParts.indexOf(flag);
+        if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
+        console.log(`[AMALG][STICKY] ${flag.partName} damaged=${votes.damaged}/${votes.resolving} ratio=${ratio.toFixed(3)} zone=${flag.zone} struck → cost (was disagree-floor)`);
+      }
+    }
+    // ── End in-zone sticky cost rescue ─────────────────────────────────────────
 
     // Grille-set allowance detection: fires when per-view or aperture rule established
     // the front grille missing (_amalgMissing) and the main call did not price it.
