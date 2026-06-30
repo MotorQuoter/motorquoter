@@ -3489,6 +3489,21 @@ export async function GET(request) {
       if (_relabelled > 0) console.log(`[REAR CLOSURE] body indicates tailgate → relabelled ${_relabelled} BOOT_LID entry(ies) "${_rearClosureLabel}"`);
     }
 
+    // ── Struck-zone set for zone-aware not-visible flag suppression (Task 6, no new call) ──
+    // Authoritative damage zones the model classified (coreObs.perZone — ANY eventType, so a
+    // thermal/flood zone still protects its panels) ∪ the listing-derived front/rear. Enable
+    // suppression ONLY on a confidently SINGLE struck zone that is NOT the roof; multi-zone
+    // (≥2), rollover (roof struck), or no-known-zone → _suppressActive=false → buildBuyerFlags
+    // suppresses NOTHING (fail-open). Stored on the assessment because BOTH buyer surfaces (the
+    // server checklist seed and the client Inspection Flags render) call buildBuyerFlags.
+    // Amalgamate floor logic is untouched — this only governs what reaches the buyer.
+    const _struckZoneSet = new Set((coreObs.perZone || []).map(z => z?.zone).filter(Boolean));
+    if (frontStruck) _struckZoneSet.add('front');
+    if (rearStruck)  _struckZoneSet.add('rear');
+    assessment._struckZones    = [..._struckZoneSet];
+    assessment._suppressActive = _struckZoneSet.size === 1 && !_struckZoneSet.has('roof');
+    console.log(`[FLAG SUPPRESS] struckZones=[${assessment._struckZones.join(', ')}] suppressActive=${assessment._suppressActive} (perZone=${(coreObs.perZone || []).length} frontStruck=${frontStruck} rearStruck=${rearStruck})`);
+
     assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
