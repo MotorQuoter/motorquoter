@@ -824,6 +824,8 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 1024,
+        temperature: 0.1,
+        top_p: 0.9,
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
       }),
@@ -887,6 +889,8 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 512,
+        temperature: 0.1,
+        top_p: 0.9,
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
       }),
@@ -958,6 +962,8 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 512,
+        temperature: 0.1,
+        top_p: 0.9,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: APERTURE_PROMPT }] }],
       }),
@@ -1092,6 +1098,8 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     body: JSON.stringify({
       model: 'claude-opus-4-8',
       max_tokens: 1024,
+      temperature: 0.1,
+      top_p: 0.9,
       system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
       messages: [{ role: 'user', content: [...corrImageBlocks, { type: 'text', text: corrQuestion }] }],
     }),
@@ -1173,6 +1181,8 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 256,
+        temperature: 0.1,
+        top_p: 0.9,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
       }),
@@ -1348,6 +1358,8 @@ async function runPerViewAssess(image, idx, onExhaust) {
       body: JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 2048,
+        temperature: 0.1,
+        top_p: 0.9,
         system: [{ type: 'text', text: PER_VIEW_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
@@ -2344,6 +2356,8 @@ export async function GET(request) {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 200,
+          temperature: 0.1,
+          top_p: 0.9,
           system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
           messages: [{ role: 'user', content: preExtractBlocks }],
         }),
@@ -2650,6 +2664,10 @@ export async function GET(request) {
       const body = JSON.stringify({
         model: 'claude-opus-4-8',
         max_tokens: 16000,
+        // Sampling split: the FORCED extraction pass (recordImpactObservation) wants consistency
+        // (0.1/0.9); every prose-producing round — non-impact iter=0 AND all continuation rounds —
+        // keeps narrative warmth (0.7). `forced` is precisely "is this the pure-extraction pass".
+        ...(forced ? { temperature: 0.1, top_p: 0.9 } : { temperature: 0.7 }),
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
         ...(withTools && claudeTools.length > 0 ? {
@@ -2790,6 +2808,8 @@ export async function GET(request) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
         max_tokens: 1024,
+        temperature: 0.1,
+        top_p: 0.9,
         tools: [CORE_EXTRACTION_TOOL],
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
@@ -2868,6 +2888,8 @@ export async function GET(request) {
         body: JSON.stringify({
           model: 'claude-opus-4-8',
           max_tokens: 512,
+          temperature: 0.1,
+          top_p: 0.9,
           system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
           messages: [
             ...messages,
