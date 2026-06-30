@@ -3552,7 +3552,15 @@ export async function GET(request) {
     assessment._dashLine = _dashLine;
 
     // Assemble code-owned Airbags line from _airbagState (overwrites any model-authored field).
-    assessment['Airbags'] = dashRead.airbag === 'warning-lit'
+    // When SRS deployment is resolved TRUE (srsDeployed, computed at the injection block), the
+    // injected SRS airbag kit line + Red Flags ARE the authoritative deployment record — POINT
+    // to them here instead of letting the cluster-telltale read assert "no deployed bags visible"
+    // and contradict the £-charged SRS line. This is a POINTER, not a fresh deployment claim (no
+    // third place to drift). The deployed=false path is the original cluster-telltale text, byte-
+    // for-byte unchanged — a genuinely undeployed lot still reads its real cluster verdict.
+    assessment['Airbags'] = srsDeployed
+      ? 'Airbag deployment is detailed in the repair breakdown (SRS airbag kit) and Red Flags above — confirm full extent on inspection.'
+      : dashRead.airbag === 'warning-lit'
       ? 'Airbag warning light shown on the cluster — airbag system fault or deployment likely; confirm on inspection.'
       : dashRead.airbag === 'not-lit'
       ? 'No airbag warning light shown on the cluster; no deployed bags visible in the cabin shots. Confirm on inspection.'
