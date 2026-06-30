@@ -98,6 +98,8 @@ EV-CONDITIONAL — use only on electric or plug-in hybrid vehicles:
   EV_BATTERY_PRESENCE  high-voltage battery visible / battery tray
   (EV_BATTERY_PRESENCE is a code-enriched flag — report it in Part Verdicts with the correct iv value; do NOT assert battery presence, absence, or condition in prose. You may note if the HV sticker or label is physically visible in the photos.)
 
+BONNET vs FRONT_WING: BONNET is the horizontal hood skin between the wings. Damage on the vertical fender, at or above the front wheel arch, or at the front corner where the wing meets the headlamp, is FRONT_WING — NOT BONNET. A wing or front-corner impact visible near the bonnet edge is FRONT_WING — do not file it under BONNET because it is near the bonnet. Treat BONNET as damaged ONLY if the horizontal hood SKIN itself is creased, dented, or buckled. A bonnet that is unlatched, sitting proud, misaligned, or showing a disturbed shut-line gap — but whose skin is intact — is DISPLACED, not damaged: an alignment consequence of structural/latch-area impact behind it, graded iv:false. Do not cost a displaced-but-intact bonnet as a replacement panel; the refit resolves with the structural repair.
+
 The iv value has FOUR meanings. Read carefully:
 
 - iv:true    — visible in this assessment AND damaged.

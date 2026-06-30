@@ -1310,6 +1310,11 @@ severity (on iv:true only; use - on false/na/missing):
 Lower rocker, sill and side-skirt panels routinely carry PRE-EXISTING kerb-rash, road film, dirt, stone-chips, light surface scuffs and shadow that are NOT fresh collision damage. Do NOT grade or cost these as damage. For SILL or SIDE_SKIRT to be iv:true, the photo must show actual DEFORMATION or IMPACT — a crease, dent, crack, gouge, or displacement consistent with the collision event. Surface scuff, scratch, dirt, road film, shadow, or kerb/abrasion rash ALONE on these lower-flank panels is iv:false (seen and undamaged) — it is NOT MINOR and NOT MODERATE. If the lower-flank condition is ambiguous between surface contamination / pre-existing kerb-rash and genuine light impact, use iv:na — do NOT default to grading it damaged. Apply the same judgement an assessor reaches in prose: scuffing that reads as pre-existing kerb/abrasion rather than fresh impact is not a costed panel. This rule is scoped to the lower-flank panels named here; it does NOT change how scuffs are graded on any other panel.
 --- END LOWER-FLANK GROUNDING ---
 
+--- BONNET: WING-EDGE & DISPLACEMENT ---
+BONNET is the horizontal hood skin between the wings. Damage on the vertical fender, at or above the front wheel arch, or at the front corner where the wing meets the headlamp, is FRONT_WING — NOT BONNET. A wing or front-corner impact visible near the bonnet edge is FRONT_WING — do not file it under BONNET because it is near the bonnet.
+Grade BONNET iv:true ONLY if the horizontal hood SKIN itself is creased, dented, or buckled in THIS photo. A bonnet that is unlatched, sitting proud, misaligned, or showing a disturbed shut-line gap — but whose skin is intact — is DISPLACED, not damaged: an alignment consequence of structural/latch-area impact behind it. Grade it iv:false (the refit resolves with the structural repair, not a panel replacement). Do not grade a displaced-but-intact bonnet as a damaged panel.
+--- END BONNET: WING-EDGE & DISPLACEMENT ---
+
 The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
 --- RESOLVABILITY THRESHOLD (tunable — this clause only) ---
