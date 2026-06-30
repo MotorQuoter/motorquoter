@@ -2245,9 +2245,22 @@ export async function GET(request) {
     // can anchor the grouping canonical names (name-seam fix).
     let _pvExhaustedCount = 0;
     const _exhaustedCalls = new Set();
-    const perViewResultsPromise = Promise.all(images.map((img, i) =>
-      runPerViewAssess(img, i, () => { _pvExhaustedCount++; _exhaustedCalls.add(`per-view-${i}`); })
-    ));
+    // Per-view cache write-storm fix: every view carries the IDENTICAL PER_VIEW_PROMPT
+    // cached system block (3909 tokens). Firing all 24 concurrently means none can read a
+    // cache that hasn't been written yet → ~23 redundant cache WRITES (1.25x) of the same
+    // prompt. Sequence ONE view first so it WRITES the cache, then fan out the remaining
+    // views so they READ it (0.1x). Dispatch timing ONLY — every view still runs, results
+    // are collected in image order, and the fired/landed (_pvExhaustedCount/_exhaustedCalls)
+    // accounting is unchanged.
+    const _fireView = (img, i) =>
+      runPerViewAssess(img, i, () => { _pvExhaustedCount++; _exhaustedCalls.add(`per-view-${i}`); });
+    const perViewResultsPromise = images.length === 0
+      ? Promise.resolve([])
+      : (async () => {
+          const first = await _fireView(images[0], 0);                                  // cache WRITE
+          const rest  = await Promise.all(images.slice(1).map((img, j) => _fireView(img, j + 1))); // cache READs
+          return [first, ...rest];
+        })();
 
     const enrichedVd = normaliseLot(vd);
 
