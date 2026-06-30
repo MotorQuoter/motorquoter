@@ -84,6 +84,7 @@ STRUCTURAL FLAG — never costed; always flagged for inspection:
 
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
+  AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover). DEPLOYED bag only — NOT an intact airbag, NOT a dashboard warning light. Genuine non-airbag interior damage (torn seat, cracked screen, dash panel) still uses OTHER. Cost is owned by the engine, not this line — report it; do not put a price on it.
 
 PRESENCE CHECK:
   SPARE_WHEEL       spare wheel / spare tyre (visible in boot)

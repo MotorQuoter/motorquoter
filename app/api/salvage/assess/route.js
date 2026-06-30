@@ -88,7 +88,7 @@ const _ELIGIBLE_UNIVERSAL = [
   PANEL.HEADLAMP, PANEL.FOG_LAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_DOOR, PANEL.REAR_DOOR,
   PANEL.SILL, PANEL.SIDE_SKIRT, PANEL.DOOR_MIRROR, PANEL.SIDE_GLASS, PANEL.REAR_BUMPER,
   PANEL.REAR_LAMP, PANEL.WINDSCREEN, PANEL.ROOF, PANEL.WHEEL, PANEL.TYRE, PANEL.REAR_PANEL,
-  PANEL.FRONT_STRUCTURE, PANEL.REAR_STRUCTURE, PANEL.SIDE_STRUCTURE, PANEL.DISPLACED_WHEEL,
+  PANEL.FRONT_STRUCTURE, PANEL.REAR_STRUCTURE, PANEL.SIDE_STRUCTURE, PANEL.DISPLACED_WHEEL, PANEL.AIRBAG,
   PANEL.SPARE_WHEEL, PANEL.PARCEL_SHELF, PANEL.OTHER, PANEL.EV_BATTERY_ZONE, PANEL.EV_BATTERY_PRESENCE,
 ];
 const ELIGIBLE_PANELS = Object.freeze({
@@ -1276,6 +1276,7 @@ STRUCTURAL FLAG — never costed; always flagged for inspection:
 
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
+  AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover) — DEPLOYED bag only, NOT an intact airbag or a dash warning light. Genuine non-airbag interior damage still uses OTHER.
 
 PRESENCE CHECK:
   SPARE_WHEEL       spare wheel / spare tyre (visible in boot)
@@ -3319,7 +3320,7 @@ export async function GET(request) {
     const SRS_ROW_RE     = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
     const SRS_DEPLOY_CUE = /\b(deployed|deployment|fired|blown|detonated|deflated|hanging|burst|ruptured|spent|gone off)\b|\bcurtain\b|steering[\s-]?wheel[^.\n]{0,20}\bbag\b/i;
     const SRS_NEG_LOCAL  = /\b(no|not|n'?t|without|never|un-?deployed|intact|undamaged|serviceable|did not|have not|appears? (?:fine|intact|undamaged|ok))\b/i;
-    const srsModelRows = rawParts.filter(p => SRS_ROW_RE.test(p.name || ''));
+    const srsModelRows = rawParts.filter(p => p.panelId === PANEL.AIRBAG || SRS_ROW_RE.test(p.name || ''));
     const srsProseBlob = ['Visible Damage Summary', 'Red Flags', 'Key Cost Drivers', 'Airbags']
       .map(f => assessment[f] || '').join('\n');
     const srsProseDeployed = srsProseBlob.split(/(?<=[.!?\n])\s+/).some(s =>
@@ -3344,7 +3345,7 @@ export async function GET(request) {
         // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject).
         let srsStripped = 0;
         for (let i = gatedParts.length - 1; i >= 0; i--) {
-          if (SRS_ROW_RE.test(gatedParts[i].name || '')) { gatedParts.splice(i, 1); srsStripped++; }
+          if (gatedParts[i].panelId === PANEL.AIRBAG || SRS_ROW_RE.test(gatedParts[i].name || '')) { gatedParts.splice(i, 1); srsStripped++; }
         }
         console.log(`[SRS_STRIP] removed ${srsStripped} model airbag row(s) from repair total`);
         gatedParts.push({
@@ -3357,6 +3358,19 @@ export async function GET(request) {
           _gOwned:  true,
         });
         console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) source=${srsSource} stripped-model-rows=${srsStripped}`);
+        // Suppress the now-redundant AIRBAG inspection flag (Task 5 principle: never say two
+        // contradictory things about the airbag). The injected SRS table line above is the
+        // authoritative airbag cost and Red Flags carry the deployment — but the flag-class
+        // AIRBAG entry reads "…not included in the repair cost", which directly contradicts the
+        // £-line. Drop it ONLY here, in the inject-SUCCESS path. If SRS does NOT inject (no band
+        // → skip branch above, or srsDeployed=false → block not entered), the AIRBAG flag is
+        // KEPT: there is then no SRS cost line for it to contradict, so it is the buyer's only
+        // airbag inspection signal — not a stranded contradiction, and not a dropped signal.
+        let srsFlagDropped = 0;
+        for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
+          if (coreObs.flaggedParts[i].panelId === PANEL.AIRBAG) { coreObs.flaggedParts.splice(i, 1); srsFlagDropped++; }
+        }
+        if (srsFlagDropped > 0) console.log(`[SRS_INJECT] suppressed ${srsFlagDropped} redundant AIRBAG inspection flag(s) — SRS line + Red Flags carry deployment`);
       }
     }
 

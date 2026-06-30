@@ -26,15 +26,17 @@ const evIds      = EV_PANEL_IDS;
 const costIds    = COST_PANEL_IDS;
 
 // Class tally (confirmed 19 Jun 2026):
-// 24 COST + 3 STRUCTURAL_FLAG + 1 VISIBLE_FLAG + 2 PRESENCE_CHECK + 1 OTHER = 31 base
-// + 2 EV_CONDITIONAL = 33 total.
+// 38 COST + 3 STRUCTURAL_FLAG + 2 VISIBLE_FLAG + 2 PRESENCE_CHECK + 1 OTHER = 46 base
+// + 2 EV_CONDITIONAL = 48 total. (COST = 24 car/universal + 8 van/passenger + 6 pickup;
+// VISIBLE_FLAG = DISPLACED_WHEEL + AIRBAG deployment marker.) Re-baselined: the prior
+// 33/31/24 asserts were stale — van/pickup COST panels had been added without updating them.
 // The original brief said "30 base" — that was a miscount (OTHER was dropped from the tally).
 // Every entry earns its place; the module is authoritative.
 
-assert('total panel IDs = 33 (31 base + 2 EV-conditional)', allIds.length, 33);
-assert('base panel IDs (non-EV) = 31',                      baseIds.length, 31);
+assert('total panel IDs = 48 (46 base + 2 EV-conditional)', allIds.length, 48);
+assert('base panel IDs (non-EV) = 46',                      baseIds.length, 46);
 assert('EV-conditional IDs = 2',                            evIds.length, 2);
-assert('COST panel IDs = 24',                               costIds.length, 24);
+assert('COST panel IDs = 38',                               costIds.length, 38);
 
 // ── 2. Behaviour-class lookup — one sampled entry per class ──────────────────────────────
 console.log('\n── 2. Behaviour-class lookup ──');
