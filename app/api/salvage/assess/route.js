@@ -3470,6 +3470,25 @@ export async function GET(request) {
       }
     }
 
+    // ── Rear-closure display label by body shape (LABEL ONLY) ────────────────
+    // Estates/tourings/avants/sportbrakes/5-door/hatchbacks have a TAILGATE; saloons,
+    // coupes and 4-door cars have a BOOT LID. Indeterminate → Boot lid (safe default).
+    // Derived from held data (Brego vehicle_desc / listing body style / Copart paste /
+    // damage description) — NO API call. This rewrites ONLY the buyer-facing display name
+    // on BOOT_LID cost rows and flags; the enum ID stays BOOT_LID and the cost / flag /
+    // vote / gate logic is untouched. No new panel.
+    const REAR_CLOSURE_TAILGATE = /\b(estate|touring|avant|sport[\s-]?brake|shooting[\s-]?brake|5[\s-]?dr|5[\s-]?door|hatch(?:back)?)\b/i;
+    const _rearBlob = [enrichedVd.bregoValuation?.vehicle_desc, enrichedVd.bodyStyle, enrichedVd.rawCopartPaste, enrichedVd.damageDescription]
+      .filter(Boolean).join(' ');
+    const _rearClosureLabel = REAR_CLOSURE_TAILGATE.test(_rearBlob) ? 'Tailgate' : 'Boot lid';
+    if (_rearClosureLabel !== 'Boot lid') {
+      const _isBootLid = (pid, nm) => pid === PANEL.BOOT_LID || /\bboot[\s-]?lid\b|\btrunk[\s-]?lid\b/i.test(nm || '');
+      let _relabelled = 0;
+      for (const p of gatedParts)           if (_isBootLid(p.panelId, p.name))     { p.name = _rearClosureLabel; _relabelled++; }
+      for (const f of coreObs.flaggedParts) if (_isBootLid(f.panelId, f.partName)) { f.partName = _rearClosureLabel; _relabelled++; }
+      if (_relabelled > 0) console.log(`[REAR CLOSURE] body indicates tailgate → relabelled ${_relabelled} BOOT_LID entry(ies) "${_rearClosureLabel}"`);
+    }
+
     assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
