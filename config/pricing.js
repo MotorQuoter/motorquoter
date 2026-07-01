@@ -3,6 +3,7 @@ export const ROI_TIERS = [
     key: 'roi_free',
     label: 'Identity Only',
     addOn: 0,
+    addOnEUR: 0,
     description: 'Vehicle identity from ROI register',
     features: ['Make, model, year, colour', 'Engine size & fuel type', 'NCT status', 'First registration date'],
   },
@@ -10,6 +11,7 @@ export const ROI_TIERS = [
     key: 'roi_standard',
     label: 'Standard',
     addOn: 4.99,
+    addOnEUR: 5.99,
     description: 'Identity + current market valuation + demand',
     features: ['Everything in Identity', 'Current market valuation (Cartell)', 'Market demand score', 'Days to sell estimate'],
   },
@@ -17,6 +19,7 @@ export const ROI_TIERS = [
     key: 'roi_pro',
     label: 'Pro',
     addOn: 12.99,
+    addOnEUR: 15.99,
     description: 'Standard + future valuation + Cartell Price Guide',
     features: ['Everything in Standard', 'Future value projection', 'Cartell Price Guide', 'Depreciation forecast'],
   },
@@ -24,6 +27,7 @@ export const ROI_TIERS = [
     key: 'roi_history',
     label: 'History',
     addOn: 17.99,
+    addOnEUR: 20.99,
     description: 'Pro + full Cartell vehicle history check',
     features: ['Everything in Pro', 'Full Cartell history', 'Outstanding finance', 'Ownership count'],
   },
@@ -164,6 +168,7 @@ export const PRICING = {
   ],
   salvageAssessment: {
     price: 8.99,
+    priceEUR: 10.99, // EUR opt-in (ROI/IE lots only); GBP remains the default base
     enabled: true,
   },
 }

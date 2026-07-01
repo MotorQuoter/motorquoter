@@ -12,7 +12,7 @@ function getSupabase() {
 
 export async function POST(request) {
   try {
-    const { vehicleDetails, imagePaths, market, roiTier } = await request.json();
+    const { vehicleDetails, imagePaths, market, roiTier, currency } = await request.json();
 
     if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
       return NextResponse.json({ error: 'At least one image is required' }, { status: 400 });
@@ -30,7 +30,35 @@ export async function POST(request) {
 
     const roiTierKey = market === 'IE' ? (roiTier || 'roi_free') : null;
     const roiTierMeta = roiTierKey ? ROI_TIERS.find(t => t.key === roiTierKey) : null;
-    const roiAddOn = roiTierMeta?.addOn || 0;
+    const roiAddOn = roiTierMeta?.addOn || 0; // GBP add-on doubles as the "is this a paid ROI tier" gate
+
+    // Payment currency is INDEPENDENT of market. GBP is the default everywhere. EUR is opt-in and
+    // valid ONLY on an IE-market lot (two guards: explicit 'eur' request AND market==='IE'). A
+    // GB/NI lot requesting EUR is malformed — reject it (do NOT silently coerce), so the frontend
+    // bug that sent it is visible. Both line items share ONE currency (Stripe rejects mixed).
+    const reqCurrency = (currency || 'gbp').toLowerCase();
+    if (reqCurrency !== 'gbp' && reqCurrency !== 'eur') {
+      return NextResponse.json({ error: `Unsupported currency "${reqCurrency}"` }, { status: 400 });
+    }
+    if (reqCurrency === 'eur' && market !== 'IE') {
+      return NextResponse.json({ error: 'EUR payment is only available for IE-market lots' }, { status: 400 });
+    }
+    const useEUR = reqCurrency === 'eur' && market === 'IE';
+    const curr = useEUR ? 'eur' : 'gbp';
+
+    // Fail LOUD on missing/invalid EUR config — NEVER silently charge GBP to an opted-in EUR
+    // customer (that is the reconciliation-only failure this whole change exists to avoid).
+    const posNum = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+    const baseAmount = useEUR ? PRICING.salvageAssessment.priceEUR : PRICING.salvageAssessment.price;
+    if (useEUR && !posNum(baseAmount)) {
+      console.error(`[CHECKOUT][CURR] EUR opted-in but salvageAssessment.priceEUR missing/invalid: ${baseAmount}`);
+      return NextResponse.json({ error: 'EUR pricing is temporarily unavailable — please contact support' }, { status: 500 });
+    }
+    const roiAddOnAmount = useEUR ? roiTierMeta?.addOnEUR : roiAddOn;
+    if (useEUR && roiAddOn > 0 && !posNum(roiAddOnAmount)) {
+      console.error(`[CHECKOUT][CURR] EUR opted-in but addOnEUR missing/invalid for tier ${roiTierKey}: ${roiAddOnAmount}`);
+      return NextResponse.json({ error: 'EUR pricing is temporarily unavailable — please contact support' }, { status: 500 });
+    }
 
     const supabase = getSupabase();
     const { data: session, error: dbError } = await supabase
@@ -50,7 +78,6 @@ export async function POST(request) {
     }
 
     const salvageId = session.id;
-    const price = PRICING.salvageAssessment.price;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
 
@@ -60,12 +87,12 @@ export async function POST(request) {
     const lineItems = [
       {
         price_data: {
-          currency: 'gbp',
+          currency: curr,
           product_data: {
             name: 'MotorQuoter Damage Assessment',
             description: identifier ? `Assessment for ${identifier}` : 'AI-powered salvage & damage assessment',
           },
-          unit_amount: Math.round(price * 100),
+          unit_amount: Math.round(baseAmount * 100),
         },
         quantity: 1,
       },
@@ -74,16 +101,20 @@ export async function POST(request) {
     if (roiAddOn > 0 && roiTierMeta) {
       lineItems.push({
         price_data: {
-          currency: 'gbp',
+          currency: curr,
           product_data: {
             name: `ROI Vehicle Data — ${roiTierMeta.label}`,
             description: roiTierMeta.description,
           },
-          unit_amount: Math.round(roiAddOn * 100),
+          unit_amount: Math.round(roiAddOnAmount * 100),
         },
         quantity: 1,
       });
     }
+
+    // Single-currency invariant: every line item uses `curr`, so a mixed-currency session
+    // (which Stripe rejects) is impossible by construction.
+    console.log(`[CHECKOUT][CURR] market=${market || 'GB'} currency=${curr} base=${Math.round(baseAmount * 100)}${roiAddOn > 0 ? ` addOn=${Math.round(roiAddOnAmount * 100)}` : ''}`);
 
     const stripeSession = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -91,7 +122,7 @@ export async function POST(request) {
       mode: 'payment',
       success_url: `${baseUrl}/salvage/success?salvage_id=${salvageId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/salvage?cancelled=true`,
-      metadata: { salvage_id: salvageId, market: market || 'GB' },
+      metadata: { salvage_id: salvageId, market: market || 'GB', currency: curr },
     });
 
     return NextResponse.json({ url: stripeSession.url });

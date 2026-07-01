@@ -37,8 +37,19 @@ export default function SalvagePage() {
   const [zipDragging, setZipDragging] = useState(false);
   const [vrnAutoFilled, setVrnAutoFilled] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
+  // Payment currency — INDEPENDENT of market. GBP default; EUR is opt-in and shown ONLY on IE
+  // lots. Fresh page load / new assessment resets to 'gbp' (useState default); switching market
+  // away from IE also reasserts 'gbp' (see the GB button handler). No sticky EUR across sessions.
+  const [payCurrency, setPayCurrency] = useState('gbp');
 
   const price = PRICING.salvageAssessment.price;
+  const priceEUR = PRICING.salvageAssessment.priceEUR;
+  // EUR fires only when the lot is IE AND EUR is explicitly chosen — so a GB/NI lot always
+  // displays and charges GBP regardless of any stale toggle state.
+  const useEUR = market === 'IE' && payCurrency === 'eur';
+  const displaySymbol = useEUR ? '€' : '£';
+  const displayAmount = useEUR ? priceEUR : price;
+  const payCurrencyValue = useEUR ? 'eur' : 'gbp'; // exactly what the checkout POST sends
 
   // Auto-proceed: if submit was attempted while zip was still extracting, fire it
   // the moment extraction finishes. Clears on error so a retry is needed.
@@ -360,7 +371,7 @@ export default function SalvagePage() {
         const res = await fetch('/api/salvage/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vehicleDetails, imagePaths, market }),
+          body: JSON.stringify({ vehicleDetails, imagePaths, market, currency: payCurrencyValue }),
         });
         if (!res.ok) {
           const ct = res.headers.get('content-type') || '';
@@ -484,7 +495,7 @@ export default function SalvagePage() {
           </h1>
           <p className="hero-sub">Upload auction listing photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
           <div className="price-badge">
-            <span className="price-badge-amount">£{price.toFixed(2)}</span>
+            <span className="price-badge-amount">{displaySymbol}{displayAmount.toFixed(2)}</span>
             <span className="price-badge-label">per assessment · no subscription</span>
           </div>
         </div>
@@ -722,7 +733,7 @@ export default function SalvagePage() {
           <div>
             <div className="field-label">Repair Market</div>
             <div className="market-toggle">
-              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => setMarket('GB')}>
+              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => { setMarket('GB'); setPayCurrency('gbp'); }}>
                 🇬🇧 GB
               </button>
               <button className={`market-btn ${market === 'IE' ? 'active' : ''}`} onClick={() => setMarket('IE')}>
@@ -730,6 +741,21 @@ export default function SalvagePage() {
               </button>
             </div>
           </div>
+
+          {/* Pay currency — ROI/IE lots only. GBP is the default; EUR is opt-in. */}
+          {market === 'IE' && (
+            <div>
+              <div className="field-label">Pay in</div>
+              <div className="market-toggle">
+                <button className={`market-btn ${payCurrency === 'gbp' ? 'active' : ''}`} onClick={() => setPayCurrency('gbp')}>
+                  £ GBP
+                </button>
+                <button className={`market-btn ${payCurrency === 'eur' ? 'active' : ''}`} onClick={() => setPayCurrency('eur')}>
+                  € EUR
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* What's included */}
           <div className="feature-list">
@@ -775,7 +801,7 @@ export default function SalvagePage() {
                   ? '↺ Re-run Assessment (free)'
                   : appliedPromo?.discount_type === 'free'
                     ? '🎟 Redeem & Assess'
-                    : `🔨 Pay £${price.toFixed(2)} and Assess`}
+                    : `🔨 Pay ${displaySymbol}${displayAmount.toFixed(2)} and Assess`}
           </button>
         </div>
 
