@@ -2148,18 +2148,25 @@ function buildHammerLadder(exitValue) {
 function analyseAirbagPaste(pasteRaw) {
   const paste = typeof pasteRaw === 'string' ? pasteRaw : '';
   if (!paste) return { deployed: false, intact: false, curtainSide: false, bothFront: false };
-  // Trailing (?=\b|\d) not \b: Copart mashes tokens with the next data value and NO space —
-  // canary string (ET24KZJ, real paste): "...AIRBAGS DEPLOYED2024 MG MOTOR...". A bare trailing
-  // \b fails on "DEPLOYED2024" (d→2 is word→word, not a boundary), so the paste corroborator
-  // silently whiffed. (?=\b|\d) matches a normal boundary OR an immediately-following digit, while
-  // still rejecting a following LETTER — so the leading \b keeps "undeployed" / mashed-letter
-  // tokens out. If you touch these regexes, re-test the canary string above.
-  const deployed = /\bair\s?bags?(?=\b|\d)[^.\n]{0,20}\bdeployed(?=\b|\d)|\bdeployed(?=\b|\d)[^.\n]{0,20}\bair\s?bags?(?=\b|\d)/i.test(paste);
+  // Copart mashes tokens against adjacent values with NO boundary, on BOTH edges — canaries
+  // (real pastes): TRAILING "AIRBAGS DEPLOYED2024" (word→digit; ET24KZJ) and LEADING
+  // "View NotesAIRBAGS DEPLOYED" (lowercase→UPPERCASE camelCase join from a DOM copy; FP21YHW).
+  // Two-part defence — match against `clean`, never the raw paste:
+  //   • `clean` inserts a space at every lowercase→UPPERCASE join, so a leading-mashed airbag
+  //     word ("NotesAIRBAGS" → "Notes AIRBAGS") becomes reachable by the leading \b. All-lowercase
+  //     runs ("repairbags") are untouched → still blocked by the leading \b (no false positive).
+  //   • trailing (?=\b|\d) (not \b) matches a normal boundary OR a following digit, still rejecting
+  //     a following LETTER (keeps "undeployed" out).
+  // Do NOT mutate rawCopartPaste (immutable) and do NOT pre-clean globally in normaliseLot/
+  // parseCopart (wrecks mixed-case values like "EcoBoost"/"McLaren"). If you touch these, re-test
+  // BOTH canary strings above.
+  const clean = paste.replace(/([a-z])([A-Z])/g, '$1 $2');
+  const deployed = /\bair\s?bags?(?=\b|\d)[^.\n]{0,20}\bdeployed(?=\b|\d)|\bdeployed(?=\b|\d)[^.\n]{0,20}\bair\s?bags?(?=\b|\d)/i.test(clean);
   // High-bar explicit "airbags NOT deployed / intact" — the only structured positive-no-deployment
   // signal (the enum never emits an intact vote). Only ever suppresses a flag, never a cost.
-  const intact = !deployed && /\bair\s?bags?(?=\b|\d)[^.\n]{0,30}\b(?:not deployed|undeployed|intact|did not deploy|didn'?t deploy)(?=\b|\d)/i.test(paste);
+  const intact = !deployed && /\bair\s?bags?(?=\b|\d)[^.\n]{0,30}\b(?:not deployed|undeployed|intact|did not deploy|didn'?t deploy)(?=\b|\d)/i.test(clean);
   // Count/position — scoped to airbag-context sentences only.
-  const ctxBlob = paste.split(/(?<=[.!?\n])\s+/).filter(s => /\bair\s?bags?(?=\b|\d)|\bsrs(?=\b|\d)/i.test(s)).join(' ');
+  const ctxBlob = clean.split(/(?<=[.!?\n])\s+/).filter(s => /\bair\s?bags?(?=\b|\d)|\bsrs(?=\b|\d)/i.test(s)).join(' ');
   const curtainSide = /\bcurtain(?=\b|\d)|\bthorax(?=\b|\d)|seat[\s-]?mounted|\bside(?=\b|\d)[^.\n]{0,12}air\s?bag|air\s?bag[^.\n]{0,12}\bside(?=\b|\d)/i.test(ctxBlob);
   const bothFront   = /\bdriver(?=\b|\d)/i.test(ctxBlob) && /\bpassenger(?=\b|\d)/i.test(ctxBlob);
   return { deployed, intact, curtainSide, bothFront };
