@@ -38,11 +38,25 @@ export async function POST(request) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
   try {
-    const { vrm, checks, mileage, market, promoCode } = await request.json();
+    const { vrm, checks, mileage, market, promoCode, currency } = await request.json();
 
     if (!vrm) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
     }
+
+    // Payment currency is INDEPENDENT of market. GBP is the default everywhere. EUR is opt-in and
+    // valid ONLY on an IE-market basket (two guards: explicit 'eur' AND market==='IE'). A GB
+    // request asking EUR is malformed — reject, do NOT silently coerce. Every line item uses the
+    // single `curr` below, so a mixed-currency session (which Stripe rejects) is impossible.
+    const reqCurrency = (currency || 'gbp').toLowerCase();
+    if (reqCurrency !== 'gbp' && reqCurrency !== 'eur') {
+      return NextResponse.json({ error: `Unsupported currency "${reqCurrency}"` }, { status: 400 });
+    }
+    if (reqCurrency === 'eur' && market !== 'IE') {
+      return NextResponse.json({ error: 'EUR payment is only available for IE-market lots' }, { status: 400 });
+    }
+    const useEUR = reqCurrency === 'eur' && market === 'IE';
+    const curr = useEUR ? 'eur' : 'gbp';
 
     const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
@@ -55,13 +69,23 @@ export async function POST(request) {
     // Resolve prices server-side — client cannot spoof amounts
     const allMenuItems = [...PRICING.menu, ...IE_MENU];
     const menuMap = Object.fromEntries(allMenuItems.map(i => [i.key, i]));
-    let lineItems = checks
-      .filter(key => menuMap[key] && menuMap[key].enabled && menuMap[key].price > 0)
+    const posNum = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+    const paidKeys = checks.filter(key => menuMap[key] && menuMap[key].enabled && menuMap[key].price > 0);
+    // FAIL LOUD: an opted-in EUR basket with any paid item lacking a positive priceEUR must NOT
+    // fall back to GBP (silent GBP-charge-to-a-EUR-customer is the reconciliation-only failure).
+    if (useEUR) {
+      const missing = paidKeys.filter(key => !posNum(menuMap[key].priceEUR));
+      if (missing.length > 0) {
+        console.error(`[IE_CHECKOUT] EUR opted-in but priceEUR missing/invalid for: ${missing.join(',')}`);
+        return NextResponse.json({ error: 'EUR pricing is temporarily unavailable — please contact support' }, { status: 500 });
+      }
+    }
+    let lineItems = paidKeys
       .map(key => ({
         price_data: {
-          currency: 'gbp',
+          currency: curr,
           product_data: { name: menuMap[key].label },
-          unit_amount: Math.round(menuMap[key].price * 100),
+          unit_amount: Math.round((useEUR ? menuMap[key].priceEUR : menuMap[key].price) * 100),
         },
         quantity: 1,
       }));
@@ -75,6 +99,7 @@ export async function POST(request) {
       checks: checks.join(','),
       mileage: mileage || '',
       market: market || 'GB',
+      currency: curr,
     };
 
     if (promoCode) {
@@ -85,7 +110,7 @@ export async function POST(request) {
         const discountedPence = applyDiscountPence(originalPence, promo);
         lineItems = [{
           price_data: {
-            currency: 'gbp',
+            currency: curr,
             product_data: { name: 'Vehicle Report' },
             unit_amount: Math.max(30, discountedPence),
           },
@@ -94,6 +119,8 @@ export async function POST(request) {
         gbMetadata.promo_code = promo.code;
       }
     }
+
+    console.log(`[IE_CHECKOUT] market=${market || 'GB'} currency=${curr} base=${lineItems.reduce((s, i) => s + i.price_data.unit_amount, 0)}`);
 
     const checksStr = checks.join(',');
     const session = await stripe.checkout.sessions.create({

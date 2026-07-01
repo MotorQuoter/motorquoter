@@ -31,6 +31,9 @@ export default function Home() {
   const fileInputRef = useRef(null);
   const [marketLocked, setMarketLocked] = useState(false);
   const [ieSelectedKeys, setIeSelectedKeys] = useState(ieDefaultSelected);
+  // IE pay currency — GBP default, EUR opt-in (IE market only). Gated on effectiveMarket==='IE'
+  // (leaving IE auto-reverts to £) and reset to 'gbp' when the market is manually switched to GB.
+  const [iePayCurrency, setIePayCurrency] = useState('gbp');
   const [promoInput, setPromoInput] = useState('');
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [promoLoading, setPromoLoading] = useState(false);
@@ -151,6 +154,8 @@ export default function Home() {
           mileage: mileage || '',
           market: 'IE',
           promoCode: appliedPromo?.code || null,
+          // EUR only when this IE lot has EUR explicitly toggled; else GBP (the default path).
+          currency: (effectiveMarket === 'IE' && iePayCurrency === 'eur') ? 'eur' : 'gbp',
         }),
       });
       const data = await res.json();
@@ -264,10 +269,15 @@ export default function Home() {
   }
   const total = Math.max(0, parseFloat((baseTotal - discountAmount).toFixed(2)));
 
-  // IE total
+  // IE total — EUR opt-in gated on effectiveMarket==='IE' (so GB never uses EUR). Per-item and
+  // total both read priceEUR when EUR is chosen; the display symbol + the POST currency derive
+  // from the SAME ieUseEUR, so the button can never show one currency while checkout charges another.
+  const ieUseEUR = effectiveMarket === 'IE' && iePayCurrency === 'eur';
+  const ieCurSym = ieUseEUR ? '€' : '£';
+  const iePriceOf = (i) => ieUseEUR ? i.priceEUR : i.price;
   const ieBaseTotal = ieEnabledItems
     .filter(i => ieSelectedKeys.includes(i.key))
-    .reduce((sum, i) => sum + i.price, 0);
+    .reduce((sum, i) => sum + iePriceOf(i), 0);
   let ieDiscountAmount = 0;
   if (appliedPromo) {
     if (appliedPromo.discount_type === 'percent') {
@@ -580,7 +590,7 @@ export default function Home() {
             <div className="market-toggle">
               <button
                 className={`market-toggle-btn ${effectiveMarket === 'GB' ? 'active' : ''}`}
-                onClick={() => { setMarket('GB'); setMarketLocked(true); }}
+                onClick={() => { setMarket('GB'); setMarketLocked(true); setIePayCurrency('gbp'); }}
               >
                 <span className="market-flag">🇬🇧</span> GB
               </button>
@@ -627,11 +637,20 @@ export default function Home() {
                         <div className="check-desc">{item.description}</div>
                       </div>
                       <div className={`check-price ${item.price === 0 ? 'free' : ''}`}>
-                        {item.price === 0 ? 'FREE' : `£${item.price.toFixed(2)}`}
+                        {item.price === 0 ? 'FREE' : `${ieCurSym}${iePriceOf(item).toFixed(2)}`}
                       </div>
                     </div>
                   );
                 })}
+
+                {/* Pay currency — IE only. GBP default; EUR opt-in. */}
+                <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Pay in</div>
+                  <div className="market-toggle">
+                    <button className={`market-btn ${iePayCurrency === 'gbp' ? 'active' : ''}`} onClick={() => setIePayCurrency('gbp')}>£ GBP</button>
+                    <button className={`market-btn ${iePayCurrency === 'eur' ? 'active' : ''}`} onClick={() => setIePayCurrency('eur')}>€ EUR</button>
+                  </div>
+                </div>
 
                 <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
@@ -653,9 +672,9 @@ export default function Home() {
                 <span className="total-label">Total</span>
                 <span className="total-amount" style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   {appliedPromo && ieDiscountAmount > 0 && (
-                    <span style={{ fontSize: 15, color: 'var(--text-dim)', textDecoration: 'line-through', fontWeight: 400 }}>£{ieBaseTotal.toFixed(2)}</span>
+                    <span style={{ fontSize: 15, color: 'var(--text-dim)', textDecoration: 'line-through', fontWeight: 400 }}>{ieCurSym}{ieBaseTotal.toFixed(2)}</span>
                   )}
-                  {ieTotal === 0 ? <span style={{ color: '#4ade80' }}>FREE</span> : `£${ieTotal.toFixed(2)}`}
+                  {ieTotal === 0 ? <span style={{ color: '#4ade80' }}>FREE</span> : `${ieCurSym}${ieTotal.toFixed(2)}`}
                 </span>
               </div>
 
@@ -664,7 +683,7 @@ export default function Home() {
                 onClick={handleIeCheckout}
                 disabled={checkoutLoading || ieSelectedKeys.length === 0}
               >
-                {checkoutLoading ? 'Redirecting...' : ieTotal === 0 ? 'Get Report — FREE' : `Get Report — £${ieTotal.toFixed(2)}`}
+                {checkoutLoading ? 'Redirecting...' : ieTotal === 0 ? 'Get Report — FREE' : `Get Report — ${ieCurSym}${ieTotal.toFixed(2)}`}
               </button>
             </div>
           )}

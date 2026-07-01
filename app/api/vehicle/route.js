@@ -5,6 +5,31 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
+import { PRICING, IE_MENU } from '@/config/pricing';
+
+// Service-history auto-refund amount, CHARGE-DERIVED (never a hardcoded GBP figure): read the
+// actual amount charged for the "Service History" line from the Stripe session, in ITS currency,
+// so a EUR purchase refunds the EUR sum (€5.99) and a GBP one refunds £5.00/£3.49 — drift-proof
+// if list prices change. Fallback (no distinct line, e.g. a promo-collapsed basket): the config
+// list price in the SESSION's currency — still never a hardcoded GBP amount on a EUR charge.
+async function deriveServiceHistoryRefund(stripeSessionId, paidSession) {
+  const currency = (paidSession?.currency || 'gbp').toLowerCase();
+  try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    const li = await stripe.checkout.sessions.listLineItems(stripeSessionId, { limit: 100 });
+    const svc = li.data.find(l => /service history/i.test(l.description || ''));
+    if (svc && svc.amount_total > 0) {
+      return { amount: svc.amount_total, currency: (svc.currency || currency).toLowerCase() };
+    }
+  } catch (e) {
+    console.warn('[SVC REFUND] line-item read failed:', e.message);
+  }
+  const isIE = (paidSession?.metadata?.market || 'GB') === 'IE';
+  const eur = currency === 'eur';
+  const cfg = isIE ? IE_MENU.find(i => i.key === 'ie_service_history') : PRICING.menu.find(i => i.key === 'service_history');
+  const price = eur ? (cfg?.priceEUR ?? cfg?.price) : cfg?.price;
+  return { amount: Math.round((price ?? 0) * 100), currency };
+}
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
 const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
@@ -439,13 +464,15 @@ const dvla = await safeJson(dvlaRes);
 
       const svcEmpty = needsServiceHistory && (!serviceHistory || !serviceHistory.records || serviceHistory.records.length === 0);
       const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      let serviceHistoryRefund = null;
       if (serviceHistoryRefunded) {
-        const refundAmount = 500;
+        serviceHistoryRefund = await deriveServiceHistoryRefund(stripeSessionId, paidSession);
         fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentIntentId, amount: refundAmount }),
+          body: JSON.stringify({ paymentIntentId, amount: serviceHistoryRefund.amount }),
         });
+        console.log(`[SVC REFUND] ${serviceHistoryRefund.currency} ${serviceHistoryRefund.amount} refunded (paymentIntent ${paymentIntentId})`);
       }
 
       const cc     = cartell.engine_capacity_cc ?? null;
@@ -469,6 +496,7 @@ const dvla = await safeJson(dvlaRes);
         serviceHistory,
         ieHistory,
         serviceHistoryRefunded,
+        serviceHistoryRefund,
         market: 'IE',
         checks,
       };
@@ -566,13 +594,15 @@ const dvla = await safeJson(dvlaRes);
 
       const svcEmpty = needsServiceHistory && (!serviceHistoryData || !serviceHistoryData.records || serviceHistoryData.records.length === 0);
       const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      let serviceHistoryRefund = null;
       if (serviceHistoryRefunded) {
-        const refundAmount = 349;
+        serviceHistoryRefund = await deriveServiceHistoryRefund(stripeSessionId, paidSession);
         fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentIntentId, amount: refundAmount }),
+          body: JSON.stringify({ paymentIntentId, amount: serviceHistoryRefund.amount }),
         });
+        console.log(`[SVC REFUND] ${serviceHistoryRefund.currency} ${serviceHistoryRefund.amount} refunded (paymentIntent ${paymentIntentId})`);
       }
 
       const latestMot = motTests?.[0] || null;
@@ -606,6 +636,7 @@ const dvla = await safeJson(dvlaRes);
         serviceHistoryCoverage: svcCoverage,
         salvageHistory: extractApiResult(salvageHistoryRaw),
         serviceHistoryRefunded,
+        serviceHistoryRefund,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,

@@ -22,6 +22,12 @@ function buildPdf(result, vrm, checks, checkDate) {
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
   const serviceHistoryRefunded = result.serviceHistoryRefunded ?? false;
+  // Charged-currency refund label (charge-derived from the server); config GBP fallback by market.
+  const serviceHistoryRefundLabel = (() => {
+    const r = result.serviceHistoryRefund;
+    if (r && typeof r.amount === 'number') return `${r.currency === 'eur' ? '€' : '£'}${(r.amount / 100).toFixed(2)}`;
+    return isIE ? '£5.00' : '£3.49';
+  })();
 
   const money = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
   const num   = (v) => v != null ? Number(v).toLocaleString('en-GB') : '-';
@@ -416,8 +422,7 @@ function buildPdf(result, vrm, checks, checkDate) {
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
       if (serviceHistoryRefunded) {
-        const amt = isIE ? '£5.00' : '£3.49';
-        doc.text(`No service history records found — ${amt} refunded automatically`, MARGIN, y); y += 8;
+        doc.text(`No service history records found — ${serviceHistoryRefundLabel} refunded automatically`, MARGIN, y); y += 8;
       } else {
         doc.text('No service history records found', MARGIN, y); y += 8;
       }

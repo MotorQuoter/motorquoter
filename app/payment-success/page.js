@@ -475,6 +475,13 @@ function ServiceHistorySection({ result }) {
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
   const refunded    = result.serviceHistoryRefunded;
+  // Charged-currency refund label from the server (charge-derived). Fall back to the config
+  // GBP figure by market only if the server didn't attach the amount (legacy/pre-fix rows).
+  const refundLabel = (() => {
+    const r = result.serviceHistoryRefund;
+    if (r && typeof r.amount === 'number') return `${r.currency === 'eur' ? '€' : '£'}${(r.amount / 100).toFixed(2)}`;
+    return result.market === 'IE' ? '£5.00' : '£3.49';
+  })();
   const coverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
 
   return (
@@ -503,7 +510,7 @@ function ServiceHistorySection({ result }) {
             ))}
           </div>
         : refunded
-          ? <EmptyState text={`No service history records found — ${result.market === 'IE' ? '£5.00' : '£3.49'} refunded to your card automatically`} />
+          ? <EmptyState text={`No service history records found — ${refundLabel} refunded to your card automatically`} />
           : <EmptyState text="No service history records found" />
       }
     </div>
