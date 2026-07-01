@@ -2079,6 +2079,48 @@ function buildHammerLadder(exitValue) {
   return rounded;
 }
 
+// Normalise CALL2's airbagDeployment tool output to the closed three-state shape. Any
+// missing/invalid field floors to 'unknown' (honest absence — never a fabricated deploy).
+const AIRBAG_STATES = ['deployed', 'not_deployed', 'unknown'];
+function normaliseAirbagDeployment(raw) {
+  const one = v => (typeof v === 'string' && AIRBAG_STATES.includes(v)) ? v : 'unknown';
+  const r = raw && typeof raw === 'object' ? raw : {};
+  return {
+    driverFront:    one(r.driverFront),
+    passengerFront: one(r.passengerFront),
+    curtains:       one(r.curtains),
+    side:           one(r.side),
+  };
+}
+
+// SRS tier from CALL2's structured airbagDeployment — CODE-owned, never prose regex.
+// TIER ONLY: this decides T1/T2/T3 and confidence; it does NOT decide whether SRS is in
+// play (that is _srsGateOpen, the independent impact/interior signal).
+//   curtains OR side deployed                      → T3 confident (multi-zone event)
+//   BOTH front bags deployed                       → T2 confident (front pair)
+//   exactly one front bag deployed, the other NOT  → T1 confident (single bag)
+//   ≥1 bag deployed but the front count can't be resolved (a front bag deployed while the
+//     other front bag is 'unknown') → confident:false (defer to inspection, no price)
+//   no bag deployed → inPlay:false here (the gate still governs the flag/no-flag outcome)
+// Returns { tier, confident, inPlay, branch }. inPlay reflects deployment evidence in the
+// airbag field itself; the caller AND-gates every costed/flag outcome with _srsGateOpen.
+function srsTierFromDeployment(ab) {
+  const a = ab || {};
+  const dep = k => a[k] === 'deployed';
+  const anyDeployed = dep('driverFront') || dep('passengerFront') || dep('curtains') || dep('side');
+  if (dep('curtains') || dep('side')) return { tier: 3, confident: true, inPlay: true, branch: 'curtain/side→T3' };
+  if (dep('driverFront') && dep('passengerFront')) return { tier: 2, confident: true, inPlay: true, branch: 'both-front→T2' };
+  // Exactly one front bag confirmed deployed: T1 only if the OTHER front bag is positively
+  // not_deployed (resolved single). If the other is 'unknown', the front count is unresolved.
+  if (dep('driverFront') !== dep('passengerFront')) {
+    const otherResolved = dep('driverFront') ? a.passengerFront === 'not_deployed' : a.driverFront === 'not_deployed';
+    return otherResolved
+      ? { tier: 1, confident: true,  inPlay: true, branch: 'single-front-resolved→T1' }
+      : { tier: 1, confident: false, inPlay: true, branch: 'single-front-unresolved→defer' };
+  }
+  return { tier: 1, confident: false, inPlay: anyDeployed, branch: anyDeployed ? 'deployed-count-unresolved→defer' : 'none-deployed' };
+}
+
 export async function GET(request) {
   console.log(`[DEPLOY] sha=${process.env.VERCEL_GIT_COMMIT_SHA || 'n/a'} dep=${process.env.VERCEL_DEPLOYMENT_ID || 'n/a'} url=${process.env.VERCEL_URL || 'n/a'} env=${process.env.VERCEL_ENV || 'n/a'}`);
   const { searchParams } = new URL(request.url);
@@ -2784,8 +2826,19 @@ export async function GET(request) {
               required: ['zone', 'eventType', 'heightBand'],
             },
           },
+          airbagDeployment: {
+            type: 'object',
+            description: 'Which SRS airbags the assessment states have DEPLOYED (fired), read from the UNION of every airbag/SRS mention across the whole assessment (Visible Damage Summary, Red Flags, Key Cost Drivers, and any airbag/SRS Parts Breakdown row) — not a single section. MAXIMAL CONSISTENT READING: if any section states a bag deployed, that bag is "deployed" even if another section is silent or understates it — a lone understated sentence (e.g. "driver\'s airbag deployed" in one place while another says "driver and passenger bags both deployed") must NOT drag a bag down to not_deployed/unknown. Map position language directly: driver / offside-front / steering-wheel bag → driverFront; passenger / nearside-front / dashboard-fascia bag → passengerFront; "both front" / "front pair" / "dual" / "two front airbags" → BOTH driverFront and passengerFront deployed. Roof-rail / A-pillar bags → curtains; seat-mounted / thorax bags → side. Use "not_deployed" only when the assessment positively states that bag is intact/undeployed. Use "unknown" ONLY when the assessment gives no signal at all about that bag — never as a hedge when the prose names it. Read ONLY the assessment text: do NOT infer deployment from exterior impact severity or from a dashboard warning light.',
+            properties: {
+              driverFront:    { type: 'string', enum: ['deployed', 'not_deployed', 'unknown'], description: 'Driver-side front bag (steering-wheel hub / offside front).' },
+              passengerFront: { type: 'string', enum: ['deployed', 'not_deployed', 'unknown'], description: 'Passenger-side front bag (dashboard/fascia / nearside front).' },
+              curtains:       { type: 'string', enum: ['deployed', 'not_deployed', 'unknown'], description: 'Roof-rail / A-pillar curtain bag(s), either side.' },
+              side:           { type: 'string', enum: ['deployed', 'not_deployed', 'unknown'], description: 'Seat-mounted side / thorax bag(s), either side.' },
+            },
+            required: ['driverFront', 'passengerFront', 'curtains', 'side'],
+          },
         },
-        required: ['provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone'],
+        required: ['provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone', 'airbagDeployment'],
       },
     };
 
@@ -2800,7 +2853,7 @@ export async function GET(request) {
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
+          content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\nFor airbagDeployment: read the UNION of every airbag/SRS mention across the whole assessment (take the maximal consistent reading — if any section says a bag deployed, it is deployed even where another section is silent or understates it); map driver/passenger/both-front/curtain/side to the four fields; "unknown" ONLY when the text gives no signal for that bag, never as a hedge when it is named; do not infer from impact severity or a warning light.\n\n${rawText}`,
         }],
       }),
     }));
@@ -2831,8 +2884,9 @@ export async function GET(request) {
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
         perZone: Array.isArray(inp.perZone) ? inp.perZone : [],
+        airbagDeployment: normaliseAirbagDeployment(inp.airbagDeployment),
       };
-      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
+      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} airbag=${JSON.stringify(coreObs.airbagDeployment)}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
@@ -2846,10 +2900,11 @@ export async function GET(request) {
         corners: [],
         proseFlags: { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null },
         perZone:     [],
+        airbagDeployment: normaliseAirbagDeployment(null), // all 'unknown' — honest absence
         costedParts: [],
         flaggedParts: [],
       };
-      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied; proseFlags=null perZone/costedParts/flaggedParts=[] (unavailable)');
+      console.log('[CORE OBS] Call 2 extraction failed — honest-absence floor defaults applied; proseFlags=null perZone/costedParts/flaggedParts=[] airbag=all-unknown (unavailable)');
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
@@ -3406,54 +3461,62 @@ export async function GET(request) {
       console.log(`[${logTag}] ${pid} band=${bandKey} used=£${wtEntry.used} (oem=£${wtEntry.oem}) stripped-model-rows=${wtStripped}`);
     }
 
-    // ── SRS airbag injection (Call-1 detection: prose OR parts row) ──────────
-    // The MAIN model reliably DESCRIBES the deployed bag in Call-1 prose every run, but
-    // does NOT reliably emit a Parts Breakdown row for it (and when it does, the £ drifts).
-    // Detect from EITHER path:
-    //   (a) PROSE — a deployment mention in the narrative fields (Visible Damage Summary /
-    //       Red Flags / Key Cost Drivers / Airbags): an airbag/SRS reference AND a deployment
-    //       cue (deployed/fired/blown/deflated/hanging/burst/curtain/steering-wheel bag), in
-    //       the SAME sentence, with NO local negation/intact qualifier. The cue + per-sentence
-    //       scope is the guard so a bare "check airbags on inspection" or "airbags intact"
-    //       does NOT trigger. The WhatsApp checklist is deliberately NOT scanned. (The Airbags
-    //       field still holds model text here — it isn't code-overwritten until later, ~:3487.)
-    //   (b) ROW — an airbag/SRS row already in rawParts (the model costed it).
-    // On either, strip any model airbag PARTS row (avoid double-count) and inject
-    // SRS_AIRBAG_T{n} at band. Tier (single curtain = a 2-bag event, not top tier): T1 floor
-    // (single bag); T2 if a front pair OR a front bag + a single curtain; T3 reserved for side
-    // bags, MULTIPLE curtains, or explicit multi-zone / full cabin. NO labour rider. The
-    // dedicated runSrsDeploymentRead read was removed — it false-negatived on listing photos.
-    // [SRS_STRIP] lockstep [SRS_INJECT].
-    const SRS_ROW_RE     = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
-    const SRS_DEPLOY_CUE = /\b(deployed|deployment|fired|blown|detonated|deflated|hanging|burst|ruptured|spent|gone off)\b|\bcurtain\b|steering[\s-]?wheel[^.\n]{0,20}\bbag\b/i;
-    const SRS_NEG_LOCAL  = /\b(no|not|n'?t|without|never|un-?deployed|intact|undamaged|serviceable|did not|have not|appears? (?:fine|intact|undamaged|ok))\b/i;
-    const srsModelRows = rawParts.filter(p => p.panelId === PANEL.AIRBAG || SRS_ROW_RE.test(p.name || ''));
-    const srsProseBlob = ['Visible Damage Summary', 'Red Flags', 'Key Cost Drivers', 'Airbags']
-      .map(f => assessment[f] || '').join('\n');
-    const srsProseDeployed = srsProseBlob.split(/(?<=[.!?\n])\s+/).some(s =>
-      SRS_ROW_RE.test(s) && SRS_DEPLOY_CUE.test(s) && !SRS_NEG_LOCAL.test(s));
-    const srsDeployed = srsProseDeployed || srsModelRows.length > 0;
-    if (srsDeployed) {
-      const srsTierText = [srsModelRows.map(p => p.name).join(' '), srsProseBlob].join('\n');
-      // T3 = the big events only: a side/thorax bag, MULTIPLE curtains, or explicit multi-zone.
-      const srsT3 = /\bside\b[^.\n]{0,15}air\s?bag|air\s?bag[^.\n]{0,15}\bside\b|thorax|seat[\s-]?mounted[^.\n]{0,12}air\s?bag/i.test(srsTierText)
-        || /\bcurtains\b|both[^.\n]{0,15}curtain|two[^.\n]{0,15}curtain|multiple[^.\n]{0,15}curtain|curtain[^.\n]{0,40}curtain/i.test(srsTierText)
-        || /multi[\s-]?zone|full cabin|multiple air\s?bags|several air\s?bags/i.test(srsTierText);
-      // T2 = a two-bag event: a named front pair, OR a front bag + a single curtain.
-      const srsFront = /\bdriver\b|\bpassenger\b|steering[\s-]?wheel|\bdash|\bfascia|front air\s?bag/i.test(srsTierText);
-      const srsT2 = /\bpair\b|driver and passenger|both front|front air\s?bags|dual air\s?bag|two air\s?bags/i.test(srsTierText)
-        || (/\bcurtain\b/i.test(srsTierText) && srsFront);
-      const srsTier = srsT3 ? 3 : srsT2 ? 2 : 1;
-      const srsEntry  = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsTier}`]?.[bandKey] : null;
-      const srsSource = srsModelRows.length > 0 ? (srsProseDeployed ? 'call1-prose+parts' : 'call1-parts') : 'call1-prose';
+    // ── SRS airbag tier (CALL2-structured deployment + independent impact gate) ──
+    // THREE cleanly separated jobs — do not let them bleed:
+    //   IN-PLAY = _srsGateOpen: the INDEPENDENT impact/interior signal (frontStruck / listing
+    //             damage text / a per-view interior OTHER hit). SOLE in-play authority — NOT the
+    //             airbag prose. A frontal cabin hit with garbled prose must still gate OPEN so it
+    //             reaches the inspect-flag path, never a silent £0. (Restores the impact gate that
+    //             504ce6a dropped when it collapsed in-play into prose detection.)
+    //   TIER    = srsTierFromDeployment(coreObs.airbagDeployment): CALL2's structured per-bag
+    //             inventory drives T1/T2/T3 + confidence. Never touches in-play. Replaces the
+    //             literal-phrase regex tier that under-tiered LP71NSU (both front bags deployed;
+    //             prose "driver's bag and passenger bag both deployed" matched no T2 form).
+    //   DEFER   = gate open + tier not confidently resolved + not positively all-intact → inspect
+    //             flag + strip the model's unreliable £ → £0. A deferred inspection is survivable;
+    //             a fabricated figure is fatal. Band lookup + SRS_AIRBAG_T{n} rows UNCHANGED.
+    const SRS_ROW_RE = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
+    // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject); returns count.
+    const stripModelAirbagRows = () => {
+      let n = 0;
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        if (gatedParts[i].panelId === PANEL.AIRBAG || SRS_ROW_RE.test(gatedParts[i].name || '')) { gatedParts.splice(i, 1); n++; }
+      }
+      return n;
+    };
+    // Drop any flag-class AIRBAG inspection entries so we never say two contradictory things about
+    // the airbag; returns count. The costed-inject path and the defer path each re-establish the
+    // single canonical airbag signal (a £-line + Red Flags, or one inspect flag, respectively).
+    const suppressAirbagFlags = () => {
+      let n = 0;
+      for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
+        if (coreObs.flaggedParts[i].panelId === PANEL.AIRBAG) { coreObs.flaggedParts.splice(i, 1); n++; }
+      }
+      return n;
+    };
+
+    // IN-PLAY gate — independent of airbag prose extent (verbatim from the recovered pre-504ce6a gate).
+    const _srsInteriorVision = coreObs.costedParts.some(cp =>
+      cp.panelId === PANEL.OTHER && cp.zone === 'interior' && cp.independentlyVisible === true);
+    const _srsCabinImpact = frontStruck
+      || /front|cabin|interior|air\s?bag|roll[\s-]?over/i.test(`${enrichedVd.primaryDamage || ''} ${enrichedVd.secondaryDamage || ''}`);
+    const _srsGateOpen = _srsInteriorVision || _srsCabinImpact;
+
+    // TIER — from CALL2's structured airbag inventory ONLY.
+    const srsT = srsTierFromDeployment(coreObs.airbagDeployment);
+    const _abVals = [coreObs.airbagDeployment.driverFront, coreObs.airbagDeployment.passengerFront, coreObs.airbagDeployment.curtains, coreObs.airbagDeployment.side];
+    const _srsAllIntact = _abVals.every(v => v === 'not_deployed'); // every bag POSITIVELY confirmed undeployed → never flag
+    let srsInjected = false;
+    let srsDeferred = false;
+    console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} cabinImpact=${_srsCabinImpact}) tier=T${srsT.tier} confident=${srsT.confident} inPlay=${srsT.inPlay} branch=${srsT.branch} allIntact=${_srsAllIntact} airbag=${JSON.stringify(coreObs.airbagDeployment)}`);
+
+    if (_srsGateOpen && srsT.confident) {
+      // Confident tier → table-priced kit at band. (confident is only ever true when a bag deployed.)
+      const srsEntry = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsT.tier}`]?.[bandKey] : null;
       if (!srsEntry) {
-        console.log(`[SRS_INJECT] tier=T${srsTier} skipped — ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'}; model airbag treatment retained`);
+        console.log(`[SRS_TIER] tier=T${srsT.tier} confident but ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'} — model airbag treatment retained (band-independent fallback, as all panels)`);
       } else {
-        // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject).
-        let srsStripped = 0;
-        for (let i = gatedParts.length - 1; i >= 0; i--) {
-          if (gatedParts[i].panelId === PANEL.AIRBAG || SRS_ROW_RE.test(gatedParts[i].name || '')) { gatedParts.splice(i, 1); srsStripped++; }
-        }
+        const srsStripped = stripModelAirbagRows();
         console.log(`[SRS_STRIP] removed ${srsStripped} model airbag row(s) from repair total`);
         gatedParts.push({
           panelId: 'SRS_AIRBAG', // injection-only sentinel, distinct from PANEL.OTHER
@@ -3464,21 +3527,27 @@ export async function GET(request) {
           _tableMandated: true,
           _gOwned:  true,
         });
-        console.log(`[SRS_INJECT] tier=T${srsTier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) source=${srsSource} stripped-model-rows=${srsStripped}`);
-        // Suppress the now-redundant AIRBAG inspection flag (Task 5 principle: never say two
-        // contradictory things about the airbag). The injected SRS table line above is the
-        // authoritative airbag cost and Red Flags carry the deployment — but the flag-class
-        // AIRBAG entry reads "…not included in the repair cost", which directly contradicts the
-        // £-line. Drop it ONLY here, in the inject-SUCCESS path. If SRS does NOT inject (no band
-        // → skip branch above, or srsDeployed=false → block not entered), the AIRBAG flag is
-        // KEPT: there is then no SRS cost line for it to contradict, so it is the buyer's only
-        // airbag inspection signal — not a stranded contradiction, and not a dropped signal.
-        let srsFlagDropped = 0;
-        for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
-          if (coreObs.flaggedParts[i].panelId === PANEL.AIRBAG) { coreObs.flaggedParts.splice(i, 1); srsFlagDropped++; }
-        }
+        srsInjected = true;
+        console.log(`[SRS_INJECT] tier=T${srsT.tier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) branch=${srsT.branch} stripped-model-rows=${srsStripped}`);
+        const srsFlagDropped = suppressAirbagFlags();
         if (srsFlagDropped > 0) console.log(`[SRS_INJECT] suppressed ${srsFlagDropped} redundant AIRBAG inspection flag(s) — SRS line + Red Flags carry deployment`);
       }
+    } else if (_srsGateOpen && !_srsAllIntact) {
+      // Gate open, tier NOT confidently resolved, and NOT positively all-intact → DEFER:
+      // strip the model's unreliable £ (no fabricated figure) and raise ONE inspect flag. Covers
+      // deployed-but-unresolved (e.g. one front bag deployed, the other 'unknown') AND the
+      // garbled/silent-prose frontal hit (all 'unknown'). A lot whose prose positively confirms
+      // every bag intact (_srsAllIntact) is NOT flagged here — that is a genuine no-deployment read.
+      const srsStripped = stripModelAirbagRows();
+      suppressAirbagFlags(); // collapse any prior AIRBAG flag into the single canonical one below
+      const reason = srsT.inPlay
+        ? 'SRS airbag deployment detected but the full extent could not be confirmed from the listing — confirm which bags fired on inspection before bidding.'
+        : 'Front/cabin impact with airbag status unconfirmed in the listing photos — confirm whether the SRS airbags deployed on inspection before bidding.';
+      coreObs.flaggedParts.push({ panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high', reason, _srsDeferred: true });
+      srsDeferred = true;
+      console.log(`[SRS_TIER] DEFER — gate open, tier unresolved (branch=${srsT.branch}), not all-intact → inspect flag, no price; stripped-model-rows=${srsStripped}`);
+    } else {
+      console.log(`[SRS_TIER] no SRS cost/flag — ${_srsGateOpen ? 'gate open but all bags positively intact (no deployment)' : 'gate closed (no front/cabin/interior signal)'}`);
     }
 
     // ── Coachbuilt body-panel strip (Stage 5) ────────────────────────────────
@@ -3688,14 +3757,17 @@ export async function GET(request) {
     assessment._dashLine = _dashLine;
 
     // Assemble code-owned Airbags line from _airbagState (overwrites any model-authored field).
-    // When SRS deployment is resolved TRUE (srsDeployed, computed at the injection block), the
-    // injected SRS airbag kit line + Red Flags ARE the authoritative deployment record — POINT
-    // to them here instead of letting the cluster-telltale read assert "no deployed bags visible"
-    // and contradict the £-charged SRS line. This is a POINTER, not a fresh deployment claim (no
-    // third place to drift). The deployed=false path is the original cluster-telltale text, byte-
-    // for-byte unchanged — a genuinely undeployed lot still reads its real cluster verdict.
-    assessment['Airbags'] = srsDeployed
+    // When a costed SRS kit was injected (srsInjected — the confident-tier path), the injected
+    // line + Red Flags ARE the authoritative deployment record — POINT to them here instead of
+    // letting the cluster-telltale read assert "no deployed bags visible" and contradict the
+    // £-charged SRS line. When deployment was DEFERRED (srsDeferred — gate open, extent
+    // unresolved, £0 + inspect flag), point to the inspect flag rather than assert a cluster
+    // verdict that would contradict it. Otherwise (no SRS cost/flag) the cluster-telltale text is
+    // byte-for-byte unchanged — a genuinely undeployed lot still reads its real cluster verdict.
+    assessment['Airbags'] = srsInjected
       ? 'Airbag deployment is detailed in the repair breakdown (SRS airbag kit) and Red Flags above — confirm full extent on inspection.'
+      : srsDeferred
+      ? 'Airbag deployment could not be fully confirmed from the listing — see Red Flags; confirm SRS status and extent on inspection.'
       : dashRead.airbag === 'warning-lit'
       ? 'Airbag warning light shown on the cluster — airbag system fault or deployment likely; confirm on inspection.'
       : dashRead.airbag === 'not-lit'
