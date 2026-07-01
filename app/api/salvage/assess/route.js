@@ -1192,6 +1192,62 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
   }
 }
 
+// Bonnet skin-vs-displaced discrimination read. Fires only when the BONNET is disagree-floored.
+// Per-view DISAGREES on a displaced-but-intact bonnet: some views read the proud edge / open
+// shut-line gap as damage (iv:true), others as intact (iv:false). This asks the question per-view
+// never resolves — is the hood SKIN'S OWN metal deformed, or is the bonnet merely displaced?
+// Returns { skin_damaged: bool, confidence: 'low'|'med'|'high' } or null on any failure
+// (caller treats null as uncertain → leave the floor untouched; never clears on a guess).
+async function runBonnetSkinRead(images, onExhaust) {
+  try {
+    const imageBlocks = images.slice(0, 35).map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const m = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) { mediaType = m[1]; data = m[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    // Shared-image cache breakpoint — same 35-image payload + same system as correspondence/sill.
+    if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
+    const question = `These photos show one salvage vehicle. Look ONLY at the BONNET (hood) — the horizontal metal skin panel between the two front wings, forward of the windscreen.
+
+Distinguish two DIFFERENT things:
+- SKIN DAMAGE: the bonnet's OWN metal is creased, dented, buckled, folded, or punctured. This is genuine damage to the hood panel and needs the panel repaired or replaced.
+- DISPLACEMENT: the bonnet sits proud, is unlatched or misaligned, or its shut-line gap to the wings/scuttle is open — but the skin itself is straight and intact. This is a refit/alignment consequence of structural or latch-area impact BEHIND the bonnet, not damage to the panel.
+
+Answer skin_damaged:true ONLY when the hood skin's OWN metal is visibly deformed. A bonnet that is only displaced / proud / misaligned with an intact skin is skin_damaged:false. Do NOT infer skin damage from a disturbed shut line, a proud or lifted edge, or from damage on the adjacent wings, slam panel, or front structure. If you genuinely cannot tell, use low confidence.
+
+Respond with ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
+{ "skin_damaged": true | false, "confidence": "low" | "med" | "high" }`;
+    const { res, exhausted } = await with529Retry('bonnet-skin', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 256,
+        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return null; }
+    if (!res?.ok) { console.warn('[BONNET_READ] API error:', res?.status); return null; }
+    const data = await res.json();
+    console.log('[TOKEN LOG] bonnet-skin Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    if (data.stop_reason === 'max_tokens') { console.warn('[BONNET_READ] max_tokens — returning null'); return null; }
+    const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) { console.warn('[BONNET_READ] no JSON in response:', raw.slice(0, 200)); return null; }
+    return JSON.parse(match[0]);
+  } catch (err) {
+    console.warn('[BONNET_READ] error:', err.message);
+    return null;
+  }
+}
+
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
 const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; request on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
@@ -3255,6 +3311,53 @@ export async function GET(request) {
       }
     }
     // ── End sill rocker-discrimination read ───────────────────────────────────
+
+    // ── Bonnet skin-vs-displaced discriminator read ───────────────────────────
+    // Mirror of the sill read, OPPOSITE direction. Per-view disagrees on a displaced-but-intact
+    // bonnet (proud edge / open shut-line read as damage by some views, intact by others), so
+    // amalgamate floors it (_amalgDisagree). At ratio≥0.70 the sticky pass below would rescue that
+    // floor to a phantom cost. This read asks whether the hood SKIN itself is deformed; a confident
+    // "skin intact" converts the disagree-floor to a genuine CLEAR — dropping the _amalgDisagree
+    // flag (so sticky's input set no longer contains it) and marking the twin _perViewClear (so the
+    // gate strips any model Bonnet row with no flag). ONE-WAY: only clears on a confident
+    // skin-intact read; a genuinely skin-damaged or uncertain/failed bonnet keeps its floor (a real
+    // one can still be rescued by sticky at ratio≥0.70). Runs pre-sticky AND pre-gate by placement.
+    {
+      const bonnetFlag = coreObs.flaggedParts.find(f => f.panelId === PANEL.BONNET && f._amalgDisagree);
+      const bonnetTwin = coreObs.costedParts.find(cp =>
+        cp.panelId === PANEL.BONNET && cp.independentlyVisible === false &&
+        !cp._perViewClear && !cp._amalgMissing && !cp._amalgUncorroborated &&
+        !cp._amalgNotVisible && !cp._radUncorroborated && !cp._bumperOffStripped);
+      if (bonnetFlag && bonnetTwin) {
+        const bonnetRead  = await runBonnetSkinRead(images, () => _exhaustedCalls.add('bonnet-skin'));
+        const confident   = bonnetRead?.confidence === 'med' || bonnetRead?.confidence === 'high';
+        const skinDamaged = bonnetRead?.skin_damaged === true;
+        const action = bonnetRead === null       ? 'leave-floor-null'
+                     : (!skinDamaged && confident) ? 'clear'
+                     : skinDamaged && confident    ? 'leave-floor-damaged'
+                     : 'leave-floor-uncertain';
+        console.log(`[BONNET_READ] skin_damaged=${bonnetRead?.skin_damaged ?? 'null'} confidence=${bonnetRead?.confidence ?? 'null'} → action=${action}`);
+        if (action === 'clear') {
+          // Floor → CLEAR. Drop the disagree flag (removes it from sticky's input set AND from the
+          // buyer flags), mark the twin _perViewClear (gate strips any model Bonnet row, no gate
+          // flag), and add ONE neutral low-weight breadcrumb — NOT _amalgDisagree, NOT a cost, so
+          // nothing sticky or the gate acts on it.
+          const fi = coreObs.flaggedParts.indexOf(bonnetFlag);
+          if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
+          bonnetTwin._perViewClear   = true;
+          bonnetTwin._bonnetDisplaced = true;
+          coreObs.flaggedParts.push({
+            panelId: PANEL.BONNET, partName: PANEL_DISPLAY[PANEL.BONNET], zone: bonnetTwin.zone, weight: 'low',
+            reason: 'Bonnet sits proud / shut line disturbed — hood skin intact; refits with the structural repair, no separate panel cost.',
+            _bonnetDisplaced: true,
+          });
+          console.log('[BONNET_READ] CLEAR — displaced-but-intact bonnet: dropped disagree floor, marked _perViewClear, breadcrumb added (no cost, no sticky target)');
+        }
+      } else {
+        console.log(`[BONNET_READ] gate skip — bonnet not disagree-floored (flag=${!!bonnetFlag} twin=${!!bonnetTwin})`);
+      }
+    }
+    // ── End bonnet skin-vs-displaced discriminator read ───────────────────────
 
     // ── In-zone sticky cost rescue (Option B) ─────────────────────────────────
     // Code-owned, no model call. Promotes a disagree-FLOORED panel back to cost when the
