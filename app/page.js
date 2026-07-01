@@ -248,10 +248,9 @@ export default function Home() {
     }
   };
 
-  const SERVICE_FEE = 0.25;
   const baseTotal = enabledItems
     .filter(i => selectedKeys.includes(i.key))
-    .reduce((sum, i) => sum + i.price, 0) + SERVICE_FEE;
+    .reduce((sum, i) => sum + i.price, 0);
 
   let discountAmount = 0;
   if (appliedPromo) {
@@ -268,7 +267,7 @@ export default function Home() {
   // IE total
   const ieBaseTotal = ieEnabledItems
     .filter(i => ieSelectedKeys.includes(i.key))
-    .reduce((sum, i) => sum + i.price, 0) + SERVICE_FEE;
+    .reduce((sum, i) => sum + i.price, 0);
   let ieDiscountAmount = 0;
   if (appliedPromo) {
     if (appliedPromo.discount_type === 'percent') {
@@ -634,15 +633,6 @@ export default function Home() {
                   );
                 })}
 
-                <div className="check-item locked">
-                  <div className="check-box" style={{fontSize: 11}}>✓</div>
-                  <div className="check-info">
-                    <div className="check-label">Service Fee</div>
-                    <div className="check-desc">Payment processing contribution</div>
-                  </div>
-                  <div className="check-price">£0.25</div>
-                </div>
-
                 <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
                   {appliedPromo ? (
@@ -783,16 +773,6 @@ export default function Home() {
                     </div>
                   );
                 })}
-                {/* Service fee — always applied */}
-                <div className="check-item locked">
-                  <div className="check-box" style={{fontSize: 11}}>✓</div>
-                  <div className="check-info">
-                    <div className="check-label">Service Fee</div>
-                    <div className="check-desc">Payment processing contribution</div>
-                  </div>
-                  <div className="check-price">£0.25</div>
-                </div>
-
                 {/* Promo code — GB report builder */}
                 <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-dim)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
