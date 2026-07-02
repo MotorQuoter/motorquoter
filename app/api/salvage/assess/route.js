@@ -845,6 +845,26 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
   }
 }
 
+// EV Step 3 — closed telltale enum the dash read may emit (array, may be empty). Parse validates
+// every element against this list; unknowns are dropped with a breadcrumb. BATTERY_12V exists to
+// stop the ordinary 12V charging symbol being misclassified into the EV/HV set.
+const DASH_TELLTALE_ENUM = [
+  'HV_BATTERY_WARNING', 'EV_SYSTEM_WARNING', 'COOLANT_TEMP', 'OIL_PRESSURE', 'AIRBAG_SRS',
+  'ABS_BRAKE', 'STEERING_EPS', 'ENGINE_MIL', 'BATTERY_12V', 'TPMS', 'OTHER_TELLTALE',
+];
+// Code-owned grouping (NOT model-emitted): the EV/HV telltales that fire the expensive-repair flag.
+const EV_HV_SET = ['HV_BATTERY_WARNING', 'EV_SYSTEM_WARNING'];
+// Buyer-readable labels for the code-owned dashboard line (never show raw enum codes to buyers).
+const TELLTALE_LABELS = {
+  HV_BATTERY_WARNING: 'HV battery warning', EV_SYSTEM_WARNING: 'EV system fault',
+  COOLANT_TEMP: 'coolant temperature', OIL_PRESSURE: 'oil pressure', AIRBAG_SRS: 'airbag/SRS',
+  ABS_BRAKE: 'ABS/brake', STEERING_EPS: 'power steering', ENGINE_MIL: 'engine (MIL)',
+  BATTERY_12V: '12V charging', TPMS: 'tyre pressure', OTHER_TELLTALE: 'other warning',
+};
+// Inherit the lamp-detect lesson: cautious wording default OFF; the flag always fires, only the
+// wording strength is toggled once the false-positive guard has proven out.
+const TELLTALE_CONFIDENT_WORDING = false;
+
 async function runDashClusterRead(images, onExhaust, vehicleDesc) {
   const mismatchBlock = vehicleDesc
     ? `\nBODY-STYLE CROSS-CHECK — one field only:\nYou are given this data descriptor for this vehicle: "${vehicleDesc}". Scan ALL photos. Does any photo CLEARLY show this is a different vehicle TYPE — e.g. the descriptor says hatchback but the car is unmistakably a van, lorry, or motorbike? This is a STRICT mismatch test: default "match" or "unclear" unless the contradiction is beyond any doubt. Borderline SUV-vs-hatchback = "unclear". Fire "mismatch" ONLY on unambiguous cross-type contradiction (identity risk).`
@@ -855,6 +875,23 @@ Apply this three-step decision in order:
 1. Is a cluster/instrument panel visible in any photo? If no → return cluster "no-photo".
 2. Is the cluster present but unlit or dark (engine not running, display off, photo too dark to judge)? If yes → return cluster "no-photo". A dark cluster tells you nothing and must NOT be read as clean.
 3. Cluster is visible AND lit/powered. Are any warning telltale icons lit? If yes → return cluster "warning". If no → return cluster "clean".
+
+TELLTALES — a CLOSED list; emit ONLY these exact tokens in the "telltales" array:
+  HV_BATTERY_WARNING  — HV/traction battery warning, turtle symbol, "check EV system"
+  EV_SYSTEM_WARNING   — EV/hybrid system fault, isolation fault, charge-system warning
+  COOLANT_TEMP        — coolant temperature / low coolant warning
+  OIL_PRESSURE        — oil pressure / low oil warning
+  AIRBAG_SRS          — airbag / SRS lamp
+  ABS_BRAKE           — ABS or brake system lamp
+  STEERING_EPS        — power steering / EPS lamp
+  ENGINE_MIL          — check engine / MIL
+  BATTERY_12V         — 12V charging-system lamp (the ordinary battery symbol) — this is NOT an EV/HV signal; use it so you never misread the 12V symbol as an EV warning
+  TPMS                — tyre pressure warning
+  OTHER_TELLTALE      — any lit amber/red warning not in this list, OR a warning lit but unreadable
+Rules: cluster "warning" MUST have at least one telltale token; cluster "clean" MUST have an empty telltales array. Only lit AMBER or RED telltales count. A normal EV "READY" / "ready to drive" indicator is NOT a warning (it is a healthy state) — do not emit any token for it. Informational text messages (e.g. a park-assist sensor message) → OTHER_TELLTALE. Empty array when cluster is no-photo or clean.
+
+HV MARKINGS — one boolean:
+Set hvMarkings true ONLY on unambiguous high-voltage evidence anywhere in the photos: thick ORANGE HV cabling / conduit / connectors in the engine bay or underbody, or an HV / "HIGH VOLTAGE" warning label or sticker. Ordinary orange objects (trim, reflectors, wiring that is not clearly HV conduit) do NOT count. When in doubt, false.
 
 AIRBAG FIELD — three states, image-grounded only:
 - "no-photo": cluster not visible / dark / unlit (same condition family as cluster no-photo above)
@@ -869,9 +906,9 @@ Look for a long white PRINTED Copart lot-number sticker on the windscreen — us
 - Sticker present AND suffix letter clearly legible → sticker: that single letter (one of: X, P, C, Q; use "OTHER" for any other letter)
 ${mismatchBlock}
 Return a raw JSON object only — no markdown, no explanation, no surrounding text:
-{ "cluster": "no-photo" | "clean" | "warning", "telltales": "<describe all lit icons when warning; empty string otherwise>", "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear" }`;
+{ "cluster": "no-photo" | "clean" | "warning", "telltales": ["<zero or more enum tokens; empty unless cluster is warning>"], "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear", "hvMarkings": true | false }`;
 
-  const FLOOR = { cluster: 'no-photo', telltales: '', airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear' };
+  const FLOOR = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false };
   try {
     if (images.length > 35) console.warn(`[DASH READ] image set truncated to 35 (received ${images.length})`);
     const imageBlocks = images.slice(0, 35).map(img => {
@@ -896,18 +933,30 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     const apiData = await res.json();
     console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
     if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting floor'); return FLOOR; }
+    if (apiData.stop_reason === 'refusal')   { console.warn('[DASH READ] refusal — content policy; defaulting floor'); return FLOOR; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return FLOOR; }
     const parsed = JSON.parse(match[0]);
     const cluster = ['no-photo', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
     const airbag  = ['no-photo', 'not-lit', 'warning-lit'].includes(parsed.airbag) ? parsed.airbag : 'no-photo';
+    // Telltale array — validate every element against the closed enum; drop unknowns (breadcrumb),
+    // never pass them through. Only meaningful on cluster==='warning'; empty otherwise.
+    const rawTelltales = Array.isArray(parsed.telltales) ? parsed.telltales : [];
+    const telltales = cluster === 'warning'
+      ? [...new Set(rawTelltales.filter(t => {
+          const ok = DASH_TELLTALE_ENUM.includes(t);
+          if (!ok) console.warn(`[DASH READ] dropped unknown telltale token "${t}"`);
+          return ok;
+        }))]
+      : [];
+    const hvMarkings = parsed.hvMarkings === true;
     const rawSticker = typeof parsed.sticker === 'string' ? parsed.sticker.trim().toUpperCase() : '';
     const VALID_STICKER = ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE', ''];
     const sticker = VALID_STICKER.includes(rawSticker) ? rawSticker : 'UNREADABLE';
     console.log(`[DASH READ] rawSticker="${rawSticker}" → sticker="${sticker}"`);
     const bodyStyleMismatch = ['match', 'mismatch', 'unclear'].includes(parsed.bodyStyleMismatch) ? parsed.bodyStyleMismatch : 'unclear';
-    return { cluster, telltales: typeof parsed.telltales === 'string' ? parsed.telltales : '', airbag, sticker, bodyStyleMismatch };
+    return { cluster, telltales, airbag, sticker, bodyStyleMismatch, hvMarkings };
   } catch (err) {
     console.warn('[DASH READ] error:', err.message);
     return FLOOR;
@@ -3755,11 +3804,15 @@ export async function GET(request) {
     }
 
     // EV-integrity Step 1 — code-derived BEV fact (DVLA precedence; live-feed strings).
-    // Fires on EVERY lot from enrichedVd (fuelType via ...rawVd, fuel listing-parsed). Computed
-    // here (moved above the weight-sort) so Step 2 can read it before the flag is re-weighted.
-    const isBev = isBevLot(enrichedVd, hvLabelSeen);
+    // Dash read is awaited HERE (its promise was fired early at the per-view stage, :~2739) so its
+    // HV-marking evidence can OR into isBev and its telltales can drive the EV/HV flag below — all
+    // BEFORE the Step-2 weight-sort. This is a reorder of the single existing await, not a new
+    // call; the _dashState / sticker / _dashLine assignments further down reuse this same dashRead.
+    const dashRead = await dashReadPromise;
+    const hvEvidence = hvLabelSeen || dashRead.hvMarkings === true;
+    const isBev = isBevLot(enrichedVd, hvEvidence);
     assessment._isBev = isBev;
-    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}" hvLabelSeen=${hvLabelSeen})`);
+    console.log(`[EV GATE] isBev=${isBev} (DVLA fuelType="${enrichedVd.fuelType ?? ''}" listing fuel="${enrichedVd.fuel ?? ''}" hvLabelSeen=${hvLabelSeen} dashHvMarkings=${dashRead.hvMarkings})`);
 
     // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag enrich (FLAG-ONLY: reason + weight only).
     // Mirrors the aperture-reason post-call mutation on coreObs.flaggedParts, but BEFORE the
@@ -3776,6 +3829,25 @@ export async function GET(request) {
         flag._evPresence = true;
         console.log(`[EV PRESENCE] EV_BATTERY_PRESENCE → weight=${flag.weight} (runsAndDrives=${runsAndDrives}, runCondition="${enrichedVd.runCondition ?? ''}")`);
       }
+    }
+
+    // EV-integrity Step 3 — EV/HV telltale → high-weight expensive-repair flag. Pushed directly to
+    // coreObs.flaggedParts (the surviving per-assessment pattern — never through amalgamate). Fires
+    // whenever the cluster shows a warning AND an EV/HV telltale is read (a warning is a warning —
+    // NOT gated on isBev). This is the ONLY consequence rule built here; coolant→rad-pack is Step 4.
+    // The flag always fires; only wording strength is gated by TELLTALE_CONFIDENT_WORDING (OFF).
+    const _evHvTelltales = dashRead.cluster === 'warning'
+      ? dashRead.telltales.filter(t => EV_HV_SET.includes(t))
+      : [];
+    if (_evHvTelltales.length > 0) {
+      const reason = TELLTALE_CONFIDENT_WORDING
+        ? 'EV/HV system warning lit on the cluster — high-voltage battery / EV-system fault indicated; expensive specialist repair likely. Confirm with an EV diagnostic before bidding.'
+        : 'EV/HV system warning lit on the cluster — possible high-voltage battery / EV-system fault; potentially expensive to resolve. Have an EV diagnostic read the fault code before bidding.';
+      coreObs.flaggedParts.push({
+        panelId: null, partName: 'EV/HV system warning', zone: 'interior',
+        weight: 'high', reason, _evHvTelltale: true,
+      });
+      console.log(`[EV HV TELLTALE] flagged — telltales=[${_evHvTelltales.join(',')}] confidentWording=${TELLTALE_CONFIDENT_WORDING}`);
     }
 
     // ── Rear-closure display label by body shape (LABEL ONLY) ────────────────
@@ -3841,13 +3913,12 @@ export async function GET(request) {
       }
     }
 
-    // EV-integrity Step 3 — dash/cluster read (ran in parallel with main call, joins here).
-    // Fires on ALL lots; not gated on isBev. Now also extracts sticker suffix + body-style
+    // EV-integrity dash/cluster read joins here (fields set from the SAME dashRead awaited earlier
+    // at the isBev step — no second await). Fires on ALL lots; extracts sticker suffix + body-style
     // mismatch (Part C) so Call-2 no longer mines prose for those values.
-    const dashRead = await dashReadPromise;
     assessment._dashState  = dashRead.cluster;
     assessment._airbagState = dashRead.airbag;
-    console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales="${dashRead.telltales}"`);
+    console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales=[${dashRead.telltales.join(',')}] hvMarkings=${dashRead.hvMarkings}`);
 
     // Part B — body-style owner: Brego vehicle_desc (code-owned for all GB lots with a live
     // valuation call). Degrades gracefully to make/model/year if vehicle_desc absent (~7%
@@ -3868,7 +3939,7 @@ export async function GET(request) {
 
     // Assemble code-owned dashboard line (replaces model VDS cluster assertion).
     const _dashLine = dashRead.cluster === 'warning'
-      ? `Dashboard read: warning light(s) shown — ${dashRead.telltales}`
+      ? `Dashboard read: warning light(s) shown — ${dashRead.telltales.map(t => TELLTALE_LABELS[t] || t).join(', ')}`
       : dashRead.cluster === 'clean'
       ? 'Dashboard read: cluster lit, no warning lights shown.'
       : 'Dashboard not visible in the listing photos.';
