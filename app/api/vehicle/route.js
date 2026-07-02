@@ -36,6 +36,16 @@ async function deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession) 
 // cross-service fetch to NEXT_PUBLIC_APP_URL/api/refund (deleted) whose outcome was invisible.
 async function executeServiceHistoryRefund(stripe, paymentIntentId, refund) {
   try {
+    // Idempotency (mandatory — refund is now evaluated on EVERY invocation incl. cache hits and
+    // client re-fetches): if a refund of this amount already exists on the payment intent, reuse
+    // it. Guarantees one refund per charge however many times the payload is fetched. Inside the
+    // helper so no caller can bypass it.
+    const existing = await stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+    const dup = existing.data.find(r => r.amount === refund.amount);
+    if (dup) {
+      console.log(`[SVC REFUND] idempotent ${dup.id} (already refunded) — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId})`);
+      return { ok: true, refundId: dup.id };
+    }
     const r = await stripe.refunds.create({ payment_intent: paymentIntentId, amount: refund.amount });
     console.log(`[SVC REFUND] executed ${r.id} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId})`);
     return { ok: true, refundId: r.id };
@@ -43,6 +53,28 @@ async function executeServiceHistoryRefund(stripe, paymentIntentId, refund) {
     console.error(`[SVC REFUND] FAILED — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId}): ${err.message}`);
     return { ok: false, error: err.message };
   }
+}
+
+// Single evaluation of the service-history refund — called by the fresh IE, fresh GB, AND
+// cache-hit paths so they cannot drift. Refund state is NEVER cached: vehicle data may be
+// replayed from cache, but the refund verdict is computed live for every invocation, against the
+// retrieved session's own payment_intent (mode-matched), and idempotent via executeServiceHistoryRefund.
+// `records` is the normalised service-history array (payload.serviceHistory?.records at every site).
+// No paidSession / payment_intent → no attempt → all-false → render falls to plain "not found".
+async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId, records, needsServiceHistory) {
+  const out = { serviceHistoryRefunded: false, serviceHistoryRefund: null, serviceHistoryRefundFailed: false };
+  const svcEmpty = needsServiceHistory && (!records || records.length === 0);
+  const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
+  if (!svcEmpty || !refundTarget) return out;
+  const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
+  const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
+  if (result.ok) {
+    out.serviceHistoryRefunded = true;
+    out.serviceHistoryRefund = { ...refund, refundId: result.refundId };
+  } else {
+    out.serviceHistoryRefundFailed = true;
+  }
+  return out;
 }
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
@@ -394,7 +426,18 @@ const dvla = await safeJson(dvlaRes);
 
   const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
   if (cached) {
-    return NextResponse.json({ ...cached.payload, _cached: true, _cachedAt: cached.created_at });
+    // Strip any per-transaction refund fields from cached vehicle data (defensive — pre-fix rows,
+    // incl. the live 182D19228 row, carried them; makes a manual row purge unnecessary). Then
+    // evaluate the refund LIVE against THIS request's paid session, via the same shared path as a
+    // fresh miss — so a repeat buyer of the same reg gets their OWN refund, never a replayed one.
+    const clean = { ...cached.payload };
+    delete clean.serviceHistoryRefunded;
+    delete clean.serviceHistoryRefund;
+    delete clean.serviceHistoryRefundFailed;
+    const needsServiceHistory = checks.includes('ie_service_history') || checks.includes('service_history');
+    const refundState = await evaluateServiceHistoryRefund(
+      new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, clean.serviceHistory?.records ?? null, needsServiceHistory);
+    return NextResponse.json({ ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at });
   }
 
   try {
@@ -475,31 +518,15 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistory = svcRaw ? extractApiResult(svcRaw) : null;
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
-      const svcEmpty = needsServiceHistory && (!serviceHistory || !serviceHistory.records || serviceHistory.records.length === 0);
-      // Render AND target follow substrate: the refund goes to the retrieved session's own
-      // payment_intent (mode-matched), never a client-supplied searchParams value. iv=true ONLY
-      // after a real re_ id; a failed refund sets serviceHistoryRefundFailed so money-owed is shown.
-      const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
-      const shouldRefund = svcEmpty && !!refundTarget;
-      let serviceHistoryRefunded = false;
-      let serviceHistoryRefund = null;
-      let serviceHistoryRefundFailed = false;
-      if (shouldRefund) {
-        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-        const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
-        const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
-        if (result.ok) {
-          serviceHistoryRefunded = true;
-          serviceHistoryRefund = { ...refund, refundId: result.refundId };
-        } else {
-          serviceHistoryRefundFailed = true;
-        }
-      }
+      // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
+      const refundState = await evaluateServiceHistoryRefund(
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, serviceHistory?.records ?? null, needsServiceHistory);
 
       const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
       const nctStatus = nctDue ? (new Date(nctDue) > new Date() ? 'Valid' : 'Expired') : null;
 
+      // Vehicle data only — the three refund fields are attached to the RESPONSE below, never cached.
       const payload = {
         make:                     cartell.manufacturer_desc ?? null,
         model:                    cartell.model_desc ?? null,
@@ -516,16 +543,13 @@ const dvla = await safeJson(dvlaRes);
         nctHistory,
         serviceHistory,
         ieHistory,
-        serviceHistoryRefunded,
-        serviceHistoryRefund,
-        serviceHistoryRefundFailed,
         market: 'IE',
         checks,
       };
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });
-      return NextResponse.json(payload);
+      return NextResponse.json({ ...payload, ...refundState });
 
     } else {
       // ── GB PAID PATH ──────────────────────────────────────────────────────────
@@ -614,26 +638,9 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistory = svcRes ? await safeJson(svcRes) : null;
       const serviceHistoryData = extractApiResult(serviceHistory);
 
-      const svcEmpty = needsServiceHistory && (!serviceHistoryData || !serviceHistoryData.records || serviceHistoryData.records.length === 0);
-      // Render AND target follow substrate: the refund goes to the retrieved session's own
-      // payment_intent (mode-matched), never a client-supplied searchParams value. iv=true ONLY
-      // after a real re_ id; a failed refund sets serviceHistoryRefundFailed so money-owed is shown.
-      const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
-      const shouldRefund = svcEmpty && !!refundTarget;
-      let serviceHistoryRefunded = false;
-      let serviceHistoryRefund = null;
-      let serviceHistoryRefundFailed = false;
-      if (shouldRefund) {
-        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-        const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
-        const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
-        if (result.ok) {
-          serviceHistoryRefunded = true;
-          serviceHistoryRefund = { ...refund, refundId: result.refundId };
-        } else {
-          serviceHistoryRefundFailed = true;
-        }
-      }
+      // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
+      const refundState = await evaluateServiceHistoryRefund(
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, serviceHistoryData?.records ?? null, needsServiceHistory);
 
       const latestMot = motTests?.[0] || null;
 
@@ -665,9 +672,6 @@ const dvla = await safeJson(dvlaRes);
         serviceHistory: serviceHistoryData,
         serviceHistoryCoverage: svcCoverage,
         salvageHistory: extractApiResult(salvageHistoryRaw),
-        serviceHistoryRefunded,
-        serviceHistoryRefund,
-        serviceHistoryRefundFailed,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,
@@ -679,7 +683,7 @@ const dvla = await safeJson(dvlaRes);
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
-      return NextResponse.json(payload);
+      return NextResponse.json({ ...payload, ...refundState });
     }
 
   } catch (err) {
