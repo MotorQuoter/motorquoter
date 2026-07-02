@@ -13,15 +13,15 @@ export const ROI_TIERS = [
     addOn: 4.99,
     addOnEUR: 5.99,
     description: 'Identity + current market valuation + demand',
-    features: ['Everything in Identity', 'Current market valuation (Cartell)', 'Market demand score', 'Days to sell estimate'],
+    features: ['Everything in Identity', 'Current market valuation', 'Market demand score', 'Days to sell estimate'],
   },
   {
     key: 'roi_pro',
     label: 'Pro',
     addOn: 12.99,
     addOnEUR: 15.99,
-    description: 'Standard + future valuation + Cartell Price Guide',
-    features: ['Everything in Standard', 'Future value projection', 'Cartell Price Guide', 'Depreciation forecast'],
+    description: 'Standard + future valuation + price guide',
+    features: ['Everything in Standard', 'Future value projection', 'Market price guide', 'Depreciation forecast'],
   },
   {
     key: 'roi_history',
@@ -37,7 +37,7 @@ export const IE_MENU = [
   {
     key: 'ie_valuation',
     label: 'Valuation',
-    description: 'Cartell Price Guide — trade and retail values for the Irish market',
+    description: 'Trade and retail values for the Irish market',
     price: 2.99,
     priceEUR: 3.99,
     preSelected: true,
