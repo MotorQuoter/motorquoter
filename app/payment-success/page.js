@@ -474,7 +474,8 @@ function MotSection({ result }) {
 function ServiceHistorySection({ result }) {
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
-  const refunded    = result.serviceHistoryRefunded;
+  const refunded     = result.serviceHistoryRefunded;
+  const refundFailed = result.serviceHistoryRefundFailed;
   // Charged-currency refund label from the server (charge-derived). Fall back to the config
   // GBP figure by market only if the server didn't attach the amount (legacy/pre-fix rows).
   const refundLabel = (() => {
@@ -511,7 +512,9 @@ function ServiceHistorySection({ result }) {
           </div>
         : refunded
           ? <EmptyState text={`No service history records found — ${refundLabel} refunded to your card automatically`} />
-          : <EmptyState text="No service history records found" />
+          : refundFailed
+            ? <EmptyState text="No service history records found. Your refund could not be processed automatically — please contact support and it will be refunded manually." />
+            : <EmptyState text="No service history records found" />
       }
     </div>
   );

@@ -12,10 +12,9 @@ import { PRICING, IE_MENU } from '@/config/pricing';
 // so a EUR purchase refunds the EUR sum (€5.99) and a GBP one refunds £5.00/£3.49 — drift-proof
 // if list prices change. Fallback (no distinct line, e.g. a promo-collapsed basket): the config
 // list price in the SESSION's currency — still never a hardcoded GBP amount on a EUR charge.
-async function deriveServiceHistoryRefund(stripeSessionId, paidSession) {
+async function deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession) {
   const currency = (paidSession?.currency || 'gbp').toLowerCase();
   try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const li = await stripe.checkout.sessions.listLineItems(stripeSessionId, { limit: 100 });
     const svc = li.data.find(l => /service history/i.test(l.description || ''));
     if (svc && svc.amount_total > 0) {
@@ -29,6 +28,21 @@ async function deriveServiceHistoryRefund(stripeSessionId, paidSession) {
   const cfg = isIE ? IE_MENU.find(i => i.key === 'ie_service_history') : PRICING.menu.find(i => i.key === 'service_history');
   const price = eur ? (cfg?.priceEUR ?? cfg?.price) : cfg?.price;
   return { amount: Math.round((price ?? 0) * 100), currency };
+}
+
+// Execute the service-history refund IN-PROCESS via the Stripe SDK — the SAME client (hence key
+// and mode) that read the line items, so charge-mode and refund-mode cannot diverge. Awaited;
+// success logs the re_ id, failure logs the Stripe error. Replaces the env-resolved
+// cross-service fetch to NEXT_PUBLIC_APP_URL/api/refund (deleted) whose outcome was invisible.
+async function executeServiceHistoryRefund(stripe, paymentIntentId, refund) {
+  try {
+    const r = await stripe.refunds.create({ payment_intent: paymentIntentId, amount: refund.amount });
+    console.log(`[SVC REFUND] executed ${r.id} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId})`);
+    return { ok: true, refundId: r.id };
+  } catch (err) {
+    console.error(`[SVC REFUND] FAILED — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId}): ${err.message}`);
+    return { ok: false, error: err.message };
+  }
 }
 
 const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
@@ -140,7 +154,6 @@ export async function GET(request) {
   const mileage = searchParams.get('mileage') || '';
   const market = (searchParams.get('market') || 'GB').toUpperCase();
   const tier = searchParams.get('tier');
-  const paymentIntentId = searchParams.get('paymentIntentId') || null;
 
   if (!vrm) {
     return NextResponse.json({ error: 'No registration provided' }, { status: 400 });
@@ -463,16 +476,24 @@ const dvla = await safeJson(dvlaRes);
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
       const svcEmpty = needsServiceHistory && (!serviceHistory || !serviceHistory.records || serviceHistory.records.length === 0);
-      const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      // Render AND target follow substrate: the refund goes to the retrieved session's own
+      // payment_intent (mode-matched), never a client-supplied searchParams value. iv=true ONLY
+      // after a real re_ id; a failed refund sets serviceHistoryRefundFailed so money-owed is shown.
+      const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
+      const shouldRefund = svcEmpty && !!refundTarget;
+      let serviceHistoryRefunded = false;
       let serviceHistoryRefund = null;
-      if (serviceHistoryRefunded) {
-        serviceHistoryRefund = await deriveServiceHistoryRefund(stripeSessionId, paidSession);
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentIntentId, amount: serviceHistoryRefund.amount }),
-        });
-        console.log(`[SVC REFUND] ${serviceHistoryRefund.currency} ${serviceHistoryRefund.amount} refunded (paymentIntent ${paymentIntentId})`);
+      let serviceHistoryRefundFailed = false;
+      if (shouldRefund) {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+        const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
+        const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
+        if (result.ok) {
+          serviceHistoryRefunded = true;
+          serviceHistoryRefund = { ...refund, refundId: result.refundId };
+        } else {
+          serviceHistoryRefundFailed = true;
+        }
       }
 
       const cc     = cartell.engine_capacity_cc ?? null;
@@ -497,6 +518,7 @@ const dvla = await safeJson(dvlaRes);
         ieHistory,
         serviceHistoryRefunded,
         serviceHistoryRefund,
+        serviceHistoryRefundFailed,
         market: 'IE',
         checks,
       };
@@ -593,16 +615,24 @@ const dvla = await safeJson(dvlaRes);
       const serviceHistoryData = extractApiResult(serviceHistory);
 
       const svcEmpty = needsServiceHistory && (!serviceHistoryData || !serviceHistoryData.records || serviceHistoryData.records.length === 0);
-      const serviceHistoryRefunded = svcEmpty && !!paymentIntentId;
+      // Render AND target follow substrate: the refund goes to the retrieved session's own
+      // payment_intent (mode-matched), never a client-supplied searchParams value. iv=true ONLY
+      // after a real re_ id; a failed refund sets serviceHistoryRefundFailed so money-owed is shown.
+      const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
+      const shouldRefund = svcEmpty && !!refundTarget;
+      let serviceHistoryRefunded = false;
       let serviceHistoryRefund = null;
-      if (serviceHistoryRefunded) {
-        serviceHistoryRefund = await deriveServiceHistoryRefund(stripeSessionId, paidSession);
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/refund`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ paymentIntentId, amount: serviceHistoryRefund.amount }),
-        });
-        console.log(`[SVC REFUND] ${serviceHistoryRefund.currency} ${serviceHistoryRefund.amount} refunded (paymentIntent ${paymentIntentId})`);
+      let serviceHistoryRefundFailed = false;
+      if (shouldRefund) {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+        const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
+        const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
+        if (result.ok) {
+          serviceHistoryRefunded = true;
+          serviceHistoryRefund = { ...refund, refundId: result.refundId };
+        } else {
+          serviceHistoryRefundFailed = true;
+        }
       }
 
       const latestMot = motTests?.[0] || null;
@@ -637,6 +667,7 @@ const dvla = await safeJson(dvlaRes);
         salvageHistory: extractApiResult(salvageHistoryRaw),
         serviceHistoryRefunded,
         serviceHistoryRefund,
+        serviceHistoryRefundFailed,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,
