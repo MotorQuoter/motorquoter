@@ -3271,6 +3271,7 @@ export async function GET(request) {
           f.panelId === PANEL.FRONT_STRUCTURE && f.weight === 'high' && f.reason === AMALG_REASON_FLAG_CLASS);
         if (slamSevere || frontStructureSevere) {
           console.log(`[RAD FLOOR] RADIATOR_PACK damaged=${radVotes.damaged} (single-grade, views=${radVotes.views}) BUT low-centre proxy fired (slamSevere=${slamSevere} frontStructureSevere=${frontStructureSevere}) → hatch=fired → £cost retained`);
+          assessment._radPackDisposition = 'retained-proxy';
         } else {
           // Mirror the bumper-off demotion: iv=false in place → the gate strips it from the total
           // and the G-inject guard skips it. Push the specific inspection flag here so the gate's
@@ -3279,8 +3280,17 @@ export async function GET(request) {
           radEntry._radUncorroborated = true;
           coreObs.flaggedParts.push({ panelId: PANEL.RADIATOR_PACK, partName: PANEL_DISPLAY[PANEL.RADIATOR_PACK], zone: radEntry.zone, weight: 'medium', reason: AMALG_REASON_RAD_UNCORROBORATED, _radUncorroborated: true });
           console.log(`[RAD FLOOR] RADIATOR_PACK damaged=${radVotes.damaged} (single-grade, views=${radVotes.views}) AND no low-centre proxy (slamSevere=false frontStructureSevere=false) → floor to inspection`);
+          assessment._radPackDisposition = 'floored';
         }
+      } else {
+        // Rule did not fire: a corroborated costed rad entry (damaged≥2 / no votes) is retained
+        // as-is; no costed rad entry at all → nothing to price. Purely observational stamp — no
+        // behaviour change (the outcome above is exactly what the untouched rule already produced).
+        assessment._radPackDisposition = radEntry ? 'retained-corroborated' : 'none';
       }
+      // Step 5 interface — rad-pack grade carried off the amalgamate ledger record (accurate
+      // three-state _ledgerSeverity, :1777; survives the iv flip above). Inert: nothing reads it today.
+      assessment._radPackSeverity = radEntry ? (radEntry._ledgerSeverity ?? null) : null;
     }
 
     // ── KCD scrub — drop demoted-part driver lines ────────────────────────────
@@ -4045,6 +4055,36 @@ export async function GET(request) {
         assessment['WhatsApp Inspection Checklist'] = existing + `\n${itemCount + 1}. ${netItem}`;
       } else {
         console.warn('[WHEEL NET] checklist section empty — item not appended; model may have used a non-standard section header');
+      }
+    }
+
+    // EV Step 4 — dash telltale → WhatsApp inspection query. Supplementary evidence ONLY:
+    // a lit coolant / oil lamp NEVER gates money (no cost, no flag, no rad-rule input — Vincent's
+    // ruling). It appends a code-owned inspection item and nothing more. Runs once, in the
+    // deterministic tier (before buyer-flag seeding). dashRead.telltales is already Set-deduped
+    // (:947) so each telltale yields at most one item. Fires on ANY lot with the telltale; the
+    // frontStruck boolean only selects the coolant wording, it does not gate the item.
+    {
+      const _telltaleItems = [];
+      if (dashRead.cluster === 'warning' && dashRead.telltales.includes('COOLANT_TEMP')) {
+        _telltaleItems.push(frontStruck
+          ? 'Coolant temperature warning is lit on the cluster and the front impact has exposed the radiator pack — show the coolant level in the expansion tank and the radiator/condenser faces close up for leaks or crush damage before bidding.'
+          : 'Coolant temperature warning is lit on the cluster — show the coolant level in the expansion tank and check for visible leaks before bidding.');
+      }
+      if (dashRead.cluster === 'warning' && dashRead.telltales.includes('OIL_PRESSURE')) {
+        _telltaleItems.push('Oil pressure warning is lit on the cluster — show the engine oil level and the sump/underside of the engine for impact damage or leaks before bidding.');
+      }
+      if (_telltaleItems.length > 0) {
+        const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+        if (existing) {
+          let nextItem = (existing.match(/^\d+[.)]/mg) || []).length + 1;
+          let text = existing;
+          for (const item of _telltaleItems) { text += `\n${nextItem}. ${item}`; nextItem++; }
+          assessment['WhatsApp Inspection Checklist'] = text;
+          console.log(`[DASH TELLTALE] appended ${_telltaleItems.length} inspection quer${_telltaleItems.length === 1 ? 'y' : 'ies'} (coolant/oil) frontStruck=${frontStruck} telltales=[${dashRead.telltales.join(',')}]`);
+        } else {
+          console.warn('[DASH TELLTALE] checklist section empty — telltale item(s) not appended');
+        }
       }
     }
 
