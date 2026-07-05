@@ -403,6 +403,16 @@ function isSubstantiveReason(s) {
   return t.length >= 20 && t.split(/\s+/).filter(Boolean).length >= 4;
 }
 
+// Code-owned provenance concern: non-insurer vendor entry (Q/C windscreen suffix) on a
+// Cat S structural write-off — deterministic from category + resolved vendor suffix.
+// Shared by the CORE provenance slot and the Red Flags injection so the two can never
+// diverge (deterministic surfacing in both surfaces).
+function isQcCatSConcern(enrichedVd, vendorSuffix) {
+  const isCatS = /^s\b/i.test((enrichedVd.category || '').trim());
+  const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
+  return nonInsurerSuffix && isCatS;
+}
+
 function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
   const currentYear = new Date().getFullYear();
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
@@ -447,8 +457,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   // Code path A (existing): too-clean pattern — warranty age + low mileage + minimal damage
   const codePathA = isWarrantyAge && isLowMileage && isMinimalDamageStory;
   // Code path B (new): Q/C non-insurer entry on a structural write-off
-  const isCatS    = /^s\b/i.test(cat);
-  const qcCatSFlag = nonInsurerSuffix && isCatS;
+  const qcCatSFlag = isQcCatSConcern(enrichedVd, vendorSuffix);
 
   // Conservative union: discrepancy if ANY of the three paths fires
   if (codePathA || qcCatSFlag || proseFlagged) {
@@ -4273,6 +4282,28 @@ export async function GET(request) {
       buildPhysicalGroup(coreObs),
     ]);
     console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
+
+    // ── Provenance concern: code-owned Red Flags line (deterministic surfacing) ──
+    // The Q/C-suffix + Cat S concern renders in the Structured Checklist, but its appearance
+    // in Red Flags was model-prose lottery (same lot/suffix: present on some runs, absent on
+    // others). Inject the fixed high-severity line when the CODE determination is TRUE, deduped
+    // against a model-authored provenance line so the buyer never sees it twice. Runs after the
+    // vendor-suffix backfill (:4003) so resolveVendorSuffix is valid. Code-owned ONLY — the
+    // null-paste model-raised concern (category null → isQcCatSConcern false) stays model-owned.
+    {
+      const _provVendorSuffix = resolveVendorSuffix(coreObs);
+      if (isQcCatSConcern(enrichedVd, _provVendorSuffix)) {
+        const _provLine = 'Non-insurer entry on a structural write-off (Q/C windscreen suffix + Cat S): the disposal route is not a standard insurance claim and the reason this vehicle entered the Copart estate is undisclosed — establish why before bidding and apply extra scrutiny.';
+        const _provDedupRx = /insurer write-?off|non-insurer|copart[- ](acquired|purchased)|copart estate|disposal route|entered the copart|undisclosed reason|why (this|the) vehicle (is in salvage|entered|was written off)/i;
+        const _rfExisting = (assessment['Red Flags'] || '').trim();
+        if (_rfExisting.split('\n').some(l => _provDedupRx.test(l))) {
+          console.log('[PROVENANCE INJECT] model line present — injected line suppressed');
+        } else {
+          assessment['Red Flags'] = _rfExisting ? `${_rfExisting}\n- ${_provLine}` : `- ${_provLine}`;
+          console.log('[PROVENANCE INJECT] red-flag line injected (code-owned concern)');
+        }
+      }
+    }
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
