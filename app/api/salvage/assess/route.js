@@ -268,7 +268,7 @@ function resolveVendorSuffix(coreObs) {
   const sticker = coreObs.windscreenSticker || {};
   const visible = Boolean(sticker.visible);
   const letter = sticker.suffixLetter || 'UNREADABLE';
-  if (!visible) return { status: 'absent', letter: null, mapped: null };      // no printed sticker seen
+  if (!visible) return { status: 'absent', letter: null, mapped: null, stickerSeen: Boolean(sticker.stickerSeen) }; // no legible suffix; stickerSeen splits "no sticker" vs "present but illegible"
   if (letter === 'UNREADABLE') return { status: 'unreadable', letter: null, mapped: null }; // sticker present, letter illegible
   if (letter === 'OTHER') return { status: 'other', letter, mapped: null };
   return { status: 'mapped', letter, mapped: VENDOR_SUFFIX_MAP[letter] || null };
@@ -276,12 +276,21 @@ function resolveVendorSuffix(coreObs) {
 
 function buildVendorSuffixSlot(vendorSuffix) {
   if (vendorSuffix.status === 'absent') {
+    // Two distinct miss states after the targeted re-read (:sticker retry): a sticker was seen but
+    // its suffix is illegible (stickerSeen) vs no sticker seen at all. Both stay status 'absent'
+    // (tier silent) — only the wording splits.
+    const seen = vendorSuffix.stickerSeen === true;
     return buildSlot({
       id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
       kind: 'confirmation', verdict: 'unconfirmed',
-      detail: 'No windscreen vendor sticker visible — vendor type unconfirmed',
+      detail: seen
+        ? 'Vendor sticker present but the suffix is not legible in the photos'
+        : 'No vendor sticker visible in the listing photos',
       confidence: 'hidden', source: 'model',
-      flag: { severity: 'info', whatsapp: 'No vendor sticker was visible in the photos — photograph the upper windscreen area to establish vendor type before bidding', tier: 1 },
+      flag: { severity: 'info', whatsapp: seen
+        ? 'Vendor sticker present but the suffix is not legible in the photos — photograph the upper windscreen area on the WhatsApp inspection'
+        : 'No vendor sticker was visible in the listing photos — photograph the upper windscreen area to establish vendor type before bidding',
+        tier: 1 },
     });
   }
   if (vendorSuffix.status === 'unreadable') {
@@ -978,6 +987,98 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
   } catch (err) {
     console.warn('[DASH READ] error:', err.message);
     return FLOOR;
+  }
+}
+
+// Closed vendor-suffix enum for the targeted re-read (mirrors the primary dash-read's VALID_STICKER).
+const STICKER_ENUM = ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE', ''];
+
+// Sticker frame-ID (mechanism b, on-demand at retry): Haiku over all frames at 1024px
+// (resizeToHaikuSafe — the Haiku token-ceiling fit), returns the indices of frames showing the
+// upper-windscreen lot label / lot number. Isolated from the money pipeline. Fails to [] — the
+// caller then re-reads the FULL set (fallback is load-bearing: frame-ID miss → broad retry, never
+// no-retry). Model choice validated by substrate: the [FRAME ID] log + frameSource stamp make each
+// fired retry a data point on Haiku's frame-ID accuracy; swap to Opus is a pre-authorised follow-up.
+async function runStickerFrameId(images, onExhaust) {
+  try {
+    const blocks = await Promise.all(images.slice(0, 35).map(resizeToHaikuSafe));
+    const n = blocks.length;
+    const prompt = `Each image is one photo of a salvage vehicle, numbered 0 to ${n - 1} in the order given.
+Identify which photos clearly show the vehicle's WINDSCREEN glass carrying the printed white Copart lot-number label and/or a grease-pen lot number — the frames where a lot sticker/number would be legible. Include a photo ONLY if the upper-windscreen / lot-label area is actually visible in it. If none show it, return an empty array.
+Return a raw JSON object only, no other text: { "frames": [<zero or more integer photo indices>] }`;
+    const { res, exhausted } = await with529Retry('sticker-frameid', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 128,
+        system: 'You are a vehicle photo classifier. Respond ONLY with a raw JSON object. No markdown, no explanation.',
+        messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return []; }
+    if (!res?.ok) { console.warn('[FRAME ID] API error:', res?.status); return []; }
+    const apiData = await res.json();
+    console.log('[TOKEN LOG] sticker-frameid Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) { console.warn('[FRAME ID] no JSON object in response'); return []; }
+    const parsed = JSON.parse(m[0]);
+    const arr = Array.isArray(parsed.frames) ? parsed.frames : [];
+    return [...new Set(arr.filter(i => Number.isInteger(i) && i >= 0 && i < n))];
+  } catch (err) {
+    console.warn('[FRAME ID] error:', err.message);
+    return [];
+  }
+}
+
+// Targeted sticker re-read (Opus, FULL resolution) on the identified frame(s); falls back to the
+// full set when frameIndices is empty (load-bearing fallback). Single-purpose: read the trailing
+// vendor letter off the windscreen lot label / number. Output constrained to STICKER_ENUM.
+// Returns '' on failure — the caller's resolution then preserves the primary read.
+async function runStickerRead(images, frameIndices, onExhaust) {
+  const all = images.slice(0, 35);
+  const targeted = Array.isArray(frameIndices) && frameIndices.length
+    ? frameIndices.map(i => images[i]).filter(Boolean)
+    : [];
+  const frameSet = targeted.length ? targeted : all;   // fallback: full set (never empty)
+  try {
+    const imageBlocks = frameSet.map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const mm = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (mm) { mediaType = mm[1]; data = mm[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    const prompt = `These photos show one salvage vehicle. Find the printed white Copart lot-number label and/or the grease-pen lot number written on the WINDSCREEN glass. It is a multi-digit number ending in a single capital vendor letter — one of X, P, C, or Q. Read ONLY that trailing capital letter.
+- No printed lot label or lot number visible on the windscreen glass → sticker: ""
+- A lot label / number is visible but the trailing letter is not clearly legible → sticker: "UNREADABLE"
+- The trailing letter is clearly legible → that single letter (X, P, C, or Q; use "OTHER" for any other letter)
+Do NOT read chalk yard marks, circled numbers, or other handwritten annotations — only the lot number and its trailing letter.
+Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE, or empty string>" }`;
+    const { res, exhausted } = await with529Retry('sticker-read', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 64,
+        system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return ''; }
+    if (!res?.ok) { console.warn('[STICKER RETRY] API error:', res?.status); return ''; }
+    const apiData = await res.json();
+    console.log('[TOKEN LOG] sticker-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) { console.warn('[STICKER RETRY] no JSON object in response'); return ''; }
+    const parsed = JSON.parse(m[0]);
+    const rawSticker = typeof parsed.sticker === 'string' ? parsed.sticker.trim().toUpperCase() : '';
+    return STICKER_ENUM.includes(rawSticker) ? rawSticker : 'UNREADABLE';
+  } catch (err) {
+    console.warn('[STICKER RETRY] error:', err.message);
+    return '';
   }
 }
 
@@ -4026,16 +4127,41 @@ export async function GET(request) {
     assessment._bodyStyle = enrichedVd.bregoValuation?.vehicle_desc ||
       [enrichedVd.make, enrichedVd.model, enrichedVd.year].filter(Boolean).join(' ') || null;
 
-    // Part C — sticker suffix from vision dash-read (migrated from Call-2 prose extraction).
-    // Backfill coreObs.windscreenSticker so resolveVendorSuffix() works unchanged downstream.
-    const _rawSticker = dashRead.sticker || '';
-    assessment._stickerSuffix = _rawSticker || 'UNREADABLE';
+    // Part C — sticker suffix from vision dash-read, with a targeted re-read on a miss (frame-ID +
+    // full-res Opus read; full-set fallback). Fires ONLY when the primary read is a miss ("" or
+    // UNREADABLE); a valid primary letter short-circuits — the retry fills misses, never overrides.
+    const _primarySticker = dashRead.sticker;
+    let _finalSticker = _primarySticker;
+    let _stickerRetry = { fired: false, primary: _primarySticker, frameSource: null, final: _primarySticker };
+    if (_primarySticker === '' || _primarySticker === 'UNREADABLE') {
+      const _frames = await runStickerFrameId(images, () => _exhaustedCalls.add('sticker-frameid'));
+      console.log(`[FRAME ID] frames=${_frames.length ? _frames.join(',') : 'none'} source=haiku-1024px`);
+      console.log(`[STICKER RETRY] primary="${_primarySticker}" → fired (frames=${_frames.length || 'all'})`);
+      const _retry = await runStickerRead(images, _frames, () => _exhaustedCalls.add('sticker-read'));
+      if (['X', 'P', 'C', 'Q', 'OTHER'].includes(_retry)) {
+        _finalSticker = _retry;                                               // retry rescued a legible letter
+        console.log(`[STICKER RETRY] result=${_retry} adopted`);
+      } else {
+        // both passes missed — keep the two states distinct; UNREADABLE (from either pass) beats "".
+        _finalSticker = (_primarySticker === 'UNREADABLE' || _retry === 'UNREADABLE') ? 'UNREADABLE' : '';
+        console.log(`[STICKER RETRY] result=${_finalSticker === 'UNREADABLE' ? 'unreadable' : 'confirmed-empty'}`);
+      }
+      _stickerRetry = { fired: true, primary: _primarySticker, frameSource: _frames.length ? `haiku:[${_frames.join(',')}]` : 'full-set-fallback', final: _finalSticker };
+    }
+    assessment._stickerRetry = _stickerRetry;
+
+    // Backfill coreObs.windscreenSticker so resolveVendorSuffix() works unchanged downstream. The two
+    // miss states are preserved (no collapse): stickerSeen=true means a sticker was seen but its suffix
+    // is illegible; false means no sticker was seen at all. Both keep visible=false → resolveVendorSuffix
+    // status 'absent' → the tier system stays correctly silent; only the checklist wording splits.
+    assessment._stickerSuffix = _finalSticker || 'UNREADABLE';
     coreObs.windscreenSticker = {
-      visible:      Boolean(_rawSticker && _rawSticker !== 'UNREADABLE'),
-      suffixLetter: _rawSticker || 'UNREADABLE',
+      visible:      Boolean(_finalSticker && _finalSticker !== 'UNREADABLE'),
+      suffixLetter: _finalSticker || 'UNREADABLE',
+      stickerSeen:  _finalSticker === 'UNREADABLE',
     };
     coreObs.bodyStyleMismatch = dashRead.bodyStyleMismatch || 'unclear';
-    console.log(`[BODY/STICKER] bodyStyle="${assessment._bodyStyle}" stickerSuffix=${assessment._stickerSuffix} bodyStyleMismatch=${coreObs.bodyStyleMismatch}`);
+    console.log(`[BODY/STICKER] bodyStyle="${assessment._bodyStyle}" stickerSuffix=${assessment._stickerSuffix} bodyStyleMismatch=${coreObs.bodyStyleMismatch} retryFired=${_stickerRetry.fired}`);
 
     // Assemble code-owned dashboard line (replaces model VDS cluster assertion).
     const _dashLine = dashRead.cluster === 'warning'
