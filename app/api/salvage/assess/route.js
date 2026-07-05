@@ -403,14 +403,21 @@ function isSubstantiveReason(s) {
   return t.length >= 20 && t.split(/\s+/).filter(Boolean).length >= 4;
 }
 
-// Code-owned provenance concern: non-insurer vendor entry (Q/C windscreen suffix) on a
-// Cat S structural write-off — deterministic from category + resolved vendor suffix.
-// Shared by the CORE provenance slot and the Red Flags injection so the two can never
-// diverge (deterministic surfacing in both surfaces).
-function isQcCatSConcern(enrichedVd, vendorSuffix) {
-  const isCatS = /^s\b/i.test((enrichedVd.category || '').trim());
+// Code-owned provenance concern — two-tier, deterministic from category + resolved vendor suffix.
+// Returns 'catU' | 'catS' | null. Requires a non-insurer suffix (C or Q) either way.
+//   TIER 1 'catU' (primary): positively-recorded Cat U ("U …", e.g. "U - Used Unrecorded") — never
+//     categorised by an insurer, history wholly unvouched. Null category (null-paste / no listing
+//     data) is NOT Cat U and must never fire — /^u\b/ requires U as a standalone recorded token.
+//   TIER 2 'catS' (secondary): Cat S — historic insurer category, non-insurer re-entry (prior
+//     write-off re-entered, possibly unrepaired).
+// Shared by the CORE provenance slot and the Red Flags injection so the two can never diverge.
+function qcProvenanceConcern(enrichedVd, vendorSuffix) {
   const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
-  return nonInsurerSuffix && isCatS;
+  if (!nonInsurerSuffix) return null;
+  const cat = (enrichedVd.category || '').trim();
+  if (/^u\b/i.test(cat)) return 'catU';
+  if (/^s\b/i.test(cat)) return 'catS';
+  return null;
 }
 
 function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
@@ -456,20 +463,22 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
 
   // Code path A (existing): too-clean pattern — warranty age + low mileage + minimal damage
   const codePathA = isWarrantyAge && isLowMileage && isMinimalDamageStory;
-  // Code path B (new): Q/C non-insurer entry on a structural write-off
-  const qcCatSFlag = isQcCatSConcern(enrichedVd, vendorSuffix);
+  // Code path B (two-tier): non-insurer (C/Q) entry on Cat U (primary) or Cat S (secondary)
+  const provConcern = qcProvenanceConcern(enrichedVd, vendorSuffix); // 'catU' | 'catS' | null
 
   // Conservative union: discrepancy if ANY of the three paths fires
-  if (codePathA || qcCatSFlag || proseFlagged) {
+  if (codePathA || provConcern || proseFlagged) {
     const descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
     const signals = [];
-    if (codePathA)    signals.push(`unusually clean for salvage (${Math.round(milesPerYear).toLocaleString('en-GB')} mi/yr at ${cat}, minimal damage described)`);
-    if (qcCatSFlag)   signals.push('non-insurer entry on a structural write-off (Q/C suffix + Cat S)');
-    if (proseFlagged) signals.push(proseReason);
+    if (codePathA)            signals.push(`unusually clean for salvage (${Math.round(milesPerYear).toLocaleString('en-GB')} mi/yr at ${cat}, minimal damage described)`);
+    if (provConcern === 'catU') signals.push('non-insurer entry with no insurance salvage category recorded (Cat U — history unvouched)');
+    if (provConcern === 'catS') signals.push('non-insurer entry on a Cat S structural write-off (historic category — possible unrepaired re-entry)');
+    if (proseFlagged)         signals.push(proseReason);
     const whatsappParts = [];
-    if (codePathA)    whatsappParts.push(`unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described`);
-    if (qcCatSFlag)   whatsappParts.push('non-insurer vendor entry (Q/C suffix) on a Cat S structural write-off');
-    if (proseFlagged) whatsappParts.push(`provenance concern raised — ${proseReason}`);
+    if (codePathA)            whatsappParts.push(`unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described`);
+    if (provConcern === 'catU') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on an uncategorised Cat U — establish why it is in salvage');
+    if (provConcern === 'catS') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on a Cat S write-off — possible re-entered unrepaired lot');
+    if (proseFlagged)         whatsappParts.push(`provenance concern raised — ${proseReason}`);
     return buildSlot({
       id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
       kind: 'confirmation', verdict: 'discrepancy',
@@ -4296,23 +4305,30 @@ export async function GET(request) {
     console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
 
     // ── Provenance concern: code-owned Red Flags line (deterministic surfacing) ──
-    // The Q/C-suffix + Cat S concern renders in the Structured Checklist, but its appearance
-    // in Red Flags was model-prose lottery (same lot/suffix: present on some runs, absent on
-    // others). Inject the fixed high-severity line when the CODE determination is TRUE, deduped
-    // against a model-authored provenance line so the buyer never sees it twice. Runs after the
-    // vendor-suffix backfill (:4003) so resolveVendorSuffix is valid. Code-owned ONLY — the
-    // null-paste model-raised concern (category null → isQcCatSConcern false) stays model-owned.
+    // The two-tier non-insurer concern (C/Q suffix on Cat U primary / Cat S secondary) renders in
+    // the Structured Checklist, but its appearance in Red Flags was model-prose lottery (same lot/
+    // suffix: present on some runs, absent on others). Inject a fixed high-severity line when the
+    // CODE determination fires, suffix-specific lead + tier-specific body, deduped against a
+    // model-authored provenance line so the buyer never sees it twice. Runs after the vendor-suffix
+    // backfill (:4003) so resolveVendorSuffix is valid. Code-owned ONLY — the null-paste model-raised
+    // concern (category null → qcProvenanceConcern null) stays model-owned, never injected.
     {
       const _provVendorSuffix = resolveVendorSuffix(coreObs);
-      if (isQcCatSConcern(enrichedVd, _provVendorSuffix)) {
-        const _provLine = 'Non-insurer entry on a structural write-off (Q/C windscreen suffix + Cat S): the disposal route is not a standard insurance claim and the reason this vehicle entered the Copart estate is undisclosed — establish why before bidding and apply extra scrutiny.';
-        const _provDedupRx = /insurer write-?off|non-insurer|copart[- ](acquired|purchased)|copart estate|disposal route|entered the copart|undisclosed reason|why (this|the) vehicle (is in salvage|entered|was written off)/i;
+      const _provTier = qcProvenanceConcern(enrichedVd, _provVendorSuffix); // 'catU' | 'catS' | null
+      if (_provTier) {
+        const _suffixLead = _provVendorSuffix.letter === 'Q'
+          ? 'Copart-owned Cash-for-Cars entry (Q windscreen suffix)'
+          : 'Private or trade entry (C windscreen suffix)';
+        const _provLine = _provTier === 'catU'
+          ? `${_suffixLead} with no insurance salvage category recorded: this vehicle has never been categorised by an insurer, so its damage and disposal history is wholly unvouched. This can be routine trade or fleet disposal — but 'why is it here?' is the question to answer before bidding. Establish the entry reason and apply extra scrutiny on inspection.`
+          : `${_suffixLead} on a Cat S structural write-off: the category is historic — this is a previously written-off vehicle re-entered by a non-insurer, possibly unrepaired. Establish why the last owner disposed of it before bidding.`;
+        const _provDedupRx = /insurer write-?off|non-insurer|copart[- ](acquired|purchased|owned)|copart estate|cash[- ]for[- ]cars|disposal route|reason for disposal|entered the copart|undisclosed reason|unvouched|unrecorded|uncategori[sz]ed|never (been )?categori[sz]ed|no (insurance |salvage )?category|re-?entered|previously written[- ]off|private or trade entry|why (this|the) vehicle (is in salvage|entered|was written off|was disposed)/i;
         const _rfExisting = (assessment['Red Flags'] || '').trim();
         if (_rfExisting.split('\n').some(l => _provDedupRx.test(l))) {
-          console.log('[PROVENANCE INJECT] model line present — injected line suppressed');
+          console.log(`[PROVENANCE INJECT] model line present — injected line suppressed (tier=${_provTier})`);
         } else {
           assessment['Red Flags'] = _rfExisting ? `${_rfExisting}\n- ${_provLine}` : `- ${_provLine}`;
-          console.log('[PROVENANCE INJECT] red-flag line injected (code-owned concern)');
+          console.log(`[PROVENANCE INJECT] red-flag line injected (code-owned concern, tier=${_provTier})`);
         }
       }
     }
