@@ -1978,13 +1978,25 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
-  // Band selection: take the HIGHER of spec-derived and detection-reported (never under-budget)
+  // Band selection. When the spec table returns a CONCRETE type it OWNS the band: the make/
+  // model/year table is encoded trade knowledge, and a single-run vision lamp read (which
+  // oscillates run-to-run) may not override it upward. Detection decides ONLY when the spec
+  // table is indeterminate — then the take-the-HIGHER rule runs, preserving the LED default
+  // (never under-budget). Discarded detection is logged so the swing is visible.
   const LAMP_RANK    = { halogen: 1, hid: 2, led: 3 };
   const specAssumed      = !HEADLAMP_BANDS[lampType];
   const resolvedSpecType = specAssumed ? HEADLAMP_BAND_DEFAULT : lampType;
   const resolvedDetType  = (detectionLampType && HEADLAMP_BANDS[detectionLampType]) ? detectionLampType : null;
-  const resolvedType     = (resolvedDetType && (LAMP_RANK[resolvedDetType] ?? 0) > (LAMP_RANK[resolvedSpecType] ?? 0))
-    ? resolvedDetType : resolvedSpecType;
+  let resolvedType;
+  if (!specAssumed) {
+    resolvedType = resolvedSpecType;                       // spec concrete → spec wins, detection ignored
+    if (resolvedDetType && resolvedDetType !== resolvedSpecType) {
+      console.log(`[LAMP] detection=${resolvedDetType} discarded — spec-table ${resolvedSpecType} concrete (spec wins)`);
+    }
+  } else {
+    resolvedType = (resolvedDetType && (LAMP_RANK[resolvedDetType] ?? 0) > (LAMP_RANK[resolvedSpecType] ?? 0))
+      ? resolvedDetType : resolvedSpecType;                // spec indeterminate → HIGHER of detection / LED default
+  }
   const bandValue       = HEADLAMP_BANDS[resolvedType];
   const lampTypeAssumed = specAssumed && !resolvedDetType;
 
