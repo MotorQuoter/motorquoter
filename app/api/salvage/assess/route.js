@@ -992,43 +992,75 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
 
 // Closed vendor-suffix enum for the targeted re-read (mirrors the primary dash-read's VALID_STICKER).
 const STICKER_ENUM = ['X', 'P', 'C', 'Q', 'OTHER', 'UNREADABLE', ''];
+// Legible-letter set for the retry adoption test. Single vocabulary owner is STICKER_ENUM; this is
+// derived (STICKER_ENUM minus the two miss states) so the letter list is never copied a second time.
+const STICKER_LEGIBLE = STICKER_ENUM.filter(s => s !== '' && s !== 'UNREADABLE');
 
-// Sticker frame-ID (mechanism b, on-demand at retry): Haiku over all frames at 1024px
-// (resizeToHaikuSafe — the Haiku token-ceiling fit), returns the indices of frames showing the
-// upper-windscreen lot label / lot number. Isolated from the money pipeline. Fails to [] — the
-// caller then re-reads the FULL set (fallback is load-bearing: frame-ID miss → broad retry, never
-// no-retry). Model choice validated by substrate: the [FRAME ID] log + frameSource stamp make each
-// fired retry a data point on Haiku's frame-ID accuracy; swap to Opus is a pre-authorised follow-up.
-async function runStickerFrameId(images, onExhaust) {
+// Frame-zone classification (always-run; supersedes the on-demand sticker frame-ID it replaces).
+// One Haiku pass over ALL frames at 1024px (resizeToHaikuSafe — the token-ceiling fit), returning
+// per-frame vehicle-aspect zones + windscreen-label visibility. Feeds the sticker retry's targeted
+// read (windscreenLabel frames) and the attribution probe's frame selection (aspect zones).
+// Isolated from the money pipeline; fails to { ok:false, frames:[] } so every consumer takes its
+// full-set fallback (silence is a defect, never a silent skip).
+const FRAME_ZONE_ENUM = ['front', 'rear', 'nearside', 'offside', 'roof', 'interior', 'detail'];
+
+async function runFrameZoneId(images, onExhaust) {
+  const emptyFail = { ok: false, frames: [] };
   try {
     const blocks = await Promise.all(images.slice(0, 35).map(resizeToHaikuSafe));
     const n = blocks.length;
+    if (n === 0) return emptyFail;
+    console.log(`[FRAME ZONE] firing over ${n} frame(s) source=haiku-1024px`);
     const prompt = `Each image is one photo of a salvage vehicle, numbered 0 to ${n - 1} in the order given.
-Identify which photos clearly show the vehicle's WINDSCREEN glass carrying the printed white Copart lot-number label and/or a grease-pen lot number — the frames where a lot sticker/number would be legible. Include a photo ONLY if the upper-windscreen / lot-label area is actually visible in it. If none show it, return an empty array.
-Return a raw JSON object only, no other text: { "frames": [<zero or more integer photo indices>] }`;
-    const { res, exhausted } = await with529Retry('sticker-frameid', () => fetch('https://api.anthropic.com/v1/messages', {
+For EACH photo, report which aspects of the vehicle it shows and whether the windscreen lot label is visible.
+- zones: which aspects of the vehicle the photo shows. Use only these words: front, rear, nearside, offside, roof, interior, detail. A photo may show more than one — a three-quarter shot showing the front and one side is ["front","nearside"]. Use "detail" for a close-up of one part or area that does not frame a whole aspect (a single wheel, a panel edge, a VIN plate). Use "interior" for cabin or dashboard shots.
+- windscreenLabel: true only when the printed white lot-number label and/or grease-pen lot number on the windscreen glass is visible in that photo; false otherwise.
+Return a raw JSON object only, no other text:
+{ "frames": [ { "i": <photo index>, "zones": ["<zone words>"], "windscreenLabel": true|false } ] }`;
+    const { res, exhausted } = await with529Retry('frame-zone', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: 128,
+        max_tokens: 3072,   // headroom: a truncated (max_tokens) reply is unparseable → global full-set fallback, so buy margin over ~35×30-tok frames
         system: 'You are a vehicle photo classifier. Respond ONLY with a raw JSON object. No markdown, no explanation.',
         messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
       }),
     }));
-    if (exhausted) { onExhaust?.(); return []; }
-    if (!res?.ok) { console.warn('[FRAME ID] API error:', res?.status); return []; }
+    if (exhausted) { onExhaust?.(); return emptyFail; }
+    if (!res?.ok) { console.warn('[FRAME ZONE] API error:', res?.status); return emptyFail; }
     const apiData = await res.json();
-    console.log('[TOKEN LOG] sticker-frameid Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
+    console.log('[TOKEN LOG] frame-zone Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[FRAME ZONE] max_tokens — truncated; failed state'); return emptyFail; }
+    if (apiData.stop_reason === 'refusal')   { console.warn('[FRAME ZONE] refusal — content policy; failed state'); return emptyFail; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) { console.warn('[FRAME ID] no JSON object in response'); return []; }
+    if (!m) { console.warn('[FRAME ZONE] no JSON object in response; failed state'); return emptyFail; }
     const parsed = JSON.parse(m[0]);
-    const arr = Array.isArray(parsed.frames) ? parsed.frames : [];
-    return [...new Set(arr.filter(i => Number.isInteger(i) && i >= 0 && i < n))];
+    const rawFrames = Array.isArray(parsed.frames) ? parsed.frames : null;
+    if (!rawFrames) { console.warn('[FRAME ZONE] no frames array; failed state'); return emptyFail; }
+    const seen = new Set();
+    const frames = [];
+    for (const f of rawFrames) {
+      const i = Number.isInteger(f?.i) ? f.i : null;
+      if (i === null || i < 0 || i >= n || seen.has(i)) continue;        // in-range unique indices only
+      seen.add(i);
+      const rawZones = Array.isArray(f.zones) ? f.zones : [];
+      const zones = [...new Set(rawZones
+        .map(z => (typeof z === 'string' ? z.trim().toLowerCase() : ''))
+        .filter(z => {
+          const ok = FRAME_ZONE_ENUM.includes(z);
+          if (!ok && z) console.warn(`[FRAME ZONE] dropped unknown zone "${z}" (frame ${i})`);
+          return ok;
+        }))];
+      frames.push({ i, zones, windscreenLabel: f.windscreenLabel === true });
+    }
+    const zc = FRAME_ZONE_ENUM.reduce((a, z) => { a[z] = frames.filter(fr => fr.zones.includes(z)).length; return a; }, {});
+    console.log(`[FRAME ZONE] ok=true frames=${frames.length}/${n} windscreenLabel=${frames.filter(fr => fr.windscreenLabel).length} zones=${JSON.stringify(zc)}`);
+    return { ok: true, frames };
   } catch (err) {
-    console.warn('[FRAME ID] error:', err.message);
-    return [];
+    console.warn('[FRAME ZONE] error:', err.message);
+    return emptyFail;
   }
 }
 
@@ -2572,6 +2604,11 @@ export async function GET(request) {
           return [first, ...rest];
         })();
 
+    // Frame-zone classification — always-run (supersedes the on-demand sticker frame-ID). Fires in
+    // parallel with the per-view fan-out; resolved once after amalgamate (below), consumed by the
+    // sticker retry (windscreenLabel frames) and — commit 2 — the attribution probe (aspect zones).
+    const frameZonePromise = runFrameZoneId(images, () => _exhaustedCalls.add('frame-zone'));
+
     const enrichedVd = normaliseLot(vd);
 
     // TEMP NORM-VALIDATION — REMOVE after field diff vs NORM-BASELINE confirmed (zero changes except damageDescription Category label)
@@ -2944,6 +2981,11 @@ export async function GET(request) {
     const pvResult          = amalgamate(groups, viewPanelSets);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
+    // Resolve the always-run frame-zone pass once (fired at the per-view fan-out). By here per-view
+    // is already awaited, so this single Haiku call is long done — a no-cost join before CALL1.
+    // Consumed by the sticker retry (windscreenLabel) and, in commit 2, the attribution probe (zones).
+    const _frameZones = await frameZonePromise; // { ok, frames:[{i,zones,windscreenLabel}] }
+
     const callClaude = async (withTools, forced = false) => {
       const body = JSON.stringify({
         model: 'claude-opus-4-8',
@@ -3240,6 +3282,7 @@ export async function GET(request) {
     const assessment = parseAssessment(sanitizedRawText);
     assessment._raw = sanitizedRawText;
     assessment._market = market;
+    assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
     if (lampResult) assessment._lampResult = lampResult;
     assessment._lampObs = lampObs ? {
       apertureExposed: lampObs.apertureExposed,
@@ -4134,11 +4177,14 @@ export async function GET(request) {
     let _finalSticker = _primarySticker;
     let _stickerRetry = { fired: false, primary: _primarySticker, frameSource: null, final: _primarySticker };
     if (_primarySticker === '' || _primarySticker === 'UNREADABLE') {
-      const _frames = await runStickerFrameId(images, () => _exhaustedCalls.add('sticker-frameid'));
-      console.log(`[FRAME ID] frames=${_frames.length ? _frames.join(',') : 'none'} source=haiku-1024px`);
-      console.log(`[STICKER RETRY] primary="${_primarySticker}" → fired (frames=${_frames.length || 'all'})`);
-      const _retry = await runStickerRead(images, _frames, () => _exhaustedCalls.add('sticker-read'));
-      if (['X', 'P', 'C', 'Q', 'OTHER'].includes(_retry)) {
+      // windscreenLabel frames come from the always-run frame-zone pass (already sanitised to in-range
+      // unique indices). Full-set fallback is load-bearing: pass failed OR zero windscreenLabel frames
+      // → _wlFrames=[] → runStickerRead re-reads the FULL set (broad retry, never no-retry).
+      const _wlFrames = _frameZones.ok ? _frameZones.frames.filter(f => f.windscreenLabel).map(f => f.i) : [];
+      console.log(`[STICKER RETRY] windscreenLabel frames=${_wlFrames.length ? _wlFrames.join(',') : 'none'} source=${_frameZones.ok ? 'frame-zone' : 'frame-zone-failed'}`);
+      console.log(`[STICKER RETRY] primary="${_primarySticker}" → fired (frames=${_wlFrames.length || 'all'})`);
+      const _retry = await runStickerRead(images, _wlFrames, () => _exhaustedCalls.add('sticker-read'));
+      if (STICKER_LEGIBLE.includes(_retry)) {
         _finalSticker = _retry;                                               // retry rescued a legible letter
         console.log(`[STICKER RETRY] result=${_retry} adopted`);
       } else {
@@ -4146,7 +4192,7 @@ export async function GET(request) {
         _finalSticker = (_primarySticker === 'UNREADABLE' || _retry === 'UNREADABLE') ? 'UNREADABLE' : '';
         console.log(`[STICKER RETRY] result=${_finalSticker === 'UNREADABLE' ? 'unreadable' : 'confirmed-empty'}`);
       }
-      _stickerRetry = { fired: true, primary: _primarySticker, frameSource: _frames.length ? `haiku:[${_frames.join(',')}]` : 'full-set-fallback', final: _finalSticker };
+      _stickerRetry = { fired: true, primary: _primarySticker, frameSource: _wlFrames.length ? `frame-zone:[${_wlFrames.join(',')}]` : 'full-set-fallback', final: _finalSticker };
     }
     assessment._stickerRetry = _stickerRetry;
 
