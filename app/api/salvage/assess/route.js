@@ -1182,6 +1182,91 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
   }
 }
 
+// ── Attribution probe (commit 2) — per costed panel, challenge the pipeline's own claim ───────
+// Fired at the application point over the surviving costed set (Option B — universal by
+// construction). Opus, one call per panel; a mismatch or non-verdict FLOORS (one-way, never
+// promotes). Structured alongside the other targeted reads (aperture/sticker): imageBlocks map,
+// with529Retry, trailing cache_control breakpoint, raw-JSON parse + closed-enum validation.
+
+// Fixed, code-owned severity wording — single owner of the two costed grades' probe phrasing.
+const PROBE_SEVERITY_WORDING = {
+  SEVERE:   'seriously impact-damaged and requiring replacement',
+  MODERATE: 'impact-damaged and requiring significant repair',
+};
+
+// Code-owned inspection-flag wording for a probe-floored panel. SEVERE leads "Serious damage";
+// MODERATE drops the word. Buyer-facing; no internal-contradiction leak.
+function attribFlagWording(partName, grade) {
+  const lead = grade === 'SEVERE' ? 'Serious damage to the' : 'Damage to the';
+  return `${lead} ${partName} was recorded during assessment but could not be photographically confirmed — inspect this panel before bidding.`;
+}
+
+// Panel zone → frame-zone aspect words. underside / anything unmapped → null → full set.
+const PROBE_ZONE_MAP = {
+  front: ['front'], rear: ['rear'], 'flank-damaged-side': ['nearside', 'offside'],
+  roof: ['roof'], interior: ['interior'],
+};
+// Frame selection from the always-run frame-zone pass. Every fallback names itself in `source`
+// (silence is a defect). null indices → the probe reads the full set.
+function selectProbeFrames(frameZones, panelZone) {
+  if (!frameZones.ok) return { indices: null, source: 'full-set:frame-zone-failed' };
+  const want = PROBE_ZONE_MAP[panelZone];
+  if (!want) return { indices: null, source: `full-set:no-zone-map(${panelZone})` };
+  const idx = frameZones.frames.filter(f => f.zones.some(z => want.includes(z))).map(f => f.i).slice(0, 35);
+  if (idx.length === 0) return { indices: null, source: `full-set:no-matched-frames(${panelZone})` };
+  return { indices: idx, source: `frame-zone:[${idx.join(',')}]` };
+}
+
+const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
+
+// One probe call. Returns { verdict, note } when the model reached a verdict (off-enum coerces to
+// 'cannot-determine' — a reached verdict floors). Returns null ONLY on infrastructure failure
+// (exhaust / !ok / max_tokens / refusal / parse throw) — the caller stamps probe-error and KEEPS.
+async function runAttributionProbe(images, frameIndices, partName, severityWording, onExhaust) {
+  const all = images.slice(0, 35);
+  const targeted = Array.isArray(frameIndices) && frameIndices.length
+    ? frameIndices.map(i => images[i]).filter(Boolean) : [];
+  const frameSet = targeted.length ? targeted : all;   // full-set fallback (never empty)
+  try {
+    const imageBlocks = frameSet.map(img => {
+      let mediaType = 'image/jpeg';
+      let data = img;
+      const mm = img.match(/^data:([^;]+);base64,(.+)$/);
+      if (mm) { mediaType = mm[1]; data = mm[2]; }
+      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    });
+    if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
+    const prompt = `An assessment of this salvage vehicle claims: the ${partName} is ${severityWording}. Examine the photographs. State exactly what damage is identifiable on the ${partName} and where, or state plainly that no damage can be identified on it.
+Return a raw JSON object only, no other text:
+{ "verdict": "no-damage-visible" | "minor-cosmetic" | "consistent-with-claim" | "cannot-determine", "note": "<one sentence>" }`;
+    const { res, exhausted } = await with529Retry('attribution-probe', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-opus-4-8',
+        max_tokens: 256,
+        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
+        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
+      }),
+    }));
+    if (exhausted) { onExhaust?.(); return null; }
+    if (!res?.ok) { console.warn('[ATTRIB PROBE] API error:', res?.status); return null; }
+    const apiData = await res.json();
+    console.log('[TOKEN LOG] attribution-probe Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[ATTRIB PROBE] max_tokens — truncated; infra-failure (keep)'); return null; }
+    if (apiData.stop_reason === 'refusal')   { console.warn('[ATTRIB PROBE] refusal — content policy; infra-failure (keep)'); return null; }
+    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) { console.warn('[ATTRIB PROBE] no JSON object in response; infra-failure (keep)'); return null; }
+    const parsed = JSON.parse(m[0]);
+    const verdict = PROBE_VERDICT_ENUM.includes(parsed.verdict) ? parsed.verdict : 'cannot-determine';
+    return { verdict, note: typeof parsed.note === 'string' ? parsed.note : '' };
+  } catch (err) {
+    console.warn('[ATTRIB PROBE] error:', err.message);
+    return null;   // parse/other throw = infra-failure (keep)
+  }
+}
+
 // Paired-flank panels: exactly TWO physical instances (left + right) on every car.
 // Option G (cross-view correspondence pass) runs ONLY on these eight panels.
 // WHEEL/TYRE (four instances each) are explicitly excluded — their four-corner problem
@@ -3759,6 +3844,86 @@ export async function GET(request) {
       }
     }
     // ── End zone-consistency floor ─────────────────────────────────────────────
+
+    // ── Attribution probe (commit 2) — universal per-panel claim challenge ──────
+    // Option B: fire over the surviving costed set (iv:true) right here, after every upstream floor
+    // (aperture/RAD/sticky/zone) has run — universal by construction, no wasted calls, no skip
+    // bookkeeping (skipped-already-floored stays in the action enum as documented-unreachable under
+    // B). One-way: a verdict may FLOOR, never promote. rad-pack is EXEMPT (its disposition machinery
+    // above is sole owner) — probe fired for telemetry, no mutation.
+    assessment._attributionProbe = { ok: true, panels: [] };
+    {
+      const _probeSurvivors = coreObs.costedParts.filter(cp => cp.independentlyVisible === true);
+      const _probeResults = await Promise.all(_probeSurvivors.map(async (cp) => {
+        const _graded = PROBE_SEVERITY_WORDING[cp._ledgerSeverity] ? cp._ledgerSeverity : null;
+        if (!_graded) console.log(`[ATTRIB PROBE] ${cp.panelId} no ledger grade → MODERATE wording (guard)`);
+        const grade = _graded || 'MODERATE';
+        const { indices, source } = selectProbeFrames(_frameZones, cp.zone);
+        const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], PROBE_SEVERITY_WORDING[grade], () => _exhaustedCalls.add('attribution-probe'));
+        return { cp, grade, frames: indices ? indices : 'full-set', frameSource: source, r };
+      }));
+      const _attribFloored = [];
+      for (const { cp, grade, frames, frameSource, r } of _probeResults) {
+        const claim = `${PANEL_DISPLAY[cp.panelId]} is ${PROBE_SEVERITY_WORDING[grade]}`;
+        let action;
+        if (cp.panelId === PANEL.RADIATOR_PACK) {
+          action = 'exempt-rad';                                   // telemetry only, no mutation
+        } else if (r === null) {
+          action = 'probe-error';                                 // infra-failure → KEEP
+        } else if (r.verdict === 'consistent-with-claim') {
+          action = 'kept';
+        } else {
+          // FLOOR — mirror the zone-floor flag push EXACTLY (:3748-3755); only the marker differs.
+          cp.independentlyVisible = false;
+          cp._attribFloored = true;
+          coreObs.flaggedParts.push({
+            panelId:  cp.panelId,
+            partName: PANEL_DISPLAY[cp.panelId],
+            zone:     cp.zone,
+            weight:   grade === 'SEVERE' ? 'high' : 'medium',
+            reason:   attribFlagWording(PANEL_DISPLAY[cp.panelId], grade),
+            _attribFloored: true,
+          });
+          _attribFloored.push({ partName: PANEL_DISPLAY[cp.panelId] });
+          action = 'floored';
+        }
+        assessment._attributionProbe.panels.push({
+          panelId: cp.panelId, claim, verdict: r ? r.verdict : 'probe-error',
+          note: r ? r.note : '', frames, action,
+        });
+        console.log(`[ATTRIB PROBE] ${cp.panelId} ${r ? r.verdict : 'probe-error'} ${action} frames=${frameSource}`);
+      }
+
+      // Post-application scrub — the bumperOffDemoted KCD/RF scrub ran long before probes existed,
+      // so probe-floored cost lines need their own pass. Same class: canonical part-name regex from
+      // PANEL_DISPLAY, leading-token for KCD, full-line for Red Flags. The floored panel's cost line
+      // must not survive on any prose surface (no internal contradiction).
+      if (_attribFloored.length > 0) {
+        const _escRx = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const _attribRx = _attribFloored.map(d => new RegExp('\\b' + _escRx(d.partName) + '\\b', 'i'));
+        if (assessment['Key Cost Drivers']) {
+          const lines = assessment['Key Cost Drivers'].split('\n');
+          const kept = lines.filter(line => {
+            const mm = line.match(/^[\s\-*•\d.]*(.+?):/);
+            if (!mm) return true;
+            return !_attribRx.some(rx => rx.test(mm[1].trim()));
+          });
+          if (kept.length < lines.length) {
+            console.log(`[ATTRIB SCRUB] KCD dropped ${lines.length - kept.length} line(s) for probe-floored panels`);
+            assessment['Key Cost Drivers'] = kept.join('\n').trim() || '';
+          }
+        }
+        if (assessment['Red Flags']) {
+          const rfLines = assessment['Red Flags'].split('\n');
+          const rfKept  = rfLines.filter(line => !_attribRx.some(rx => rx.test(line)));
+          if (rfKept.length < rfLines.length) {
+            console.log(`[ATTRIB SCRUB] Red Flags dropped ${rfLines.length - rfKept.length} line(s) for probe-floored panels`);
+            assessment['Red Flags'] = rfKept.join('\n').trim() || '';
+          }
+        }
+      }
+    }
+    // ── End attribution probe ───────────────────────────────────────────────────
 
     // Grille-set allowance detection: fires when per-view or aperture rule established
     // the front grille missing (_amalgMissing) and the main call did not price it.
