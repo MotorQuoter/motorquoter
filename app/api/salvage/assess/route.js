@@ -1269,9 +1269,18 @@ function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
 //   3. null → full-set fallback inside runAperturePanelRead.
 function selectApertureFrames(cp, frameZones, struckSide, apertureZone) {
   if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
-    const idx = cp._probeViews.slice(0, 35);
-    if (idx.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin instance set (${idx.length} frames)`);
-    return { indices: idx, source: `corr-instance:[${idx.join(',')}]` };
+    // Opposite-reference augmentation: append the Case-B excluded-CLEAN views so the C1 comparison
+    // instruction has reference material (the split's damaged-only set starves it). Damaged frames
+    // LEAD (index order = payload order); deduped refs FOLLOW. Thin-set log measures the damaged
+    // instance (not the augmented set) — augmentation adds comparators, not damage evidence.
+    const dmg  = cp._probeViews;
+    const refs = Array.isArray(cp._oppRefViews) ? cp._oppRefViews.filter(i => !dmg.includes(i)) : [];
+    const idx  = [...dmg, ...refs].slice(0, 35);
+    if (dmg.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin instance set (${dmg.length} frames)`);
+    const source = refs.length
+      ? `corr-instance+opp-ref:[${dmg.join(',')}]+[${refs.join(',')}]`
+      : `corr-instance:[${dmg.join(',')}]`;
+    return { indices: idx, source };
   }
   if (frameZones.ok) {
     const want = [apertureZone];
@@ -1955,7 +1964,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       }
       // Case B accepted: one group carrying only the damaged instance's views
       console.log(`[G] ${panelId} instances=1 excluded=${excludedIndices.length} damaged=${instDamagedVotes} clean=${instCleanVotes} confidence=${corr.confidence} action=split`);
-      result.push({ panelId, _instanceKey: `${panelId}#1`, members: instanceMembers });
+      result.push({ panelId, _instanceKey: `${panelId}#1`, members: instanceMembers, _oppRefViews: excludedCleanViews });
       excludedIndices.forEach(idx => {
         const iv = (memberByView.get(idx) ?? '').match(/\|\s*iv:(true|false|na|missing)\s*\|/i)?.[1] ?? '?';
         console.log(`[G] ${panelId} excluded view:${idx} iv:${iv} (opposite-side — not part of damaged instance)`);
@@ -1976,7 +1985,7 @@ function amalgamate(groups, viewPanelSets) {
   let pvVotesCollision = false;
   if (!Array.isArray(groups) || groups.length === 0) return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
   for (const group of groups) {
-    const { panelId, members, _instanceKey } = group; // panelId is the enum-ID group key from groupByPanelId
+    const { panelId, members, _instanceKey, _oppRefViews } = group; // panelId is the enum-ID group key from groupByPanelId
     if (!Array.isArray(members) || members.length === 0) {
       console.warn(`[AMALG] ${panelId} — empty members array; skipping (invariant: groupByPanelId never produces empty groups)`);
       continue;
@@ -2110,7 +2119,13 @@ function amalgamate(groups, viewPanelSets) {
     // LOAD-BEARING INVARIANT: each branch of the chain above pushes AT MOST ONE costedParts entry
     // (flag-class branches push zero) — so when the count grew, the last entry is this group's costed
     // part. If a future branch pushes two costed entries this stamp silently mis-targets; keep it 1:1.
-    if (costedParts.length > _preCosted) costedParts[costedParts.length - 1]._probeViews = _probeViews;
+    if (costedParts.length > _preCosted) {
+      const _cp = costedParts[costedParts.length - 1];
+      _cp._probeViews = _probeViews;
+      // opp-ref: carry the Case-B excluded-clean views (group._oppRefViews) so the aperture P1 branch
+      // can append them as opposite-side reference frames. Same 1:1 last-entry mechanism as _probeViews.
+      if (Array.isArray(_oppRefViews) && _oppRefViews.length) _cp._oppRefViews = _oppRefViews;
+    }
     // Per-panel vote split — keyed by _instanceKey when G split this panel, else bare panelId.
     // _instanceKey (e.g. 'FRONT_DOOR#1') keeps pvVotesMap entries distinct for G-split instances
     // while all downstream consumers (gate, VDS, seeder) still see bare panelId on the object.
