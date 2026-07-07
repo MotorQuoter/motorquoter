@@ -1122,19 +1122,22 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
 // panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
 // Fail-safe: any failure/exhaust → null; invalid verdict → 'ambiguous'. Both keep cost
 // (policy: on structure, ambiguity falls to assume-damage).
-async function runAperturePanelRead(images, lampObs, frameIndices, onExhaust) {
-  // Corner steer from the structured impact obs (hint only — model self-locates as lamp-detect does).
-  const sideWord  = (lampObs?.struckSide === 'offside' || lampObs?.struckSide === 'nearside') ? lampObs.struckSide : '';
-  const apertures = [];
-  if (lampObs?.apertureExposed)     apertures.push('front');
-  if (lampObs?.rearApertureExposed) apertures.push('rear');
-  const cornerHint = `${sideWord ? sideWord + ' ' : ''}${apertures.join(' and ')}`.trim() || 'damaged';
-  const APERTURE_PROMPT = `You are judging a single salvage vehicle from auction photos. The ${apertures.includes('rear') ? 'rear bumper' : 'front bumper'} is displaced or torn away on the ${cornerHint} corner, exposing the body panel behind it (the rear quarter panel for a rear corner, the front wing for a front corner).
+async function runAperturePanelRead(images, lampObs, frameIndices, apertureZone, onExhaust) {
+  // Per-suspect corner steer (C1): zone comes from the caller's suspect tag, not lampObs aggregation.
+  // struckSide is a FRONT-impact datum (C2 ruling) — it steers the FRONT hint only, never a rear read.
+  const isRear     = apertureZone === 'rear';
+  const bumperWord = isRear ? 'rear bumper' : 'front bumper';
+  const sideWord   = (!isRear && (lampObs?.struckSide === 'offside' || lampObs?.struckSide === 'nearside'))
+    ? lampObs.struckSide + ' ' : '';
+  const cornerHint = isRear ? 'rear' : `${sideWord}front`;
+  const APERTURE_PROMPT = `You are judging a single salvage vehicle from auction photos. The ${bumperWord} is displaced or torn away on the ${cornerHint} corner, exposing the body panel behind it (the rear quarter panel for a rear corner, the front wing for a front corner).
 
 Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
 
-TORN = the panel's own metal is folded, torn, buckled, creased, or crumpled; panel edges are displaced; the body line is deformed. This is genuine impact to the panel.
-SEAM = a straight, intact factory seam or join line is now visible only because the bumper is gone, with NO metal deformation on the panel face itself. The panel is undamaged; you are seeing a normal join the bumper used to cover.
+TORN = deformation on the panel FACE, away from the bumper-mating edge: sharp creases radiating into the panel face, dents or crumpling on the face, cracked or scuffed paint at the deformation, or a body line misaligned versus the adjacent door or panel. This is genuine impact to the panel.
+SEAM = a factory pressed flange, fold, return edge, seam, or join line at the panel's bumper-mating edge, now visible ONLY because the bumper is displaced or absent. These factory closures are often CURVED and can present as a sharp line or a fold — that is normal manufacture, NOT damage. Deformation AT or ALONG the exposed mating edge alone, with the panel face otherwise clean, is SEAM.
+
+Where the opposite-side equivalent panel is visible in any photo, compare against it: if the exposed structure mirrors the covered or undamaged side's construction, it is factory (SEAM), not damage.
 
 Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
 { "verdict": "torn" | "seam" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see>" }
@@ -1178,7 +1181,7 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
     const parsed = JSON.parse(match[0]);
     const verdict  = ['torn', 'seam', 'ambiguous'].includes(parsed.verdict) ? parsed.verdict : 'ambiguous';
     const evidence = typeof parsed.evidence === 'string' ? parsed.evidence : '';
-    console.log(`[APERTURE PANEL] verdict=${verdict} evidence="${evidence.slice(0, 80)}"`);
+    console.log(`[APERTURE PANEL] verdict=${verdict} evidence="${evidence}"`);
     return { verdict, evidence };
   } catch (err) {
     console.warn('[APERTURE PANEL] error:', err.message);
@@ -3538,6 +3541,7 @@ export async function GET(request) {
     // No peel/crush classification: bumper off is sufficient — the seam is exposed
     // regardless of how the bumper left.
     const bumperOffDemoted = []; // { partName, rx } — fed to KCD scrub below
+    let _apertureReads = [];     // hoisted above the (unconditional) block so the always-stamp below runs on every lot
     {
       // Adjacent-bumper LEDGER signal (code-owned fact) OR'd with the model flag.
       // A severe/displaced/missing bumper means the wing/quarter seam behind it is exposed →
@@ -3567,10 +3571,10 @@ export async function GET(request) {
       // (b) C3 — fire a targeted aperture read PER suspect (frames per selectApertureFrames; prompt
       // byte-identical — same lampObs). Parallel; full-set fallback inside runAperturePanelRead. Each
       // panel is now gated on ITS OWN verdict, not one shared full-set read.
-      const _apertureReads = await Promise.all(_apertureSuspects.map(async (s) => {
+      _apertureReads = await Promise.all(_apertureSuspects.map(async (s) => {
         const { indices, source } = selectApertureFrames(s.cp, _frameZones, lampObs?.struckSide, s.apertureZone);
-        const r = await runAperturePanelRead(images, lampObs, indices, () => _exhaustedCalls.add('aperture-panel'));
-        return { ...s, verdict: r?.verdict ?? null, frameSource: source };
+        const r = await runAperturePanelRead(images, lampObs, indices, s.apertureZone, () => _exhaustedCalls.add('aperture-panel'));
+        return { ...s, verdict: r?.verdict ?? null, evidence: r?.evidence ?? '', frameSource: source };
       }));
       // (c) demote each suspect on its own torn-vs-seam verdict. Demote ONLY on a confirmed intact
       // seam; 'torn'/'ambiguous'/null keep cost (cost survives via the existing G-inject table path
@@ -3600,6 +3604,11 @@ export async function GET(request) {
         console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
       }
     }
+    // Always-stamp (C1): full per-suspect aperture evidence into JSONB — [] on no-suspect lots. Runs on
+    // EVERY lot (outside the unconditional block); _apertureReads is hoisted above the block for this.
+    assessment._apertureReads = _apertureReads.map(a => ({
+      panelId: a.cp.panelId, verdict: a.verdict, evidence: a.evidence, frameSource: a.frameSource,
+    }));
     // ── End bumper-off rule ────────────────────────────────────────────────────
 
     // ── RADIATOR_PACK corroboration floor + low-centre escape hatch (post-amalgamate) ──
