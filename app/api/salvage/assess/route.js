@@ -2219,18 +2219,19 @@ function deriveLampType(vd) {
   return 'indeterminate';
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'single_corner') {
-  // struckSide kept as internal field for logging only — never interpolated into rendered strings
-  const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
+// Assumed-LED disclosure — single owner of the wording. Emitted as prose by computeLampResult on the
+// tier-2 assumed path, and as an inspection flag on the tier-1 orphan clamp (post-gate, below) — the
+// disclosure follows the assumption wherever an assumed-LED band arises, not any one trigger path.
+const LAMP_ASSUMED_DISCLOSURE = 'Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
 
-  // Band selection. When the spec table returns a CONCRETE type it OWNS the band: the make/
-  // model/year table is encoded trade knowledge, and a single-run vision lamp read (which
-  // oscillates run-to-run) may not override it upward. Detection decides ONLY when the spec
-  // table is indeterminate — then the take-the-HIGHER rule runs, preserving the LED default
-  // (never under-budget). Discarded detection is logged so the swing is visible.
-  const LAMP_RANK    = { halogen: 1, hid: 2, led: 3 };
-  const specAssumed      = !HEADLAMP_BANDS[lampType];
-  const resolvedSpecType = specAssumed ? HEADLAMP_BAND_DEFAULT : lampType;
+// Single owner of the spec→type→band resolution. Spec-table type OWNS the band when concrete; when
+// indeterminate, the HIGHER of any vision detection / LED default is used (never under-budget).
+// Consumed by computeLampResult (with detection) and by the request-scope specLampBand computation for
+// the tier-1 orphan clamp (detection null). Discarded detection is logged so the swing is visible.
+function resolveLampBand(specLampType, detectionLampType = null) {
+  const LAMP_RANK        = { halogen: 1, hid: 2, led: 3 };
+  const specAssumed      = !HEADLAMP_BANDS[specLampType];
+  const resolvedSpecType = specAssumed ? HEADLAMP_BAND_DEFAULT : specLampType;
   const resolvedDetType  = (detectionLampType && HEADLAMP_BANDS[detectionLampType]) ? detectionLampType : null;
   let resolvedType;
   if (!specAssumed) {
@@ -2242,13 +2243,22 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     resolvedType = (resolvedDetType && (LAMP_RANK[resolvedDetType] ?? 0) > (LAMP_RANK[resolvedSpecType] ?? 0))
       ? resolvedDetType : resolvedSpecType;                // spec indeterminate → HIGHER of detection / LED default
   }
-  const bandValue       = HEADLAMP_BANDS[resolvedType];
-  const lampTypeAssumed = specAssumed && !resolvedDetType;
+  return { resolvedType, bandValue: HEADLAMP_BANDS[resolvedType], lampTypeAssumed: specAssumed && !resolvedDetType };
+}
+
+function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'single_corner') {
+  // struckSide kept as internal field for logging only — never interpolated into rendered strings
+  const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
+
+  // Band selection is owned by resolveLampBand (single owner): spec-table type wins when concrete;
+  // when indeterminate, the HIGHER of detection / LED default. Detection oscillates run-to-run and
+  // may never override a concrete spec upward.
+  const { resolvedType, bandValue, lampTypeAssumed } = resolveLampBand(lampType, detectionLampType);
 
   // Lamp count from geometry: full-width frontal implies both lamps implicated
   const lampCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
 
-  const assumedDisclosure = ' Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
+  const assumedDisclosure = ' ' + LAMP_ASSUMED_DISCLOSURE;
   const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
@@ -3972,11 +3982,33 @@ export async function GET(request) {
       console.log('[PRICE TABLE] no trade_average_valuation — all panels retain model figures (Q2 fallback)');
     }
 
-    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey);
+    // Spec-table lamp band, computed at request scope regardless of tier / lampObs — the tier-1 orphan
+    // clamp (reconcileParts) needs a band even when the lamp machinery never fired (undisplaced front).
+    // Detection is null here: the orphan path has no lamp-detect read; spec-table type (LED default when
+    // indeterminate) owns it. Single owner of the resolution: resolveLampBand (shared with computeLampResult).
+    const _specLampType = deriveLampType(enrichedVd);
+    const { bandValue: specLampBand, lampTypeAssumed: specLampAssumed } = resolveLampBand(_specLampType, null);
+    console.log(`[LAMP][SPEC-BAND] type=${_specLampType || 'indeterminate'} band=£${specLampBand} assumed=${specLampAssumed}`);
+
+    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
     const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+
+    // Tier-1 orphan clamp disclosure — reconcileParts marks assumed-LED orphan rows; the disclosure
+    // follows the assumption, so emit the assumed-LED inspection flag here wherever such a row survives
+    // the gate. computeLampResult carries the same disclosure as prose on the tier-2 assumed path; the
+    // orphan has no prose surface, so it gets the flag instead. Single-owner wording: LAMP_ASSUMED_DISCLOSURE.
+    for (const gp of gatedParts) {
+      if (!gp._orphanAssumedDisclosure) continue;
+      if (coreObs.flaggedParts.some(f => normName(f.partName) === normName(gp.name) && f._orphanLampDisclosure)) continue;
+      coreObs.flaggedParts.push({
+        partName: gp.name, zone: 'front', weight: 'medium',
+        reason: LAMP_ASSUMED_DISCLOSURE, _orphanLampDisclosure: true, _gateGenerated: true,
+      });
+      console.log(`[LAMP ORPHAN] "${gp.name}" assumed-LED disclosure flag emitted`);
+    }
 
     // Option G — inject code-owned cost lines for G-split COSTED instances.
     // These entries were filtered out of the model-facing ledger (see ledgerPreamble) so the
