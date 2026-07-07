@@ -1194,9 +1194,18 @@ const PROBE_SEVERITY_WORDING = {
   MODERATE: 'impact-damaged and requiring significant repair',
 };
 
-// Code-owned inspection-flag wording for a probe-floored panel. SEVERE leads "Serious damage";
-// MODERATE drops the word. Buyer-facing; no internal-contradiction leak.
-function attribFlagWording(partName, grade) {
+// Missing-class claim wording — single owner. Used when the ledger records the part ABSENT
+// (_amalgMissing). The probe question and verdict enum invert accordingly (see runAttributionProbe).
+const PROBE_MISSING_WORDING = 'missing, torn away in the impact';
+
+// Code-owned inspection-flag wording for a probe-floored panel. Buyer-facing; no internal-
+// contradiction leak. Missing-claim parts get a "recorded as missing … absence not confirmed"
+// line (a "damage was recorded" flag against a missing claim is itself a self-contradiction).
+// For the damaged class, SEVERE leads "Serious damage"; MODERATE drops the word.
+function attribFlagWording(partName, grade, isMissing) {
+  if (isMissing) {
+    return `The ${partName} was recorded as missing during assessment but its absence could not be photographically confirmed — inspect this panel before bidding.`;
+  }
   const lead = grade === 'SEVERE' ? 'Serious damage to the' : 'Damage to the';
   return `${lead} ${partName} was recorded during assessment but could not be photographically confirmed — inspect this panel before bidding.`;
 }
@@ -1218,11 +1227,15 @@ function selectProbeFrames(frameZones, panelZone) {
 }
 
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
+// Missing-branch verdict vocabulary. Mapping is INVERTED vs the damaged branch: absent /
+// area-destroyed CONFIRM a missing claim (keep); present-and-intact / minor-cosmetic-only
+// CONTRADICT it (floor). cannot-determine is shared with the damaged enum and floors in both.
+const PROBE_MISSING_VERDICT_ENUM = ['absent', 'area-destroyed', 'present-and-intact', 'minor-cosmetic-only', 'cannot-determine'];
 
 // One probe call. Returns { verdict, note } when the model reached a verdict (off-enum coerces to
 // 'cannot-determine' — a reached verdict floors). Returns null ONLY on infrastructure failure
 // (exhaust / !ok / max_tokens / refusal / parse throw) — the caller stamps probe-error and KEEPS.
-async function runAttributionProbe(images, frameIndices, partName, severityWording, onExhaust) {
+async function runAttributionProbe(images, frameIndices, partName, claimWording, isMissing, onExhaust) {
   const all = images.slice(0, 35);
   const targeted = Array.isArray(frameIndices) && frameIndices.length
     ? frameIndices.map(i => images[i]).filter(Boolean) : [];
@@ -1236,7 +1249,12 @@ async function runAttributionProbe(images, frameIndices, partName, severityWordi
       return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     });
     if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
-    const prompt = `An assessment of this salvage vehicle claims: the ${partName} is ${severityWording}. Examine the photographs. State exactly what damage is identifiable on the ${partName} and where, or state plainly that no damage can be identified on it.
+    const enumList = isMissing ? PROBE_MISSING_VERDICT_ENUM : PROBE_VERDICT_ENUM;
+    const prompt = isMissing
+      ? `An assessment of this salvage vehicle claims: the ${partName} is ${claimWording}. Examine the photographs. State plainly whether the ${partName} is present and intact in its mounting, or whether it is absent / its mounting area is destroyed by the impact.
+Return a raw JSON object only, no other text:
+{ "verdict": "absent" | "area-destroyed" | "present-and-intact" | "minor-cosmetic-only" | "cannot-determine", "note": "<one sentence>" }`
+      : `An assessment of this salvage vehicle claims: the ${partName} is ${claimWording}. Examine the photographs. State exactly what damage is identifiable on the ${partName} and where, or state plainly that no damage can be identified on it.
 Return a raw JSON object only, no other text:
 { "verdict": "no-damage-visible" | "minor-cosmetic" | "consistent-with-claim" | "cannot-determine", "note": "<one sentence>" }`;
     const { res, exhausted } = await with529Retry('attribution-probe', () => fetch('https://api.anthropic.com/v1/messages', {
@@ -1252,14 +1270,14 @@ Return a raw JSON object only, no other text:
     if (exhausted) { onExhaust?.(); return null; }
     if (!res?.ok) { console.warn('[ATTRIB PROBE] API error:', res?.status); return null; }
     const apiData = await res.json();
-    console.log('[TOKEN LOG] attribution-probe Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    console.log('[TOKEN LOG] attribution-probe Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| CacheWrite:', apiData.usage?.cache_creation_input_tokens ?? 0, '| CacheRead:', apiData.usage?.cache_read_input_tokens ?? 0, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
     if (apiData.stop_reason === 'max_tokens') { console.warn('[ATTRIB PROBE] max_tokens — truncated; infra-failure (keep)'); return null; }
     if (apiData.stop_reason === 'refusal')   { console.warn('[ATTRIB PROBE] refusal — content policy; infra-failure (keep)'); return null; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) { console.warn('[ATTRIB PROBE] no JSON object in response; infra-failure (keep)'); return null; }
     const parsed = JSON.parse(m[0]);
-    const verdict = PROBE_VERDICT_ENUM.includes(parsed.verdict) ? parsed.verdict : 'cannot-determine';
+    const verdict = enumList.includes(parsed.verdict) ? parsed.verdict : 'cannot-determine';
     return { verdict, note: typeof parsed.note === 'string' ? parsed.note : '' };
   } catch (err) {
     console.warn('[ATTRIB PROBE] error:', err.message);
@@ -3849,28 +3867,43 @@ export async function GET(request) {
     // Option B: fire over the surviving costed set (iv:true) right here, after every upstream floor
     // (aperture/RAD/sticky/zone) has run — universal by construction, no wasted calls, no skip
     // bookkeeping (skipped-already-floored stays in the action enum as documented-unreachable under
-    // B). One-way: a verdict may FLOOR, never promote. rad-pack is EXEMPT (its disposition machinery
-    // above is sole owner) — probe fired for telemetry, no mutation.
+    // B). One-way: a verdict may FLOOR, never promote. Code-owned money systems are EXEMPT: rad-pack
+    // (disposition machinery above is sole owner) — probe fired for telemetry, no mutation; HEADLAMP
+    // (lamp-band allowance does not read iv) — skipped entirely, no vision call, no verdict.
+    // Action enum: exempt-rad | exempt-lamp | probe-error | kept | floored (+ skipped-already-floored,
+    // documented-unreachable under B).
     assessment._attributionProbe = { ok: true, panels: [] };
     {
       const _probeSurvivors = coreObs.costedParts.filter(cp => cp.independentlyVisible === true);
       const _probeResults = await Promise.all(_probeSurvivors.map(async (cp) => {
+        const _missing = cp._amalgMissing === true;
         const _graded = PROBE_SEVERITY_WORDING[cp._ledgerSeverity] ? cp._ledgerSeverity : null;
         if (!_graded) console.log(`[ATTRIB PROBE] ${cp.panelId} no ledger grade → MODERATE wording (guard)`);
         const grade = _graded || 'MODERATE';
+        // HEADLAMP: lamp-band money is code-owned (does not read iv) — probe-exempt, no vision call.
+        if (cp.panelId === PANEL.HEADLAMP) {
+          return { cp, grade, missing: _missing, frames: 'exempt', frameSource: 'exempt-lamp', r: null, exempt: 'exempt-lamp' };
+        }
+        const claimWording = _missing ? PROBE_MISSING_WORDING : PROBE_SEVERITY_WORDING[grade];
         const { indices, source } = selectProbeFrames(_frameZones, cp.zone);
-        const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], PROBE_SEVERITY_WORDING[grade], () => _exhaustedCalls.add('attribution-probe'));
-        return { cp, grade, frames: indices ? indices : 'full-set', frameSource: source, r };
+        const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], claimWording, _missing, () => _exhaustedCalls.add('attribution-probe'));
+        return { cp, grade, missing: _missing, frames: indices ? indices : 'full-set', frameSource: source, r };
       }));
       const _attribFloored = [];
-      for (const { cp, grade, frames, frameSource, r } of _probeResults) {
-        const claim = `${PANEL_DISPLAY[cp.panelId]} is ${PROBE_SEVERITY_WORDING[grade]}`;
+      for (const { cp, grade, missing, frames, frameSource, r, exempt } of _probeResults) {
+        const claim = missing
+          ? `${PANEL_DISPLAY[cp.panelId]} is ${PROBE_MISSING_WORDING}`
+          : `${PANEL_DISPLAY[cp.panelId]} is ${PROBE_SEVERITY_WORDING[grade]}`;
         let action;
-        if (cp.panelId === PANEL.RADIATOR_PACK) {
+        if (exempt) {
+          action = exempt;                                         // exempt-lamp — no vision call, no mutation
+        } else if (cp.panelId === PANEL.RADIATOR_PACK) {
           action = 'exempt-rad';                                   // telemetry only, no mutation
         } else if (r === null) {
           action = 'probe-error';                                 // infra-failure → KEEP
-        } else if (r.verdict === 'consistent-with-claim') {
+        } else if (missing
+            ? (r.verdict === 'absent' || r.verdict === 'area-destroyed')   // inverted: absence confirms
+            : (r.verdict === 'consistent-with-claim')) {
           action = 'kept';
         } else {
           // FLOOR — mirror the zone-floor flag push EXACTLY (:3748-3755); only the marker differs.
@@ -3881,17 +3914,17 @@ export async function GET(request) {
             partName: PANEL_DISPLAY[cp.panelId],
             zone:     cp.zone,
             weight:   grade === 'SEVERE' ? 'high' : 'medium',
-            reason:   attribFlagWording(PANEL_DISPLAY[cp.panelId], grade),
+            reason:   attribFlagWording(PANEL_DISPLAY[cp.panelId], grade, missing),
             _attribFloored: true,
           });
           _attribFloored.push({ partName: PANEL_DISPLAY[cp.panelId] });
           action = 'floored';
         }
         assessment._attributionProbe.panels.push({
-          panelId: cp.panelId, claim, verdict: r ? r.verdict : 'probe-error',
+          panelId: cp.panelId, claim, verdict: r ? r.verdict : action,
           note: r ? r.note : '', frames, action,
         });
-        console.log(`[ATTRIB PROBE] ${cp.panelId} ${r ? r.verdict : 'probe-error'} ${action} frames=${frameSource}`);
+        console.log(`[ATTRIB PROBE] ${cp.panelId} ${r ? r.verdict : action} ${action} frames=${frameSource}`);
       }
 
       // Post-application scrub — the bumperOffDemoted KCD/RF scrub ran long before probes existed,
