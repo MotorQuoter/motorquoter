@@ -1135,7 +1135,9 @@ async function runAperturePanelRead(images, lampObs, frameIndices, apertureZone,
 Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
 
 TORN = deformation on the panel FACE, away from the bumper-mating edge: sharp creases radiating into the panel face, dents or crumpling on the face, cracked or scuffed paint at the deformation, or a body line misaligned versus the adjacent door or panel. This is genuine impact to the panel.
-SEAM = a factory pressed flange, fold, return edge, seam, or join line at the panel's bumper-mating edge, now visible ONLY because the bumper is displaced or absent. These factory closures are often CURVED and can present as a sharp line or a fold — that is normal manufacture, NOT damage. Deformation AT or ALONG the exposed mating edge alone, with the panel face otherwise clean, is SEAM.
+SEAM = a factory pressed flange, fold, return edge, seam, or join line at the panel's bumper-mating edge, now visible ONLY because the bumper is displaced or absent. The factory closure line is STRAIGHT, UNIFORM, and WELL-DEFINED — it runs a consistent, manufactured path. A clean, regular line at the exposed edge is evidence the panel is UNDAMAGED: you are seeing the join the bumper used to cover. Deformation at or along the exposed mating edge alone, with the panel face otherwise clean, is SEAM.
+
+GEOMETRY TEST — apply before deciding TORN: genuine impact creasing is IRREGULAR — it changes direction, varies in depth, breaks the panel's reflection, and disturbs the paint. The factory closure line does none of these. Any crease you intend to cite as TORN must be visibly DISTINCT from the straight closure line and from shadow cast at the exposed edge. If the only "damage" you can see follows a straight, uniform path, it is the factory closure — verdict SEAM.
 
 Where the opposite-side equivalent panel is visible in any photo, compare against it: if the exposed structure mirrors the covered or undamaged side's construction, it is factory (SEAM), not damage.
 
