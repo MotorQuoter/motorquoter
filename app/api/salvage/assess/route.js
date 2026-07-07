@@ -1122,7 +1122,7 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
 // panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
 // Fail-safe: any failure/exhaust → null; invalid verdict → 'ambiguous'. Both keep cost
 // (policy: on structure, ambiguity falls to assume-damage).
-async function runAperturePanelRead(images, lampObs, onExhaust) {
+async function runAperturePanelRead(images, lampObs, frameIndices, onExhaust) {
   // Corner steer from the structured impact obs (hint only — model self-locates as lamp-detect does).
   const sideWord  = (lampObs?.struckSide === 'offside' || lampObs?.struckSide === 'nearside') ? lampObs.struckSide : '';
   const apertures = [];
@@ -1142,7 +1142,11 @@ Return ONLY a raw JSON object — no markdown, no explanation, no surrounding te
 Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn or seam.`;
   try {
     if (images.length > 35) console.warn(`[APERTURE PANEL] image set truncated to 35 (received ${images.length})`);
-    const imageBlocks = images.slice(0, 35).map(img => {
+    // C3 targeting: read the panel's targeted frames when given; else the full set (never empty).
+    const all = images.slice(0, 35);
+    const targeted = Array.isArray(frameIndices) && frameIndices.length ? frameIndices.map(i => images[i]).filter(Boolean) : [];
+    const frameSet = targeted.length ? targeted : all;
+    const imageBlocks = frameSet.map(img => {
       let mediaType = 'image/jpeg';
       let data = img;
       const m = img.match(/^data:([^;]+);base64,(.+)$/);
@@ -1246,9 +1250,36 @@ function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
   if (frontImpact && P2_FRONT_FLANK.has(cp.panelId) && cp.zone === 'flank-damaged-side'
       && (struckSide === 'offside' || struckSide === 'nearside') && frameZones.ok) {
     const idx = frameZones.frames.filter(f => f.zones.includes(struckSide)).map(f => f.i).slice(0, 35);
-    if (idx.length) return { indices: idx, source: `struck-side:${struckSide}:[${idx.join(',')}]` };
+    if (idx.length) {
+      if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin struck-side set (${idx.length} frames)`);
+      return { indices: idx, source: `struck-side:${struckSide}:[${idx.join(',')}]` };
+    }
   }
   return selectProbeFrames(frameZones, cp.zone);
+}
+
+// Aperture-read frame targeting (C3). Sibling of selectProbeFramesForPanel; called per aperture-
+// suspect panel. Precedence, each self-naming in `source`:
+//   1. correspondence-split flank instance (_gOwned) → its OWN member frames (side-correct).
+//   2. frame-zone frames on the aperture zone OR the struck side (union — the seam-vs-crease call
+//      needs both the corner-facing and the struck-side profile evidence).
+//   3. null → full-set fallback inside runAperturePanelRead.
+function selectApertureFrames(cp, frameZones, struckSide, apertureZone) {
+  if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
+    const idx = cp._probeViews.slice(0, 35);
+    if (idx.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin instance set (${idx.length} frames)`);
+    return { indices: idx, source: `corr-instance:[${idx.join(',')}]` };
+  }
+  if (frameZones.ok) {
+    const want = [apertureZone];
+    if (struckSide === 'offside' || struckSide === 'nearside') want.push(struckSide);
+    const idx = frameZones.frames.filter(f => f.zones.some(z => want.includes(z))).map(f => f.i).slice(0, 35);
+    if (idx.length) {
+      if (idx.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin aperture-zone set (${idx.length} frames)`);
+      return { indices: idx, source: `aperture-zone:${want.join('+')}:[${idx.join(',')}]` };
+    }
+  }
+  return { indices: null, source: 'full-set:no-targeted-frames' };
 }
 
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
@@ -3404,14 +3435,8 @@ export async function GET(request) {
     lampObsSource = lampObsSource || 'no-arm';
     console.log(`[LAMP][TRIGGER] source=${lampObsSource}`);
 
-    // Fault 1a — fire the aperture torn-vs-seam read now that lampObs is final. Gated on
-    // bumper-off (same source the demotion uses); on non-bumper-off lots it never calls.
-    // Fired here as a promise so its fetch overlaps the synchronous reconciliation work
-    // below; awaited just before the demotion loop so apertureVerdict is in hand there.
-    const aperturePanelPromise =
-      (lampObs?.apertureExposed === true || lampObs?.rearApertureExposed === true)
-        ? runAperturePanelRead(images, lampObs, () => _exhaustedCalls.add('aperture-panel'))
-        : Promise.resolve(null);
+    // Fault 1a — the aperture torn-vs-seam read now fires per aperture-suspect panel inside the
+    // bumper-off rule (C3), targeted to that panel's frames; no early full-set single call.
 
     let lampResult = null;
     if (lampObs) {
@@ -3505,12 +3530,6 @@ export async function GET(request) {
       throw new Error('Assessment could not be completed — please retry');
     }
 
-    // Fault 1a — resolve the aperture verdict before the demotion decision. 'torn'/'ambiguous'/
-    // null all keep cost (assume-damage on structure); only 'seam' demotes. null = call skipped
-    // (not bumper-off), failed, exhausted, or unparseable — all fail safe toward cost.
-    const aperturePanelRaw = await aperturePanelPromise;
-    const apertureVerdict  = aperturePanelRaw?.verdict ?? null; // 'torn' | 'seam' | 'ambiguous' | null
-
     // ── Bumper-off rule ────────────────────────────────────────────────────────
     // Code-owned, no model call. Runs BEFORE perception probe so the probe never
     // challenges a panel already demoted here.
@@ -3536,38 +3555,49 @@ export async function GET(request) {
       const frontBumperOff = (lampObs?.apertureExposed === true)     || frontBumperSevere;
       const rearBumperOff  = (lampObs?.rearApertureExposed === true) || rearBumperSevere;
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (model=${lampObs?.apertureExposed === true} ledger=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (model=${lampObs?.rearApertureExposed === true} ledger=${rearBumperSevere})`);
+      // (a) collect aperture-suspect panels (guards + bumperOffHere unchanged), tagging aperture zone.
+      const _apertureSuspects = [];
       for (const cp of coreObs.costedParts) {
         if (cp.independentlyVisible !== true || cp._labourSafe || cp._amalgMissing === true) continue;
         const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
         const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
         const bumperOffHere = (isFW && frontBumperOff) || (isRQ && rearBumperOff);
-        if (bumperOffHere) {
-          // Fault 1a — gate the demotion on the torn-vs-seam vision verdict. Demote ONLY on a
-          // confirmed intact seam; 'torn'/'ambiguous'/null keep cost (cost survives via the
-          // existing G-inject table path for _gOwned, or applyVisibilityGate for a model row).
-          const apertureSaysDemote = (apertureVerdict === 'seam');
-          console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${apertureVerdict} → ${apertureSaysDemote ? 'demote' : 'keep-cost'}`);
-          if (!apertureSaysDemote) continue;
-          cp.independentlyVisible = false;
-          cp._bumperOffStripped = true;
-          // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
-          // gateStripped, so the gate's :281-288 bumper-off flag never fires for it and the
-          // panel vanishes (no cost, no flag). Push the inspection flag at the demotion site,
-          // mirroring the RAD hatch (:2963). The gate's strip-loop dedup (parts.mjs :279,
-          // keyed on normName(partName), no _gateGenerated clause) suppresses its own push
-          // when a model row DOES exist, since this push lands first. reason matches the gate
-          // byte-for-byte (BUMPER_OFF_SEAM_REASON + RQ rider). Additive only — no cost path.
-          coreObs.flaggedParts.push({
-            panelId:  cp.panelId,
-            partName: cp.partName,
-            zone:     cp.zone,
-            weight:   'medium',
-            reason:   isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON,
-            _bumperOffStripped: true,
-          });
-          bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
-          console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
-        }
+        if (bumperOffHere) _apertureSuspects.push({ cp, isRQ, apertureZone: isRQ ? 'rear' : 'front' });
+      }
+      // (b) C3 — fire a targeted aperture read PER suspect (frames per selectApertureFrames; prompt
+      // byte-identical — same lampObs). Parallel; full-set fallback inside runAperturePanelRead. Each
+      // panel is now gated on ITS OWN verdict, not one shared full-set read.
+      const _apertureReads = await Promise.all(_apertureSuspects.map(async (s) => {
+        const { indices, source } = selectApertureFrames(s.cp, _frameZones, lampObs?.struckSide, s.apertureZone);
+        const r = await runAperturePanelRead(images, lampObs, indices, () => _exhaustedCalls.add('aperture-panel'));
+        return { ...s, verdict: r?.verdict ?? null, frameSource: source };
+      }));
+      // (c) demote each suspect on its own torn-vs-seam verdict. Demote ONLY on a confirmed intact
+      // seam; 'torn'/'ambiguous'/null keep cost (cost survives via the existing G-inject table path
+      // for _gOwned, or applyVisibilityGate for a model row). Bookkeeping byte-for-byte as before.
+      for (const { cp, isRQ, verdict, frameSource } of _apertureReads) {
+        const apertureSaysDemote = (verdict === 'seam');
+        console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${verdict} frames=${frameSource} → ${apertureSaysDemote ? 'demote' : 'keep-cost'}`);
+        if (!apertureSaysDemote) continue;
+        cp.independentlyVisible = false;
+        cp._bumperOffStripped = true;
+        // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
+        // gateStripped, so the gate's :281-288 bumper-off flag never fires for it and the
+        // panel vanishes (no cost, no flag). Push the inspection flag at the demotion site,
+        // mirroring the RAD hatch (:2963). The gate's strip-loop dedup (parts.mjs :279,
+        // keyed on normName(partName), no _gateGenerated clause) suppresses its own push
+        // when a model row DOES exist, since this push lands first. reason matches the gate
+        // byte-for-byte (BUMPER_OFF_SEAM_REASON + RQ rider). Additive only — no cost path.
+        coreObs.flaggedParts.push({
+          panelId:  cp.panelId,
+          partName: cp.partName,
+          zone:     cp.zone,
+          weight:   'medium',
+          reason:   isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON,
+          _bumperOffStripped: true,
+        });
+        bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
+        console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
       }
     }
     // ── End bumper-off rule ────────────────────────────────────────────────────
