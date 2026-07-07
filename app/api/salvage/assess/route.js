@@ -1226,6 +1226,31 @@ function selectProbeFrames(frameZones, panelZone) {
   return { indices: idx, source: `frame-zone:[${idx.join(',')}]` };
 }
 
+// Attribution-probe frame targeting (C2). Precedence — each branch names itself in `source`
+// (silence is a defect). Flank panels only; all other panels fall through to selectProbeFrames
+// UNCHANGED, so front/rear/roof/interior targeting is byte-identical to before C2:
+//   1. correspondence-split flank instance (_gOwned) → its OWN member frames (side-correct by
+//      construction) — kills the flank both-sides blindness (E3) with no side inference.
+//   2. pooled front-flank panel on a FRONT impact + determinate struckSide → frame-zone frames on
+//      that side. struckSide is a front-impact datum (plate-relative-to-lights), so P2 is gated to
+//      front-flank panels on an aperture-exposed (front) impact and never drives rear-corner side
+//      inference (Q3). A pooled rear quarter falls through to P3.
+//   3. everything else → zone-map → full-set fallback (selectProbeFrames), UNCHANGED.
+const P2_FRONT_FLANK = new Set([PANEL.FRONT_WING, PANEL.FRONT_DOOR]);
+function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
+  if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
+    const idx = cp._probeViews.slice(0, 35);
+    if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin instance set (${idx.length} frames)`);
+    return { indices: idx, source: `corr-instance:[${idx.join(',')}]` };
+  }
+  if (frontImpact && P2_FRONT_FLANK.has(cp.panelId) && cp.zone === 'flank-damaged-side'
+      && (struckSide === 'offside' || struckSide === 'nearside') && frameZones.ok) {
+    const idx = frameZones.frames.filter(f => f.zones.includes(struckSide)).map(f => f.i).slice(0, 35);
+    if (idx.length) return { indices: idx, source: `struck-side:${struckSide}:[${idx.join(',')}]` };
+  }
+  return selectProbeFrames(frameZones, cp.zone);
+}
+
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
 // Missing-branch verdict vocabulary. Mapping is INVERTED vs the damaged branch: absent /
 // area-destroyed CONFIRM a missing claim (keep); present-and-intact / minor-cosmetic-only
@@ -1944,6 +1969,12 @@ function amalgamate(groups, viewPanelSets) {
     // Views that SAW this panel = present-area observations (damaged + clean + na), excl. 'missing'.
     // The corroboration-floor denominator for HIDDEN_CORROBORATION_PANELS (distinct from `damaged`).
     const viewsThatSaw = damaged + clean + na;
+    // C2 targeting: view indices of every member line (the frames that imaged this panel/instance).
+    // For a correspondence-split flank instance the member set IS that instance's one-sided frames,
+    // so this is side-correct by construction. Ruling Q1: ALL member views (not damaged-only).
+    const _probeViews = members
+      .map(l => { const r = l.match(/^\[view:(\d+)\]/); return r ? parseInt(r[1], 10) : -1; })
+      .filter(i => i >= 0);
     const damagedSevs = members
       .filter(l => /\|\s*iv:true\s*\|/i.test(l))
       .map(l => { const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i); return sm ? sm[1].toUpperCase() : 'MODERATE'; });
@@ -1953,6 +1984,7 @@ function amalgamate(groups, viewPanelSets) {
     const minorVotes     = damagedSevs.filter(s => s === 'MINOR').length;
     const minorOnly      = damagedSevs.length > 0 && severeVotes === 0 && !hasModerate;
     console.log(`[AMALG][SEV] ${panelId} grades=[${damagedSevs.join(',')}] severeVotes=${severeVotes} override=${severeOverride} minorOnly=${minorOnly}`);
+    const _preCosted = costedParts.length;
     if (missing > 0) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
@@ -2040,6 +2072,11 @@ function amalgamate(groups, viewPanelSets) {
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
+    // C2 stamp: attach the member frames to whichever costed entry this group produced.
+    // LOAD-BEARING INVARIANT: each branch of the chain above pushes AT MOST ONE costedParts entry
+    // (flag-class branches push zero) — so when the count grew, the last entry is this group's costed
+    // part. If a future branch pushes two costed entries this stamp silently mis-targets; keep it 1:1.
+    if (costedParts.length > _preCosted) costedParts[costedParts.length - 1]._probeViews = _probeViews;
     // Per-panel vote split — keyed by _instanceKey when G split this panel, else bare panelId.
     // _instanceKey (e.g. 'FRONT_DOOR#1') keeps pvVotesMap entries distinct for G-split instances
     // while all downstream consumers (gate, VDS, seeder) still see bare panelId on the object.
@@ -3895,7 +3932,7 @@ export async function GET(request) {
           return { cp, grade, missing: _missing, frames: 'exempt', frameSource: 'exempt-lamp', r: null, exempt: 'exempt-lamp' };
         }
         const claimWording = _missing ? PROBE_MISSING_WORDING : PROBE_SEVERITY_WORDING[grade];
-        const { indices, source } = selectProbeFrames(_frameZones, cp.zone);
+        const { indices, source } = selectProbeFramesForPanel(cp, _frameZones, lampObs?.struckSide, lampObs?.apertureExposed === true);
         const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], claimWording, _missing, () => _exhaustedCalls.add('attribution-probe'));
         return { cp, grade, missing: _missing, frames: indices ? indices : 'full-set', frameSource: source, r };
       }));
