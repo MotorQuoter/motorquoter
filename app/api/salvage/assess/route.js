@@ -2336,7 +2336,26 @@ function resolveLampBand(specLampType, detectionLampType = null) {
   return { resolvedType, bandValue: HEADLAMP_BANDS[resolvedType], lampTypeAssumed: specAssumed && !resolvedDetType };
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'single_corner') {
+const DAMAGE_SPAN_ENUM = ['single_corner', 'full_width'];
+const STRUCK_SIDE_ENUM = ['offside', 'nearside', 'central'];
+// C4 — normalise a raw impact-obs field to its default on absence/invalid-enum, returning enough
+// metadata to loud-log the substitution and stamp a per-field marker. `defaulted` is true for both
+// absent and off-enum; `rejected` carries the verbatim off-enum value (null when merely absent).
+function normaliseImpactField(raw, enumVals, dflt) {
+  if (raw === undefined || raw === null || raw === '') return { value: dflt, defaulted: true, rejected: null };
+  if (!enumVals.includes(raw)) return { value: dflt, defaulted: true, rejected: raw };
+  return { value: raw, defaulted: false, rejected: null };
+}
+// C4 — tier-1 floor observation (infra-failure / no-arm). Every field defaulted; markers say so, so
+// the unconditional stamp reads a floor honestly. apertureExposed:false → span is moot (lampCount 1).
+function tier1FloorLampObs() {
+  return {
+    struckSide: 'central', apertureExposed: false, rearApertureExposed: false, damageSpan: 'full_width',
+    _sideDefaulted: true, _sideRejected: null, _spanDefaulted: true, _spanRejected: null,
+  };
+}
+
+function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width') {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
@@ -3241,13 +3260,19 @@ export async function GET(request) {
         .filter(c => c.type === 'tool_use')
         .map(block => {
           if (block.name === 'recordImpactObservation') {
+            const _side = normaliseImpactField(block.input?.struckSide, STRUCK_SIDE_ENUM, 'central');
+            const _span = normaliseImpactField(block.input?.damageSpan, DAMAGE_SPAN_ENUM, 'full_width');
             lampObs = {
-              struckSide:          block.input?.struckSide     || 'central',
+              struckSide:          _side.value,
               apertureExposed:     Boolean(block.input?.apertureExposed),
-              damageSpan:          block.input?.damageSpan     || 'single_corner',
+              damageSpan:          _span.value,
               rearApertureExposed: block.input?.rearApertureExposed === true,
+              _sideDefaulted: _side.defaulted, _sideRejected: _side.rejected,
+              _spanDefaulted: _span.defaulted, _spanRejected: _span.rejected,
             };
             lampObsSource = (iter === 0 && hasImpactZone) ? 'listing-forced' : 'voluntary-iter0';
+            if (_side.defaulted) console.log(`[IMPACT OBS][DEFAULT] struckSide ${_side.rejected != null ? `invalid "${_side.rejected}"` : 'absent'} → central (neutral default — C2, inert for rear)`);
+            if (_span.defaulted) console.log(`[IMPACT OBS][DEFAULT] damageSpan ${_span.rejected != null ? `invalid "${_span.rejected}"` : 'absent'} → full_width (over-warn ruling 08Jul)`);
             console.log(`[IMPACT OBS] recordImpactObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} damageSpan=${lampObs.damageSpan}`);
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ recorded: true }) };
           }
@@ -3415,30 +3440,37 @@ export async function GET(request) {
           messages: [
             ...messages,
             { role: 'assistant', content: rawText },
-            { role: 'user', content: 'You identified impact damage in your assessment above. Call recordLampObservation now, based on the photos and your assessment: record struckSide and damageSpan; set apertureExposed if the FRONT bumper is displaced or removed exposing the wing-to-bumper or lamp seam; and set rearApertureExposed if the REAR bumper is torn or displaced exposing the rear-quarter seam. Assess the front and rear apertures independently — do not assume the rear bumper is intact because the main impact is at the front.' },
+            { role: 'user', content: 'You identified impact damage in your assessment above. Call recordImpactObservation now, based on the photos and your assessment: record struckSide and damageSpan; set apertureExposed if the FRONT bumper is displaced or removed exposing the wing-to-bumper or lamp seam; and set rearApertureExposed if the REAR bumper is torn or displaced exposing the rear-quarter seam. Assess the front and rear apertures independently — do not assume the rear bumper is intact because the main impact is at the front.' },
           ],
           tools: [LAMP_OBS_TOOL],
           tool_choice: { type: 'any' },
         }),
       }));
       if (backstopExhausted || !backstopRes?.ok) {
-        lampObs = { struckSide: 'central', apertureExposed: false };
+        lampObs = tier1FloorLampObs();
         lampObsSource = 'layer2-backstop';
         console.warn('[LAMP] Layer 2 backstop 529-exhausted or error — tier-1 floor applied (apertureExposed:false)');
       } else {
         const backstopData = await backstopRes.json();
         console.log(`[LAMP] Layer 2: stop=${backstopData.stop_reason} input=${backstopData.usage?.input_tokens} output=${backstopData.usage?.output_tokens}`);
-        const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordLampObservation');
+        const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordImpactObservation');
         if (backstopBlock?.input) {
+          const _side = normaliseImpactField(backstopBlock.input?.struckSide, STRUCK_SIDE_ENUM, 'central');
+          const _span = normaliseImpactField(backstopBlock.input?.damageSpan, DAMAGE_SPAN_ENUM, 'full_width');
           lampObs = {
-            struckSide:      backstopBlock.input?.struckSide      || 'central',
+            struckSide:      _side.value,
             apertureExposed: Boolean(backstopBlock.input?.apertureExposed),
-            damageSpan:      backstopBlock.input?.damageSpan      || 'single_corner',
+            damageSpan:      _span.value,
+            rearApertureExposed: false,
+            _sideDefaulted: _side.defaulted, _sideRejected: _side.rejected,
+            _spanDefaulted: _span.defaulted, _spanRejected: _span.rejected,
           };
           lampObsSource = 'layer2-backstop';
+          if (_side.defaulted) console.log(`[LAMP][DEFAULT] struckSide ${_side.rejected != null ? `invalid "${_side.rejected}"` : 'absent'} → central (neutral default — C2, inert for rear)`);
+          if (_span.defaulted) console.log(`[LAMP][DEFAULT] damageSpan ${_span.rejected != null ? `invalid "${_span.rejected}"` : 'absent'} → full_width (over-warn ruling 08Jul)`);
           console.log(`[LAMP] Layer 2 observation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} damageSpan=${lampObs.damageSpan}`);
         } else {
-          lampObs = { struckSide: 'central', apertureExposed: false };
+          lampObs = tier1FloorLampObs();
           lampObsSource = 'layer2-backstop';
           console.log('[LAMP] Layer 2 backstop failed — no tool block returned; tier-1 floor applied (apertureExposed:false)');
         }
@@ -3448,7 +3480,7 @@ export async function GET(request) {
     // Defensive floor: frontStruck=true from text fields but no observation after all layers
     // (guards against transient API failures on the item-13 forced path; should not fire in practice)
     if (frontStruck && !lampObs) {
-      lampObs = { struckSide: 'central', apertureExposed: false };
+      lampObs = tier1FloorLampObs();
       lampObsSource = 'no-arm';
       console.log('[LAMP] frontStruck text-confirmed — no observation after all layers; tier-1 floor applied');
     }
@@ -3467,7 +3499,7 @@ export async function GET(request) {
         lampObs.struckSide, lampObs.apertureExposed, derivedLampType,
         detectedCorner?.verdict   || null,
         detectedCorner?.lamp_type || null,
-        lampObs.damageSpan        || 'single_corner'
+        lampObs.damageSpan        || 'full_width'
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
@@ -3482,10 +3514,15 @@ export async function GET(request) {
     assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
     if (lampResult) assessment._lampResult = lampResult;
     assessment._lampObs = lampObs ? {
-      apertureExposed: lampObs.apertureExposed,
-      ...('rearApertureExposed' in lampObs ? { rearApertureExposed: lampObs.rearApertureExposed } : {}),
-      ...('damageSpan'          in lampObs ? { damageSpan:          lampObs.damageSpan }          : {}),
-      lampObsSource: lampObsSource ?? null,
+      struckSide:          lampObs.struckSide ?? 'central',
+      apertureExposed:     lampObs.apertureExposed === true,
+      rearApertureExposed: lampObs.rearApertureExposed === true,
+      damageSpan:          lampObs.damageSpan ?? 'full_width',
+      _spanDefaulted:      lampObs._spanDefaulted === true,
+      _spanRejected:       lampObs._spanRejected ?? null,
+      _sideDefaulted:      lampObs._sideDefaulted === true,
+      _sideRejected:       lampObs._sideRejected ?? null,
+      lampObsSource:       lampObsSource ?? null,
     } : null;
 
     // Append deterministic 2nd-lamp checklist item on full-width lots (before Supabase write)
