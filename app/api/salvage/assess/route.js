@@ -1647,6 +1647,16 @@ const BUMPER_OFF_RQ_RIDER = ' Inner structural integrity not visible from exteri
 const EV_BATTERY_REASON_RUNS        = "Runs and drives — strong indication the HV battery is present and live (an EV can't move under its own power without it); confirm by diagnostic on inspection.";
 const EV_BATTERY_REASON_UNCONFIRMED = 'EV traction battery presence not confirmable remotely — verify the pack is fitted and reports voltage before bidding; a removed or damaged HV battery is the largest single value risk on a salvage EV.';
 
+// EV-integrity Step 5 — cooling/HV governing verdict wording (BEV lots only). Single owner of the
+// three-tier verdict strings. Tier 1 fires ONLY on ≥2-view SEVERE corroboration of EV_BATTERY_ZONE
+// (positive photographic evidence — never inferred from not-running/dash/absence; Step 2 caveat).
+const EV_VERDICT_TIER1_REDFLAG = 'HIGH-VOLTAGE BATTERY PACK — VISIBLE SEVERE DAMAGE: two or more photos show severe damage to the underfloor HV battery pack. On a battery-electric vehicle the traction pack alone normally exceeds any viable repair budget — this is typically cost-prohibitive to repair. Treat as parts/scrap value unless an EV specialist confirms the pack is serviceable.';
+const EV_VERDICT_TIER1_FLAG = 'HV battery pack shows severe visible damage across multiple photos — pack replacement is normally cost-prohibitive; confirm serviceability with an EV specialist before bidding.';
+const EV_VERDICT_MARGIN_CAVEAT = 'Note — the repair total above excludes the high-voltage battery pack, which shows visible severe damage. If the pack needs replacement the true repair cost normally exceeds any viable margin; treat the figures above as best-case, pack-serviceable-only.';
+const EV_VERDICT_TIER2_HARD = 'High-voltage battery and EV-system integrity could not be confirmed and there is adverse evidence on this lot (dash warning, unconfirmed cooling circuit, or possible pack-area damage). An EV specialist diagnostic of the HV pack and cooling system is the deciding item before bidding — a damaged or isolated HV pack is the largest single value risk on a salvage EV.';
+const EV_VERDICT_TIER2_SOFT = 'High-voltage battery and EV cooling integrity cannot be confirmed from the listing photos. An EV specialist diagnostic is the deciding item before bidding — a removed, damaged, or isolated HV pack is the largest single value risk on a salvage EV. Do not assume the pack is sound because the body is intact (a crash trips the HV isolator; present-but-isolated looks identical to missing).';
+const EV_VERDICT_TIER3_NOTE = 'Runs and drives, clean instrument cluster, no adverse cooling or HV evidence — a strong indication the HV battery and EV systems are live and intact. Confirm with an EV diagnostic on inspection.';
+
 const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
 For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
@@ -2145,7 +2155,7 @@ function amalgamate(groups, viewPanelSets) {
       while (`${panelId}#${n}` in pvVotesMap) n++;
       pvKey = `${panelId}#${n}`;
     }
-    pvVotesMap[pvKey] = { views: members.length, resolving, damaged, clean, notVisible: missing, branch };
+    pvVotesMap[pvKey] = { views: members.length, resolving, damaged, clean, notVisible: missing, branch, severeVotes };
   }
   return { costedParts, flaggedParts, pvVotesMap, pvVotesCollision };
 }
@@ -4457,6 +4467,57 @@ export async function GET(request) {
       console.log(`[EV HV TELLTALE] flagged — telltales=[${_evHvTelltales.join(',')}] confidentWording=${TELLTALE_CONFIDENT_WORDING}`);
     }
 
+    // ── EV-integrity Step 5 — cooling/HV governing verdict ───────────────────
+    // Single governing EV verdict on BEV lots. Three-tier: cost-prohibitive (tier 1, ≥2-view SEVERE
+    // corroboration of EV_BATTERY_ZONE — positive photographic evidence only), inspect (tier 2,
+    // default under false-positive-preferred), clear (tier 3, all-green running lot). Subsumes the
+    // Step-2 presence flag and Step-3 telltale flag so the report never ships duplicate EV flags.
+    // Money-neutral: tiers move no cost; tier 1 is VERDICT LANGUAGE (Red Flags lead + margin caveat
+    // at :C site) — repair total / exit band / margin maths untouched. Runs after the Step-3 push so
+    // both prior flags are present to subsume; before the :_flaggedParts snapshot so removals land.
+    if (isBev) {
+      const ez = pvResult.pvVotesMap?.EV_BATTERY_ZONE ?? null; // null = model never observed the pack
+      const ezSevere  = (ez?.severeVotes ?? 0) >= 2;           // ≥2-view SEVERE corroboration gate
+      const ezDamaged = (ez?.damaged ?? 0) > 0;
+      const dashWarning = dashRead.cluster === 'warning';
+      const dashClean   = dashRead.cluster === 'clean';        // 'no-photo' is NOT clean → never tier 3
+      const radFloored  = assessment._radPackDisposition === 'floored';
+      const runsAndDrives = /runs?\s+and\s+drives?/i.test(enrichedVd.runCondition || '');
+      const hardSignal = dashWarning || radFloored || ezDamaged;
+
+      let verdict, tier;
+      if (ezSevere)                                                        { verdict = 'cost-prohibitive'; tier = 1; }
+      else if (dashClean && runsAndDrives && !radFloored && !ezDamaged)    { verdict = 'clear';            tier = 3; }
+      else                                                                 { verdict = 'inspect';          tier = 2; }
+
+      // Subsume prior EV flags into the single verdict. Tier 1/2 remove the Step-2 presence flag, the
+      // Step-3 telltale flag, AND the raw EV_BATTERY_ZONE amalgamate flag; tier 3 removes the presence
+      // flag only (no telltale/pack damage exists on an all-green lot).
+      const _before = coreObs.flaggedParts.length;
+      coreObs.flaggedParts = coreObs.flaggedParts.filter(f => tier === 3
+        ? !(f._evPresence)
+        : !(f._evPresence || f._evHvTelltale || f.panelId === PANEL.EV_BATTERY_ZONE));
+      const _subsumed = _before - coreObs.flaggedParts.length;
+
+      assessment._evCoolingHvVerdict = verdict;
+      assessment._evCoolingHvEvidence = {
+        tier, severeVotes: ez?.severeVotes ?? 0, dashCluster: dashRead.cluster,
+        telltales: dashRead.telltales ?? [], radDisposition: assessment._radPackDisposition ?? null,
+        runsAndDrives, packViewed: ez !== null,
+      };
+
+      if (tier === 1) {
+        coreObs.flaggedParts.push({ panelId: PANEL.EV_BATTERY_ZONE, partName: 'HV battery pack', zone: 'underside', weight: 'high', reason: EV_VERDICT_TIER1_FLAG, _evVerdict: 'cost-prohibitive' });
+        const _rf = (assessment['Red Flags'] || '').trim();
+        assessment['Red Flags'] = _rf ? `- ${EV_VERDICT_TIER1_REDFLAG}\n${_rf}` : `- ${EV_VERDICT_TIER1_REDFLAG}`;
+      } else if (tier === 2) {
+        coreObs.flaggedParts.push({ panelId: PANEL.EV_BATTERY_ZONE, partName: 'HV battery / EV system', zone: 'interior', weight: 'high', reason: hardSignal ? EV_VERDICT_TIER2_HARD : EV_VERDICT_TIER2_SOFT, _evVerdict: 'inspect' });
+      } else {
+        coreObs.flaggedParts.push({ panelId: PANEL.EV_BATTERY_ZONE, partName: 'HV battery', zone: 'underside', weight: 'low', reason: EV_VERDICT_TIER3_NOTE, _evVerdict: 'clear' });
+      }
+      console.log(`[EV VERDICT] tier=${tier} verdict=${verdict} ezSevere=${ez?.severeVotes ?? 0} dash=${dashRead.cluster} radDispo=${assessment._radPackDisposition ?? 'none'} runsAndDrives=${runsAndDrives} hardSignal=${hardSignal} subsumed=${_subsumed} flag(s)`);
+    }
+
     // ── Rear-closure display label by body shape (LABEL ONLY) ────────────────
     // Estates/tourings/avants/sportbrakes/5-door/hatchbacks have a TAILGATE; saloons,
     // coupes and 4-door cars have a BOOT LID. Indeterminate → Boot lid (safe default).
@@ -4826,6 +4887,14 @@ export async function GET(request) {
       console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
     } else if (auctionSource === 'copart') {
       console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
+    }
+
+    // EV Step 5 — tier-1 margin caveat (VERDICT LANGUAGE only; maths above untouched). The repair
+    // total excludes the HV pack, so on a cost-prohibitive verdict the margin figures are best-case;
+    // append a code-owned caveat line to the buyer-facing Margin Calculation field.
+    if (assessment._evCoolingHvVerdict === 'cost-prohibitive' && assessment['Margin Calculation']) {
+      assessment['Margin Calculation'] = assessment['Margin Calculation'].trimEnd() + `\n\n${EV_VERDICT_MARGIN_CAVEAT}`;
+      console.log('[EV VERDICT] tier-1 margin caveat appended');
     }
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
