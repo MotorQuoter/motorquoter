@@ -312,7 +312,7 @@ function buildVendorSuffixSlot(vendorSuffix) {
   }
   const { letter, mapped } = vendorSuffix;
   return buildSlot({
-    id: 'vendor-suffix', label: 'Vendor type (windscreen sticker suffix)',
+    id: 'vendor-suffix', label: `Vendor type (windscreen sticker suffix ${letter})`,
     kind: 'confirmation', verdict: 'confirmed',
     detail: `Sticker reads "${letter}" — ${mapped.vendorType}`,
     confidence: 'visible', source: 'model',
