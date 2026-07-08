@@ -3618,6 +3618,7 @@ export async function GET(request) {
           weight:   'medium',
           reason:   isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON,
           _bumperOffStripped: true,
+          _apertureDemoted: true,   // BUILD 2 breadcrumb — seam-verdict soften, for telemetry + validation
         });
         bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
         console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
