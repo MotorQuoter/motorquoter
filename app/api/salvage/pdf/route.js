@@ -707,7 +707,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 4;
   }
 
-  fieldBlock('Key Cost Drivers',            assessment['Key Cost Drivers']);
+  // Key Cost Drivers — code-assembled driver list (_kcdParts, 4d) + optional model judgement colour
+  // (claim-bound; may be empty → drivers stand alone). Well-formed when colour drops entirely.
+  {
+    const kcdColour  = (assessment['Key Cost Drivers'] || '').trim();
+    const kcdDrivers = (assessment._kcdParts || []).map(d => d.prose).join('\n');
+    const kcdText    = [kcdColour, kcdDrivers].filter(Boolean).join('\n\n');
+    if (kcdText) fieldBlock('Key Cost Drivers', kcdText);
+  }
 
   // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
   const pdfFlags = buildBuyerFlags(assessment);

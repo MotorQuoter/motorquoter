@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  assembleVdsParts, buildBuyerFlags, BUMPER_OFF_SEAM_REASON,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -3724,25 +3724,12 @@ export async function GET(request) {
       assessment._radPackSeverity = radEntry ? (radEntry._ledgerSeverity ?? null) : null;
     }
 
-    // ── KCD scrub — drop demoted-part driver lines ────────────────────────────
-    // Structured KCD (part-name-first before ':' on each line) lets code locate
-    // and drop any driver whose leading token is a bumper-off demoted part.
-    // Deterministic: the token IS the canonical Parts Breakdown part name.
-    // Fail-safe: lines with no colon-delimited token are kept, never dropped.
-    if (bumperOffDemoted.length > 0 && assessment['Key Cost Drivers']) {
-      const lines = assessment['Key Cost Drivers'].split('\n');
-      const kept = lines.filter(line => {
-        const m = line.match(/^[\s\-*•\d.]*(.+?):/);
-        if (!m) return true;
-        const tok = m[1].trim();
-        return !bumperOffDemoted.some(d => d.rx.test(tok));
-      });
-      if (kept.length < lines.length) {
-        console.log(`[KCD SCRUB] dropped ${lines.length - kept.length} line(s) for bumper-off demoted parts`);
-        assessment['Key Cost Drivers'] = kept.join('\n').trim() || '';
-      }
-    }
-    // ── End KCD scrub ─────────────────────────────────────────────────────────
+    // ── KCD scrub retired (4d) ────────────────────────────────────────────────
+    // The Key Cost Drivers list is now code-assembled from the finalised ledger
+    // (_kcdParts, assembleKcdParts). Demoted/floored parts are absent from gatedParts
+    // by construction, so they can never appear as drivers — the demoted-part line-drop
+    // this scrub performed is preserved automatically. Model KCD prose is bound by the
+    // claim-class binder (class 4 covers demoted-part claims). Closes the "kept until 4e" note.
 
     // ── VDS scrub retired (Step 4c) ───────────────────────────────────────────
     // The model no longer authors per-panel VDS prose, so there is nothing to
@@ -3751,21 +3738,12 @@ export async function GET(request) {
     // reaches the buyer via the gate-generated Inspection Flag (BUMPER_OFF_SEAM_REASON
     // in applyVisibilityGate) and the assembled VDS block for the demoted panel.
 
-    // ── Red Flags scrub — full-line regex drop ────────────────────────────────
-    // Full-line regex (not leading-token): catches combined-line entries with no
-    // colon delimiter (e.g. "Rear quarter inner structure unknown — OUTER
-    // deformation visible"). Inner-structure concern is preserved in the
-    // gate-generated Inspection Flag (BUMPER_OFF_SEAM_REASON + rear-quarter
-    // inner-structure addendum — see lib/parts.mjs applyVisibilityGate).
-    if (bumperOffDemoted.length > 0 && assessment['Red Flags']) {
-      const rfLines = assessment['Red Flags'].split('\n');
-      const rfKept  = rfLines.filter(line => !bumperOffDemoted.some(d => d.rx.test(line)));
-      if (rfKept.length < rfLines.length) {
-        console.log(`[RED FLAGS SCRUB] dropped ${rfLines.length - rfKept.length} line(s) for bumper-off demoted parts`);
-        assessment['Red Flags'] = rfKept.join('\n').trim() || '';
-      }
-    }
-    // ── End Red Flags scrub ───────────────────────────────────────────────────
+    // ── Red Flags demoted-part scrub retired (4e) ─────────────────────────────
+    // Absorbed into the claim-class binder (PART STATUS, class 4): a demoted/floored
+    // part asserted as damaged or a cost driver is dropped there, keyed on the ledger's
+    // iv:false set (which includes bumper-off demoted parts). Not stacked — the binder is
+    // the single owner of demoted-part claim removal. Inner-structure concern still reaches
+    // the buyer via the gate-generated Inspection Flag. Closes the "kept until 4e" note.
 
     // Perception probe retired — bumper-off rule demotes wing/quarter panels
     // deterministically before reconcile. Completeness probe will be built separately.
@@ -4080,34 +4058,10 @@ export async function GET(request) {
         console.log(`[ATTRIB PROBE] ${cp.panelId} ${r ? r.verdict : action} ${action} frames=${frameSource}`);
       }
 
-      // Post-application scrub — the bumperOffDemoted KCD/RF scrub ran long before probes existed,
-      // so probe-floored cost lines need their own pass. Same class: canonical part-name regex from
-      // PANEL_DISPLAY, leading-token for KCD, full-line for Red Flags. The floored panel's cost line
-      // must not survive on any prose surface (no internal contradiction).
-      if (_attribFloored.length > 0) {
-        const _escRx = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const _attribRx = _attribFloored.map(d => new RegExp('\\b' + _escRx(d.partName) + '\\b', 'i'));
-        if (assessment['Key Cost Drivers']) {
-          const lines = assessment['Key Cost Drivers'].split('\n');
-          const kept = lines.filter(line => {
-            const mm = line.match(/^[\s\-*•\d.]*(.+?):/);
-            if (!mm) return true;
-            return !_attribRx.some(rx => rx.test(mm[1].trim()));
-          });
-          if (kept.length < lines.length) {
-            console.log(`[ATTRIB SCRUB] KCD dropped ${lines.length - kept.length} line(s) for probe-floored panels`);
-            assessment['Key Cost Drivers'] = kept.join('\n').trim() || '';
-          }
-        }
-        if (assessment['Red Flags']) {
-          const rfLines = assessment['Red Flags'].split('\n');
-          const rfKept  = rfLines.filter(line => !_attribRx.some(rx => rx.test(line)));
-          if (rfKept.length < rfLines.length) {
-            console.log(`[ATTRIB SCRUB] Red Flags dropped ${rfLines.length - rfKept.length} line(s) for probe-floored panels`);
-            assessment['Red Flags'] = rfKept.join('\n').trim() || '';
-          }
-        }
-      }
+      // Post-application prose scrub retired (4d/4e) — probe-floored panels set iv:false, so they
+      // are in the claim binder's demoted set. KCD is code-assembled (floored parts absent from the
+      // ledger by construction); Red Flags probe-floored claims are dropped by PART STATUS (class 4).
+      // Single owner, not stacked. _attribFloored retained for the flag-push bookkeeping above.
     }
     // ── End attribution probe ───────────────────────────────────────────────────
 
@@ -4711,6 +4665,12 @@ export async function GET(request) {
     assessment._vdsParts = assembleVdsParts(coreObs.costedParts, gatedParts);
     console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled costed block(s)`);
 
+    // Code-assembled Key Cost Drivers (4d). The ledger IS the driver list — biggest-ticket repair
+    // lines, code-owned figures. Demoted/floored parts are absent from gatedParts by construction,
+    // so the retired KCD scrub is no longer needed. Model KCD prose (bound below) is judgement colour.
+    assessment._kcdParts = assembleKcdParts(gatedParts);
+    console.log(`[KCD ASSEMBLE] ${assessment._kcdParts.length} code-assembled driver(s)`);
+
     const parts_sum = sumPartsRealistic(gatedParts);
 
     // Instrumentation finalised post-gate: lamp_delta/lamp_inserted describe the
@@ -4895,6 +4855,39 @@ export async function GET(request) {
     if (assessment._evCoolingHvVerdict === 'cost-prohibitive' && assessment['Margin Calculation']) {
       assessment['Margin Calculation'] = assessment['Margin Calculation'].trimEnd() + `\n\n${EV_VERDICT_MARGIN_CAVEAT}`;
       console.log('[EV VERDICT] tier-1 margin caveat appended');
+    }
+
+    // ── 4d/4e — claim-class binder ─────────────────────────────────────────────
+    // Bind narrative claims to the finalised ledger across the five claim classes. Contradicting
+    // sentences are DROPPED (no rewrite). KCD model prose + Red Flags bind in place (redflags mode);
+    // Alt Scenario + Bidder Note are contradiction-only (speculation mode — hedged prose spared).
+    // Runs after the ledger/exit/EV-verdict are final and BEFORE the provenance inject below, so the
+    // code-owned provenance line is exempt by construction; the Step-5 tier-1 Red-Flags lead (already
+    // present) is exempt by prefix. VDS is untouched (already code-bound since 4c).
+    {
+      const _claimCtx = {
+        lampType: lampResult?.lampType ?? null,
+        allowedFigures: [
+          ...gatedParts.filter(gp => !/labour|paint|prep/i.test(gp.name)).map(gp => gp.used ?? gp.oem),
+          parts_sum, exitValue,
+        ].filter(v => v != null && Number.isFinite(Number(v))).map(Number),
+        partActions: gatedParts.filter(gp => !/labour|paint|prep/i.test(gp.name)).map(gp => [gp.name, gp.action ?? 'replace']),
+        demoted: coreObs.costedParts
+          .filter(cp => cp.independentlyVisible === false)
+          .map(cp => PANEL_DISPLAY[cp.panelId] || cp.partName || '')
+          .filter(Boolean),
+        evVerdict: assessment._evCoolingHvVerdict ?? null,
+      };
+      const _exemptLeads = [EV_VERDICT_TIER1_REDFLAG];
+      for (const [field, mode] of [
+        ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
+        ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
+      ]) {
+        if (!assessment[field]) continue;
+        const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode, _exemptLeads);
+        if (dropped.length) console.log(`[CLAIM BIND] ${field}: dropped ${dropped.length} sentence(s) [${dropped.map(d => d.class).join(', ')}]`);
+        assessment[field] = text;
+      }
     }
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +

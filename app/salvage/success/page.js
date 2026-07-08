@@ -783,10 +783,19 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
-                {assessment['Key Cost Drivers'] ? (
+                {/* Key Cost Drivers — code-assembled driver list (_kcdParts, 4d) + optional model
+                    judgement colour (claim-bound; may drop to empty → drivers stand alone). */}
+                {(assessment._kcdParts?.length > 0 || assessment['Key Cost Drivers']) ? (
                   <div className="field-row" key="Key Cost Drivers">
                     <div className="field-key">Key Cost Drivers</div>
-                    <div className="field-val">{assessment['Key Cost Drivers']}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {assessment['Key Cost Drivers'] && (
+                        <div className="field-val">{assessment['Key Cost Drivers']}</div>
+                      )}
+                      {(assessment._kcdParts || []).map((d, i) => (
+                        <div className="field-val" key={i}>{d.prose}</div>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
                 {/* Inspection Flags — structured per-part flags (model + gate-generated), weight high→low */}
