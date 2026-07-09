@@ -2365,7 +2365,7 @@ function tier1FloorLampObs() {
   };
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width') {
+function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false) {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
@@ -2376,12 +2376,17 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
 
   // Lamp count from geometry: full-width frontal implies both lamps implicated
   const lampCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
+  // S5-1 — span-source provenance: single owner, labelled where the count decision is taken (never
+  // re-derived downstream). spanDefaulted refines full_width when the span VALUE was defaulted upstream.
+  const spanSource = !apertureExposed ? 'tier1-forced'
+    : damageSpan === 'full_width' ? (spanDefaulted ? 'full_width-defaulted' : 'full_width')
+    : 'single_corner';
 
   const assumedDisclosure = ' ' + LAMP_ASSUMED_DISCLOSURE;
   const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
-    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, lampCount: 1 };
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, lampCount: 1, spanSource };
   }
 
   // Verdict branch: toggle gates confident 'missing' wording; detection is authoritative otherwise
@@ -2402,7 +2407,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   if (effectiveVerdict === 'missing') {
@@ -2411,7 +2416,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     const costDriverEntry = lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`;
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
@@ -2420,7 +2425,7 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
   const costDriverEntry = lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
     : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict };
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
 }
 
 // ── Parts Breakdown helpers ──────────────────────────────────────────────────
@@ -3509,7 +3514,8 @@ export async function GET(request) {
         lampObs.struckSide, lampObs.apertureExposed, derivedLampType,
         detectedCorner?.verdict   || null,
         detectedCorner?.lamp_type || null,
-        lampObs.damageSpan        || 'full_width'
+        lampObs.damageSpan        || 'full_width',
+        lampObs._spanDefaulted    === true
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
     }
@@ -4675,7 +4681,8 @@ export async function GET(request) {
 
     // Instrumentation finalised post-gate: lamp_delta/lamp_inserted describe the
     // rows actually inside parts_sum — reality, never assumption (CB7 fix)
-    const { lamp_delta, lamp_inserted, lamp_count } = finalizeLampInstrumentation(gatedParts, lampResult);
+    const { lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, orphan_collapse } = finalizeLampInstrumentation(gatedParts, lampResult);
+    const lamp_span_source = lampResult?.spanSource ?? 'no-lamp-result';   // S5-1 — verbatim copy of the branch computeLampResult labelled
 
     if (gatedParts.length > 0) {
       assessment['Parts Breakdown'] = renderParts(gatedParts);
@@ -4683,8 +4690,15 @@ export async function GET(request) {
     assessment._reconciledParts = gatedParts;
     assessment._preGateParts    = reconciledParts;
     assessment._allowanceParts  = allowanceParts;
-    assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count };
+    assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, lamp_span_source, orphan_collapse };
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
+    console.log(`[LAMP MONEY] rows_in_money=${lamp_money_rows} span_source=${lamp_span_source} orphan_collapse=${orphan_collapse} (lamp_count intent=${lamp_count})`);
+    if (lamp_money_rows > 1) {
+      const _branch = orphan_collapse
+        ? 'orphan-collapse (non-tier2 path — S5-2 target)'
+        : 'tier2-anomaly (INVARIANT BROKEN: >1 mandated lamp row on a path where that is structurally impossible)';
+      console.warn(`[LAMP MONEY][ORPHAN COLLAPSE] ${lamp_money_rows} lamp rows in parts_sum — ${_branch}; span_source=${lamp_span_source}.`);
+    }
 
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
     // avoiding contradiction with already-confirmed wheel damage in the checklist.
