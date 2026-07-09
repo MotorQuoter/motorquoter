@@ -4879,12 +4879,14 @@ export async function GET(request) {
         evVerdict: assessment._evCoolingHvVerdict ?? null,
       };
       const _exemptLeads = [EV_VERDICT_TIER1_REDFLAG];
+      assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
         ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
       ]) {
         if (!assessment[field]) continue;
         const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode, _exemptLeads);
+        for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.class, reason: d.reason });
         if (dropped.length) console.log(`[CLAIM BIND] ${field}: dropped ${dropped.length} sentence(s) [${dropped.map(d => d.class).join(', ')}]`);
         assessment[field] = text;
       }
