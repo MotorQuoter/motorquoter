@@ -601,10 +601,16 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   }
 
   // Parts Breakdown — structured table
-  const pdfParts = assessment._reconciledParts?.length
+  // 4f C-4 render guard: refuse any row with a blank/whitespace name (loud log).
+  const _pdfNamed = (rows, src) => rows.filter(p => {
+    if ((p?.name ?? '').trim() !== '') return true;
+    console.warn(`[PARTS RENDER GUARD] dropped blank-name row from ${src}:`, JSON.stringify(p));
+    return false;
+  });
+  const pdfParts = _pdfNamed(assessment._reconciledParts?.length
     ? assessment._reconciledParts
-    : parsePdfParts(assessment['Parts Breakdown'] || '');
-  const pdfAllowanceParts = assessment._allowanceParts || [];
+    : parsePdfParts(assessment['Parts Breakdown'] || ''), 'pdf-parts');
+  const pdfAllowanceParts = _pdfNamed(assessment._allowanceParts || [], 'pdf-allowance');
   if (pdfParts.length > 0 || pdfAllowanceParts.length > 0) {
     const fmtPP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
     checkPage(8 + (pdfParts.length + pdfAllowanceParts.length) * 6);

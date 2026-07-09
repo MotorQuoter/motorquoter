@@ -698,10 +698,16 @@ export default function SalvageSuccessPage() {
                 })()}
                 {/* Parts Breakdown — structured line-per-item table */}
                 {(() => {
-                  const parts = assessment._reconciledParts?.length
+                  // 4f C-4 render guard: refuse any row with a blank/whitespace name (loud log).
+                  const _named = (rows, src) => rows.filter(p => {
+                    if ((p?.name ?? '').trim() !== '') return true;
+                    console.warn(`[PARTS RENDER GUARD] dropped blank-name row from ${src}:`, JSON.stringify(p));
+                    return false;
+                  });
+                  const parts = _named(assessment._reconciledParts?.length
                     ? assessment._reconciledParts
-                    : parseParts(assessment['Parts Breakdown'] || '');
-                  const allowanceParts = assessment._allowanceParts || [];
+                    : parseParts(assessment['Parts Breakdown'] || ''), 'parts');
+                  const allowanceParts = _named(assessment._allowanceParts || [], 'allowance');
                   if (!parts.length && !allowanceParts.length) return null;
                   const fmtP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const colSt = (align = 'left', bold = false) => ({
