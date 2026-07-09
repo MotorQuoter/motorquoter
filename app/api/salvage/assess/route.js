@@ -4461,9 +4461,9 @@ export async function GET(request) {
       };
 
       if (tier === 1) {
+        // Tier-1 flag only here; the cost-prohibitive Red Flags LEAD is injected post-binder (4f C-2),
+        // so it is exempt from bindClaimClasses BY SEQUENCE rather than by a fragile prefix match.
         coreObs.flaggedParts.push({ panelId: PANEL.EV_BATTERY_ZONE, partName: 'HV battery pack', zone: 'underside', weight: 'high', reason: EV_VERDICT_TIER1_FLAG, _evVerdict: 'cost-prohibitive' });
-        const _rf = (assessment['Red Flags'] || '').trim();
-        assessment['Red Flags'] = _rf ? `- ${EV_VERDICT_TIER1_REDFLAG}\n${_rf}` : `- ${EV_VERDICT_TIER1_REDFLAG}`;
       } else if (tier === 2) {
         coreObs.flaggedParts.push({ panelId: PANEL.EV_BATTERY_ZONE, partName: 'HV battery / EV system', zone: 'interior', weight: 'high', reason: hardSignal ? EV_VERDICT_TIER2_HARD : EV_VERDICT_TIER2_SOFT, _evVerdict: 'inspect' });
       } else {
@@ -4878,18 +4878,28 @@ export async function GET(request) {
           .filter(Boolean),
         evVerdict: assessment._evCoolingHvVerdict ?? null,
       };
-      const _exemptLeads = [EV_VERDICT_TIER1_REDFLAG];
       assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
         ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
       ]) {
         if (!assessment[field]) continue;
-        const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode, _exemptLeads);
+        const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode);
         for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.class, reason: d.reason });
         if (dropped.length) console.log(`[CLAIM BIND] ${field}: dropped ${dropped.length} sentence(s) [${dropped.map(d => d.class).join(', ')}]`);
         assessment[field] = text;
       }
+    }
+
+    // ── EV tier-1 lead: post-binder injection (4f C-2) ──────────────────────────────
+    // The cost-prohibitive HV-pack verdict leads Red Flags. Injected AFTER bindClaimClasses so the
+    // code-owned lead is exempt from the scrub BY SEQUENCE — replacing the pre-binder prepend +
+    // _exemptLeads prefix match, which was fragile to lead-wording drift. Prepends (lead goes first);
+    // the code-owned provenance line below still appends last.
+    if (assessment._evCoolingHvVerdict === 'cost-prohibitive') {
+      const _rf = (assessment['Red Flags'] || '').trim();
+      assessment['Red Flags'] = _rf ? `- ${EV_VERDICT_TIER1_REDFLAG}\n${_rf}` : `- ${EV_VERDICT_TIER1_REDFLAG}`;
+      console.log('[EV LEAD] tier-1 cost-prohibitive lead prepended to Red Flags (post-binder)');
     }
 
     // CORE slot engine — code-owned structured verdicts from coreObs (model vision read) +
