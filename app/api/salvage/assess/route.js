@@ -4093,7 +4093,7 @@ export async function GET(request) {
     const { bandValue: specLampBand, lampTypeAssumed: specLampAssumed } = resolveLampBand(_specLampType, null);
     console.log(`[LAMP][SPEC-BAND] type=${_specLampType || 'indeterminate'} band=£${specLampBand} assumed=${specLampAssumed}`);
 
-    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed);
+    const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed, HEADLAMP_BANDS[HEADLAMP_BAND_DEFAULT]);
 
     // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
     // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
