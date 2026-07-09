@@ -4949,6 +4949,21 @@ export async function GET(request) {
       }
     }
 
+    // ── Sale-date → booking-reminder stamp (4f C-6) ───────────────────────────
+    // enrichedVd.saleDate is { ms, offsetH } on a successful STRICT parse of the one observed Copart
+    // format, else null (parse failure or absent). Stamp numeric ms + offset for the render state
+    // machine; ISO is human-facing. HARD RULE upstream: a partial/unrecognised format → null → the
+    // render shows generic 48h wording, never a computed date. The now-vs-sale state fires at render.
+    {
+      const _sd = enrichedVd.saleDate || null;
+      assessment._saleDateMs      = _sd ? _sd.ms : null;
+      assessment._saleDateOffsetH = _sd ? _sd.offsetH : null;
+      assessment._saleDateISO     = _sd ? new Date(_sd.ms).toISOString() : null;
+      console.log(`[BOOKING REMINDER] saleDate ${_sd
+        ? `parsed → ${assessment._saleDateISO} (GMT${_sd.offsetH >= 0 ? '+' : ''}${_sd.offsetH})`
+        : `absent/unparseable (raw=${JSON.stringify(enrichedVd.saleDateRaw ?? null)}) → generic 48h wording`}`);
+    }
+
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
     await supabase

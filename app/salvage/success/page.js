@@ -63,6 +63,33 @@ function parseChecklist(text) {
     .filter(l => l.length > 0);
 }
 
+// 4f C-6 — booking-reminder state machine. Called from the async assessment handler (Date.now() is
+// impure → never in render/effect-body). Returns { line, state }. A computed date is produced ONLY
+// when the sale date strict-parsed (finite _saleDateMs); partial/absent → generic wording.
+function computeBookingLine(assessment) {
+  const GEN = 'Physical inspection: £10, ~10 min — must be booked at least 48 hours before the sale.';
+  const ms = assessment?._saleDateMs;
+  const offH = assessment?._saleDateOffsetH;
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) {
+    return { line: GEN, state: (ms == null ? 'absent' : 'unparseable') + '-generic' };
+  }
+  const now = Date.now();
+  const deadline = ms - 48 * 3600 * 1000;
+  if (ms > now && now < deadline) {
+    const d = new Date(deadline + (offH || 0) * 3600000);
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    let h = d.getUTCHours(); const mnt = d.getUTCMinutes();
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    const when = `${days[d.getUTCDay()]} ${d.getUTCDate()} ${mons[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${h}:${String(mnt).padStart(2, '0')} ${ap} GMT${offH >= 0 ? '+' : ''}${offH}`;
+    return { line: `Physical inspection: £10, ~10 min — book by ${when} at the latest (48h before the sale).`, state: 'deadline' };
+  }
+  if (ms > now) {
+    return { line: 'Physical inspection: £10, ~10 min — the 48-hour booking window has closed; do not factor an inspection into your bid.', state: 'window-closed' };
+  }
+  return { line: GEN, state: 'past-generic' };
+}
+
 function confidenceColor(level) {
   if (!level) return '#f0ebe6';
   const l = level.toLowerCase();
@@ -107,6 +134,7 @@ export default function SalvageSuccessPage() {
   const [rerunLimitReached, setRerunLimitReached] = useState(false);
   const [overloadedMessage, setOverloadedMessage] = useState('');
   const [bodyTypeSelect, setBodyTypeSelect] = useState('');
+  const [bookingLine, setBookingLine] = useState(null);   // 4f C-6 booking reminder (computed off-render — impure now/log)
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -160,6 +188,11 @@ export default function SalvageSuccessPage() {
         throw new Error(data?.error || `Assessment failed (${res.status})`);
       }
       setAssessment(data.assessment);
+      {
+        const _bk = computeBookingLine(data.assessment);
+        console.log(`[BOOKING REMINDER] state=${_bk.state} saleMs=${data.assessment?._saleDateMs ?? 'none'}`);
+        setBookingLine(_bk.line);
+      }
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');
       setRerunCount(data.rerunCount ?? 0);
@@ -1022,6 +1055,10 @@ export default function SalvageSuccessPage() {
                   <span className="checklist-header-left">WhatsApp Inspection Checklist</span>
                   <span className="checklist-header-right">£10 · book 48hrs before sale</span>
                 </div>
+                {/* 4f C-6 booking reminder — line computed off-render in the effect above. */}
+                {bookingLine && (
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '6px 0 0', lineHeight: 1.5 }}>{bookingLine}</div>
+                )}
                 <div className="checklist-body">
                   {checklist.map((item, i) => (
                     <div className="checklist-item" key={i}>
