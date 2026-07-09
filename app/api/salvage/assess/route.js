@@ -4857,13 +4857,17 @@ export async function GET(request) {
       console.log('[EV VERDICT] tier-1 margin caveat appended');
     }
 
-    // ── 4d/4e — claim-class binder ─────────────────────────────────────────────
+    // ── 4d/4e/4f — claim-class binder ──────────────────────────────────────────
     // Bind narrative claims to the finalised ledger across the five claim classes. Contradicting
-    // sentences are DROPPED (no rewrite). KCD model prose + Red Flags bind in place (redflags mode);
-    // Alt Scenario + Bidder Note are contradiction-only (speculation mode — hedged prose spared).
-    // Runs after the ledger/exit/EV-verdict are final and BEFORE the provenance inject below, so the
-    // code-owned provenance line is exempt by construction; the Step-5 tier-1 Red-Flags lead (already
-    // present) is exempt by prefix. VDS is untouched (already code-bound since 4c).
+    // sentences are DROPPED (no rewrite) and recorded in _narrativeBindings. Bound surfaces:
+    // KCD + Red Flags (redflags); Alt Scenario + Bidder Note (speculation — hedged prose spared);
+    // and 4f C-3 adds VDS standfirst preamble (redflags, via 'Visible Damage Summary'; parseVdsParts
+    // re-parses at render), plus Realistic Exit Value + Margin Calculation + Recommended Action
+    // (speculation — class-2 context-gating preserves the legitimate exit/margin/bid figures these
+    // surfaces quote; the code-owned exit-band line and EV margin caveat carry no repair-context
+    // figure, so they survive the pass). Runs after the ledger/exit/EV-verdict are final and BEFORE
+    // both the provenance inject and the EV tier-1 lead injection below, which are therefore
+    // sequence-exempt by construction.
     {
       const _claimCtx = {
         lampType: lampResult?.lampType ?? null,
@@ -4882,6 +4886,9 @@ export async function GET(request) {
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
         ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
+        ['Visible Damage Summary', 'redflags'],                                    // 4f C-3: standfirst preamble
+        ['Realistic Exit Value', 'speculation'], ['Margin Calculation', 'speculation'], // 4f C-3: figures-bearing
+        ['Recommended Action', 'speculation'],                                     // 4f C-3: full set
       ]) {
         if (!assessment[field]) continue;
         const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode);
