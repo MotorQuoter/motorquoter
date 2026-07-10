@@ -17,6 +17,7 @@ import {
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
+import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
@@ -2436,7 +2437,7 @@ function parsePrice(s) {
   return m ? Math.round(parseFloat(m[0])) : null;
 }
 
-function parseParts(text) {
+function parseParts(text, sideScrubOut = null) {
   if (!text) return [];
   const result = [];
   for (const line of text.split('\n')) {
@@ -2447,7 +2448,22 @@ function parseParts(text) {
     const [, name, action, col3, col4] = m;
     const rawName      = name.trim();
     const panelId      = PANEL[rawName];
-    const resolvedName = PANEL_DISPLAY[panelId] ?? rawName;
+    let   resolvedName = PANEL_DISPLAY[panelId] ?? rawName;
+    // Side-word scrub (lib/sideScrub.mjs) — residual tokens (left/right/n/s/o/s), removal
+    // semantics, FALLBACK LEG ONLY. PANEL_DISPLAY names are neutral by construction; do not
+    // double-process them. Display-only: applied after panelId resolution, no effect on
+    // costing/identity (these non-panel rows pass the gate unchecked). Item 15 owns compound
+    // side-terms upstream, so only bare tokens/abbreviations ever survive to here.
+    if (!panelId) {
+      const scrub = scrubSideWords(resolvedName);
+      if (scrub.guarded) {
+        console.warn(`[SIDE SCRUB][GUARD] "${scrub.original}" is only a side token — kept original (never blank)`);
+      } else if (scrub.changed) {
+        console.log(`[SIDE SCRUB] "${scrub.original}" -> "${scrub.name}"`);
+        if (sideScrubOut) sideScrubOut.push({ original: scrub.original, scrubbed: scrub.name });
+        resolvedName = scrub.name;
+      }
+    }
     result.push({ panelId, name: resolvedName, action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
   }
   return result;
@@ -3551,7 +3567,9 @@ export async function GET(request) {
     }
 
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
-    const rawParts = parseParts(assessment['Parts Breakdown'] || '');
+    const _sideScrubbed = [];
+    const rawParts = parseParts(assessment['Parts Breakdown'] || '', _sideScrubbed);
+    assessment._sideScrubbed = _sideScrubbed; // provenance stamp — [] when scrub ran and changed nothing
 
     // (raw ledger computation moved above main call — Step 4a; assignments remain below)
     coreObs.costedParts  = pvResult.costedParts;

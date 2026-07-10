@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
+import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
@@ -50,7 +51,9 @@ function parseParts(text) {
     const act = action.trim().toLowerCase();
     const oem  = act === 'replace' ? parseP(col3) : act === 'repair' ? null : parseP(col5);
     const used = act === 'replace' ? parseP(col4) : act === 'repair' ? parseP(col5) : null;
-    result.push({ name: name.trim(), action: action.trim(), oem, used });
+    // Side-word scrub (lib/sideScrub.mjs) — display-only fallback parser (runs only when the
+    // server never produced _reconciledParts). No stamp: this degraded path is not persisted.
+    result.push({ name: scrubSideWords(name.trim()).name, action: action.trim(), oem, used });
   }
   return result;
 }
