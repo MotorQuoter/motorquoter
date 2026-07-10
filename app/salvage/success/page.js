@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { computeBookingLine, suppressBookingSentence } from '@/lib/bookingLine.mjs';
+import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
@@ -1043,7 +1043,7 @@ export default function SalvageSuccessPage() {
               <div className="checklist-section">
                 <div className="checklist-header">
                   <span className="checklist-header-left">WhatsApp Inspection Checklist</span>
-                  <span className="checklist-header-right">£10 · book 48hrs before sale</span>
+                  <span className="checklist-header-right">£10 · {bookingHeaderSuffix(bookingState)}</span>
                 </div>
                 {/* 4f C-6 booking reminder — line computed off-render in the effect above. */}
                 {bookingLine && (
