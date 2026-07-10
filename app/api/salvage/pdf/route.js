@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
+import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 function getSupabase() {
@@ -861,8 +862,13 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
-  // Fix 5: keep existing colour logic for Recommended Action
-  const action = str(assessment['Recommended Action']);
+  // Booking-window state (shared owner: lib/bookingLine.mjs). Computed once here; drives the
+  // Recommended Action suppression, the checklist header suffix, and the code booking line below.
+  const booking = computeBookingLine(assessment);
+
+  // Fix 5: keep existing colour logic for Recommended Action. When the booking window is shut,
+  // code suppresses the model's "book an inspection" sentence (the code booking line is authoritative).
+  const action = str(suppressBookingSentence(assessment['Recommended Action'], booking.state));
   const actionColor = action.toLowerCase().includes('option a') ? [0, 130, 0]
                     : action.toLowerCase().includes('option b') ? [160, 110, 0]
                     : action.toLowerCase().includes('option c') ? [160, 0, 0]
@@ -872,7 +878,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
   if (checklistItems.length > 0) {
-    sectionTitle('WhatsApp Inspection Checklist (£10 - book 48hrs before sale)');
+    sectionTitle(`WhatsApp Inspection Checklist (£10 - ${bookingHeaderSuffix(booking.state)})`);
+    // Code-owned booking reminder line (shared owner lib/bookingLine.mjs; matches the web) —
+    // the single authority on inspection timing, incl. the window-closed message.
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(90, 90, 90);
+    for (const bl of doc.splitTextToSize(booking.line, CONTENT_W)) { checkPage(4.5); doc.text(bl, MARGIN, y); y += 4.5; }
+    y += 1;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(20, 20, 20);

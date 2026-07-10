@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
+import { computeBookingLine, suppressBookingSentence } from '@/lib/bookingLine.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
@@ -66,32 +67,9 @@ function parseChecklist(text) {
     .filter(l => l.length > 0);
 }
 
-// 4f C-6 — booking-reminder state machine. Called from the async assessment handler (Date.now() is
-// impure → never in render/effect-body). Returns { line, state }. A computed date is produced ONLY
-// when the sale date strict-parsed (finite _saleDateMs); partial/absent → generic wording.
-function computeBookingLine(assessment) {
-  const GEN = 'Physical inspection: £10, ~10 min — must be booked at least 48 hours before the sale.';
-  const ms = assessment?._saleDateMs;
-  const offH = assessment?._saleDateOffsetH;
-  if (typeof ms !== 'number' || !Number.isFinite(ms)) {
-    return { line: GEN, state: (ms == null ? 'absent' : 'unparseable') + '-generic' };
-  }
-  const now = Date.now();
-  const deadline = ms - 48 * 3600 * 1000;
-  if (ms > now && now < deadline) {
-    const d = new Date(deadline + (offH || 0) * 3600000);
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    let h = d.getUTCHours(); const mnt = d.getUTCMinutes();
-    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
-    const when = `${days[d.getUTCDay()]} ${d.getUTCDate()} ${mons[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${h}:${String(mnt).padStart(2, '0')} ${ap} GMT${offH >= 0 ? '+' : ''}${offH}`;
-    return { line: `Physical inspection: £10, ~10 min — book by ${when} at the latest (48h before the sale).`, state: 'deadline' };
-  }
-  if (ms > now) {
-    return { line: 'Physical inspection: £10, ~10 min — the 48-hour booking window has closed; do not factor an inspection into your bid.', state: 'window-closed' };
-  }
-  return { line: GEN, state: 'past-generic' };
-}
+// 4f C-6 booking-reminder state machine now lives in lib/bookingLine.mjs (single owner,
+// shared with the PDF). computeBookingLine is impure (Date.now()) — call it only in the
+// async handler / off-render, never in a render or effect body.
 
 function confidenceColor(level) {
   if (!level) return '#f0ebe6';
@@ -138,6 +116,8 @@ export default function SalvageSuccessPage() {
   const [overloadedMessage, setOverloadedMessage] = useState('');
   const [bodyTypeSelect, setBodyTypeSelect] = useState('');
   const [bookingLine, setBookingLine] = useState(null);   // 4f C-6 booking reminder (computed off-render — impure now/log)
+  const [bookingState, setBookingState] = useState(null);       // booking window state for the CURRENT lot (off-render)
+  const [savedBookingState, setSavedBookingState] = useState(null); // …and for the SAVED lot (compare view)
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -159,7 +139,11 @@ export default function SalvageSuccessPage() {
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem('motorquoter_saved_lot');
-      if (saved) setSavedLot(JSON.parse(saved));
+      if (saved) {
+        const _sv = JSON.parse(saved);
+        setSavedLot(_sv);
+        setSavedBookingState(computeBookingLine(_sv.assessment).state); // off-render
+      }
     } catch {}
   }, []);
 
@@ -195,6 +179,7 @@ export default function SalvageSuccessPage() {
         const _bk = computeBookingLine(data.assessment);
         console.log(`[BOOKING REMINDER] state=${_bk.state} saleMs=${data.assessment?._saleDateMs ?? 'none'}`);
         setBookingLine(_bk.line);
+        setBookingState(_bk.state);
       }
       setVehicleDetails(data.vehicleDetails || {});
       setMarket(data.market || 'GB');
@@ -303,6 +288,7 @@ export default function SalvageSuccessPage() {
       };
       sessionStorage.setItem('motorquoter_saved_lot', JSON.stringify(lotData));
       setSavedLot(lotData);
+      setSavedBookingState(computeBookingLine(lotData.assessment).state); // off-render
       alert(`${identifier} saved for comparison`);
     } catch {
       alert('Could not save lot for comparison');
@@ -312,6 +298,7 @@ export default function SalvageSuccessPage() {
   const handleClearSaved = () => {
     sessionStorage.removeItem('motorquoter_saved_lot');
     setSavedLot(null);
+    setSavedBookingState(null);
     setShowComparison(false);
   };
 
@@ -1045,7 +1032,7 @@ export default function SalvageSuccessPage() {
                 {assessment['Recommended Action'] && (
                   <div className="field-row">
                     <div className="field-key">Recommended Action</div>
-                    <div className="field-val" style={{ color: actionColor(assessment['Recommended Action']), fontWeight: 600 }}>{assessment['Recommended Action']}</div>
+                    <div className="field-val" style={{ color: actionColor(assessment['Recommended Action']), fontWeight: 600 }}>{suppressBookingSentence(assessment['Recommended Action'], bookingState)}</div>
                   </div>
                 )}
               </div>
@@ -1121,7 +1108,7 @@ export default function SalvageSuccessPage() {
                       ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
                       ['Airbags', savedLot.assessment?.['Airbags']?.split('.')[0] + '.', assessment?.['Airbags']?.split('.')[0] + '.'],
                       ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],
-                      ['Action', savedLot.assessment?.['Recommended Action']?.split('.')[0] + '.', assessment?.['Recommended Action']?.split('.')[0] + '.'],
+                      ['Action', suppressBookingSentence(savedLot.assessment?.['Recommended Action'], savedBookingState)?.split('.')[0] + '.', suppressBookingSentence(assessment?.['Recommended Action'], bookingState)?.split('.')[0] + '.'],
                     ].map(([field, val1, val2]) => (
                       <tr key={field}>
                         <td><div className="compare-field">{field}</div></td>
