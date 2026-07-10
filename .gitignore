@@ -17,6 +17,16 @@
 /.next/
 /out/
 
+# next-pwa generated service worker (regenerated on every build)
+/public/sw.js
+/public/workbox-*.js
+/public/sw.js.map
+/public/workbox-*.js.map
+
+# playwright output (regenerated on every run)
+/test-results/
+/playwright-report/
+
 # production
 /build
 
