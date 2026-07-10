@@ -3565,8 +3565,21 @@ export async function GET(request) {
 
     // Parts reconciliation — lamp band folded in; parts_sum is the sole repair figure
     const _sideScrubbed = [];
-    const rawParts = parseParts(assessment['Parts Breakdown'] || '', _sideScrubbed);
+    const _partsBreakdownText = assessment['Parts Breakdown'] || '';
+    const rawParts = parseParts(_partsBreakdownText, _sideScrubbed);
     assessment._sideScrubbed = _sideScrubbed; // provenance stamp — [] when scrub ran and changed nothing
+
+    // Loud-fail on silent parse collapse (parts-parser-brittleness follow-up, loud-fail only —
+    // format broadening deferred). BL75JAU class: the model closes rows in a format parseParts
+    // doesn't match, every row fails, rawParts is [], and the repair total silently falls back to
+    // the lamp-floor — a plausible-looking WRONG number. Detect it: table-shaped text (a line with
+    // ≥2 pipes) that yielded ZERO parsed rows. A loud failure beats a silent wrong number.
+    const _partsTextHasRows = _partsBreakdownText.split('\n').some(l => (l.match(/\|/g) || []).length >= 2);
+    assessment._partsParseFailed = rawParts.length === 0 && _partsTextHasRows;
+    if (assessment._partsParseFailed) {
+      const _firstRow = _partsBreakdownText.split('\n').find(l => (l.match(/\|/g) || []).length >= 2) || '';
+      console.error(`[PARTS][PARSE FAILED] Parts Breakdown has table-shaped rows but parseParts returned 0 — format mismatch; repair total would fall back to lamp-floor only. First row: ${JSON.stringify(_firstRow.trim())}`);
+    }
 
     // (raw ledger computation moved above main call — Step 4a; assignments remain below)
     coreObs.costedParts  = pvResult.costedParts;
