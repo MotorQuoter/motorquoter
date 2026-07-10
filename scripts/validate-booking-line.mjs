@@ -35,6 +35,15 @@ check("never blanks the field (only-booking prose kept when closed)",
       suppressBookingSentence('Book a WhatsApp inspection now.', 'window-closed') === 'Book a WhatsApp inspection now.');
 check("null text → null (no throw)",         suppressBookingSentence(null, 'window-closed') === null);
 
+// YH23 witnessed (10 Jul): model fused the booking clause into the sentence with an em-dash;
+// the sentence-level detector under-stripped it (whole sentence dropped → empty → never-blank
+// guard returned the original), recreating the contradiction above a "sale has taken place" checklist.
+const emdash = 'Book a £10 Copart WhatsApp video inspection (min 48hrs before sale) — the visible damage is clear, but confirm the underside before bidding.';
+check("em-dash-fused OPEN → untouched",             suppressBookingSentence(emdash, 'deadline') === emdash);
+check("em-dash-fused CLOSED → booking clause gone", !/WhatsApp|Book a £10|inspection/.test(suppressBookingSentence(emdash, 'past-generic')));
+check("em-dash-fused CLOSED → continuation kept",   /visible damage is clear/.test(suppressBookingSentence(emdash, 'past-generic')) && /confirm the underside/.test(suppressBookingSentence(emdash, 'past-generic')));
+check("em-dash-fused CLOSED → not blank",           suppressBookingSentence(emdash, 'window-closed').length > 0);
+
 console.log('\n── bookingHeaderSuffix ──');
 check("window-closed → 'window closed' wording", bookingHeaderSuffix('window-closed') === '48-hour booking window closed');
 check("past-generic → 'sale has taken place' (matches its line)", bookingHeaderSuffix('past-generic') === 'sale has taken place');
