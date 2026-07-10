@@ -2864,9 +2864,6 @@ export async function GET(request) {
 
     const enrichedVd = normaliseLot(vd);
 
-    // TEMP NORM-VALIDATION — REMOVE after field diff vs NORM-BASELINE confirmed (zero changes except damageDescription Category label)
-    console.log('[NORM VALIDATION]', JSON.stringify(enrichedVd));
-
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
     if (market === 'IE' && roiTier !== 'roi_free' && enrichedVd.vrm) {
