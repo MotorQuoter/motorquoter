@@ -640,11 +640,15 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const xOem    = xAct + COL_ACT;
     const xSh     = xOem + COL_OEM;
     const xRepair = xSh + COL_SH;
-    // Three cost columns: replace → OEM+S/H; repair/labour → Repair cost = (used ?? oem). Never both.
-    // Position only — figure source unchanged; the totals below are untouched.
-    const costCells = (p) => (p.action || '').toLowerCase() === 'replace'
-      ? { oem: p.oem ?? null, sh: p.used ?? null, repair: null }
-      : { oem: null, sh: null, repair: p.used ?? p.oem ?? null };
+    // Three cost columns. replace → OEM + S/H. repair → OEM (all-OEM "New" comparison, when the model
+    // gave a replace price) + Repair cost. labour/other → Repair cost only. The repair-row OEM now
+    // reconciles with the New total (oemTotal = oem ?? used per row); S/H side and totals untouched.
+    const costCells = (p) => {
+      const act = (p.action || '').toLowerCase();
+      if (act === 'replace') return { oem: p.oem ?? null, sh: p.used ?? null, repair: null };
+      if (act === 'repair')  return { oem: p.oem ?? null, sh: null, repair: p.used ?? p.oem ?? null };
+      return { oem: null, sh: null, repair: p.used ?? p.oem ?? null };
+    };
     // Header
     doc.setFontSize(7); doc.setTextColor(140, 140, 140);
     doc.text('PART',   MARGIN, y);
