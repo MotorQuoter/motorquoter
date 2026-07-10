@@ -14,6 +14,9 @@ check("past (sale already gone) → 'past-generic'",   computeBookingLine({ _sal
 check("absent sale date → 'absent-generic'",         computeBookingLine({ _saleDateMs: null }).state === 'absent-generic');
 check("unparseable (NaN) → 'unparseable-generic'",   computeBookingLine({ _saleDateMs: NaN }).state === 'unparseable-generic');
 check("window-closed line carries the closed message", /booking window has closed/.test(computeBookingLine({ _saleDateMs: now + 10 * H }).line));
+check("past-generic line says the sale already happened (not 'must be booked')",
+      /already taken place/.test(computeBookingLine({ _saleDateMs: now - 5 * H }).line) &&
+      !/must be booked/.test(computeBookingLine({ _saleDateMs: now - 5 * H }).line));
 
 console.log('\n── isBookingShut ──');
 check("window-closed is shut",  isBookingShut('window-closed') === true);
@@ -33,9 +36,14 @@ check("never blanks the field (only-booking prose kept when closed)",
 check("null text → null (no throw)",         suppressBookingSentence(null, 'window-closed') === null);
 
 console.log('\n── bookingHeaderSuffix ──');
-check("shut → 'window closed' wording",  bookingHeaderSuffix('window-closed') === '48-hour booking window closed');
+check("window-closed → 'window closed' wording", bookingHeaderSuffix('window-closed') === '48-hour booking window closed');
+check("past-generic → 'sale has taken place' (matches its line)", bookingHeaderSuffix('past-generic') === 'sale has taken place');
 check("open → 'book 48hrs' wording",     bookingHeaderSuffix('deadline') === 'book 48hrs before sale');
 check("generic → 'book 48hrs' wording",  bookingHeaderSuffix('absent-generic') === 'book 48hrs before sale');
+// Header must never contradict the line beneath it: past-generic header + line agree the sale is gone.
+check("past-generic header + line agree (no contradiction)",
+      /taken place/.test(bookingHeaderSuffix('past-generic')) &&
+      /taken place/.test(computeBookingLine({ _saleDateMs: Date.now() - 5 * H }).line));
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);
