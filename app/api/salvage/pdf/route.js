@@ -166,6 +166,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const clean = str(value);
     const isEmpty = !clean;
     const displayText = isEmpty ? 'Not available' : clean;
+    // Measure the wrap in the SAME font the value renders in (set again below). Otherwise
+    // splitTextToSize measures in whatever font the previous call left — e.g. a sectionTitle's
+    // 7.5pt — and a 9pt value then overflows CONTENT_W and clips mid-word at the right edge
+    // (witnessed on Realistic Exit Value, which follows sectionTitle('Valuation & Bidding')).
+    doc.setFont('helvetica', (!isEmpty && opts.bold) ? 'bold' : 'normal');
+    doc.setFontSize((!isEmpty && opts.large) ? 11 : 9);
     const lines = doc.splitTextToSize(displayText, CONTENT_W);
     checkPage(8 + lines.length * 4.5);
     doc.setFont('helvetica', 'bold');
