@@ -4,6 +4,7 @@ import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
+import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 function getSupabase() {
@@ -227,6 +228,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Free-report marking (Commit 4) — gated on the assessment's payment_kind render hint.
   if (assessment._payment_kind === 'free_report') {
+    y += 4; // Piece 3: drop onto its own line, clear of the header's "GB Market - date" row
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(240, 90, 26);
@@ -568,6 +570,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
           ? `${stickerSuffix} — ${VENDOR_SUFFIX_MAP[stickerSuffix].vendorType}`
           : stickerSuffix)
       : stickerSuffix === 'UNREADABLE' ? 'Vendor suffix not legible' : null;
+    // Non-insurer suffixes (C, Q) get the warning colour — map stays the single owner of the class.
+    const isNonInsurerSuffix = !!(stickerSuffix && stickerSuffix !== 'UNREADABLE'
+      && VENDOR_SUFFIX_MAP[stickerSuffix]?.insurerEntered === false);
     const assetIdLine = bodyStyle
       ? (vendorEntry ? `${bodyStyle}  ·  Vendor: ${vendorEntry}` : bodyStyle)
       : null;
@@ -585,7 +590,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
         checkPage(assetLines.length * 4.5 + 3);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.5);
-        doc.setTextColor(120, 120, 120);
+        if (isNonInsurerSuffix) doc.setTextColor(160, 110, 0); else doc.setTextColor(120, 120, 120);
         for (const line of assetLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
         y += 2;
       }
@@ -940,6 +945,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     checkPage(4);
     doc.text(line, MARGIN, y);
     y += 3.5;
+  }
+
+  // Feedback line (Piece 2) — renders only once FEEDBACK_URL is set (dormant otherwise).
+  if (FEEDBACK_URL) {
+    y += 2;
+    checkPage(4);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`${FEEDBACK_STRINGS.pdf} ${FEEDBACK_URL}`, MARGIN, y);
   }
 
   return doc.output('arraybuffer');

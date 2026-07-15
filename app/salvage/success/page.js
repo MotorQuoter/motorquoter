@@ -6,6 +6,7 @@ import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
+import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
@@ -703,16 +704,26 @@ export default function SalvageSuccessPage() {
                         ? `${stickerSuffix} — ${VENDOR_SUFFIX_MAP[stickerSuffix].vendorType}`
                         : stickerSuffix)
                     : stickerSuffix === 'UNREADABLE' ? 'Vendor suffix not legible' : null;
-                  const assetIdLine = bodyStyle
-                    ? (vendorEntry ? `${bodyStyle}  ·  Vendor: ${vendorEntry}` : bodyStyle)
-                    : null;
+                  // Non-insurer suffixes (C, Q) badge amber — map stays the single owner of the class.
+                  const isNonInsurerSuffix = !!(stickerSuffix && stickerSuffix !== 'UNREADABLE'
+                    && VENDOR_SUFFIX_MAP[stickerSuffix]?.insurerEntered === false);
                   return (
                     <div className="field-row">
                       <div className="field-key">Visible Damage Summary</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {assetIdLine && (
+                        {(bodyStyle || vendorEntry) && (
                           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            {assetIdLine}
+                            {bodyStyle}
+                            {vendorEntry && (
+                              <>
+                                {bodyStyle ? '  ·  Vendor: ' : 'Vendor: '}
+                                {isNonInsurerSuffix ? (
+                                  <span style={{ display: 'inline-block', padding: '1px 7px', borderRadius: 6, background: 'rgba(245,200,66,0.16)', border: '1px solid #f5c842', color: '#f5c842', fontWeight: 800 }}>
+                                    {vendorEntry}
+                                  </span>
+                                ) : vendorEntry}
+                              </>
+                            )}
                           </div>
                         )}
                         {preamble && <div className="field-val">{preamble}</div>}
@@ -1156,6 +1167,12 @@ export default function SalvageSuccessPage() {
               AI-generated guidance only. Not a professional repair quote. The repair figure is the sum of itemised parts costed as visible in the photos. Items not independently confirmable appear in Inspection Flags and italic allowance rows — they are not in this figure. Hidden, secondary, or unphotographed damage may increase actual costs.<br />
               MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
             </p>
+
+            {FEEDBACK_URL && (
+              <p className="footer-note">
+                <a href={FEEDBACK_URL} target="_blank" rel="noopener noreferrer">{FEEDBACK_STRINGS.web}</a>
+              </p>
+            )}
           </>
         )}
       </div>
