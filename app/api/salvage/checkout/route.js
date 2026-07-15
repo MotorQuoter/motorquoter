@@ -65,6 +65,7 @@ export async function POST(request) {
       .from('salvage_sessions')
       .insert({
         status: 'pending_payment',
+        payment_kind: 'paid',
         vehicle_details: { ...(vehicleDetails || {}), roiTier: roiTierKey },
         image_paths: imagePaths,
         market: market || 'GB',

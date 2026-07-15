@@ -86,6 +86,7 @@ export async function POST(request) {
       .from('salvage_sessions')
       .insert({
         status: 'promo_redeemed',
+        payment_kind: 'promo',
         vehicle_details: { ...(vehicleDetails || {}), roiTier: roiTierKey, promoToken },
         image_paths: imagePaths,
         market: market || 'GB',
