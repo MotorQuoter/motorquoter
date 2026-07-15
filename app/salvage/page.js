@@ -19,6 +19,7 @@ export default function SalvagePage() {
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
+  const [freeReportToken, setFreeReportToken] = useState(''); // Commit 3: single-use free-report credential from the verify redirect
   const [auctionSource, setAuctionSource] = useState('copart');
   const [copartMileage, setCopartMileage] = useState('');
   const [promoInput, setPromoInput] = useState('');
@@ -65,6 +66,8 @@ export default function SalvagePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('cancelled') === 'true') setCancelled(true);
+    const frt = params.get('free_report_token');
+    if (frt) setFreeReportToken(frt);
     const rerunId = params.get('rerun');
     const rerunVrm = params.get('vrm');
     if (rerunId) {
@@ -345,6 +348,23 @@ export default function SalvagePage() {
         }
         const data = await res.json();
         if (!data.salvage_id) throw new Error(data.error || 'Promo checkout failed');
+        router.push(`/salvage/success?salvage_id=${data.salvage_id}&promo_token=${data.promoToken}`);
+        return;
+      }
+
+      if (freeReportToken && !isRerun) {
+        const res = await fetch('/api/salvage/promo-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vehicleDetails, imagePaths, market, free_report_token: freeReportToken }),
+        });
+        if (!res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const data = ct.includes('application/json') ? await res.json() : {};
+          throw new Error(data.error || 'Free report failed');
+        }
+        const data = await res.json();
+        if (!data.salvage_id) throw new Error(data.error || 'Free report failed');
         router.push(`/salvage/success?salvage_id=${data.salvage_id}&promo_token=${data.promoToken}`);
         return;
       }
