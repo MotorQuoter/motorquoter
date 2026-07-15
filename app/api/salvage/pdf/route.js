@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 function getSupabase() {
@@ -223,6 +224,15 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 2: set y explicitly — header is always 28mm + 6mm padding
   y = 34;
+
+  // Free-report marking (Commit 4) — gated on the assessment's payment_kind render hint.
+  if (assessment._payment_kind === 'free_report') {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(240, 90, 26);
+    doc.text(FREE_REPORT_STRINGS.marking, MARGIN, y);
+    y += 5;
+  }
 
   // Fix 4 — Section 2: VEHICLE DETAILS
   const vd = vehicleDetails || {};

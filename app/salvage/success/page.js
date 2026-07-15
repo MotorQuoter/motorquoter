@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 
 const LOADING_MESSAGES = [
@@ -494,6 +495,14 @@ export default function SalvageSuccessPage() {
                 {` · ${market} Market`}
               </div>
             </div>
+
+            {assessment._payment_kind === 'free_report' && (
+              <div style={{ margin: '10px 20px 0', padding: '8px 12px', borderRadius: 10,
+                background: 'var(--orange-dim, rgba(240,90,26,0.12))', border: '1px solid var(--orange, #f05a1a)',
+                fontSize: 12, fontWeight: 600, color: 'var(--orange, #f05a1a)' }}>
+                {FREE_REPORT_STRINGS.marking}
+              </div>
+            )}
 
             {/* Repair estimate banner — code-owned parts_sum, single figure */}
             {assessment._partsReconciliation?.parts_sum > 0 && (

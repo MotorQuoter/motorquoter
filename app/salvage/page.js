@@ -821,7 +821,9 @@ export default function SalvagePage() {
                   ? '↺ Re-run Assessment (free)'
                   : appliedPromo?.discount_type === 'free'
                     ? '🎟 Redeem & Assess'
-                    : `🔨 Pay ${displaySymbol}${displayAmount.toFixed(2)} and Assess`}
+                    : freeReportToken
+                      ? '✓ Get my free assessment'
+                      : `🔨 Pay ${displaySymbol}${displayAmount.toFixed(2)} and Assess`}
           </button>
         </div>
 

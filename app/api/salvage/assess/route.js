@@ -5008,6 +5008,11 @@ export async function GET(request) {
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
+    // Render hint (Commit 4): copy the session's payment_kind onto the assessment so both surfaces
+    // (web + PDF) can mark a free_report without a second query. Source of truth stays
+    // salvage_sessions.payment_kind; this is a denormalised copy, like the other assessment._ stamps.
+    assessment._payment_kind = session.payment_kind ?? null;
+
     await supabase
       .from('salvage_sessions')
       .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
