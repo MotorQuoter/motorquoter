@@ -1,7 +1,7 @@
 // Unit tests for lib/bookingLine.mjs — booking window state machine + code-owned checklist warning.
 // Run: node scripts/validate-booking-line.mjs   (expect "N passed, 0 failed")
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '../lib/bookingLine.mjs';
-import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_S_DIRECTIVE, CAT_NU_DIRECTIVE, categoryDirective } from '../config/booking.mjs';
+import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_S_DIRECTIVE, CAT_NU_DIRECTIVE, categoryDirective, SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '../config/booking.mjs';
 
 let pass = 0, fail = 0;
 const H = 3600 * 1000;
@@ -50,6 +50,14 @@ check("'U' → CAT_NU",             categoryDirective('U') === CAT_NU_DIRECTIVE)
 check("'Cat U' → CAT_NU",         categoryDirective('Cat U') === CAT_NU_DIRECTIVE);
 check("absent → CAT_S (worst case)",        categoryDirective('') === CAT_S_DIRECTIVE && categoryDirective(null) === CAT_S_DIRECTIVE);
 check("unrecognised 'C' → CAT_S (worst case)", categoryDirective('C') === CAT_S_DIRECTIVE);
+
+console.log('\n── sale-passed reject strings (Commit 4) ──');
+const _rejects = [SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE];
+check("all three defined and non-empty", _rejects.every(s => typeof s === 'string' && s.length > 0));
+check("all three distinct",              new Set(_rejects).size === 3);
+check("paid variant says no payment taken",   /no payment has been taken/.test(SALE_PASSED_REJECT_PAID));
+check("promo variant says code not used",     /your code has not been used/.test(SALE_PASSED_REJECT_PROMO));
+check("free variant says free report not used", /your free report has not been used/.test(SALE_PASSED_REJECT_FREE));
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

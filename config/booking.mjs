@@ -23,3 +23,9 @@ export function categoryDirective(categoryRaw) {
   const letter = m ? m[1] : null;
   return (letter === 'n' || letter === 'u') ? CAT_NU_DIRECTIVE : CAT_S_DIRECTIVE;
 }
+
+// Sale-passed reject strings (Commit 4). Returned as the 4xx error body when a lot's auction has
+// already taken place — before any charge / credential consumption. Variant per entry path.
+export const SALE_PASSED_REJECT_PAID  = "This lot's auction has already taken place — an assessment can no longer inform a bid, so no payment has been taken.";
+export const SALE_PASSED_REJECT_PROMO = "This lot's auction has already taken place — an assessment can no longer inform a bid, so your code has not been used.";
+export const SALE_PASSED_REJECT_FREE  = "This lot's auction has already taken place — an assessment can no longer inform a bid, so your free report has not been used.";

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { PRICING, ROI_TIERS } from '@/config/pricing';
+import { normaliseLot } from '@/lib/normaliseLot';
+import { SALE_PASSED_REJECT_PAID } from '@/config/booking.mjs';
 
 function getSupabase() {
   return createClient(
@@ -58,6 +60,15 @@ export async function POST(request) {
     if (useEUR && roiAddOn > 0 && !posNum(roiAddOnAmount)) {
       console.error(`[CHECKOUT][CURR] EUR opted-in but addOnEUR missing/invalid for tier ${roiTierKey}: ${roiAddOnAmount}`);
       return NextResponse.json({ error: 'EUR pricing is temporarily unavailable — please contact support' }, { status: 500 });
+    }
+
+    // Sale-passed reject gate: if the auction has already happened, an assessment can't inform a
+    // bid. Reject before any DB row or Stripe session is created (no orphan pending_payment row).
+    // saleDate is computed on the spot from the raw paste already in vehicleDetails; null saleDate
+    // (absent/unparseable) never fires.
+    const _saleDate = normaliseLot(vehicleDetails || {}).saleDate;
+    if (_saleDate && _saleDate.ms < Date.now()) {
+      return NextResponse.json({ error: SALE_PASSED_REJECT_PAID }, { status: 409 });
     }
 
     const supabase = getSupabase();

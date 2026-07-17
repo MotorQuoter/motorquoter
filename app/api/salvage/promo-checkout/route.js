@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { normaliseLot } from '@/lib/normaliseLot';
+import { SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '@/config/booking.mjs';
 
 function getSupabase() {
   return createClient(
@@ -35,10 +37,19 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Vehicle type not supported' }, { status: 400 });
     }
 
+    // Sale-passed reject gate (Commit 4): computed once from the raw paste already in
+    // vehicleDetails. null saleDate (absent/unparseable) never fires. Free path rejects before the
+    // atomic consume; promo path before the increment (skipped for bypass codes).
+    const _saleDate = normaliseLot(vehicleDetails || {}).saleDate;
+    const _salePassed = !!(_saleDate && _saleDate.ms < Date.now());
+
     const supabase = getSupabase();
     let payment_kind;
 
     if (free_report_token) {
+      if (_salePassed) {
+        return NextResponse.json({ error: SALE_PASSED_REJECT_FREE }, { status: 409 });
+      }
       // Free-report credential (Commit 3). Atomic consume is the race-safe gate: the single-use
       // token + `consumed_at IS NULL` filter means a concurrent second consume matches 0 rows and
       // is rejected — same discipline as the promo_codes uses_so_far claim. Consume WITHOUT
@@ -76,6 +87,12 @@ export async function POST(request) {
       }
       if (promo.allowed_products && !promo.allowed_products.includes('salvage')) {
         return NextResponse.json({ error: 'This code is not valid for this product' }, { status: 400 });
+      }
+
+      // Sale-passed reject (promo) — skipped for bypass codes (internal anchor runs, TESTFREE).
+      // Fires before the increment so a rejected passed-sale never burns a use.
+      if (_salePassed && !promo.bypass_sale_gate) {
+        return NextResponse.json({ error: SALE_PASSED_REJECT_PROMO }, { status: 409 });
       }
 
       // Atomic conditional increment using optimistic concurrency.
