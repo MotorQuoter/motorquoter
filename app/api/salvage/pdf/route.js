@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { computeBookingLine, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -893,7 +893,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 5: keep existing colour logic for Recommended Action. When the booking window is shut,
   // code suppresses the model's "book an inspection" sentence (the code booking line is authoritative).
-  const action = str(suppressBookingSentence(assessment['Recommended Action'], booking.state));
+  const action = str(assessment['Recommended Action']);
   const actionColor = action.toLowerCase().includes('option a') ? [0, 130, 0]
                     : action.toLowerCase().includes('option b') ? [160, 110, 0]
                     : action.toLowerCase().includes('option c') ? [160, 0, 0]

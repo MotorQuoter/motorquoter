@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { computeBookingLine, suppressBookingSentence, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { computeBookingLine, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -1056,7 +1056,7 @@ export default function SalvageSuccessPage() {
                 {assessment['Recommended Action'] && (
                   <div className="field-row">
                     <div className="field-key">Recommended Action</div>
-                    <div className="field-val" style={{ color: actionColor(assessment['Recommended Action']), fontWeight: 600 }}>{suppressBookingSentence(assessment['Recommended Action'], bookingState)}</div>
+                    <div className="field-val" style={{ color: actionColor(assessment['Recommended Action']), fontWeight: 600 }}>{assessment['Recommended Action']}</div>
                   </div>
                 )}
               </div>
@@ -1132,7 +1132,7 @@ export default function SalvageSuccessPage() {
                       ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
                       ['Airbags', savedLot.assessment?.['Airbags']?.split('.')[0] + '.', assessment?.['Airbags']?.split('.')[0] + '.'],
                       ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],
-                      ['Action', suppressBookingSentence(savedLot.assessment?.['Recommended Action'], savedBookingState)?.split('.')[0] + '.', suppressBookingSentence(assessment?.['Recommended Action'], bookingState)?.split('.')[0] + '.'],
+                      ['Action', savedLot.assessment?.['Recommended Action']?.split('.')[0] + '.', assessment?.['Recommended Action']?.split('.')[0] + '.'],
                     ].map(([field, val1, val2]) => (
                       <tr key={field}>
                         <td><div className="compare-field">{field}</div></td>
