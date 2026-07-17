@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { computeBookingLine, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
+import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -1047,6 +1048,12 @@ export default function SalvageSuccessPage() {
                     })()}
                   </div>
                 )}
+                {buildBuyerFlags(assessment).some(f => f.weight === 'high') && (
+                  <div className="field-row">
+                    <div className="field-key">Bid Directive</div>
+                    <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>{categoryDirective(vehicleDetails?.category)}</div>
+                  </div>
+                )}
                 {assessment['Bidder Note'] && (
                   <div className="field-row">
                     <div className="field-key">Bidder Note</div>
@@ -1062,12 +1069,12 @@ export default function SalvageSuccessPage() {
               </div>
             </div>
 
-            {/* WhatsApp Inspection Checklist */}
-            {checklist.length > 0 && (
+            {/* WhatsApp Inspection Checklist — full section only when the booking window is open */}
+            {checklist.length > 0 && !isChecklistSuppressed(bookingState) && (
               <div className="checklist-section">
                 <div className="checklist-header">
                   <span className="checklist-header-left">WhatsApp Inspection Checklist</span>
-                  <span className="checklist-header-right">£10 · {bookingHeaderSuffix(bookingState)}</span>
+                  <span className="checklist-header-right">£10 · {bookingHeaderSuffix()}</span>
                 </div>
                 {/* 4f C-6 booking reminder — line computed off-render in the effect above. */}
                 {bookingLine && (
@@ -1080,6 +1087,16 @@ export default function SalvageSuccessPage() {
                       <span>{item}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sale-passed / window-closed: the warning REPLACES the whole section. Gated on the
+                code-owned state ALONE — never on model output (checklist length). */}
+            {isChecklistSuppressed(bookingState) && (
+              <div className="checklist-section">
+                <div style={{ fontSize: 13, color: '#f5c842', fontWeight: 600, padding: '12px 16px', lineHeight: 1.5 }}>
+                  {checklistWarning(bookingState)}
                 </div>
               </div>
             )}

@@ -1,7 +1,7 @@
 // Unit tests for lib/bookingLine.mjs — booking window state machine + code-owned checklist warning.
 // Run: node scripts/validate-booking-line.mjs   (expect "N passed, 0 failed")
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '../lib/bookingLine.mjs';
-import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING } from '../config/booking.mjs';
+import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_S_DIRECTIVE, CAT_NU_DIRECTIVE, categoryDirective } from '../config/booking.mjs';
 
 let pass = 0, fail = 0;
 const H = 3600 * 1000;
@@ -38,6 +38,18 @@ check("SALE_PASSED and WINDOW_CLOSED differ",   SALE_PASSED_WARNING !== WINDOW_C
 console.log('\n── bookingHeaderSuffix (collapsed to open/deadline case) ──');
 check("returns the open/deadline suffix",        bookingHeaderSuffix() === 'book 48hrs before sale');
 check("no state dependence (ignores any arg)",   bookingHeaderSuffix('past-generic') === 'book 48hrs before sale' && bookingHeaderSuffix('window-closed') === 'book 48hrs before sale');
+
+console.log('\n── categoryDirective (worst case wins; recognises Cat U, unlike catLetter) ──');
+check("'S' → CAT_S",              categoryDirective('S') === CAT_S_DIRECTIVE);
+check("'Cat S' → CAT_S",          categoryDirective('Cat S') === CAT_S_DIRECTIVE);
+check("'S Repairable' → CAT_S",   categoryDirective('S Repairable') === CAT_S_DIRECTIVE);
+check("'N' → CAT_NU",             categoryDirective('N') === CAT_NU_DIRECTIVE);
+check("'Category N' → CAT_NU",    categoryDirective('Category N') === CAT_NU_DIRECTIVE);
+check("'N Repairable' → CAT_NU",  categoryDirective('N Repairable') === CAT_NU_DIRECTIVE);
+check("'U' → CAT_NU",             categoryDirective('U') === CAT_NU_DIRECTIVE);
+check("'Cat U' → CAT_NU",         categoryDirective('Cat U') === CAT_NU_DIRECTIVE);
+check("absent → CAT_S (worst case)",        categoryDirective('') === CAT_S_DIRECTIVE && categoryDirective(null) === CAT_S_DIRECTIVE);
+check("unrecognised 'C' → CAT_S (worst case)", categoryDirective('C') === CAT_S_DIRECTIVE);
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

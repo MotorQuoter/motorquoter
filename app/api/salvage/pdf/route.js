@@ -2,7 +2,8 @@ import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { computeBookingLine, bookingHeaderSuffix } from '@/lib/bookingLine.mjs';
+import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
+import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -891,19 +892,24 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Recommended Action suppression, the checklist header suffix, and the code booking line below.
   const booking = computeBookingLine(assessment);
 
-  // Fix 5: keep existing colour logic for Recommended Action. When the booking window is shut,
-  // code suppresses the model's "book an inspection" sentence (the code booking line is authoritative).
+  // Recommended Action renders raw model prose (the prose suppressor was retired in Commit 2).
   const action = str(assessment['Recommended Action']);
   const actionColor = action.toLowerCase().includes('option a') ? [0, 130, 0]
                     : action.toLowerCase().includes('option b') ? [160, 110, 0]
                     : action.toLowerCase().includes('option c') ? [160, 0, 0]
                     : [20, 20, 20];
+  // Code-owned bid directive (Commit 3) — head of the Recommended Action section, rendered only
+  // when a HIGH-weight inspection flag is present; string selected by salvage category. See
+  // config/booking.mjs. Matches the web surface.
+  if (pdfFlags.some(f => f.weight === 'high')) {
+    fieldBlock('Bid Directive', categoryDirective(vd.category), { color: [160, 0, 0], bold: true });
+  }
   fieldBlock('Recommended Action', action, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
-  if (checklistItems.length > 0) {
-    sectionTitle(`WhatsApp Inspection Checklist (£10 - ${bookingHeaderSuffix(booking.state)})`);
+  if (checklistItems.length > 0 && !isChecklistSuppressed(booking.state)) {
+    sectionTitle(`WhatsApp Inspection Checklist (£10 - ${bookingHeaderSuffix()})`);
     // Code-owned booking reminder line (shared owner lib/bookingLine.mjs; matches the web) —
     // the single authority on inspection timing, incl. the window-closed message.
     doc.setFont('helvetica', 'italic');
@@ -926,6 +932,17 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       checkPage(4);
       y += 2;
     }
+  } else if (isChecklistSuppressed(booking.state)) {
+    // Sale-passed / window-closed: the checklist section is suppressed entirely and the
+    // code-owned warning renders in its place (matches the web). Gated on the state ALONE —
+    // never on model output (item count), so it shows even if the model authored no items.
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(160, 0, 0);
+    for (const wl of doc.splitTextToSize(checklistWarning(booking.state), CONTENT_W)) { checkPage(4.5); doc.text(wl, MARGIN, y); y += 4.5; }
+    y += 1;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(20, 20, 20);
   }
 
   // Fix 4 — Section 7: FOOTER
