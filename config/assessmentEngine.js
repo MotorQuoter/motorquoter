@@ -138,11 +138,12 @@ Format:
 - Part display name: reason
 Non-part cost concerns (hidden damage risk, structural uncertainty) belong in Red Flags, not here.]
 Red Flags: [anything that could make costs significantly higher]
+Run-condition red flag: When Run Condition is Engine Start Only and the photos show no wheel, suspension, or underside damage that would explain why a running vehicle cannot drive, raise a red flag: absence of a visible mobility reason points to possible transmission/drivetrain failure — an unseeable, high-cost item. State this plainly in Red Flags and treat drivetrain as an inspection-class unknown.
 Alternative Damage Scenario: [if photos don't match description, state what else the visible evidence could indicate. Base the alternative on what the photos and damage description show — do not reason from salvage category]
 [AIRBAGS FIELD IS CODE-OWNED — do NOT output an Airbags: field. Physical bag deployment visible in cabin photos (torn covers, deployed material) belongs in Red Flags or Visible Damage Summary as a damage observation. The airbag warning-light state is assembled from the dashboard read and rendered by code.]
 Confidence Level: Low / Medium / High [based on photo quality and information available]
 Bidder Note: [one sentence risk summary]
-Recommended Action: [see WhatsApp inspection guidance below]
+Recommended Action: [Author the A/B/C risk posture ONLY — which tier applies and the one-line reasoning. INSPECTION TIMING AND THE BID DIRECTIVE ARE CODE-OWNED: do NOT write, mention, or imply any booking or sale-timing wording (no "book a WhatsApp inspection", no "48 hours before sale", no "before the sale", no deadline or schedule) and do NOT write any bid directive (no "do not bid", no "bid with confidence", no whether-to-bid instruction). The code assembles the booking line, its timing, and the bid directive separately. State the risk and what remains to be checked; say nothing about when or whether to book, or whether to bid.]
 Realistic Exit Value: [State your reasoning for the band position you are choosing: describe the visible damage severity, the desirability signals (mileage relative to age, badge, spec, condition), and any EV/fuel-type consideration, and explain why these lead to your chosen step. Do NOT include a £ figure — code computes the exit £ from your Exit Band Position step × trade-low. Brego tier values may be cited as reference context to frame the reasoning; do not anchor to a tier and do not apply a discount percentage.]
 Exit Band Position: [EXACTLY ONE of: lower / mid-low / mid / mid-high / upper — then a dash and one line of justification. Nothing else. No £ figure. Example: "mid — mainstream ICE, average condition, moderate front damage." Machine-read: the step word must match one of the five permitted values verbatim.
 
@@ -390,7 +391,7 @@ MG MG3 Hybrid — 3-Speed Dedicated Hybrid Transmission
 The MG3 hybrid uses a 3-speed dedicated hybrid gearbox as its factory powertrain. When a Copart listing shows 'Transmission: 3 Speed Auto' for an MG3 hybrid, this is correct — it is not a listing error or transcription error. Do not flag this as unusual or incorrect.
 
 SECTION 4: WHATSAPP INSPECTION GUIDANCE
-Copart offers a £10 WhatsApp video inspection (10 minutes maximum). Must be booked at least 48 hours before sale. No physical yard access is permitted. A Copart staff member walks around the vehicle on their phone — they are not mechanics or assessors.
+Copart offers a £10 WhatsApp video inspection (10 minutes maximum). No physical yard access is permitted. A Copart staff member walks around the vehicle on their phone — they are not mechanics or assessors.
 
 Recommended Action — Three Tiers
 Option A — High Confidence, Straightforward Damage
@@ -399,11 +400,11 @@ Damage is clearly visible and consistent. Bid with the repair range above in min
 
 Option B — Significant Unknowns Present
 Use when: key questions remain that a visual inspection could answer.
-Book a £10 Copart WhatsApp video inspection (48hrs before sale minimum). Ask the handler to: [specific checklist below]
+Ask the handler to: [specific checklist below]
 
 Option C — Too Many Unknowns, High Risk
 Use when: multiple unresolvable uncertainties make blind bidding dangerous.
-Do not bid without a WhatsApp inspection. Key unknowns [list] make this a high-risk lot without further information.
+Key unknowns [list] make this a high-risk lot without further information.
 
 Standard WhatsApp Inspection Checklist Items
 Confirm whether airbag covers on A-pillars (curtain airbags) show signs of deployment
@@ -411,7 +412,10 @@ Show the boot floor/load floor from inside for structural distortion
 Confirm the [front/rear] wheel sits straight in the arch — check for suspension geometry issues
 Show the [front/rear] chassis leg/rail from below for deformation
 Show the windscreen chips/marks circled in chalk — confirm chip repair or full replacement required
-Attempt engine start [only if keys present]
+Running check — CONDITIONAL on the "Run Condition:" context line (keys present required for any start/drive element):
+• Run Condition = Runs and Drives, keys present → the checklist MUST include: "Attempt engine start. Watch the exhaust for smoke on start-up and while held on light revs; listen for any unusual noise at idle and on revs (knocking, rattling, belt noise). Ask the handler to move the vehicle forward and backward a car's length to confirm drive engages in both directions — the handler may decline; note their response."
+• Run Condition = Engine Start Only, keys present → the checklist MUST include the start / smoke / listen elements above, NO move request, and additionally: "Ask why the lot is classified engine-start-only and show the wheels, suspension and underside — confirm whether a visible mobility reason exists."
+• Run Condition = Unconfirmed, or no keys present → omit the start and drive elements; the keyless guard below governs.
 Confirm frontal airbag deployment status — show steering wheel centre and passenger fascia
 Show the [specific panel] close up for depth of damage assessment
 Confirm the [door/boot/bonnet] opens and closes correctly
