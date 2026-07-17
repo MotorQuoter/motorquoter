@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON, BUMPER_OFF_MOUNTING_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
@@ -1115,12 +1115,13 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
   }
 }
 
-// Fault 1a — aperture torn-vs-seam read. Dedicated single-purpose vision pass (mirrors
-// runDashClusterRead): a bumper-off rear-quarter / front-wing is byte-identical on every
-// existing field between a genuinely torn panel and an intact seam merely exposed by the
-// missing bumper. This read is the ONLY signal that separates them. It judges the PANEL'S
-// OWN METAL: torn/folded/buckled = genuine impact (keep cost); straight intact seam = no
-// panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
+// Fault 1a — aperture panel read (torn / seam / mounting-structure). Dedicated single-purpose
+// vision pass (mirrors runDashClusterRead): a bumper-off rear-quarter / front-wing is byte-identical
+// on every existing field between a genuinely torn panel, an intact seam merely exposed by the
+// missing bumper, and torn bumper-mounting furniture standing in front of a clean panel. This read
+// is the ONLY signal that separates them. It judges the PANEL'S OWN OUTER FACE: torn/folded/buckled
+// on the face = genuine impact (keep cost); straight intact seam OR torn mounting furniture with a
+// clean face = no panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
 // Fail-safe: any failure/exhaust → null; invalid verdict → 'ambiguous'. Both keep cost
 // (policy: on structure, ambiguity falls to assume-damage).
 async function runAperturePanelRead(images, lampObs, frameIndices, apertureZone, onExhaust) {
@@ -1135,19 +1136,22 @@ async function runAperturePanelRead(images, lampObs, frameIndices, apertureZone,
 
 Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
 
-SURFACE SELECTION — read this before judging: with the bumper displaced or absent, TWO different surfaces are visible at this corner. (1) The OUTER PAINTED FACE — the smooth, body-coloured skin that was visible before the bumper left. (2) The EXPOSED INNER STRUCTURE — bumper mounting brackets, closing panels, vent housings, wiring, apertures, and unfinished or roughly painted metal that the bumper used to cover. The inner structure is irregular, rough, and cluttered BY DESIGN — it is NOT damage and must NOT be graded. Factory pressed swage or character lines running along the flank are styling, not creases. Judge ONLY the outer painted face. If the outer painted face shows smooth, continuous paint and reflections, the panel is undamaged regardless of how rough the exposed inner region looks.
+SURFACE SELECTION — read this before judging: with the bumper displaced or absent, TWO different surfaces are visible at this corner. (1) The OUTER PAINTED FACE — the smooth, body-coloured skin that was visible before the bumper left. (2) The EXPOSED INNER STRUCTURE — bumper mounting brackets, closing panels, vent housings, wiring, apertures, and unfinished or roughly painted metal that the bumper used to cover. The inner structure is irregular, rough, and cluttered BY DESIGN — it is NOT damage and must NOT be graded, and torn, bent, or exposed mounting furniture (mounting rails, carrier brackets, closing-panel tinware) visible in front of the panel is the MOUNTING-STRUCTURE verdict below, never TORN. Factory pressed swage or character lines running along the flank are styling, not creases. Judge ONLY the outer painted face. If the outer painted face shows smooth, continuous paint and reflections, the panel is undamaged regardless of how rough the exposed inner region looks.
 
-TORN = deformation on the OUTER PAINTED FACE, away from the bumper-mating edge and not on exposed inner structure: sharp creases radiating into the panel face, dents or crumpling on the face, cracked or scuffed paint at the deformation, or a body line misaligned versus the adjacent door or panel. This is genuine impact to the panel.
+TORN = deformation on the OUTER PAINTED FACE, away from the bumper-mating edge and away from exposed inner structure and mounting hardware: sharp creases radiating into the panel face, dents or crumpling on the face, cracked or scuffed paint at the deformation, or a body line misaligned versus the adjacent door or panel. This is genuine impact to the panel's own skin.
 SEAM = a factory pressed flange, fold, return edge, seam, or join line at the panel's bumper-mating edge, now visible ONLY because the bumper is displaced or absent. The factory closure line is STRAIGHT, UNIFORM, and WELL-DEFINED — it runs a consistent, manufactured path. A clean, regular line at the exposed edge is evidence the panel is UNDAMAGED: you are seeing the join the bumper used to cover. Deformation at or along the exposed mating edge alone, with the panel face otherwise clean, is SEAM.
+MOUNTING-STRUCTURE = torn, bent, or exposed bumper-mounting FURNITURE — not the panel's outer face. Serrated bumper mounting rails (sawtooth-profile black strips are FACTORY HARDWARE, not creased metal), carrier brackets, and lower closing-panel / carrier tinware all tear away with a displaced bumper. The outer painted face itself shows NO deformation — its paint and reflections are continuous. The damage belongs to the bumper assembly, not to this panel.
+
+ATTRIBUTE BY WHAT, NOT WHERE: choose the verdict by which component the damaged metal belongs to, not by where it sits in the frame. Torn metal at the panel's edge that is part of the bumper carrier or its mounting furniture is MOUNTING-STRUCTURE even though it lies inside the panel's visual region. Only deformation of the panel's OWN outer painted face is TORN.
 
 GEOMETRY TEST — apply before deciding TORN: genuine impact creasing is IRREGULAR — it changes direction, varies in depth, breaks the panel's reflection, and disturbs the paint. The factory closure line does none of these. Any crease you intend to cite as TORN must be visibly DISTINCT from the straight closure line and from shadow cast at the exposed edge. If the only "damage" you can see follows a straight, uniform path, it is the factory closure — verdict SEAM.
 
-Where the opposite-side equivalent panel is visible in any photo, compare against it: if the exposed structure mirrors the covered or undamaged side's construction, it is factory (SEAM), not damage.
+Where the opposite-side equivalent panel is visible in any photo, compare against it: if the exposed structure mirrors the covered or undamaged side's construction, it is factory (SEAM or MOUNTING-STRUCTURE), not damage.
 
 Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
-{ "verdict": "torn" | "seam" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see>" }
+{ "verdict": "torn" | "seam" | "mounting-structure" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see>" }
 
-Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn or seam.`;
+Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn, seam, or mounting-structure.`;
   try {
     if (images.length > 35) console.warn(`[APERTURE PANEL] image set truncated to 35 (received ${images.length})`);
     // C3 targeting: read the panel's targeted frames when given; else the full set (never empty).
@@ -1184,7 +1188,7 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[APERTURE PANEL] no JSON object in response:', raw.slice(0, 200)); return null; }
     const parsed = JSON.parse(match[0]);
-    const verdict  = ['torn', 'seam', 'ambiguous'].includes(parsed.verdict) ? parsed.verdict : 'ambiguous';
+    const verdict  = ['torn', 'seam', 'mounting-structure', 'ambiguous'].includes(parsed.verdict) ? parsed.verdict : 'ambiguous';
     const evidence = typeof parsed.evidence === 'string' ? parsed.evidence : '';
     console.log(`[APERTURE PANEL] verdict=${verdict} evidence="${evidence}"`);
     return { verdict, evidence };
@@ -3680,11 +3684,13 @@ export async function GET(request) {
       // seam; 'torn'/'ambiguous'/null keep cost (cost survives via the existing G-inject table path
       // for _gOwned, or applyVisibilityGate for a model row). Bookkeeping byte-for-byte as before.
       for (const { cp, isRQ, verdict, frameSource } of _apertureReads) {
-        const apertureSaysDemote = (verdict === 'seam');
+        const apertureSaysDemote = (verdict === 'seam' || verdict === 'mounting-structure');
         console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${verdict} frames=${frameSource} → ${apertureSaysDemote ? 'demote' : 'keep-cost'}`);
         if (!apertureSaysDemote) continue;
         cp.independentlyVisible = false;
         cp._bumperOffStripped = true;
+        const _demoteCause = `${verdict}-demote`;   // 'seam-demote' | 'mounting-structure-demote'
+        cp._apertureDemoteCause = _demoteCause;
         // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
         // gateStripped, so the gate's :281-288 bumper-off flag never fires for it and the
         // panel vanishes (no cost, no flag). Push the inspection flag at the demotion site,
@@ -3697,12 +3703,15 @@ export async function GET(request) {
           partName: cp.partName,
           zone:     cp.zone,
           weight:   'medium',
-          reason:   isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON,
+          reason:   verdict === 'mounting-structure'
+            ? BUMPER_OFF_MOUNTING_REASON
+            : (isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON),
           _bumperOffStripped: true,
-          _apertureDemoted: true,   // BUILD 2 breadcrumb — seam-verdict soften, for telemetry + validation
+          _apertureDemoted: true,   // BUILD 2 breadcrumb — aperture-verdict soften, for telemetry + validation
+          _apertureDemoteCause: _demoteCause,   // provenance: seam-demote vs mounting-structure-demote
         });
         bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
-        console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced, seam exposed`);
+        console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced (${_demoteCause})`);
       }
     }
     // Always-stamp (C1): full per-suspect aperture evidence into JSONB — [] on no-suspect lots. Runs on
