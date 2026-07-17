@@ -4,7 +4,7 @@
 
 // Rate limits (ruling D) — named constants, single-line changes later.
 export const FREE_REPORT_IP_LIMIT_PER_DAY     = 3;   // verification-email requests per IP per day
-export const FREE_REPORT_GLOBAL_LIMIT_PER_DAY = 25;  // global cap, counted at the request route
+export const FREE_REPORT_GLOBAL_LIMIT_PER_DAY = 100;  // global cap, counted at the request route
 export const FREE_REPORT_LINK_TTL_HOURS       = 24;  // signed-link lifetime (matches email copy)
 export const FREE_REPORT_REQUEST_PRUNE_DAYS   = 2;   // opportunistic prune of free_report_requests
 

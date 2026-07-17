@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normaliseEmail, emailDomain, isValidEmail, signLink, clientIp } from '@/lib/freeReport.mjs';
 import {
@@ -62,14 +63,23 @@ export async function POST(request) {
   await supabase.from('free_report_requests').delete()
     .lt('created_at', new Date(nowMs - FREE_REPORT_REQUEST_PRUNE_DAYS * 24 * 3600 * 1000).toISOString());
 
-  // Rate limits (ruling D), counted at the request route.
+  // Rate limits (ruling D), counted at the request route. Cap suppressions are logged (which cap,
+  // its value, the date bucket) so silent throttling is visible in Vercel logs. The window is a
+  // rolling 24h, not a calendar day; `bucket` is a UTC-date label only. No email in the log line —
+  // the per-IP line carries a truncated IP hash as a correlator, never the raw IP or the address.
+  const bucket = new Date(nowMs).toISOString().slice(0, 10); // UTC date label for the log
   const { count: ipCount } = await supabase.from('free_report_requests')
     .select('*', { count: 'exact', head: true }).eq('ip', ip).gt('created_at', dayAgoISO);
-  if ((ipCount ?? 0) >= FREE_REPORT_IP_LIMIT_PER_DAY) return neutral(); // no oracle for the per-IP cap
+  if ((ipCount ?? 0) >= FREE_REPORT_IP_LIMIT_PER_DAY) {
+    const ipHash = createHash('sha256').update(String(ip)).digest('hex').slice(0, 10);
+    console.log(`[FREE REPORT][CAP] per-IP suppressed — cap=${FREE_REPORT_IP_LIMIT_PER_DAY} window=24h bucket=${bucket} ipHash=${ipHash}`);
+    return neutral(); // no oracle for the per-IP cap — outward response unchanged
+  }
 
   const { count: globalCount } = await supabase.from('free_report_requests')
     .select('*', { count: 'exact', head: true }).gt('created_at', dayAgoISO);
   if ((globalCount ?? 0) >= FREE_REPORT_GLOBAL_LIMIT_PER_DAY) {
+    console.log(`[FREE REPORT][CAP] global suppressed — cap=${FREE_REPORT_GLOBAL_LIMIT_PER_DAY} window=24h bucket=${bucket}`);
     return NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.globalCap });
   }
 
