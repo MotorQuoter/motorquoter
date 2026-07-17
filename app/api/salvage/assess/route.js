@@ -14,7 +14,7 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON, BUMPER_OFF_MOUNTING_REASON, BUMPER_OFF_SYMMETRIC_REASON,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON, BUMPER_OFF_MOUNTING_REASON, BUMPER_OFF_SYMMETRIC_REASON, BUMPER_OFF_UNCOSTABLE_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
@@ -3682,37 +3682,44 @@ export async function GET(request) {
         const r = await runAperturePanelRead(images, lampObs, indices, s.apertureZone, () => _exhaustedCalls.add('aperture-panel'));
         return { ...s, verdict: r?.verdict ?? null, evidence: r?.evidence ?? '', frameSource: source };
       }));
-      // (c) demote each suspect on its own aperture verdict. Demote on 'seam', 'mounting-structure',
-      // or 'factory-symmetric'; 'torn'/'ambiguous'/null keep cost (cost survives via the existing
-      // G-inject table path for _gOwned, or applyVisibilityGate for a model row). Bookkeeping byte-for-byte as before.
+      // (c) DETERMINISTIC bumper-off demote — keep-cost authority REVOKED. EVERY aperture suspect
+      // demotes regardless of the probe verdict, incl. 'torn', 'ambiguous', and null (probe
+      // failure/exhaust). Evidence: four SF69YBB runs across three prompt generations returned a false
+      // 'torn' on a clean quarter — perception cannot separate the panel face from body-coloured torn
+      // carrier wreckage in listing photos, so it no longer holds cost. This restores the June
+      // deterministic rule; the probe now selects the flag REASON only, never the cost decision. Cost is
+      // excluded via independentlyVisible=false (G-inject skips _gOwned; the gate strips a model row);
+      // the compensating flag below is the buyer's signal.
       for (const { cp, isRQ, verdict, frameSource } of _apertureReads) {
-        const apertureSaysDemote = (verdict === 'seam' || verdict === 'mounting-structure' || verdict === 'factory-symmetric');
-        console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${verdict} frames=${frameSource} → ${apertureSaysDemote ? 'demote' : 'keep-cost'}`);
-        if (!apertureSaysDemote) continue;
+        console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${verdict} frames=${frameSource} → demote (deterministic)`);
         cp.independentlyVisible = false;
         cp._bumperOffStripped = true;
-        const _demoteCause = `${verdict}-demote`;   // 'seam-demote' | 'mounting-structure-demote' | 'factory-symmetric-demote'
+        const _demoteCause = `${verdict ?? 'no-read'}-demote`;   // provenance only — probe no longer decides cost
         cp._apertureDemoteCause = _demoteCause;
-        // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches
-        // gateStripped, so the gate's :281-288 bumper-off flag never fires for it and the
-        // panel vanishes (no cost, no flag). Push the inspection flag at the demotion site,
-        // mirroring the RAD hatch (:2963). The gate's strip-loop dedup (parts.mjs :279,
-        // keyed on normName(partName), no _gateGenerated clause) suppresses its own push
-        // when a model row DOES exist, since this push lands first. reason matches the gate
-        // byte-for-byte (BUMPER_OFF_SEAM_REASON + RQ rider). Additive only — no cost path.
+        // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches gateStripped, so
+        // the gate's :281-288 bumper-off flag never fires for it and the panel vanishes (no cost, no
+        // flag). Push the inspection flag at the demotion site, mirroring the RAD hatch (:2963). The
+        // gate's strip-loop dedup (parts.mjs :279, keyed on normName(partName)) suppresses its own push
+        // when a model row DOES exist, since this push lands first. The reason is verdict-selected;
+        // dedup is keyed on partName, not reason text, so the divergence is safe.
+        const _explained = (verdict === 'seam' || verdict === 'mounting-structure' || verdict === 'factory-symmetric');
         coreObs.flaggedParts.push({
           panelId:  cp.panelId,
           partName: cp.partName,
           zone:     cp.zone,
-          weight:   'medium',
+          // Uncostable (torn/ambiguous/null) is HIGH — possible real cost excluded; the factory
+          // explanations (seam/mounting/symmetric) stay medium.
+          weight:   _explained ? 'medium' : 'high',
           reason:   verdict === 'factory-symmetric'
             ? BUMPER_OFF_SYMMETRIC_REASON
             : verdict === 'mounting-structure'
               ? BUMPER_OFF_MOUNTING_REASON
-              : (isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON),
+              : verdict === 'seam'
+                ? (isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON)
+                : BUMPER_OFF_UNCOSTABLE_REASON,
           _bumperOffStripped: true,
-          _apertureDemoted: true,   // BUILD 2 breadcrumb — aperture-verdict soften, for telemetry + validation
-          _apertureDemoteCause: _demoteCause,   // provenance: seam- / mounting-structure- / factory-symmetric-demote
+          _apertureDemoted: true,   // breadcrumb — deterministic bumper-off demote, for telemetry + validation
+          _apertureDemoteCause: _demoteCause,   // provenance: <verdict|no-read>-demote (probe no longer decides)
         });
         bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
         console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced (${_demoteCause})`);
