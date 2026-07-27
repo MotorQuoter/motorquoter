@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { createCanvas, loadImage } from 'canvas';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
+import { MODELS } from '@/config/models';
 import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
@@ -850,7 +851,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 1024,
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
@@ -950,7 +951,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 512,
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
@@ -1022,7 +1023,7 @@ Return a raw JSON object only, no other text:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
+        model: MODELS.assessLight,
         max_tokens: 3072,   // headroom: a truncated (max_tokens) reply is unparseable → global full-set fallback, so buy margin over ~35×30-tok frames
         system: 'You are a vehicle photo classifier. Respond ONLY with a raw JSON object. No markdown, no explanation.',
         messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
@@ -1093,7 +1094,7 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 64,
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
@@ -1174,7 +1175,7 @@ Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 512,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: APERTURE_PROMPT }] }],
@@ -1340,7 +1341,7 @@ Return a raw JSON object only, no other text:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 256,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
@@ -1472,7 +1473,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-opus-4-8',
+      model: MODELS.assessPrimary,
       max_tokens: 1024,
       system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
       messages: [{ role: 'user', content: [...corrImageBlocks, { type: 'text', text: corrQuestion }] }],
@@ -1553,7 +1554,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 256,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
@@ -1609,7 +1610,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 256,
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
@@ -1800,7 +1801,7 @@ async function runPerViewAssess(image, idx, onExhaust) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 2048,
         system: [{ type: 'text', text: PER_VIEW_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages: [{ role: 'user', content: [
@@ -2933,7 +2934,7 @@ export async function GET(request) {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model: MODELS.assessLightDated,
           max_tokens: 200,
           system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
           messages: [{ role: 'user', content: preExtractBlocks }],
@@ -3244,7 +3245,7 @@ export async function GET(request) {
 
     const callClaude = async (withTools, forced = false) => {
       const body = JSON.stringify({
-        model: 'claude-opus-4-8',
+        model: MODELS.assessPrimary,
         max_tokens: 16000,
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
@@ -3390,7 +3391,7 @@ export async function GET(request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
+        model: MODELS.assessLight,
         max_tokens: 1024,
         tools: [CORE_EXTRACTION_TOOL],
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
@@ -3468,7 +3469,7 @@ export async function GET(request) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
-          model: 'claude-opus-4-8',
+          model: MODELS.assessPrimary,
           max_tokens: 512,
           system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
           messages: [

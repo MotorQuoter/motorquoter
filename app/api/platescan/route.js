@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { MODELS } from '@/config/models';
 
 export async function POST(request) {
   try {
@@ -18,7 +19,7 @@ export async function POST(request) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
+        model: MODELS.plateScan,
 
         max_tokens: 100,
         messages: [{
