@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createCanvas, loadImage } from 'canvas';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { MODELS } from '@/config/models';
+import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack } from '@/lib/copartFees';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
@@ -3264,6 +3265,11 @@ export async function GET(request) {
         return { res: null, data: null, exhausted: exhausted ?? false };
       }
       const data = await res.json();
+      // Live infra-failure alert (throttled) — awaited before returning so it runs on Vercel
+      // (post-response work is not guaranteed). The caller throws on !res.ok; the alert already ran.
+      if (!res.ok && isInfraFailure(res.status, data)) {
+        await sendOpsAlert('claude-assess', 'MotorQuoter: assess Claude call failing', `status ${res.status} — ${data?.error?.type || ''}: ${data?.error?.message || ''}. Model: ${MODELS.assessPrimary}. Likely retired/auth — check config/models.js.`);
+      }
       return { res, data, exhausted: false };
     };
 
@@ -3407,6 +3413,11 @@ export async function GET(request) {
       console.error('[CALL2] 529-exhausted — coreObs floor default will fire');
     } else if (!call2Res?.ok) {
       console.error(`[CALL2] API error ${call2Res?.status}`);
+      // Body only read in this !ok branch (no double-read). Live infra-failure alert, awaited.
+      const call2Err = await call2Res?.json().catch(() => null);
+      if (isInfraFailure(call2Res?.status, call2Err)) {
+        await sendOpsAlert('claude-assess', 'MotorQuoter: assess (light classifier) Claude call failing', `status ${call2Res?.status} — ${call2Err?.error?.type || ''}: ${call2Err?.error?.message || ''}. Model: ${MODELS.assessLight}. Likely retired/auth — check config/models.js.`);
+      }
     } else {
       call2Data = await call2Res.json();
     }

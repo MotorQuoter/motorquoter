@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { MODELS } from '@/config/models';
+import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 
 export async function POST(request) {
   try {
@@ -46,6 +47,9 @@ export async function POST(request) {
 
     if (!response.ok) {
       console.error('platescan upstream error:', data.error);
+      if (isInfraFailure(response.status, data)) {
+        await sendOpsAlert('claude-platescan', 'MotorQuoter: plate-scan Claude call failing', `status ${response.status} — ${data?.error?.type || ''}: ${data?.error?.message || ''}. Model: ${MODELS.plateScan}. Likely retired/auth — check config/models.js.`);
+      }
       return NextResponse.json({ error: data.error?.message || 'API error' }, { status: 500 });
     }
 
