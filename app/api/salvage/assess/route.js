@@ -21,6 +21,7 @@ import {
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
+import { runRescueGate } from '@/lib/apertureRescue.mjs';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 
@@ -3737,10 +3738,77 @@ export async function GET(request) {
         console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced (${_demoteCause})`);
       }
     }
+
+    // ── Aperture Rescue Gate (Stage 1) — behind APERTURE_RESCUE_ENABLED (default OFF) ────────────
+    // Recover a genuinely-deformed panel the demote just floored with a `torn` verdict, WITHOUT
+    // re-opening the SF69YBB fabrication. Scope-locked (§1) to verdict==='torn' aperture demotes.
+    // Safe-by-construction: PROMOTE needs a frame UNANIMOUSLY face-deformed AND no frame face-clean
+    // (lib/apertureRescue.mjs decideRescue); any doubt / cannot-determine / wrong-panel → leave floored.
+    // On PROMOTE of a MODEL-row panel we restore its stripped parts-breakdown line (§4); a _gOwned
+    // panel has no model line → it stays a HIGH-weight flagged allowance (never an invented hard cost).
+    if (process.env.APERTURE_RESCUE_ENABLED === 'true') {
+      const _stripB64 = (du) => du.replace(/^data:[^;]+;base64,/, '');
+      const rescueImaging = {
+        async meta(du) { const im = await loadImage(Buffer.from(_stripB64(du), 'base64')); return { W: im.width, H: im.height }; },
+        async crop(du, box) {
+          const im = await loadImage(Buffer.from(_stripB64(du), 'base64'));
+          const c = createCanvas(box.width, box.height);
+          c.getContext('2d').drawImage(im, box.left, box.top, box.width, box.height, 0, 0, box.width, box.height);
+          return c.toDataURL('image/jpeg', 0.9);
+        },
+      };
+      const rescueCall = async (du, text, maxTok = 300) => {
+        const mm = du.match(/^data:([^;]+);base64,(.+)$/);
+        const media_type = mm ? mm[1] : 'image/jpeg';
+        const data = mm ? mm[2] : du;
+        const { res, exhausted } = await with529Retry('aperture-rescue', () => fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model: MODELS.assessPrimary, max_tokens: maxTok,
+            system: 'Respond ONLY with a raw JSON object. No markdown.',
+            messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type, data } }, { type: 'text', text }] }],
+          }),
+        }));
+        if (exhausted || !res?.ok) return null;
+        const d = await res.json();
+        return (d.content || []).find(b => b.type === 'text')?.text || null;
+      };
+      const _rescueInstanceIdx = (fs) => { const m = String(fs || '').match(/\[([\d,\s]*)\]/); return m ? m[1].split(',').map(s => parseInt(s.trim(), 10)).filter(Number.isFinite) : []; };
+      for (const a of _apertureReads) {
+        if (a.verdict !== 'torn') continue;   // scope lock §1 — only torn demotes are rescue candidates
+        const kind = a.isRQ ? 'REAR_QUARTER' : 'FRONT_WING';
+        const idxs = _rescueInstanceIdx(a.frameSource).slice(0, 3); // best-lit targeted frames (§3)
+        const frames = idxs.map((i) => ({ i, du: images[i] })).filter(f => f.du).map(f => ({ id: `${a.cp.panelId}_${f.i}`, dataUrl: f.du }));
+        if (!frames.length) { console.log(`[APERTURE RESCUE] ${a.cp.panelId} — no targeted frames; leave floored`); continue; }
+        let result;
+        try { result = await runRescueGate({ kind, frames, call: rescueCall, imaging: rescueImaging }); }
+        catch (err) { console.warn(`[APERTURE RESCUE] ${a.cp.panelId} error: ${err.message} — leave floored`); continue; }
+        console.log(`[APERTURE RESCUE] ${a.cp.panelId} -> ${result.decision} (${result.reason})`);
+        if (result.decision !== 'PROMOTE') continue;
+        if (a.cp._gOwned === true) {
+          // §4 no-model-line edge: keep the HIGH-weight flagged allowance already in place; never invent a hard cost.
+          a.cp._apertureRescuedAllowance = true;
+          console.log(`[APERTURE RESCUE] ${a.cp.panelId} PROMOTE but _gOwned (no model parts line) — kept as HIGH-weight allowance flag (§4)`);
+          continue;
+        }
+        // MODEL-row panel: restore the stripped parts-breakdown line — revert the demote's mutations so
+        // it re-costs via its original path (reconcile/gate below), with NO invented figure.
+        a.cp.independentlyVisible = true;
+        delete a.cp._bumperOffStripped;
+        a.cp._apertureRescued = true;
+        const _fi = coreObs.flaggedParts.findIndex(f => f._apertureDemoted && f.panelId === a.cp.panelId);
+        if (_fi !== -1) coreObs.flaggedParts.splice(_fi, 1);   // drop the "excluded from repair total" flag (now costed)
+        const _bi = bumperOffDemoted.findIndex(x => x.partName === a.cp.partName);
+        if (_bi !== -1) bumperOffDemoted.splice(_bi, 1);       // un-scrub from Key Cost Drivers
+        console.log(`[APERTURE RESCUE] PROMOTED "${a.cp.partName}" — model parts-breakdown line restored to costed set`);
+      }
+    }
+
     // Always-stamp (C1): full per-suspect aperture evidence into JSONB — [] on no-suspect lots. Runs on
     // EVERY lot (outside the unconditional block); _apertureReads is hoisted above the block for this.
     assessment._apertureReads = _apertureReads.map(a => ({
-      panelId: a.cp.panelId, verdict: a.verdict, evidence: a.evidence, frameSource: a.frameSource,
+      panelId: a.cp.panelId, verdict: a.verdict, evidence: a.evidence, frameSource: a.frameSource, rescued: a.cp._apertureRescued === true,
     }));
     // ── End bumper-off rule ────────────────────────────────────────────────────
 
