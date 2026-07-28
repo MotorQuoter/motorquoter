@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
 
 const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
-const ZIP_MAX_IMAGES = 40;
+const MAX_PHOTOS = 40;          // shared ceiling: individual-photo path and zip path both cap here
+const ZIP_MAX_IMAGES = MAX_PHOTOS;
 
 // Ported verbatim from app/api/salvage/extract-zip/route.js so client-side ordering + lot
 // parsing match the old server behaviour exactly (Option A: unzip in the browser).
@@ -116,10 +117,16 @@ export default function SalvagePage() {
   });
 
   const handleFiles = useCallback(async (files) => {
-    const toAdd = Array.from(files).slice(0, 35 - images.length);
+    const incoming = Array.from(files);
+    const available = Math.max(0, MAX_PHOTOS - images.length);
+    const toAdd = incoming.slice(0, available);
+    // Tell the user when their selection overflowed the cap instead of silently dropping the extras.
+    if (incoming.length > toAdd.length) {
+      setError(`Maximum ${MAX_PHOTOS} photos — the extras weren't added`);
+    }
     if (toAdd.length === 0) return;
     const processed = await Promise.all(toAdd.map(compressImage));
-    setImages(prev => [...prev, ...processed].slice(0, 35));
+    setImages(prev => [...prev, ...processed].slice(0, MAX_PHOTOS));
     // Photos added — clear any latched zip-error so the "Zip failed" banner
     // doesn't lie about state once the user has chosen the individual path.
     setZipStatus('');
