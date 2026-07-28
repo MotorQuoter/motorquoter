@@ -4,6 +4,20 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
 
+const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
+const ZIP_MAX_IMAGES = 40;
+
+// Ported verbatim from app/api/salvage/extract-zip/route.js so client-side ordering + lot
+// parsing match the old server behaviour exactly (Option A: unzip in the browser).
+function zipTrailingInt(name) {
+  const m = name.match(/(\d+)(?:\.\w+)?$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+function zipLotFromFilename(name) {
+  const m = name.match(/^(\d+)_/);
+  return m ? m[1] : null;
+}
+
 export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
@@ -232,23 +246,54 @@ export default function SalvagePage() {
     setZipLotNumber(null);
     setZipImagePaths([]);
     try {
-      const fd = new FormData();
-      fd.append('zip', file);
-      fd.append('assessmentId', id);
-      const res = await fetch('/api/salvage/extract-zip', { method: 'POST', body: fd });
-      if (!res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        let msg;
-        if (res.status === 413) {
-          msg = 'That zip is too large to upload here (about 4 MB max). Upload the photos individually, or send a smaller zip.';
-        } else {
-          msg = ct.includes('application/json') ? (await res.json()).error : null;
-        }
-        throw new Error(msg || 'Zip extraction failed');
+      // Option A: unzip in the browser (no size cap, no function timeout), then reuse the
+      // signed-URL image upload path. Trades away the server-side magic-byte check (parity
+      // with the individual-photo path, which is also client-trust); zip-bomb risk is moot
+      // because unpacking happens here, not in a function.
+      const JSZip = (await import('jszip')).default;
+      const zip = await JSZip.loadAsync(file);
+      const entries = Object.values(zip.files)
+        .filter(e => !e.dir && ZIP_IMAGE_EXT.test(e.name))
+        .sort((a, b) => zipTrailingInt(a.name) - zipTrailingInt(b.name));
+
+      if (entries.length === 0) {
+        throw new Error('No images found in the zip — is it a Copart download?');
       }
-      const data = await res.json();
-      setZipImagePaths(data.imagePaths || []);
-      setZipLotNumber(data.zipLotNumber || null);
+      if (entries.length > ZIP_MAX_IMAGES) {
+        throw new Error(`Too many images in the zip — maximum ${ZIP_MAX_IMAGES}.`);
+      }
+
+      const lot = zipLotFromFilename(entries[0].name);
+
+      // Signed upload URLs, one per image (same endpoint the photo path uses).
+      const urlRes = await fetch('/api/salvage/upload-urls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessmentId: id, count: entries.length }),
+      });
+      if (!urlRes.ok) {
+        const ct = urlRes.headers.get('content-type') || '';
+        const msg = ct.includes('application/json') ? (await urlRes.json()).error : null;
+        throw new Error(msg || 'Failed to prepare zip image upload');
+      }
+      const { uploadUrls } = await urlRes.json();
+
+      const paths = await Promise.all(entries.map(async (entry, i) => {
+        const blob = await entry.async('blob');
+        const { path, uploadUrl } = uploadUrls[i];
+        const putRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: blob,
+        });
+        if (!putRes.ok) {
+          throw new Error(`Failed to upload image ${i + 1} of ${entries.length} — please try again`);
+        }
+        return path;
+      }));
+
+      setZipImagePaths(paths);
+      setZipLotNumber(lot || null);
       setZipStatus('ready');
     } catch (e) {
       setZipStatus('error');
