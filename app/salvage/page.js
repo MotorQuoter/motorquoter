@@ -236,8 +236,17 @@ export default function SalvagePage() {
       fd.append('zip', file);
       fd.append('assessmentId', id);
       const res = await fetch('/api/salvage/extract-zip', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        let msg;
+        if (res.status === 413) {
+          msg = 'That zip is too large to upload here (about 4 MB max). Upload the photos individually, or send a smaller zip.';
+        } else {
+          msg = ct.includes('application/json') ? (await res.json()).error : null;
+        }
+        throw new Error(msg || 'Zip extraction failed');
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Zip extraction failed');
       setZipImagePaths(data.imagePaths || []);
       setZipLotNumber(data.zipLotNumber || null);
       setZipStatus('ready');
