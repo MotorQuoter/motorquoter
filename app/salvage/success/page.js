@@ -9,6 +9,7 @@ import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+import { parseAction } from '@/config/recommendedAction.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -1060,12 +1061,27 @@ export default function SalvageSuccessPage() {
                     <div className="field-val">{assessment['Bidder Note']}</div>
                   </div>
                 )}
-                {assessment['Recommended Action'] && (
-                  <div className="field-row">
-                    <div className="field-key">Recommended Action</div>
-                    <div className="field-val" style={{ color: actionColor(assessment['Recommended Action']), fontWeight: 600 }}>{assessment['Recommended Action']}</div>
-                  </div>
-                )}
+                {assessment['Recommended Action'] && (() => {
+                  const pa = parseAction(assessment['Recommended Action']);
+                  const c = actionColor(assessment['Recommended Action']);
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">Recommended Action</div>
+                      <div className="field-val">
+                        {pa.label && (
+                          <span style={{ display: 'inline-block', background: c, color: '#1a1512',
+                            fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.03em',
+                            textTransform: 'uppercase', padding: '2px 8px', borderRadius: '6px', marginBottom: '6px' }}>
+                            {pa.label}
+                          </span>
+                        )}
+                        <div style={{ color: pa.label ? c : 'var(--text)', fontWeight: 600, marginTop: pa.label ? '4px' : 0 }}>
+                          {pa.body}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

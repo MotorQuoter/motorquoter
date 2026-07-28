@@ -7,6 +7,7 @@ import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+import { parseAction } from '@/config/recommendedAction.mjs';
 
 function getSupabase() {
   return createClient(
@@ -904,7 +905,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   if (pdfFlags.some(f => f.weight === 'high')) {
     fieldBlock('Bid Directive', categoryDirective(vd.category), { color: [160, 0, 0], bold: true });
   }
-  fieldBlock('Recommended Action', action, { color: actionColor, bold: true });
+  // Surface the plain-English tier label (shared copy with the web via config/recommendedAction)
+  // ahead of the model's reasoning; the "Option X —" prefix is stripped so it doesn't read twice.
+  const pa = parseAction(action);
+  fieldBlock('Recommended Action', pa.label ? `${pa.label}\n${pa.body}` : pa.body, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));
