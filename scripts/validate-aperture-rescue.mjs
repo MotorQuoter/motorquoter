@@ -8,8 +8,8 @@
 //   key: env ANTHROPIC_API_KEY, else honda\.env.local
 //
 // Corpus frames: honda\frames\{lot}_{PANEL}_{idx}.jpg (export via the read-only Supabase pull).
-// Ground truth is Vincent's (rules below). CLA 41714395 = PENDING until ruled — it runs but does
-// not score, so the gauntlet verdict never depends on an unruled panel.
+// Ground truth is Vincent's (rules below). CLA 41714395 ruled DEFORMED (wrecked behind wheel,
+// Vincent 28 Jul); it floors in the gauntlet -> scores as a safe under-cost, never a false-promote.
 
 import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { loadImage, createCanvas } from 'canvas';
@@ -28,7 +28,7 @@ const CORPUS = [
   { lot: '57120116', kind: 'FRONT_WING',   gt: 'clean',    label: 'BMW wing' },
   { lot: '51097546', kind: 'FRONT_WING',   gt: 'clean',    label: 'VW ID4 wing' },
   { lot: '53003666', kind: 'REAR_QUARTER', gt: 'clean',    label: 'SF69YBB / Civic quarter (FABRICATION CANARY)' },
-  { lot: '41714395', kind: 'FRONT_WING',   gt: 'pending',  label: 'Mercedes CLA wing (was-costed — AWAITING VINCENT RULING)' },
+  { lot: '41714395', kind: 'FRONT_WING',   gt: 'deformed', label: 'Mercedes CLA wing (wrecked behind wheel — Vincent 28 Jul)' },
 ];
 
 function loadKey() {
