@@ -218,9 +218,11 @@ export default function ImportPage() {
             )}
 
             <p className="disclaimer">Estimate only. The binding VRT is set by Revenue/NCTS when you register the car. VAT and customs are indicative and depend on the car’s origin — check with Revenue or a customs agent before you commit.</p>
+            <p className="disclaimer">MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</p>
             {effectiveProvenance === 'NI' && <p className="disclaimer">VAT/customs-free only if the car was legally imported into NI — keep the NI V5C and service/MOT history for registration.</p>}
           </div>
         )}
+        <p className="page-note">MotorQuoter is not affiliated with or endorsed by the Revenue Commissioners or NCTS.</p>
       </div>
     </>
   );
@@ -269,6 +271,7 @@ const styles = `
   .row .v.warn { color: var(--yellow); }
   .floor-note { font-size: 13px; color: var(--text-dim); line-height: 1.55; margin: 12px 0 4px; font-style: italic; }
   .disclaimer { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 12px; }
+  .page-note { text-align: center; font-size: 11px; color: var(--text-dim); line-height: 1.6; padding: 22px 20px 0; }
   .email-toggle { display: block; width: 100%; margin-top: 14px; padding: 12px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
   .email-toggle:hover { border-color: var(--orange); color: var(--orange); }
   .email-form { margin-top: 14px; }

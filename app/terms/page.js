@@ -103,6 +103,11 @@ export default function TermsPage() {
           </div>
 
           <div className="section">
+            <div className="section-heading">Import Cost Estimator</div>
+            <p className="section-body">The VRT, VAT and customs figures are indicative estimates only. The binding VRT is set by the Revenue Commissioners / NCTS at registration, and VAT and customs liability depend on the vehicle&rsquo;s origin and import status. MotorQuoter does not provide tax, legal or financial advice, accepts no liability for any loss arising from reliance on these estimates, and recommends verifying all figures with Revenue or a customs agent before committing to a purchase.</p>
+          </div>
+
+          <div className="section">
             <div className="section-heading">Terms of Use</div>
             <p className="section-body">MotorQuoter is provided on an &ldquo;as is&rdquo; basis. No warranty of fitness for purpose is given. Maximum liability is limited to the amount paid for the check in question. Data must not be resold or redistributed. One check result per payment — results are for the purchasing user only. MotorQuoter reserves the right to withdraw or amend the service at any time.</p>
           </div>

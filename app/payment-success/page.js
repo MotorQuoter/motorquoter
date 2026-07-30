@@ -938,6 +938,7 @@ function ImportCostSection({ result }) {
       {customsDutyFlag?.note && <div style={noteSt}>{customsDutyFlag.note}</div>}
       {Array.isArray(notes) && notes.map((n, i) => <div key={i} style={noteSt}>• {n}</div>)}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
     </div>
   );
 }
