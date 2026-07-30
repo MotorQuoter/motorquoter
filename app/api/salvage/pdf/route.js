@@ -887,6 +887,16 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 2;
   }
 
+  // SalvageGuide market cross-check — labelled independent reference; omitted entirely if absent.
+  if (assessment._salvageGuide) {
+    const sg = assessment._salvageGuide;
+    const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+    let sgTxt = `SalvageGuide (independent auction market data) — predicted bid ${g(sg.bidLow)} - ${g(sg.bidHigh)}${sg.bidAvg != null ? ` (avg ${g(sg.bidAvg)})` : ''}.`;
+    if (sg.retailLow != null && sg.retailHigh != null) sgTxt += ` Market retail ref ${g(sg.retailLow)} - ${g(sg.retailHigh)}.`;
+    if (sg.divergence === true) sgTxt += ` NOTE: our assessment and the market data disagree here — worth a closer look before you bid.`;
+    fieldBlock('Market Cross-Check', sgTxt);
+  }
+
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Booking-window state (shared owner: lib/bookingLine.mjs). Computed once here; drives the

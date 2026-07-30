@@ -1049,6 +1049,35 @@ export default function SalvageSuccessPage() {
                     })()}
                   </div>
                 )}
+                {assessment._salvageGuide && (() => {
+                  const sg = assessment._salvageGuide;
+                  const fmtGbp = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">
+                        Market Cross-Check
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
+                          SalvageGuide — independent auction market data
+                        </span>
+                      </div>
+                      <div className="field-val">
+                        <div style={{ fontWeight: 700 }}>
+                          Predicted bid {fmtGbp(sg.bidLow)} – {fmtGbp(sg.bidHigh)}{sg.bidAvg != null ? ` (avg ${fmtGbp(sg.bidAvg)})` : ''}
+                        </div>
+                        {(sg.retailLow != null && sg.retailHigh != null) && (
+                          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+                            Market retail ref {fmtGbp(sg.retailLow)} – {fmtGbp(sg.retailHigh)}
+                          </div>
+                        )}
+                        {sg.divergence === true && (
+                          <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(245,200,66,0.08)', border: '1.5px solid rgba(245,200,66,0.3)', borderRadius: 8, fontSize: 12, color: '#f5c842', lineHeight: 1.6 }}>
+                            Our assessment and the market data disagree here — worth a closer look before you bid.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {buildBuyerFlags(assessment).some(f => f.weight === 'high') && (
                   <div className="field-row">
                     <div className="field-key">Bid Directive</div>

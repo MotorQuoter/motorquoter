@@ -2610,6 +2610,31 @@ function buildHammerLadder(exitValue) {
   return rounded;
 }
 
+// ── SalvageGuide market cross-check (Bid Predictor) ──────────────────────────
+// One Auto SalvageGuide is a LABELLED, independent market reference shown ALONGSIDE the engine's
+// own figures. It NEVER feeds the exit value or the margin maths — Brego/Cazana own the repaired-
+// retail/exit value; the engine owns the hammer judgement. The divergence flag fires when the
+// engine's break-even hammer sits outside SalvageGuide's predicted bid range by more than this
+// fraction. Tunable.
+const SALVAGEGUIDE_DIVERGENCE_PCT = 0.15;
+
+// The engine's single implied "predicted hammer" for the cross-check = the break-even hammer:
+// where the margin ladder crosses £0 (the most you could pay at hammer and still not lose money).
+// Linear-interpolated between the two bracketing ladder rows; null when the ladder never crosses
+// £0 (break-even outside the shown range) → no divergence claim (fail-safe, never a false alarm).
+function breakEvenHammer(scenarios) {
+  if (!Array.isArray(scenarios)) return null;
+  const pts = scenarios.filter(s => Number.isFinite(Number(s?.hammer)) && Number.isFinite(Number(s?.margin)));
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if ((a.margin >= 0 && b.margin < 0) || (a.margin < 0 && b.margin >= 0)) {
+      const t = a.margin / (a.margin - b.margin);
+      return Math.round(a.hammer + t * (b.hammer - a.hammer));
+    }
+  }
+  return null;
+}
+
 // Airbag deployment is CODE-OWNED from structured signals — the per-view AIRBAG enum
 // (authoritative: a SEEN deployed bag) and the Copart listing paste (corroborator + the ONLY
 // path to an explicit count/position upgrade). Prose is NOT a source: it wobbles run-to-run
@@ -2999,7 +3024,7 @@ export async function GET(request) {
       const cleanVrmB = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
       const hdrs = { 'x-api-key': process.env.ONE_AUTO_API_KEY };
 
-      const [shResult, brResult] = await Promise.all([
+      const [shResult, brResult, sgResult] = await Promise.all([
         withOneAutoCache('SALVAGEHISTORY', cleanVrmB, async () => {
           const r = await fetch(`${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, { headers: hdrs });
           const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
@@ -3008,6 +3033,20 @@ export async function GET(request) {
         }),
         withOneAutoCache('BREGO_GB', cleanVrmB, async () => {
           const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs });
+          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+          const result = raw?.result ?? raw;
+          return (result && !result.error) ? result : null;
+        }),
+        // SalvageGuide Bid Predictor — labelled market cross-check. Data-layer only; salvage_category
+        // is a DATA param (never enters the model's context — category-blindness is unaffected).
+        // Fail-safe: any error / missing category / no numbers → null → the block is simply omitted.
+        withOneAutoCache('SALVAGEGUIDE', cleanVrmB, async () => {
+          const sgCat = catLetter(enrichedVd.category)?.toUpperCase();
+          if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
+          const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
+          if (Number.isFinite(Number(brMileage))) p.set('current_mileage', String(Math.round(brMileage)));
+          if (enrichedVd.primaryDamage) p.set('primary_damage_desc', enrichedVd.primaryDamage);
+          const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
           const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
           const result = raw?.result ?? raw;
           return (result && !result.error) ? result : null;
@@ -3023,6 +3062,8 @@ export async function GET(request) {
         bregoData = { ...brResult, _mileageSource: brMileageSource, _mileageUsed: brMileage };
         enrichedVd.bregoValuation = bregoData;
       }
+
+      if (sgResult) enrichedVd.salvageGuide = sgResult;
     }
 
     // ── Body-class resolution (Stage 5) ───────────────────────────────────────
@@ -4989,6 +5030,31 @@ export async function GET(request) {
       console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
     } else if (auctionSource === 'copart') {
       console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
+    }
+
+    // ── SalvageGuide market cross-check (labelled reference; NEVER feeds exit/margin) ──
+    // Maps the predicted-bid range + a secondary retail ref, and computes the divergence flag vs
+    // the engine's break-even hammer. Attached only when a usable bid range came back; otherwise the
+    // block is silently omitted downstream and the assessment renders exactly as before.
+    if (enrichedVd.salvageGuide) {
+      const sg = enrichedVd.salvageGuide;
+      const sgNum = v => Number.isFinite(Number(v)) ? Math.round(Number(v)) : null;
+      const bidLow  = sgNum(sg.salvage_auction_predicted_bid_low_gbp);
+      const bidAvg  = sgNum(sg.salvage_auction_predicted_bid_average_gbp);
+      const bidHigh = sgNum(sg.salvage_auction_predicted_bid_high_gbp);
+      if (bidLow != null && bidHigh != null) {
+        const be = breakEvenHammer(assessment._marginScenarios);
+        const divergence = (be != null)
+          ? (be < bidLow * (1 - SALVAGEGUIDE_DIVERGENCE_PCT) || be > bidHigh * (1 + SALVAGEGUIDE_DIVERGENCE_PCT))
+          : null;
+        assessment._salvageGuide = {
+          bidLow, bidAvg, bidHigh,
+          retailLow: sgNum(sg.category_adjusted_retail_value_low_gbp),
+          retailHigh: sgNum(sg.category_adjusted_retail_value_high_gbp),
+          breakEven: be, divergence,
+        };
+        console.log(`[SALVAGEGUIDE] bid £${bidLow}-£${bidHigh} (avg £${bidAvg ?? '—'}) breakEven=${be ?? 'n/a'} divergence=${divergence}`);
+      }
     }
 
     // EV Step 5 — tier-1 margin caveat (VERDICT LANGUAGE only; maths above untouched). The repair
