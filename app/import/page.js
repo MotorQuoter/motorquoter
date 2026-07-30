@@ -16,6 +16,13 @@ export default function ImportPage() {
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  // Optional email capture (Brevo) on the free result
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [emailConsent, setEmailConsent] = useState(false);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailDone, setEmailDone] = useState(false);
+  const [emailErr, setEmailErr] = useState('');
 
   // Effective provenance: only "NI" if the buyer affirmatively confirmed the NI qualification.
   const effectiveProvenance = (provenance === 'NI' && niQualifies === 'yes') ? 'NI' : 'GB';
@@ -83,6 +90,28 @@ export default function ImportPage() {
 
   const est = result?.estimate;
   const isGB = est?.basis?.provenance === 'GB';
+
+  async function subscribe() {
+    if (!emailConsent) { setEmailErr('Please tick the box to confirm you’re happy to be emailed.'); return; }
+    setEmailErr(''); setEmailBusy(true);
+    try {
+      const summary = est?.vrt
+        ? `VRT from about ${fmtEur(est.vrt.total)}${isGB && est.vat ? ` · VAT ${fmtEur(est.vat)}` : ''}`
+        : '';
+      const res = await fetch('/api/import-estimate/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, consent: emailConsent, vrm: reg.toUpperCase().replace(/\s/g, ''), summary }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setEmailErr(data.error || 'Could not send — please try again.'); return; }
+      setEmailDone(true);
+    } catch {
+      setEmailErr('Could not send — please try again.');
+    } finally {
+      setEmailBusy(false);
+    }
+  }
 
   return (
     <>
@@ -172,6 +201,22 @@ export default function ImportPage() {
             </button>
             <p className="pay-sub">A real Irish market valuation, the exact VRT band, VAT, customs, and what the car’s worth over here. The full landed cost, done right.</p>
 
+            {emailDone ? (
+              <div className="email-done">Sent — check your inbox.</div>
+            ) : emailOpen ? (
+              <div className="email-form">
+                <input className="field" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@email.com" />
+                <label className="consent">
+                  <input type="checkbox" checked={emailConsent} onChange={e => setEmailConsent(e.target.checked)} />
+                  <span>Email me this estimate and occasional MotorQuoter import tips. Unsubscribe anytime.</span>
+                </label>
+                <button className="cta email-send" onClick={subscribe} disabled={emailBusy}>{emailBusy ? 'Sending…' : 'Send it'}</button>
+                {emailErr && <div className="error">{emailErr}</div>}
+              </div>
+            ) : (
+              <button className="email-toggle" onClick={() => setEmailOpen(true)}>✉ Email me this estimate</button>
+            )}
+
             <p className="disclaimer">Estimate only. The binding VRT is set by Revenue/NCTS when you register the car. VAT and customs are indicative and depend on the car’s origin — check with Revenue or a customs agent before you commit.</p>
             {effectiveProvenance === 'NI' && <p className="disclaimer">VAT/customs-free only if the car was legally imported into NI — keep the NI V5C and service/MOT history for registration.</p>}
           </div>
@@ -224,4 +269,11 @@ const styles = `
   .row .v.warn { color: var(--yellow); }
   .floor-note { font-size: 13px; color: var(--text-dim); line-height: 1.55; margin: 12px 0 4px; font-style: italic; }
   .disclaimer { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 12px; }
+  .email-toggle { display: block; width: 100%; margin-top: 14px; padding: 12px; background: var(--bg3); border: 1.5px solid var(--border-dim); border-radius: 10px; color: var(--text-dim); font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; }
+  .email-toggle:hover { border-color: var(--orange); color: var(--orange); }
+  .email-form { margin-top: 14px; }
+  .consent { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 12px; color: var(--text-dim); line-height: 1.45; cursor: pointer; }
+  .consent input { accent-color: var(--orange); margin-top: 2px; width: 15px; height: 15px; flex-shrink: 0; }
+  .email-send { margin-top: 4px; }
+  .email-done { margin-top: 14px; padding: 12px; text-align: center; background: rgba(74,222,128,0.12); border: 1.5px solid rgba(74,222,128,0.3); border-radius: 10px; color: #4ade80; font-size: 14px; font-weight: 600; }
 `;
