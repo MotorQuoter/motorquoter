@@ -76,6 +76,20 @@ export const IE_MENU = [
   },
 ];
 
+// ROI Import Cost Check — standalone paid product (Ruling 9, 30 Jul). Presented in €.
+// Input a GB/NI reg + purchase price → full landed cost: VRT + VAT (GB) + customs-duty flag +
+// GB/NI provenance branch + the Irish valuation. Reuses the GB data path under the hood
+// (import_cost check). The free "VRT magnet" tier (DVLA-only, ~£0/use) is separate and lives in
+// the import entry UI, not here. Data cost ~80p (UK Vehicle Data + Brego Ireland from VIN).
+export const IMPORT_CHECK = {
+  key: 'import_cost',
+  label: 'Import to Ireland — Full Cost Check',
+  description: 'Landed cost of importing a GB/NI car to Ireland: VRT + VAT + customs + Irish valuation',
+  price: 8.99,     // GBP fallback
+  priceEUR: 9.99,  // presented in EUR
+  enabled: true,
+};
+
 export const PRICING = {
   menu: [
     {

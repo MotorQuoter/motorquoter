@@ -20,6 +20,7 @@ import {
   cachedServiceHistoryOutcome,
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
+import { estimateImportCostRange } from '@/lib/importCost';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
 // plan `pro`, `fluid: true`, `functionDefaultTimeout: 300` — so this route already had a 300s
@@ -580,7 +581,12 @@ const dvla = await safeJson(dvlaRes);
   }
 
   const sortedKey = [...checks].sort().join(',');
-  const cacheKey = `checks:${sortedKey}_${market}`;
+  // Import-cost results depend on user inputs (provenance / purchase price / NOx) that aren't checks,
+  // so fold them into the cache key — otherwise a different purchase price would serve a stale VAT.
+  const importSig = checks.includes('import_cost')
+    ? `_imp:${(searchParams.get('provenance') || 'GB').toUpperCase()}:${(searchParams.get('purchase_price') || searchParams.get('price') || '')}:${(searchParams.get('nox') || '')}`
+    : '';
+  const cacheKey = `checks:${sortedKey}_${market}${importSig}`;
 
   const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
   if (cached) {
@@ -918,6 +924,56 @@ const dvla = await safeJson(dvlaRes);
         ? { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits }
         : null;
 
+      // ── ROI Import Cost estimator (import_cost check) ──────────────────────────
+      // GB/NI reg valued INTO the Irish market: UK Vehicle Data (VIN + CO2 + Euro + fuel) →
+      // Brego Ireland valuation from VIN (OMSP proxy) → deterministic charge stack.
+      // Fully graceful-degrading: any failure yields an unsupported result, never throws.
+      let importCost = null;
+      if (checks.includes('import_cost')) {
+        const provenance = (searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+        const purchasePrice = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
+        const noxRaw = searchParams.get('nox');
+        const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
+        const importKms = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10) || 50000;
+        try {
+          // 1) UK Vehicle Data — VIN + CO2 (integer) + emission_class + fuel
+          const ukData = extractApiResult(await safeJson(
+            await fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ));
+          const vin = ukData?.vehicle_identification_number ?? null;
+          const impCo2 = ukData?.co2_gkm ?? dvla.co2Emissions ?? null;
+          // emission_class is the primary Euro basis; fall back to a "Euro N" embedded in the derivative.
+          const euroClass = ukData?.emission_class || ukData?.derivative_desc || null;
+          const impFuel = ukData?.fuel_type_desc ?? dvla.fuelType ?? null;
+          // 2) Brego Ireland valuation from VIN — OMSP proxy (same body shape as valuationfromvrm/v2)
+          let bregoIe = null;
+          if (vin) {
+            bregoIe = extractApiResult(await safeJson(
+              await fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvin/v2?vehicle_identification_number=${vin}&current_kms=${importKms}`, { headers: oneAutoHeaders() })
+            ));
+          }
+          const estimate = estimateImportCostRange({
+            omspLow:  bregoIe?.retail_low_valuation     ?? null,
+            omspAvg:  bregoIe?.retail_average_valuation ?? null,
+            omspHigh: bregoIe?.retail_high_valuation    ?? null,
+            co2: impCo2, euroClass, fuel: impFuel, noxOverride, provenance, purchasePrice,
+          });
+          importCost = {
+            ...estimate,
+            inputs: { co2: impCo2, euroClass, fuel: impFuel, provenance, purchasePrice, noxOverride: noxOverride ?? null },
+            omsp: bregoIe ? {
+              low:  bregoIe.retail_low_valuation     ?? null,
+              avg:  bregoIe.retail_average_valuation ?? null,
+              high: bregoIe.retail_high_valuation    ?? null,
+              currency: bregoIe.currency_unit ?? 'EUR',
+            } : null,
+          };
+        } catch (e) {
+          console.error('[IMPORT COST] compute failed:', e.message);
+          importCost = { supported: false, reason: 'Import estimate temporarily unavailable — please try again.' };
+        }
+      }
+
       const payload = {
         make: dvla.make,
         model: dvsaData?.model || null,
@@ -959,6 +1015,7 @@ const dvla = await safeJson(dvlaRes);
           fuelType: dvla.fuelType,
           engineCC: dvla.engineCapacity ?? null,
         }) : null,
+        importCost,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,
