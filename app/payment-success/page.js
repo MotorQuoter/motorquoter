@@ -882,6 +882,66 @@ function BregoRoiValuationSection({ result }) {
   );
 }
 
+// ── ROI Import Cost (VRT + VAT/customs) ────────────────────────────────────────
+
+function ImportCostSection({ result }) {
+  const ic = result.importCost;
+  if (!ic) return null;
+  const fmtEur = n => (n != null && Number.isFinite(Number(n))) ? `€${Math.round(Number(n)).toLocaleString('en-IE')}` : '—';
+  if (!ic.supported) {
+    return (
+      <div className="card">
+        <div className="section-title">Import to Ireland</div>
+        <div style={{ fontSize: 14, color: 'var(--text-dim)', padding: '4px 0 10px', lineHeight: 1.5 }}>{ic.reason}</div>
+      </div>
+    );
+  }
+  const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
+  const isGB = basis?.provenance === 'GB';
+  const rowSt = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderTop: '1px solid var(--border-dim)' };
+  const subSt = { ...rowSt, borderTop: 'none', padding: '3px 0' };
+  const keySt = { fontSize: 13, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em' };
+  const subKeySt = { fontSize: 11, color: 'var(--text-dim)', paddingRight: 10 };
+  const valSt = { fontSize: 15, fontWeight: 700, color: 'var(--text)' };
+  const noteSt = { fontSize: 11.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '6px 0 0' };
+  return (
+    <div className="card">
+      <div className="section-title">Import to Ireland — Landed Cost</div>
+      <div style={{ textAlign: 'center', padding: '4px 0 12px' }}>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Estimated total to import</div>
+        <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--orange)', fontFamily: "'Barlow Condensed', sans-serif" }}>
+          {range ? `${fmtEur(range.low)} – ${fmtEur(range.high)}` : fmtEur(grandTotal)}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{isGB ? 'VRT + VAT — customs duty extra if it applies' : 'VRT only (NI-qualifying)'}</div>
+      </div>
+      <div style={rowSt}>
+        <span style={keySt}>VRT (estimate)</span>
+        <span style={valSt}>{range && range.vrtLow != null ? `${fmtEur(range.vrtLow)} – ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total)}</span>
+      </div>
+      {vrt && (
+        <>
+          <div style={subSt}><span style={subKeySt}>CO₂ charge · {Math.round((vrt.band?.rate || 0) * 100)}% band{vrt.floorApplied ? ' (band minimum)' : ''}</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(vrt.co2Charge)}</span></div>
+          <div style={subSt}><span style={subKeySt}>NOx levy · {vrt.noxBasis}</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(vrt.noxLevy)}</span></div>
+        </>
+      )}
+      {isGB && <div style={rowSt}><span style={keySt}>VAT (23%)</span><span style={valSt}>{vat ? fmtEur(vat) : '—'}</span></div>}
+      {customsDutyFlag && (
+        <div style={rowSt}>
+          <span style={keySt}>Customs duty</span>
+          <span style={{ ...valSt, color: 'var(--yellow)' }}>
+            {customsDutyFlag.applies === false
+              ? 'Not applicable'
+              : (customsDutyFlag.indicativeAmount != null ? `~${fmtEur(customsDutyFlag.indicativeAmount)} if it applies` : 'Origin-dependent')}
+          </span>
+        </div>
+      )}
+      {customsDutyFlag?.note && <div style={noteSt}>{customsDutyFlag.note}</div>}
+      {Array.isArray(notes) && notes.map((n, i) => <div key={i} style={noteSt}>• {n}</div>)}
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
+    </div>
+  );
+}
+
 // ── ROI Market Demand ─────────────────────────────────────────────────────────
 
 function RoiMarketDemandSection({ result }) {
@@ -1203,6 +1263,7 @@ function PaymentSuccessContent() {
                 {checks.includes('mileage_detail')    && <MileageDetailSection   result={result} />}
                 {checks.includes('owner_history')     && <OwnerHistorySection    result={result} />}
                 {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
+                {checks.includes('import_cost') && result.importCost && <ImportCostSection result={result} />}
                 {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
               </>
             )}

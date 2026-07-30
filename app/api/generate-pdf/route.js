@@ -287,6 +287,42 @@ function buildPdf(result, vrm, checks, checkDate) {
   // still render their own block for already-paid historical reports (removed from sale 20 Aug).
   const hasFullHistory = has('full_history');
 
+  // ── ROI Import Cost (VRT + VAT/customs) ──────────────────────────────────────
+  if (has('import_cost') && result.importCost) {
+    const ic = result.importCost;
+    const fmtEur = v => (v != null && isFinite(Number(v))) ? `€${Math.round(Number(v)).toLocaleString('en-IE')}` : '-';
+    sectionTitle('Import to Ireland - Landed Cost');
+    if (!ic.supported) {
+      checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
+      for (const line of doc.splitTextToSize(ic.reason || 'Not applicable', CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 4; }
+      y += 3;
+    } else {
+      const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
+      const isGB = basis?.provenance === 'GB';
+      row('Estimated Total', range ? `${fmtEur(range.low)} - ${fmtEur(range.high)}` : fmtEur(grandTotal));
+      row('VRT (estimate)', (range && range.vrtLow != null) ? `${fmtEur(range.vrtLow)} - ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total));
+      if (vrt) {
+        row(`  CO2 charge (${Math.round((vrt.band?.rate || 0) * 100)}%${vrt.floorApplied ? ', band min' : ''})`, fmtEur(vrt.co2Charge));
+        row('  NOx levy', fmtEur(vrt.noxLevy));
+      }
+      if (isGB) row('VAT (23%)', vat ? fmtEur(vat) : '-');
+      if (customsDutyFlag) row('Customs duty', customsDutyFlag.applies === false
+        ? 'Not applicable'
+        : (customsDutyFlag.indicativeAmount != null ? `~${fmtEur(customsDutyFlag.indicativeAmount)} if it applies` : 'Origin-dependent'));
+      const lines = [];
+      if (vrt?.noxBasis) lines.push(`NOx basis: ${vrt.noxBasis}.`);
+      if (customsDutyFlag?.note) lines.push(customsDutyFlag.note);
+      if (Array.isArray(notes)) for (const n of notes) lines.push(n);
+      if (basis?.disclaimer) lines.push(basis.disclaimer);
+      checkPage(8); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+      for (const l of lines) {
+        for (const line of doc.splitTextToSize(str(l), CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 3.6; }
+        y += 1;
+      }
+      y += 2;
+    }
+  }
+
   // ── Write-off ────────────────────────────────────────────────────────────────
   if (has('writeoff') || hasFullHistory) {
     sectionTitle('Write-off / Cat S·N Check', 'Data provided by Experian');
