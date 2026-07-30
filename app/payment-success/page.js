@@ -1001,6 +1001,10 @@ function PaymentSuccessContent() {
   const sessionId    = searchParams.get('session_id');
   const roiTierParam = searchParams.get('roiTier');
   const isFree       = searchParams.get('free') === 'true';
+  // Import-cost inputs — threaded from the checkout success_url so /api/vehicle recomputes exactly.
+  const provenance   = searchParams.get('provenance');
+  const purchasePrice = searchParams.get('purchase_price');
+  const nox          = searchParams.get('nox');
 
   const runLookup = useCallback(async () => {
     if (!vrm || !sessionId) { router.push('/'); return; }
@@ -1025,6 +1029,9 @@ function PaymentSuccessContent() {
         params.set('checks', verifyData.checks || searchParams.get('checks') || '');
       }
       if (mileage) params.append('mileage', mileage);
+      if (provenance)    params.set('provenance', provenance);
+      if (purchasePrice) params.set('purchase_price', purchasePrice);
+      if (nox)           params.set('nox', nox);
       if (verifyData.paymentIntentId) params.set('paymentIntentId', verifyData.paymentIntentId);
 
       const res  = await fetch(`/api/vehicle?${params}`);
@@ -1036,7 +1043,7 @@ function PaymentSuccessContent() {
       setError('Something went wrong. Please contact support — you have not been charged twice.');
       setStatus('error');
     }
-  }, [vrm, sessionId, isFree, mileage, market, roiTierParam, router]);
+  }, [vrm, sessionId, isFree, mileage, market, roiTierParam, provenance, purchasePrice, nox, searchParams, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
 

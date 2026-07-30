@@ -540,6 +540,7 @@ export default function Home() {
             </svg>
             <span className="logo-text">MOTORQUOTER</span>
           </div>
+          <a href="/import" style={{ marginLeft: 'auto', color: 'var(--orange)', fontSize: 13, fontWeight: 700, textDecoration: 'none', fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.06em', textTransform: 'uppercase' }}>Import to Ireland →</a>
         </header>
 
         <div className="hero">

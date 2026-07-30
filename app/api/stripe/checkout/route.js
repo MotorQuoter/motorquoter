@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { PRICING, IE_MENU } from '@/config/pricing';
+import { PRICING, IE_MENU, IMPORT_CHECK } from '@/config/pricing';
 import { rejectedKeys } from '@/lib/menuGate';
 import { hasVehicleGatedKey, notOfferableForVehicle } from '@/lib/offerability';
 
@@ -40,10 +40,51 @@ export async function POST(request) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
   try {
-    const { vrm, checks, mileage, market, promoCode, currency } = await request.json();
+    const body = await request.json();
+    const { vrm, checks, mileage, market, promoCode, currency } = body;
 
     if (!vrm) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    }
+
+    // ── Import to Ireland — dedicated €9.99 EUR branch ─────────────────────────
+    // Its own product (presented in €), carrying the import inputs through metadata + success_url
+    // so the post-payment /api/vehicle recompute (import_cost check) is exact. Isolated from the
+    // à-la-carte path below so the market/EUR currency guard there is untouched.
+    if (Array.isArray(checks) && checks.includes('import_cost')) {
+      if (!IMPORT_CHECK.enabled) {
+        return NextResponse.json({ error: 'Import check is temporarily unavailable' }, { status: 503 });
+      }
+      const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
+      const provenance = (body.provenance || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+      const purchasePrice = String(body.purchase_price ?? body.price ?? '').replace(/[^\d]/g, '');
+      const nox = String(body.nox ?? '').replace(/[^\d]/g, '');
+      const mileageStr = String(mileage ?? '').replace(/[^\d]/g, '');
+      const succ = new URLSearchParams({
+        vrm: cleanVrm, checks: 'import_cost', market: 'GB',
+        provenance, purchase_price: purchasePrice, nox, mileage: mileageStr,
+      });
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'eur',
+            product_data: { name: IMPORT_CHECK.label },
+            unit_amount: Math.round(IMPORT_CHECK.priceEUR * 100),
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: `${baseUrl}/payment-success?${succ.toString()}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseUrl}/import?cancelled=true`,
+        metadata: {
+          vrm: cleanVrm, checks: 'import_cost', market: 'GB', currency: 'eur',
+          provenance, purchase_price: purchasePrice, nox, mileage: mileageStr,
+        },
+      });
+      return NextResponse.json({ url: session.url });
     }
 
     // Payment currency is INDEPENDENT of market. GBP is the default everywhere. EUR is opt-in and
