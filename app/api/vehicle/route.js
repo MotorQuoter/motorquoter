@@ -159,6 +159,36 @@ function extractApiResult(data) {
   return result;
 }
 
+// Depth-first scan for the first scalar whose key matches rx. One Auto's
+// vehicleandmodeldetailsfromvrm nests fields (VIN, co2_gkm, emission_class, fuel) under
+// result.vehicle_details.* — flat access returns undefined. Proven on the import-validate
+// endpoint (31 Jul). Returns undefined when not found (so ?? fallbacks still fire).
+function deepFindOne(obj, rx, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 6) return undefined;
+  for (const [k, v] of Object.entries(obj)) {
+    if (rx.test(k) && (typeof v !== 'object' || v === null)) return v;
+    if (v && typeof v === 'object') { const f = deepFindOne(v, rx, depth + 1); if (f !== undefined) return f; }
+  }
+  return undefined;
+}
+
+// Compliance safety net (DVLA/One Auto, 31 Jul): the full VIN must NEVER reach any client-readable
+// field. Raw One Auto sub-results (autocheck, valuation, service history) can echo a VIN key. This
+// recursively masks any VIN-named key AND any bare 17-char VIN-shaped token to "…<last5>", in place.
+const VIN_KEY = /vehicle_identification_number|^vin$/i;
+const VIN_SHAPE = /^[A-HJ-NPR-Z0-9]{17}$/i; // VIN charset excludes I/O/Q; 17 chars
+function scrubVin(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 8) return node;
+  for (const [k, v] of Object.entries(node)) {
+    if (typeof v === 'string' && (VIN_KEY.test(k) || VIN_SHAPE.test(v.trim()))) {
+      node[k] = v.trim().length >= 5 ? `…${v.trim().slice(-5)}` : null;
+    } else if (v && typeof v === 'object') {
+      scrubVin(v, depth + 1);
+    }
+  }
+  return node;
+}
+
 async function safeJson(res) {
   const text = await res.text();
   if (!text || !text.trim()) return null;
@@ -940,11 +970,15 @@ const dvla = await safeJson(dvlaRes);
           const ukData = extractApiResult(await safeJson(
             await fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           ));
-          const vin = ukData?.vehicle_identification_number ?? null;
-          const impCo2 = ukData?.co2_gkm ?? dvla.co2Emissions ?? null;
+          // Fields are nested under result.vehicle_details.* — scan, don't flat-access.
+          // VIN is SERVER-SIDE ONLY (Brego lookup below); it must NEVER enter the payload
+          // (DVLA/One Auto compliance, 31 Jul). It is deliberately absent from importCost.
+          const vin = deepFindOne(ukData, /^vehicle_identification_number$/i) ?? null;
+          const impCo2 = deepFindOne(ukData, /^co2_gkm$/i) ?? dvla.co2Emissions ?? null;
           // emission_class is the primary Euro basis; fall back to a "Euro N" embedded in the derivative.
-          const euroClass = ukData?.emission_class || ukData?.derivative_desc || null;
-          const impFuel = ukData?.fuel_type_desc ?? dvla.fuelType ?? null;
+          const euroClass = deepFindOne(ukData, /emission_class/i)
+            || deepFindOne(ukData, /derivative_desc/i) || null;
+          const impFuel = deepFindOne(ukData, /fuel_type_desc/i) ?? dvla.fuelType ?? null;
           // 2) Brego Ireland valuation from VIN — OMSP proxy (same body shape as valuationfromvrm/v2)
           let bregoIe = null;
           if (vin) {
@@ -1025,6 +1059,8 @@ const dvla = await safeJson(dvlaRes);
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
+      // VIN-no-display compliance net — strip any echoed full VIN before it is cached or returned.
+      scrubVin(payload);
       // See isUncacheableServiceHistory — a provider failure must not be frozen into the 48h cache.
       if (!isUncacheableServiceHistory(svcOutcome)) {
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
