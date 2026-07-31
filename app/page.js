@@ -866,6 +866,7 @@ export default function Home() {
 
         <p className="footer-note">
           {effectiveMarket === 'IE' ? 'Select your checks and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
+          Importing from the UK? Work out your VRT with <a href="https://www.revenue.ie/en/vrt/index.aspx" target="_blank" rel="noopener noreferrer">Revenue&rsquo;s official VRT calculator</a>.<br />
           Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
         </p>
       </div>
