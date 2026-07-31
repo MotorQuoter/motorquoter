@@ -466,6 +466,22 @@ export default function Home() {
         .salvage-title { font-family: 'Barlow Condensed', sans-serif; font-size: 17px; font-weight: 800; letter-spacing: 0.04em; color: var(--text); margin-bottom: 3px; }
         .salvage-desc { font-size: 13px; color: var(--text-dim); line-height: 1.4; }
         .salvage-price { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900; color: var(--orange); white-space: nowrap; flex-shrink: 0; }
+        .chooser-prompt { text-align: center; font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-dim); text-transform: uppercase; margin: 26px 20px 14px; }
+        .service-cards { display: flex; flex-direction: column; gap: 14px; margin: 0 20px; }
+        .service-card { background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 14px; padding: 18px 18px 20px; cursor: pointer; transition: all 0.18s; }
+        .service-card:hover { border-color: var(--orange); transform: translateY(-2px); box-shadow: 0 6px 22px rgba(240,90,26,0.15); }
+        .service-card-primary { border-color: rgba(240,90,26,0.55); background: linear-gradient(180deg, rgba(240,90,26,0.07), var(--bg2)); }
+        .service-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .service-ic { width: 42px; height: 42px; border-radius: 11px; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+        .service-title { font-family: 'Barlow Condensed', sans-serif; font-size: 21px; font-weight: 800; letter-spacing: 0.02em; line-height: 1.05; color: var(--text); }
+        .service-eyebrow { font-family: 'Barlow Condensed', sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--orange-light); text-transform: uppercase; margin-top: 2px; }
+        .service-body { font-size: 13.5px; color: var(--text-dim); line-height: 1.5; margin: 2px 0 14px; }
+        .service-price { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: var(--text); margin-bottom: 10px; }
+        .service-price .free-hl { color: #4ade80; }
+        .service-btn { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 16px; border-radius: 10px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 15.5px; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 4px; }
+        .service-btn-primary { background: var(--orange); color: #fff; }
+        .service-btn-ghost { background: transparent; color: var(--text); border: 1.5px solid var(--border); }
+        .service-card:hover .service-btn-ghost { border-color: var(--orange); color: var(--orange-light); }
 
         /* ── Loading / error ── */
         .loading { text-align: center; padding: 32px 20px; }
@@ -505,27 +521,43 @@ export default function Home() {
         </header>
 
         <div className="hero">
-          <p className="hero-eyebrow">UK & ROI Vehicle Intelligence</p>
           <h1 className="hero-title">
             KNOW YOUR<span>NUMBERS</span>
           </h1>
-          <p className="hero-sub">Accurate vehicle valuations. Cheaper and faster than CAP or HPI.</p>
+          <p className="hero-sub">UK &amp; Irish vehicle intelligence &mdash; cheaper and faster than CAP or HPI.</p>
         </div>
 
-        {salvage.enabled && (
-          <div className="salvage-card" onClick={() => router.push('/salvage')}>
-            <div className="salvage-card-left">
-              <span className="salvage-icon">🔨</span>
+        <div className="chooser-prompt">What are you here to do?</div>
+
+        <div className="service-cards">
+          <div className="service-card service-card-primary" onClick={() => document.getElementById('reg-lookup')?.scrollIntoView({ behavior: 'smooth' })}>
+            <div className="service-card-top">
+              <div className="service-ic">🚗</div>
               <div>
-                <div className="salvage-title">Salvage Assessment Tool</div>
-                <div className="salvage-desc">Full assessment for salvage and damaged vehicles — predicted hammer price included</div>
+                <div className="service-title">Check a car before you buy</div>
+                <div className="service-eyebrow">Buying a used car</div>
               </div>
             </div>
-            <div className="salvage-price">£{salvage.price.toFixed(2)}</div>
+            <div className="service-body">Any UK reg &mdash; tax, MOT, mileage, write-off, finance, stolen. Free lookup to start, then pay for only the checks you want.</div>
+            <div className="service-price"><span className="free-hl">Free</span> lookup &middot; checks from £1.49</div>
+            <span className="service-btn service-btn-primary"><span>Check a car</span><span>&rarr;</span></span>
           </div>
-        )}
 
-        <div className="form">
+          <div className="service-card" onClick={() => router.push('/salvage')}>
+            <div className="service-card-top">
+              <div className="service-ic">🔨</div>
+              <div>
+                <div className="service-title">Value a salvage car</div>
+                <div className="service-eyebrow">Bidding at auction</div>
+              </div>
+            </div>
+            <div className="service-body">Copart or damaged lots &mdash; repair cost, margin, predicted hammer price, and what the photos can&rsquo;t tell you.</div>
+            <div className="service-price">£{salvage.price.toFixed(2)} &middot; <span className="free-hl">first report free</span></div>
+            <span className="service-btn service-btn-ghost"><span>Assess a salvage car</span><span>&rarr;</span></span>
+          </div>
+        </div>
+
+        <div className="form" id="reg-lookup">
           {/* Registration number */}
           <div>
             <div className="field-label">Registration Number</div>
