@@ -49,6 +49,21 @@ test('parseEuroClass handles discrete, numeric and embedded forms', () => {
   assert.equal(parseEuroClass(null), null);
 });
 
+// One Auto emission_class arrives as a bare Euro sub-phase code (confirmed live 31 Jul:
+// GY67LLD="6b", FE68AOP="6c"). The sub-phase letter is Euro 6 either way — must not fall through
+// to null (which sent NOx to the statutory cap and over-costed VRT ~€4k on diesels).
+test('parseEuroClass handles One Auto bare emission_class codes (6b/6c/6d-temp)', () => {
+  assert.equal(parseEuroClass('6b'), 6);
+  assert.equal(parseEuroClass('6c'), 6);
+  assert.equal(parseEuroClass('6d'), 6);
+  assert.equal(parseEuroClass('6d-temp'), 6);
+  assert.equal(parseEuroClass('6'), 6);
+  assert.equal(parseEuroClass('5a'), 5);
+  assert.equal(parseEuroClass('4'), 4);
+  // must NOT greedily match a non-code string that merely starts with a digit
+  assert.equal(parseEuroClass('6 speed manual'), null);
+});
+
 test('normaliseFuel', () => {
   assert.equal(normaliseFuel('DIESEL'), 'diesel');
   assert.equal(normaliseFuel('Petrol'), 'petrol');
