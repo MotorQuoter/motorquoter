@@ -14,7 +14,7 @@ import { PRICING, IE_MENU } from '@/config/pricing';
 function buildMileageVerdict(motTests, opts = {}) {
   const m = checkMileageTimeline(motTests || [], opts);
   if (m.status === 'insufficient') return null;
-  return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readings.length };
+  return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readingCount };
 }
 
 // Service-history auto-refund amount, CHARGE-DERIVED (never a hardcoded GBP figure): read the
@@ -690,7 +690,7 @@ const dvla = await safeJson(dvlaRes);
         serviceHistoryCoverage: svcCoverage,
         salvageHistory: extractApiResult(salvageHistoryRaw),
         mileageVerdict: mileageTimeline.status !== 'insufficient'
-          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readings.length }
+          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount }
           : null,
         mileageDetail: needsMileageDetail
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }

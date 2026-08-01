@@ -97,12 +97,41 @@ test('ISO dates + comma-formatted odometer are parsed', () => {
   assert.equal(r.readings.length, 2);
 });
 
-test('readings with no odometer are skipped, not crashed', () => {
+test('null/blank odometer → N/A row: shown but excluded from tally + comparison', () => {
   const r = checkMileageTimeline([
     T('01/06/2023', '62000', 'mi'),
     { completedDate: '01/06/2022', odometerValue: null, odometerUnit: 'mi' },
     T('01/06/2021', '30000', 'mi'),
   ]);
   assert.equal(r.status, 'consistent');
-  assert.equal(r.readings.length, 2);
+  assert.equal(r.readingCount, 2);        // genuine count excludes the N/A
+  assert.equal(r.readings.length, 3);     // N/A row still present for display
+  const na = r.readings.find((x) => x.miles == null);
+  assert.ok(na && na.na === true);
+  assert.match(r.verdict, /consistent across 2 MOT readings/);
+});
+
+test('0-mile MOT reading (S50VNY case) → N/A, excluded, no false rollback', () => {
+  const r = checkMileageTimeline([
+    T('18/06/2022', '15000', 'mi'),
+    T('18/06/2020', '0', 'mi'),          // tester mis-entry — a 2001 bike was not at 0 mi in 2020
+    T('18/06/2019', '12000', 'mi'),
+  ]);
+  assert.equal(r.status, 'consistent');
+  assert.equal(r.readingCount, 2);        // 0-mile row excluded from the tally
+  assert.equal(r.anomalies.length, 0);    // 0 is NOT treated as a rollback from 12,000
+  assert.match(r.verdict, /consistent across 2 MOT readings/);
+  const zero = r.readings.find((x) => x.raw === 0);
+  assert.ok(zero && zero.miles == null && zero.na === true);   // rendered N/A, not "0 mi"
+});
+
+test('a REAL rollback is still caught even with a 0-mile row present', () => {
+  const r = checkMileageTimeline([
+    T('01/06/2023', '40000', 'mi'),
+    T('01/06/2022', '0', 'mi'),          // N/A — skipped
+    T('01/06/2021', '65000', 'mi'),      // genuine 65k → genuine 40k = real rollback
+  ]);
+  assert.equal(r.status, 'discrepancy');
+  assert.equal(r.anomalies[0].fromMiles, 65000);
+  assert.equal(r.anomalies[0].toMiles, 40000);
 });

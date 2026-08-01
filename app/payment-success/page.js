@@ -510,8 +510,9 @@ function MileageDetailSection({ result }) {
                 <div className="history-row">
                   <span className="history-date">{r.date}</span>
                   <span className="history-mileage">
-                    {Number(r.miles).toLocaleString('en-GB')} mi
-                    {r.unit === 'km' && <span style={{ marginLeft: 8, color: 'var(--text-dim)' }}>({Number(r.raw).toLocaleString('en-GB')} km recorded)</span>}
+                    {r.miles == null
+                      ? <span style={{ color: 'var(--text-dim)' }}>N/A <span style={{ fontSize: 11 }}>(no reading recorded)</span></span>
+                      : <>{Number(r.miles).toLocaleString('en-GB')} mi{r.unit === 'km' && <span style={{ marginLeft: 8, color: 'var(--text-dim)' }}>({Number(r.raw).toLocaleString('en-GB')} km recorded)</span>}</>}
                   </span>
                 </div>
               </div>
