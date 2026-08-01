@@ -152,6 +152,15 @@ export const PRICING = {
       enabled: true,
     },
     {
+      key: 'mileage_detail',
+      label: 'Mileage / Clocking Check',
+      description: 'Full MOT mileage timeline with rollback detection (mi & km normalised). A free verdict shows on your lookup; this adds the detailed reading-by-reading timeline to your report.',
+      price: 0.99,
+      preSelected: false,
+      locked: false,
+      enabled: true,
+    },
+    {
       key: 'service_history',
       label: 'Service History',
       description: 'OE manufacturer service records where available',

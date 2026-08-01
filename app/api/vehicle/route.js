@@ -5,7 +5,17 @@ import { getDvsaMotHistory } from '@/lib/dvsa';
 import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
+import { checkMileageTimeline } from '@/lib/mileageCheck';
 import { PRICING, IE_MENU } from '@/config/pricing';
+
+// Free mileage/clocking verdict from the DVSA MOT timeline (already pulled — no new cost).
+// Returns the one-line verdict + status only; the full reading-by-reading timeline is the paid
+// `mileage_detail` add-on. `null` when there is nothing worth surfacing (insufficient readings).
+function buildMileageVerdict(motTests, opts = {}) {
+  const m = checkMileageTimeline(motTests || [], opts);
+  if (m.status === 'insufficient') return null;
+  return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readings.length };
+}
 
 // Service-history auto-refund amount, CHARGE-DERIVED (never a hardcoded GBP figure): read the
 // actual amount charged for the "Service History" line from the Stripe session, in ITS currency,
@@ -250,6 +260,7 @@ const dvla = await safeJson(dvlaRes);
         motMileage: freeLatestMot?.odometerValue || null,
         motResult: freeLatestMot?.testResult || null,
         motHistory: freeMotTests,
+        mileageVerdict: buildMileageVerdict(freeMotTests),
         hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
@@ -579,6 +590,7 @@ const dvla = await safeJson(dvlaRes);
       const needsPreviousAdverts = checks.includes('previous_adverts');
       const needsServiceHistory = checks.includes('service_history');
       const needsSalvageHistory = checks.includes('salvagehistory');
+      const needsMileageDetail = checks.includes('mileage_detail');
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
@@ -621,7 +633,7 @@ const dvla = await safeJson(dvlaRes);
         needsMarketDemand
           ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
-        (needsMot && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
+        ((needsMot || needsMileageDetail) && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
         needsSalvageHistory
           ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -643,6 +655,11 @@ const dvla = await safeJson(dvlaRes);
         new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, serviceHistoryData?.records ?? null, needsServiceHistory);
 
       const latestMot = motTests?.[0] || null;
+
+      // Mileage/clocking timeline (unit-normalised). Verdict rides every GB report that has MOT
+      // data; the full reading-by-reading breakdown is the paid `mileage_detail` add-on. The
+      // user-entered mileage, when valid, is checked against the latest MOT as a "now" reading.
+      const mileageTimeline = checkMileageTimeline(motTests || [], userMileageValid ? { currentMileage: userMileageNum } : {});
 
       const payload = {
         make: dvla.make,
@@ -672,6 +689,12 @@ const dvla = await safeJson(dvlaRes);
         serviceHistory: serviceHistoryData,
         serviceHistoryCoverage: svcCoverage,
         salvageHistory: extractApiResult(salvageHistoryRaw),
+        mileageVerdict: mileageTimeline.status !== 'insufficient'
+          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readings.length }
+          : null,
+        mileageDetail: needsMileageDetail
+          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }
+          : null,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,

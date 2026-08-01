@@ -469,6 +469,64 @@ function MotSection({ result }) {
   );
 }
 
+// ── Mileage / Clocking Detail ──────────────────────────────────────────────────
+
+function MileageDetailSection({ result }) {
+  const detail = result.mileageDetail;
+  if (!detail) return null;
+  const readings = Array.isArray(detail.readings) ? detail.readings : [];
+  const anomalies = Array.isArray(detail.anomalies) ? detail.anomalies : [];
+  const isDiscrepancy = detail.status === 'discrepancy';
+
+  return (
+    <div className="card">
+      <SectionTitle>Mileage / Clocking Check</SectionTitle>
+      <div
+        style={{
+          padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13.5, fontWeight: 600, lineHeight: 1.45,
+          border: `1.5px solid ${isDiscrepancy ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.35)'}`,
+          background: isDiscrepancy ? 'rgba(248,113,113,0.08)' : 'rgba(74,222,128,0.07)',
+          color: isDiscrepancy ? '#f87171' : '#4ade80',
+        }}
+      >
+        {detail.verdict}
+      </div>
+
+      {anomalies.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          {anomalies.map((a, i) => (
+            <div key={i} className="mot-failure">
+              ✗ Reading dropped {Number(a.dropMiles).toLocaleString('en-GB')} mi — {Number(a.fromMiles).toLocaleString('en-GB')} mi ({a.fromDate}) → {Number(a.toMiles).toLocaleString('en-GB')} mi ({a.toDate === 'entered' ? 'entered mileage' : a.toDate})
+            </div>
+          ))}
+        </div>
+      )}
+
+      {readings.length === 0
+        ? <EmptyState text="No mileage readings on record" />
+        : <div className="history-list">
+            {readings.map((r, i) => (
+              <div className="history-record" key={i}>
+                <div className="history-row">
+                  <span className="history-date">{r.date}</span>
+                  <span className="history-mileage">
+                    {Number(r.miles).toLocaleString('en-GB')} mi
+                    {r.unit === 'km' && <span style={{ marginLeft: 8, color: 'var(--text-dim)' }}>({Number(r.raw).toLocaleString('en-GB')} km recorded)</span>}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+      }
+      {detail.mixedUnits && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text-dim)' }}>
+          Readings recorded in mixed units (mi &amp; km) were normalised to miles before comparison.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Service History ───────────────────────────────────────────────────────────
 
 function ServiceHistorySection({ result }) {
@@ -892,6 +950,7 @@ function PaymentSuccessContent() {
                 {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
+                {checks.includes('mileage_detail')    && <MileageDetailSection   result={result} />}
                 {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
                 {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
               </>

@@ -761,6 +761,27 @@ export default function Home() {
                   {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
                   {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
                 </div>
+                {result.mileageVerdict && (
+                  <div
+                    className="mileage-verdict"
+                    style={{
+                      margin: '2px 16px 16px',
+                      padding: '11px 13px',
+                      borderRadius: 9,
+                      fontSize: 13.5,
+                      lineHeight: 1.45,
+                      fontWeight: 600,
+                      border: `1.5px solid ${result.mileageVerdict.status === 'discrepancy' ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.35)'}`,
+                      background: result.mileageVerdict.status === 'discrepancy' ? 'rgba(248,113,113,0.08)' : 'rgba(74,222,128,0.07)',
+                      color: result.mileageVerdict.status === 'discrepancy' ? '#f87171' : '#4ade80',
+                    }}
+                  >
+                    {result.mileageVerdict.verdict}
+                    <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 500, color: 'var(--text-dim)' }}>
+                      Add the full reading-by-reading timeline to your report — £0.99
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
