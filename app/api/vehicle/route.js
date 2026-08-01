@@ -6,6 +6,7 @@ import { isRoiPlate, formatRoiVrm } from '@/lib/roiPlate';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { checkMileageTimeline } from '@/lib/mileageCheck';
+import { summariseOwnerHistory, summarisePlateChanges } from '@/lib/ownerHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 // Free mileage/clocking verdict from the DVSA MOT timeline (already pulled — no new cost).
@@ -15,6 +16,40 @@ function buildMileageVerdict(motTests, opts = {}) {
   const m = checkMileageTimeline(motTests || [], opts);
   if (m.status === 'insufficient') return null;
   return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readingCount };
+}
+
+// ── VIN scrub (DVLA display condition) ────────────────────────────────────────
+// The One Auto vehicleandmodeldetailsfromvrm response carries the full VIN. We only extract
+// keeper/plate data from it, but the VIN must NEVER reach a client-readable field, so we mask it
+// in place on the raw parsed response before any downstream use — belt-and-braces defence.
+const VIN_KEY = /vehicle_identification_number|^vin$/i;
+const VIN_SHAPE = /^[A-HJ-NPR-Z0-9]{17}$/i;
+function scrubVin(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 8) return node;
+  for (const [k, v] of Object.entries(node)) {
+    if (typeof v === 'string' && (VIN_KEY.test(k) || VIN_SHAPE.test(v.trim()))) {
+      node[k] = v.trim().length >= 5 ? `…${v.trim().slice(-5)}` : null;
+    } else if (v && typeof v === 'object') {
+      scrubVin(v, depth + 1);
+    }
+  }
+  return node;
+}
+
+// Find the first array value whose key matches `keyRe` anywhere in a nested object (One Auto nests
+// keeper_change_list under result.vehicle_details.*; the plate list's exact nesting is unconfirmed).
+function deepFindArray(node, keyRe, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 8) return null;
+  for (const [k, v] of Object.entries(node)) {
+    if (keyRe.test(k) && Array.isArray(v)) return v;
+  }
+  for (const v of Object.values(node)) {
+    if (v && typeof v === 'object') {
+      const found = deepFindArray(v, keyRe, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 // Service-history auto-refund amount, CHARGE-DERIVED (never a hardcoded GBP figure): read the
@@ -591,6 +626,7 @@ const dvla = await safeJson(dvlaRes);
       const needsServiceHistory = checks.includes('service_history');
       const needsSalvageHistory = checks.includes('salvagehistory');
       const needsMileageDetail = checks.includes('mileage_detail');
+      const needsOwnerHistory = checks.includes('owner_history');
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
@@ -620,7 +656,7 @@ const dvla = await safeJson(dvlaRes);
         formMileageSource: 'user_entered',
       });
 
-      const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes] = await Promise.all([
+      const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes, ownerDetailsRes] = await Promise.all([
         needsAutocheck
           ? fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -637,6 +673,9 @@ const dvla = await safeJson(dvlaRes);
         needsSalvageHistory
           ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
+        needsOwnerHistory
+          ? fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          : Promise.resolve(null),
       ]);
 
       const autocheck = autocheckRes ? await safeJson(autocheckRes) : null;
@@ -645,6 +684,21 @@ const dvla = await safeJson(dvlaRes);
       const cazanaDemand = cazDemRes ? await safeJson(cazDemRes) : null;
       const motTests = dvsaData?.motTests || null;
       const salvageHistoryRaw = salvageHistoryRes ? await safeJson(salvageHistoryRes) : null;
+
+      // ── Owner / keeper history (GB & NI) ────────────────────────────────────────
+      // Parse → scrub the VIN OUT of the raw response IMMEDIATELY (display condition) → then read
+      // only keeper/plate data from the scrubbed object. The VIN never reaches `payload`.
+      let ownerHistory = null;
+      if (needsOwnerHistory && ownerDetailsRes) {
+        const ownerRaw = scrubVin(await safeJson(ownerDetailsRes));
+        const ownerResult = extractApiResult(ownerRaw);
+        if (ownerResult) {
+          const keeperList = deepFindArray(ownerResult, /keeper_change_list/i);
+          const plateList = deepFindArray(ownerResult, /plate_change_list|vrm_change_list|previous_vrm|registration_change|number_plate_change/i);
+          const summary = summariseOwnerHistory(keeperList);
+          ownerHistory = { ...summary, plateChanges: summarisePlateChanges(plateList) };
+        }
+      }
 
       const svcRes = await svcHistoryPromise;
       const serviceHistory = svcRes ? await safeJson(svcRes) : null;
@@ -695,6 +749,7 @@ const dvla = await safeJson(dvlaRes);
         mileageDetail: needsMileageDetail
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }
           : null,
+        ownerHistory,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,
