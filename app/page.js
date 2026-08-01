@@ -885,9 +885,28 @@ export default function Home() {
         )}
 
 
+        {/* Resources signpost — an honest pointer to the free official VRT tool, NOT an MQ product */}
+        <div
+          style={{
+            margin: '28px 0 0',
+            padding: '12px 15px',
+            borderRadius: 10,
+            background: 'var(--bg3)',
+            borderLeft: '3px solid var(--orange)',
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", marginBottom: 4 }}>
+            Resources
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>
+            <strong style={{ fontWeight: 700 }}>Importing a car from the UK?</strong>{' '}
+            Work out the VRT with <a href="https://www.revenue.ie/en/vrt/index.aspx" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--orange)', fontWeight: 600, textDecoration: 'none' }}>Revenue&rsquo;s official VRT calculator</a> — the free, official tool (opens in a new tab).
+          </div>
+        </div>
+
         <p className="footer-note">
           {effectiveMarket === 'IE' ? 'Select your checks and get your ROI vehicle report.' : 'Free vehicle lookup included. Paid checks selected at checkout.'}<br />
-          Importing from the UK? Work out your VRT with <a href="https://www.revenue.ie/en/vrt/index.aspx" target="_blank" rel="noopener noreferrer">Revenue&rsquo;s official VRT calculator</a>.<br />
           Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
         </p>
       </div>
