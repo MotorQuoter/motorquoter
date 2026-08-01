@@ -161,6 +161,15 @@ export const PRICING = {
       enabled: true,
     },
     {
+      key: 'owner_history',
+      label: 'Owner / Keeper History',
+      description: 'Number of previous keepers, each ownership-change date, and any previous registration plates (GB & NI).',
+      price: 0.99,
+      preSelected: false,
+      locked: false,
+      enabled: true,
+    },
+    {
       key: 'salvage_predictor',
       label: 'Salvage Bid Predictor',
       description: 'Predicted auction hammer price for salvage vehicles',

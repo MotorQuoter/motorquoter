@@ -469,6 +469,57 @@ function MotSection({ result }) {
   );
 }
 
+// ── Owner / Keeper History ─────────────────────────────────────────────────────
+
+function OwnerHistorySection({ result }) {
+  const oh = result.ownerHistory;
+  return (
+    <div className="card">
+      <SectionTitle>Owner / Keeper History</SectionTitle>
+      {!oh || oh.status !== 'ok'
+        ? <EmptyState text="No keeper-change history on record" />
+        : <>
+            <div className="info-grid">
+              <div className="info-cell"><div className="info-key">Total Keepers</div><div className="info-val">{oh.totalKeepers ?? '—'}</div></div>
+              <div className="info-cell"><div className="info-key">Recorded Changes</div><div className="info-val">{oh.keeperChanges}</div></div>
+              {oh.latestChangeDate && <div className="info-cell"><div className="info-key">Last Change</div><div className="info-val">{oh.latestChangeDate}</div></div>}
+            </div>
+            {Array.isArray(oh.changes) && oh.changes.length > 0 && (
+              <div className="history-list" style={{ marginTop: 12 }}>
+                {oh.changes.map((c, i) => (
+                  <div className="history-record" key={i}>
+                    <div className="history-row">
+                      <span className="history-date">{c.date || '—'}</span>
+                      {c.previousKeepers != null && <span className="history-mileage">after {c.previousKeepers} previous keeper{c.previousKeepers === 1 ? '' : 's'}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+      }
+      {/* Previous registration plates — shown when the provider returns plate-change data. */}
+      {oh?.plateChanges?.status === 'ok' && oh.plateChanges.plates.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", marginBottom: 8 }}>
+            Previous Registration Plates
+          </div>
+          <div className="history-list">
+            {oh.plateChanges.plates.map((p, i) => (
+              <div className="history-record" key={i}>
+                <div className="history-row">
+                  <span className="history-mileage" style={{ fontWeight: 700, letterSpacing: '0.05em' }}>{p.plate}</span>
+                  {p.date && <span className="history-date">{p.date}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Service History ───────────────────────────────────────────────────────────
 
 function ServiceHistorySection({ result }) {
@@ -892,6 +943,7 @@ function PaymentSuccessContent() {
                 {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
+                {checks.includes('owner_history')     && <OwnerHistorySection    result={result} />}
                 {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
                 {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
               </>
