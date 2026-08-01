@@ -509,7 +509,7 @@ function OwnerHistorySection({ result }) {
               <div className="history-record" key={i}>
                 <div className="history-row">
                   <span className="history-mileage" style={{ fontWeight: 700, letterSpacing: '0.05em' }}>{p.plate}</span>
-                  {p.date && <span className="history-date">{p.date}</span>}
+                  {p.date && <span className="history-date">removed {p.date}</span>}
                 </div>
               </div>
             ))}
