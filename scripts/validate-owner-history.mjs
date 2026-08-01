@@ -65,6 +65,20 @@ test('plate list (registration_mark + date_of_change) → oldest-first, deduped'
   assert.equal(r.plates[0].date, '15 Mar 2018');
 });
 
+test('One Auto plate_change_list real shape (S500VNY live) → previous plates, oldest-first', () => {
+  const r = summarisePlateChanges([
+    { current_vehicle_registration_mark: 'IGZ3096', previous_vehicle_registration_mark: 'BLZ4444', transfer_type: 'DataMove', date_of_receipt: '2017-12-07', cherished_plate_transfer_date: '2017-12-07' },
+    { current_vehicle_registration_mark: 'S500VNY', previous_vehicle_registration_mark: 'IGZ3096', transfer_type: 'DataMove', date_of_receipt: '2021-07-06', cherished_plate_transfer_date: '2021-07-06' },
+  ]);
+  assert.equal(r.status, 'ok');
+  assert.equal(r.count, 2);
+  // PREVIOUS plates only — the current plate (S500VNY) must NOT appear.
+  assert.deepEqual(r.plates.map((p) => p.plate), ['BLZ4444', 'IGZ3096']);
+  assert.ok(!r.plates.some((p) => p.plate === 'S500VNY'));
+  assert.equal(r.plates[0].date, '7 Dec 2017');
+  assert.equal(r.plates[1].date, '6 Jul 2021');
+});
+
 test('alternate field names (vrm / date) still extract', () => {
   const r = summarisePlateChanges([{ vrm: 'YH23 NVW', date: '2022-01-10' }]);
   assert.equal(r.status, 'ok');
