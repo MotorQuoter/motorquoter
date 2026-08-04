@@ -4,12 +4,9 @@
 // Every assertion checks buyerFee, bidFee, AND retrieval individually so a future
 // dropped component fails loudly rather than hiding in a correct total.
 //
-// ⚠ FEE-SPEC FLAG (raised to Cowork): the handoff's worked check states
-//   "£2,510 → buyerFee £330 … £562.80 totalIncVat". Per the 32-band buyer schedule
-//   ALSO given in the handoff, £2,510 falls in the £2,500–£2,999.99 band → £380, i.e.
-//   totalIncVat £622.80, NOT £562.80 (buyerFee 330 is the £2,000–£2,399.99 band, so
-//   it needs a hammer ≤ £2,399.99). The band TABLE is implemented as authoritative and
-//   asserted below; the worked-example number is treated as a slip pending Cowork's ruling.
+// £2,510 sample lot → buyer £380 (£2,500–£2,999.99 band) + admin £89 + retrieval £50
+// = £519, +VAT £103.80 = £622.80 totalIncVat. (Cowork's ruling, 4 Aug: the band table
+// is authoritative; the earlier worked-check £330/£562.80 grabbed the band one too low.)
 
 const VAT_RATE = 0.20;
 const RETRIEVAL_FEE = 50;
@@ -61,14 +58,14 @@ function assert(label, got, expected) {
   else { console.error(`  FAIL  ${label}`); console.error(`        expected: ${JSON.stringify(expected)}`); console.error(`        got:      ${JSON.stringify(got)}`); failed++; }
 }
 
-// ── Worked check (band-table authoritative — see FLAG above) ──────────────────
+// ── Worked check: £2,510 sample lot (Cowork-confirmed £622.80) ────────────────
 console.log('\n=== Worked check: £2,510 sample lot ===\n');
-assert('feeStack(2510)  — band table: buyer 380 + admin 89 + retrieval 50',
+assert('feeStack(2510)  — buyer 380 + admin 89 + retrieval 50 = £622.80',
   feeStack(2510),
   { buyerFee: 380, bidFee: 89, retrieval: 50, vatAmount: 103.80, totalIncVat: 622.80 }
 );
-// The hammer that DOES yield the handoff's £562.80 (buyer 330 band, ≤ £2,399.99):
-assert('feeStack(2399.99) — buyer 330 band → the handoff\'s £562.80 total',
+// Lower band edge for contrast — the £2,000–£2,399.99 band (buyer 330):
+assert('feeStack(2399.99) — buyer 330 band',
   feeStack(2399.99),
   { buyerFee: 330, bidFee: 89, retrieval: 50, vatAmount: 93.80, totalIncVat: 562.80 }
 );
