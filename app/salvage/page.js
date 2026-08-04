@@ -689,6 +689,7 @@ export default function SalvagePage() {
               onChange={e => setAuctionSource(e.target.value)}
             >
               <option value="copart">Copart UK</option>
+              <option value="iaa">IAA UK / SYNETIQ</option>
               <option value="bca">BCA</option>
               <option value="manheim">Manheim</option>
               <option value="other">Other / Private</option>

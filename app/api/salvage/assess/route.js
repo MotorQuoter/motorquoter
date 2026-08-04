@@ -5,7 +5,9 @@ import { createCanvas, loadImage } from 'canvas';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { MODELS } from '@/config/models';
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
-import { feeStack } from '@/lib/copartFees';
+import { feeStack as copartFeeStack } from '@/lib/copartFees';
+import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
+const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -3087,6 +3089,7 @@ export async function GET(request) {
 
     const AUCTION_SOURCE_LABELS = {
       copart: 'Copart UK',
+      iaa: 'IAA UK / SYNETIQ',
       bca: 'BCA',
       manheim: 'Manheim',
       other: 'Other / Private',
@@ -5019,17 +5022,18 @@ export async function GET(request) {
 
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
-    if (auctionSource === 'copart' && parts_sum > 0 && exitValue != null) {
+    const feeStackFn = FEE_STACKS[auctionSource];
+    if (feeStackFn && parts_sum > 0 && exitValue != null) {
       const marginScenarios = buildHammerLadder(exitValue).map(hammer => {
-        const fees = feeStack(hammer);
+        const fees = feeStackFn(hammer);
         const hammerVat = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
         const margin = Math.round((exitValue - parts_sum - hammer - hammerVat - fees.totalIncVat) * 100) / 100;
         return { hammer, exit_value: exitValue, repair: parts_sum, hammerVat, ...fees, margin };
       });
       assessment._marginScenarios = marginScenarios;
-      console.log(`[MARGIN] exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
-    } else if (auctionSource === 'copart') {
-      console.warn(`[MARGIN] skipped — parts_sum=${parts_sum} exitValue=${exitValue}`);
+      console.log(`[MARGIN] source=${auctionSource} exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
+    } else if (feeStackFn) {
+      console.warn(`[MARGIN] skipped — source=${auctionSource} parts_sum=${parts_sum} exitValue=${exitValue}`);
     }
 
     // ── SalvageGuide market cross-check (labelled reference; NEVER feeds exit/margin) ──
