@@ -897,6 +897,31 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     fieldBlock('Market Cross-Check', sgTxt);
   }
 
+  // Investment Analysis — additive block (AEP-style). Omitted entirely if absent.
+  if (assessment._investmentBlock) {
+    const ib = assessment._investmentBlock;
+    const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+    const range = (o) => o ? `${g(o.low)} - ${g(o.high)}${o.mid != null ? ` (avg ${g(o.mid)})` : ''}` : '—';
+    const lines = [];
+    if (ib.asIsClean) lines.push(`As-is clean (undamaged retail): ${range(ib.asIsClean)}.`);
+    if (ib.afterRepairValue != null) lines.push(`After repair (Cat-adjusted): ${g(ib.afterRepairValue)}.`);
+    if (ib.asIsSalvage) {
+      const basis = ib.asIsSalvage.basis === 'salvageguide' ? 'SalvageGuide predicted bid'
+                  : ib.asIsSalvage.basis === 'breakeven-band' ? 'estimated around break-even hammer' : '';
+      lines.push(`As-is salvage (unrepaired): ${range(ib.asIsSalvage)}${basis ? ` [${basis}]` : ''}.`);
+    }
+    if (ib.partOut) lines.push(`Part-out estimate: ${range(ib.partOut)}.`);
+    const c = ib.bidCeilings || {};
+    if (c.rebuild || c.flip || c.partsOut) {
+      lines.push('Max bid ceilings:');
+      if (c.rebuild)  lines.push(`  - Rebuild (MRB): ${g(c.rebuild.value)} — ${c.rebuild.assumption}`);
+      if (c.flip)     lines.push(`  - Flip as-is (MFB): ${g(c.flip.value)} — ${c.flip.assumption}`);
+      if (c.partsOut) lines.push(`  - Parts-out (MSB): ${g(c.partsOut.value)} — ${c.partsOut.assumption}`);
+    }
+    lines.push(`Indicative estimates — not a guaranteed valuation.${ib.confidence ? ` Confidence: ${ib.confidence}.` : ''}`);
+    fieldBlock('Investment Analysis', lines.join('\n'));
+  }
+
   fieldBlock('Bidder Note',          assessment['Bidder Note']);
 
   // Booking-window state (shared owner: lib/bookingLine.mjs). Computed once here; drives the

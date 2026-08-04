@@ -8,6 +8,7 @@ import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
+import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -5059,6 +5060,32 @@ export async function GET(request) {
         };
         console.log(`[SALVAGEGUIDE] bid £${bidLow}-£${bidHigh} (avg £${bidAvg ?? '—'}) breakEven=${be ?? 'n/a'} divergence=${divergence}`);
       }
+    }
+
+    // ── Investment Block (AEP-style) — purely additive; READS the figures above ──────
+    // Never mutates _exitValue / parts_sum / _marginScenarios / "Realistic Exit Value".
+    // Packages as-is-clean (undamaged retail), after-repair value (_exitValue), part-out,
+    // as-is-salvage, and three named bid ceilings. Omitted (null) if nothing meaningful.
+    try {
+      const ib = buildInvestmentBlock({
+        retailLow:     bregoData?.retail_low_valuation,
+        retailAverage: bregoData?.retail_average_valuation,
+        retailHigh:    bregoData?.retail_high_valuation,
+        tradeAverage:  bregoData?.trade_average_valuation,   // same band input as the repair estimate
+        exitValue,
+        breakEven:     breakEvenHammer(assessment._marginScenarios),
+        hammerLadder:  exitValue != null ? buildHammerLadder(exitValue) : null,
+        salvageGuide:  enrichedVd.salvageGuide || null,
+        confidence:    assessment['Confidence Level'] || null,
+        feeStackFn:    FEE_STACKS[auctionSource],
+      });
+      if (ib) {
+        assessment._investmentBlock = ib;
+        console.log(`[INVEST BLOCK] asIsClean=${ib.asIsClean?.mid ?? '—'} afterRepair=${ib.afterRepairValue ?? '—'} partOut=${ib.partOut ? `${ib.partOut.low}-${ib.partOut.high}` : '—'} asIsSalvage=${ib.asIsSalvage ? `${ib.asIsSalvage.low}-${ib.asIsSalvage.high}(${ib.asIsSalvage.basis})` : '—'} ceilings=rebuild:${ib.bidCeilings.rebuild?.value ?? '—'}/flip:${ib.bidCeilings.flip?.value ?? '—'}/parts:${ib.bidCeilings.partsOut?.value ?? '—'}`);
+      }
+    } catch (e) {
+      // Additive block must never break the assessment — omit on any error.
+      console.warn(`[INVEST BLOCK] skipped — ${e?.message || e}`);
     }
 
     // EV Step 5 — tier-1 margin caveat (VERDICT LANGUAGE only; maths above untouched). The repair

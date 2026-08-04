@@ -1078,6 +1078,50 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
+                {assessment._investmentBlock && (() => {
+                  const ib = assessment._investmentBlock;
+                  const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                  const range = (o) => o ? `${g(o.low)} – ${g(o.high)}${o.mid != null ? ` (avg ${g(o.mid)})` : ''}` : '—';
+                  const salvageBasis = ib.asIsSalvage?.basis === 'salvageguide'
+                    ? 'SalvageGuide predicted bid'
+                    : ib.asIsSalvage?.basis === 'breakeven-band'
+                      ? 'estimated around break-even hammer'
+                      : null;
+                  const Row = ({ label, val, note }) => (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0' }}>
+                      <span style={{ color: 'var(--text-dim)' }}>{label}{note ? <span style={{ display: 'block', fontSize: 10.5, opacity: 0.8 }}>{note}</span> : null}</span>
+                      <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{val}</span>
+                    </div>
+                  );
+                  const ceil = ib.bidCeilings || {};
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">
+                        Investment Analysis
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
+                          Indicative values &amp; bid ceilings (UK Cat A/B/S/N framing)
+                        </span>
+                      </div>
+                      <div className="field-val">
+                        {ib.asIsClean && <Row label="As-is clean (undamaged retail)" val={range(ib.asIsClean)} />}
+                        {ib.afterRepairValue != null && <Row label="After repair (Cat-adjusted)" val={g(ib.afterRepairValue)} />}
+                        {ib.asIsSalvage && <Row label="As-is salvage (unrepaired)" note={salvageBasis} val={range(ib.asIsSalvage)} />}
+                        {ib.partOut && <Row label="Part-out estimate" val={range(ib.partOut)} />}
+                        {(ceil.rebuild || ceil.flip || ceil.partsOut) && (
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-dim)', marginBottom: 4 }}>Max bid ceilings</div>
+                            {ceil.rebuild && <Row label="Rebuild (MRB)" note={ceil.rebuild.assumption} val={g(ceil.rebuild.value)} />}
+                            {ceil.flip && <Row label="Flip as-is (MFB)" note={ceil.flip.assumption} val={g(ceil.flip.value)} />}
+                            {ceil.partsOut && <Row label="Parts-out (MSB)" note={ceil.partsOut.assumption} val={g(ceil.partsOut.value)} />}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
+                          Indicative estimates from market data and the code-owned parts grid — not a guaranteed valuation.{ib.confidence ? ` Confidence: ${ib.confidence}.` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {buildBuyerFlags(assessment).some(f => f.weight === 'high') && (
                   <div className="field-row">
                     <div className="field-key">Bid Directive</div>
