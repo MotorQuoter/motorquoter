@@ -853,6 +853,39 @@ export default function SalvageSuccessPage() {
                     </div>
                   </div>
                 ) : null}
+                {/* Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred */}
+                {assessment._damageCards?.length > 0 && (() => {
+                  const cards = assessment._damageCards;
+                  const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
+                  const oc = { Visible: '#4ade80', Related: '#b8860b', Inferred: '#888' };
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">
+                        Damage Breakdown
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
+                          Per-part — Visible (costed) · Related / Inferred (£0 until confirmed)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                        {cards.map((c, i) => (
+                          <div key={i} style={{ borderLeft: `3px solid ${oc[c.origin] || '#888'}`, paddingLeft: 10 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                                {c.part}
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: oc[c.origin] || '#888', textTransform: 'uppercase', marginLeft: 8 }}>{c.origin}</span>
+                                {c.severity ? <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 6 }}>{c.severity}</span> : null}
+                              </span>
+                              <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                {c.cost ? g(c.cost) : '£0'}<span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>{c.action ? ` · ${c.action}` : ''}</span>
+                              </span>
+                            </div>
+                            {c.note ? <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginTop: 2 }}>{c.note}</div> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Inspection Flags — structured per-part flags (model + gate-generated), weight high→low */}
                 {(() => {
                   const flags = buildBuyerFlags(assessment);
