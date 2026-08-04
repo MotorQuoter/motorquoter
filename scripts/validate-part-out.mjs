@@ -1,6 +1,6 @@
 // Unit tests for lib/partOut.mjs — deterministic, no network.
 // Run: node scripts/validate-part-out.mjs
-import { estimatePartOut, grossBasketValue, PART_OUT_RECOVERY_LOW, PART_OUT_RECOVERY_HIGH, PART_OUT_BASKET } from '../lib/partOut.mjs';
+import { estimatePartOut, grossBasketValue, PART_OUT_RECOVERY_LOW, PART_OUT_RECOVERY_HIGH, PART_OUT_BASKET, HEADLAMP_USED_BY_BAND, HEADLAMP_QTY } from '../lib/partOut.mjs';
 import { BAND_KEYS, PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
 
 let passed = 0, failed = 0;
@@ -11,15 +11,23 @@ function eq(label, got, expected) {
 }
 function ok(label, cond) { eq(label, !!cond, true); }
 
-// Independent recompute of the basket gross for a band (mirrors grossBasketValue).
+// Independent recompute of the basket gross for a band (mirrors grossBasketValue),
+// including the front-headlamp adjunct sourced outside PANEL_PRICE_TABLE.
 function expectGross(band) {
-  return PART_OUT_BASKET.reduce((s, { panelId, qty }) => s + PANEL_PRICE_TABLE[panelId][band].used * qty, 0);
+  const panels = PART_OUT_BASKET.reduce((s, { panelId, qty }) => s + PANEL_PRICE_TABLE[panelId][band].used * qty, 0);
+  return panels + HEADLAMP_USED_BY_BAND[band] * HEADLAMP_QTY;
 }
 const round5 = v => Math.round(v / 5) * 5;
 
 console.log('\n=== Basket gross per band ===\n');
 for (const band of Object.values(BAND_KEYS)) {
   eq(`grossBasketValue(${band})`, grossBasketValue(band), expectGross(band));
+}
+
+console.log('\n=== Headlamps included (qty 2, outside PANEL_PRICE_TABLE) ===\n');
+for (const band of [BAND_KEYS.ECONOMY, BAND_KEYS.MID_RANGE, BAND_KEYS.LUXURY]) {
+  const panelsOnly = PART_OUT_BASKET.reduce((s, { panelId, qty }) => s + PANEL_PRICE_TABLE[panelId][band].used * qty, 0);
+  eq(`${band}: gross − panels == 2× headlamp`, grossBasketValue(band) - panelsOnly, HEADLAMP_USED_BY_BAND[band] * HEADLAMP_QTY);
 }
 
 console.log('\n=== estimatePartOut by band key ===\n');

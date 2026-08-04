@@ -34,8 +34,8 @@ eq('asIsSalvage band around break-even', { low: A.asIsSalvage.low, mid: A.asIsSa
 eq('rebuild = break-even hammer', A.bidCeilings.rebuild.value, 1800);
 // flip: resale=mid 1800; 1800 - 15% - £100 fees = 1800 - 270 - 100 = 1430
 eq('flip ceiling', A.bidCeilings.flip.value, Math.round(1800 - 1800 * FLIP_MARGIN_PCT - 100));
-// partsOut: recovery=partOut.low 825; 825 - £200 dismantling - £100 fees = 525
-eq('partsOut ceiling', A.bidCeilings.partsOut.value, Math.round(825 - DISMANTLING_ALLOWANCE - 100));
+// partsOut: recovery = part-out low (band-derived) − £200 dismantling − £100 fees
+eq('partsOut ceiling', A.bidCeilings.partsOut.value, Math.round(estimatePartOut(6000).low - DISMANTLING_ALLOWANCE - 100));
 ok('ordering asIsClean.mid > afterRepair > partOut.high', A.asIsClean.mid > A.afterRepairValue && A.afterRepairValue > A.partOut.high);
 ok('rebuild ≈ break-even (spec check)', A.bidCeilings.rebuild.value === 1800);
 eq('confidence passthrough', A.confidence, 'Medium');
