@@ -242,7 +242,7 @@ export default function SalvagePage() {
 
   const handleZipFile = async (file) => {
     if (!file || !/\.zip$/i.test(file.name)) {
-      setZipError('Please drop a .zip file (the Copart download)');
+      setZipError('Please drop a .zip file (the auction download)');
       setZipStatus('error');
       return;
     }
@@ -321,7 +321,7 @@ export default function SalvagePage() {
       return;
     }
     if (zipImagePaths.length === 0 && images.length === 0) {
-      setError('Drop the Copart zip or upload photos to continue.');
+      setError('Drop the auction zip or upload photos to continue.');
       return;
     }
     setError('');
@@ -605,7 +605,7 @@ export default function SalvagePage() {
 
           {/* Photos — ZIP drop zone */}
           <div>
-            <div className="field-label">Photos <span>(drop the Copart zip — no extraction needed)</span></div>
+            <div className="field-label">Photos <span>(drop the auction zip — no extraction needed)</span></div>
             <div
               className={`upload-zone ${zipDragging ? 'dragging' : ''}`}
               onDrop={e => { e.preventDefault(); setZipDragging(false); const files = e.dataTransfer.files; if (!files.length) return; files[0].name.toLowerCase().endsWith('.zip') ? handleZipFile(files[0]) : handleFiles(files); }}
@@ -617,7 +617,7 @@ export default function SalvagePage() {
               {zipStatus === '' && (
                 <>
                   <div className="upload-icon">🗜</div>
-                  <div className="upload-title">Drop Copart zip here or tap</div>
+                  <div className="upload-title">Drop auction zip here or tap</div>
                   <div className="upload-sub">Drag the downloaded zip directly — no need to extract</div>
                 </>
               )}
