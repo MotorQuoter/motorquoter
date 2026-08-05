@@ -744,6 +744,57 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 4;
   }
 
+  // Parts Sourcing — shoppable affiliate links over the costed basket (AEP-style). Additive:
+  // the costed figures above are unchanged. Disclosure is mandatory + visible (web + PDF).
+  const pdfSourcing = assessment._partsSourcing;
+  if (pdfSourcing?.links?.length > 0) {
+    checkPage(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('PARTS SOURCING', MARGIN, y);
+    y += 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(140, 140, 140);
+    doc.text('Where to buy the costed parts — used breakers (eBay UK) / new consumables (Amazon UK)', MARGIN, y);
+    y += 5;
+    for (const l of pdfSourcing.links) {
+      checkPage(6);
+      const feedColour = l.feed === 'amazon' ? [204, 120, 0] : [22, 120, 60];
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(20, 20, 20);
+      doc.text(l.part, MARGIN, y);
+      const partW = doc.getTextWidth(l.part) + 3;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...feedColour);
+      const meta = l.cost != null ? `${l.feedLabel}  ~£${Number(l.cost).toLocaleString('en-GB')}` : l.feedLabel;
+      doc.text(meta, MARGIN + partW, y);
+      // Clickable search link, right-aligned.
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(240, 90, 26);
+      const linkLabel = 'Search →';
+      const linkW = doc.getTextWidth(linkLabel);
+      doc.textWithLink(linkLabel, PAGE_W - MARGIN - linkW, y, { url: l.url });
+      y += 5;
+    }
+    y += 1;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.setTextColor(140, 140, 140);
+    const discLines = doc.splitTextToSize(pdfSourcing.disclosure, CONTENT_W);
+    checkPage(discLines.length * 4 + 3);
+    for (const line of discLines) { doc.text(line, MARGIN, y); y += 4; }
+    y += 3;
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.15);
+    doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 3;
+  }
+
   // Key Cost Drivers — code-assembled driver list (_kcdParts, 4d) + optional model judgement colour
   // (claim-bound; may be empty → drivers stand alone). Well-formed when colour drops entirely.
   {

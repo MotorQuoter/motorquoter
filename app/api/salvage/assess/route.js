@@ -9,6 +9,7 @@ import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
+import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -4864,6 +4865,30 @@ export async function GET(request) {
     assessment._preGateParts    = reconciledParts;
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, lamp_span_source, orphan_collapse };
+
+    // Parts Sourcing (AEP-style) — purely additive shoppable-link layer. READS the reconciled
+    // basket (gatedParts); never mutates a costed figure. Affiliate credentials come from server
+    // env; when unset the links are honest plain searches (no tracking) so nothing fabricated
+    // ships. Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
+    try {
+      const affiliate = {
+        epnCampaignId:  (process.env.EBAY_EPN_CAMPAIGN_ID  || '').trim() || null,
+        epnRotationId:  (process.env.EBAY_EPN_ROTATION_ID  || '').trim() || null,
+        amazonTag:      (process.env.AMAZON_ASSOCIATES_TAG || '').trim() || null,
+      };
+      const _sourcing = buildPartsSourcing({
+        parts:   gatedParts,
+        vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
+        affiliate,
+      });
+      if (_sourcing.links.length > 0) {
+        assessment._partsSourcing = _sourcing;
+        const tracked = _sourcing.links.filter(l => l.tracked).length;
+        console.log(`[PARTS SOURCING] ${_sourcing.links.length} link(s), ${tracked} affiliate-tracked`);
+      }
+    } catch (e) {
+      console.warn(`[PARTS SOURCING] skipped — ${e?.message || e}`);
+    }
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
     console.log(`[LAMP MONEY] rows_in_money=${lamp_money_rows} span_source=${lamp_span_source} orphan_collapse=${orphan_collapse} (lamp_count intent=${lamp_count})`);
     if (lamp_money_rows > 1) {
