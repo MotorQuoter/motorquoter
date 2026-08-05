@@ -9,6 +9,7 @@ import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
+import { buildDamageCards } from '@/lib/damageCards';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -4864,6 +4865,24 @@ export async function GET(request) {
     assessment._preGateParts    = reconciledParts;
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, lamp_span_source, orphan_collapse };
+
+    // Per-part damage cards (AEP-style) — purely additive; READS the finalised parts pipeline.
+    // Never mutates parts_sum / the reconciliation. Wrapped so it can never break the assessment.
+    try {
+      const _cards = buildDamageCards({
+        gatedParts,
+        costedParts:    coreObs.costedParts,
+        flaggedParts:   coreObs.flaggedParts,
+        allowanceParts,
+      });
+      if (_cards.length > 0) {
+        assessment._damageCards = _cards;
+        const byOrigin = _cards.reduce((m, c) => { m[c.origin] = (m[c.origin] || 0) + 1; return m; }, {});
+        console.log(`[DAMAGE CARDS] ${_cards.length} card(s): ${JSON.stringify(byOrigin)}`);
+      }
+    } catch (e) {
+      console.warn(`[DAMAGE CARDS] skipped — ${e?.message || e}`);
+    }
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
     console.log(`[LAMP MONEY] rows_in_money=${lamp_money_rows} span_source=${lamp_span_source} orphan_collapse=${orphan_collapse} (lamp_count intent=${lamp_count})`);
     if (lamp_money_rows > 1) {

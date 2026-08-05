@@ -19,6 +19,23 @@ function zipLotFromFilename(name) {
   return m ? m[1] : null;
 }
 
+// Source-aware listing paste copy. Keyed by the same auctionSource that routes fees (copart|iaa).
+// Copart keeps its verified Select-All guidance; IAA/SYNETIQ uses neutral guidance until the
+// IAA-specific paste flow is verified against a real IAA lot (do not fabricate their steps).
+const LISTING_COPY = {
+  copart: {
+    label: 'Copart Listing',
+    placeholder: 'Select All on the Copart listing page (Ctrl+A / Cmd+A), then paste here.\n\nVRM, lot number, and damage details are extracted automatically.',
+  },
+  iaa: {
+    label: 'IAA / SYNETIQ Listing',
+    placeholder: 'Paste the full IAA / SYNETIQ listing page here.\n\nVRM, lot number, and damage details are extracted automatically.',
+  },
+};
+function listingCopy(source) {
+  return LISTING_COPY[source] || { label: 'Auction Listing', placeholder: 'Paste the full auction listing page here.\n\nVRM, lot number, and damage details are extracted automatically.' };
+}
+
 export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
@@ -242,7 +259,7 @@ export default function SalvagePage() {
 
   const handleZipFile = async (file) => {
     if (!file || !/\.zip$/i.test(file.name)) {
-      setZipError('Please drop a .zip file (the Copart download)');
+      setZipError('Please drop a .zip file (the auction download)');
       setZipStatus('error');
       return;
     }
@@ -264,7 +281,7 @@ export default function SalvagePage() {
         .sort((a, b) => zipTrailingInt(a.name) - zipTrailingInt(b.name));
 
       if (entries.length === 0) {
-        throw new Error('No images found in the zip — is it a Copart download?');
+        throw new Error('No images found in the zip — is it an auction download?');
       }
       if (entries.length > ZIP_MAX_IMAGES) {
         throw new Error(`Too many images in the zip — maximum ${ZIP_MAX_IMAGES}.`);
@@ -321,7 +338,7 @@ export default function SalvagePage() {
       return;
     }
     if (zipImagePaths.length === 0 && images.length === 0) {
-      setError('Drop the Copart zip or upload photos to continue.');
+      setError('Drop the auction zip or upload photos to continue.');
       return;
     }
     setError('');
@@ -586,13 +603,13 @@ export default function SalvagePage() {
             <div className="cancel-box">Payment cancelled — your photos are still saved. You can try again below.</div>
           )}
 
-          {/* Copart Listing paste box */}
+          {/* Auction Listing paste box — label + guidance adapt to the selected auction source */}
           <div>
-            <div className="field-label">Copart Listing <span>(paste the whole page — VRM and lot extracted automatically)</span></div>
+            <div className="field-label">{listingCopy(auctionSource).label} <span>(paste the whole page — VRM and lot extracted automatically)</span></div>
             <textarea
               className="textarea-input"
               style={{ minHeight: 160 }}
-              placeholder={'Select All on the Copart listing page (Ctrl+A / Cmd+A), then paste here.\n\nVRM, lot number, and damage details are extracted automatically.'}
+              placeholder={listingCopy(auctionSource).placeholder}
               value={details.damageDescription}
               onChange={e => handleDescriptionChange(e.target.value)}
             />
@@ -605,7 +622,7 @@ export default function SalvagePage() {
 
           {/* Photos — ZIP drop zone */}
           <div>
-            <div className="field-label">Photos <span>(drop the Copart zip — no extraction needed)</span></div>
+            <div className="field-label">Photos <span>(drop the auction zip — no extraction needed)</span></div>
             <div
               className={`upload-zone ${zipDragging ? 'dragging' : ''}`}
               onDrop={e => { e.preventDefault(); setZipDragging(false); const files = e.dataTransfer.files; if (!files.length) return; files[0].name.toLowerCase().endsWith('.zip') ? handleZipFile(files[0]) : handleFiles(files); }}
@@ -617,7 +634,7 @@ export default function SalvagePage() {
               {zipStatus === '' && (
                 <>
                   <div className="upload-icon">🗜</div>
-                  <div className="upload-title">Drop Copart zip here or tap</div>
+                  <div className="upload-title">Drop auction zip here or tap</div>
                   <div className="upload-sub">Drag the downloaded zip directly — no need to extract</div>
                 </>
               )}
@@ -801,12 +818,12 @@ export default function SalvagePage() {
               <div>
                 <input
                   className="text-input"
-                  placeholder="Copart listed mileage (optional)"
+                  placeholder="Auction listed mileage (optional)"
                   inputMode="numeric"
                   value={copartMileage}
                   onChange={e => setCopartMileage(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 />
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>Enter the mileage shown on the Copart listing. If blank, we'll use the last MOT mileage from DVSA.</div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>Enter the mileage shown on the auction listing. If blank, we'll use the last MOT mileage from DVSA.</div>
               </div>
             </div>
           </div>
@@ -891,7 +908,7 @@ export default function SalvagePage() {
 
         <p className="footer-note">
           AI-powered damage assessment. Not a professional repair quote.<br />
-          Not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a> &nbsp;·&nbsp; <a href="/">← Back to VRM lookup</a>
+          Not affiliated with Copart, IAA/SYNETIQ, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a> &nbsp;·&nbsp; <a href="/">← Back to VRM lookup</a>
         </p>
       </div>
     </>

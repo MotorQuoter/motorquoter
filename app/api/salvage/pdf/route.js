@@ -753,6 +753,19 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     if (kcdText) fieldBlock('Key Cost Drivers', kcdText);
   }
 
+  // Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred (£0).
+  if (assessment._damageCards?.length > 0) {
+    const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
+    const lines = assessment._damageCards.map(c => {
+      const bits = [c.origin];
+      if (c.severity) bits.push(c.severity);
+      if (c.action) bits.push(c.action);
+      const head = `${c.part} — ${bits.join(', ')}: ${c.cost ? g(c.cost) : '£0'}`;
+      return c.note ? `${head}\n  ${c.note}` : head;
+    });
+    fieldBlock('Damage Breakdown', lines.join('\n'));
+  }
+
   // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
   const pdfFlags = buildBuyerFlags(assessment);
   if (pdfFlags.length > 0) {
