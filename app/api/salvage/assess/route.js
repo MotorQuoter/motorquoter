@@ -4867,24 +4867,23 @@ export async function GET(request) {
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, lamp_span_source, orphan_collapse };
 
     // Parts Sourcing (AEP-style) — purely additive shoppable-link layer. READS the reconciled
-    // basket (gatedParts); never mutates a costed figure. Affiliate credentials come from server
-    // env; when unset the links are honest plain searches (no tracking) so nothing fabricated
-    // ships. Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
+    // basket (gatedParts); never mutates a costed figure. eBay UK is the only feed wired now.
+    // EPN campaign ID comes from server env; when unset the links are honest plain eBay searches
+    // (no campid) so nothing fabricated/broken ships — the panel switches live when the ID lands.
+    // Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
     try {
-      const affiliate = {
-        epnCampaignId:  (process.env.EBAY_EPN_CAMPAIGN_ID  || '').trim() || null,
-        epnRotationId:  (process.env.EBAY_EPN_ROTATION_ID  || '').trim() || null,
-        amazonTag:      (process.env.AMAZON_ASSOCIATES_TAG || '').trim() || null,
+      const epn = {
+        campaignId: (process.env.EBAY_EPN_CAMPAIGN_ID || '').trim() || null,
+        customId:   (process.env.EBAY_EPN_CUSTOM_ID   || '').trim() || null,
       };
       const _sourcing = buildPartsSourcing({
         parts:   gatedParts,
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
-        affiliate,
+        epn,
       });
       if (_sourcing.links.length > 0) {
         assessment._partsSourcing = _sourcing;
-        const tracked = _sourcing.links.filter(l => l.tracked).length;
-        console.log(`[PARTS SOURCING] ${_sourcing.links.length} link(s), ${tracked} affiliate-tracked`);
+        console.log(`[PARTS SOURCING] ${_sourcing.links.length} eBay link(s), campid=${epn.campaignId ? 'set' : 'unset (plain search)'}`);
       }
     } catch (e) {
       console.warn(`[PARTS SOURCING] skipped — ${e?.message || e}`);

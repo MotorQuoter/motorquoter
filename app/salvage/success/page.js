@@ -843,13 +843,12 @@ export default function SalvageSuccessPage() {
                 {assessment._partsSourcing?.links?.length > 0 && (() => {
                   const { disclosure, links } = assessment._partsSourcing;
                   const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : null;
-                  const feedColor = (feed) => feed === 'amazon' ? '#ff9900' : '#4ade80';
                   return (
                     <div className="field-row">
                       <div className="field-key">
                         Parts Sourcing
                         <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
-                          Where to buy the costed parts — used breakers (eBay UK) · new consumables (Amazon UK)
+                          Where to buy the costed parts — used / breaker parts on eBay UK
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
@@ -857,7 +856,7 @@ export default function SalvageSuccessPage() {
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
                             <span style={{ fontSize: 13, color: 'var(--text)' }}>
                               <span style={{ fontWeight: 600 }}>{l.part}</span>
-                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: feedColor(l.feed), textTransform: 'uppercase', marginLeft: 8 }}>{l.feedLabel}</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#4ade80', textTransform: 'uppercase', marginLeft: 8 }}>{l.feedLabel}</span>
                               {l.cost != null ? <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>~{g(l.cost)}</span> : null}
                             </span>
                             <a href={l.url} target="_blank" rel="nofollow sponsored noopener noreferrer"

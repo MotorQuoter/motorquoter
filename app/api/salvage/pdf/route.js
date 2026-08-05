@@ -757,11 +757,11 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(140, 140, 140);
-    doc.text('Where to buy the costed parts — used breakers (eBay UK) / new consumables (Amazon UK)', MARGIN, y);
+    doc.text('Where to buy the costed parts — used / breaker parts on eBay UK', MARGIN, y);
     y += 5;
     for (const l of pdfSourcing.links) {
       checkPage(6);
-      const feedColour = l.feed === 'amazon' ? [204, 120, 0] : [22, 120, 60];
+      const feedColour = [22, 120, 60];
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(20, 20, 20);
