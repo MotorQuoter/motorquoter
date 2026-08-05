@@ -4268,9 +4268,12 @@ export async function GET(request) {
 
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed, HEADLAMP_BANDS[HEADLAMP_BAND_DEFAULT]);
 
-    // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
-    // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
-    const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+    // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired. A1 (Vincent 5 Aug): a
+    // precautionary (iv≠true) mandated lamp is now moved OUT of the repair total into an inspection
+    // allowance — the gate returns those rows in gateAllowanceParts; merge them into allowanceParts
+    // (same £0-in-total, band-shown-as-allowance treatment as the reconcileParts lamp allowances).
+    const { gatedParts, gateAllowanceParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+    if (gateAllowanceParts?.length) allowanceParts.push(...gateAllowanceParts);
 
     // Tier-1 orphan clamp disclosure — reconcileParts marks assumed-LED orphan rows; the disclosure
     // follows the assumption, so emit the assumed-LED inspection flag here wherever such a row survives
