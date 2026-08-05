@@ -1763,6 +1763,16 @@ severity (on iv:true only; use - on false/na/missing):
   MODERATE = clear impact damage, repair-grade
   MINOR    = cosmetic — scuff / scratch / light dent, refinish only
 
+SEVERE DISCIPLINE (ALL panels — A3, Vincent 5 Aug): grade SEVERE only when the photo POSITIVELY shows
+through-metal damage — a torn, split, cracked, crushed or folded panel, a broken or displaced body
+line, or structural deformation. The EXTENT of a scuffed AREA does not make it SEVERE: a surface scuff,
+scratch, graze, paint transfer, or light dent on a panel whose body line and metal are otherwise intact
+is MINOR (refinish/repair), however large the marked area. When you cannot tell a surface scuff from
+genuine deformation on a panel shown square-on, grade MODERATE — never default up to SEVERE. Do NOT
+escalate to SEVERE on the basis of dirt, road film, abrasion, or paint transfer without visible metal
+deformation. (This applies to every panel; the lower-flank grounding below is the stricter iv:false rule
+for SILL/SIDE_SKIRT specifically.)
+
 --- LOWER-FLANK GROUNDING (SILL, SIDE_SKIRT, and the lower extent of the doors) ---
 Lower rocker, sill and side-skirt panels routinely carry PRE-EXISTING kerb-rash, road film, dirt, stone-chips, light surface scuffs and shadow that are NOT fresh collision damage. Do NOT grade or cost these as damage. For SILL or SIDE_SKIRT to be iv:true, the photo must show actual DEFORMATION or IMPACT — a crease, dent, crack, gouge, or displacement consistent with the collision event. Surface scuff, scratch, dirt, road film, shadow, or kerb/abrasion rash ALONE on these lower-flank panels is iv:false (seen and undamaged) — it is NOT MINOR and NOT MODERATE. If the lower-flank condition is ambiguous between surface contamination / pre-existing kerb-rash and genuine light impact, use iv:na — do NOT default to grading it damaged. Apply the same judgement an assessor reaches in prose: scuffing that reads as pre-existing kerb/abrasion rather than fresh impact is not a costed panel. This rule is scoped to the lower-flank panels named here; it does NOT change how scuffs are graded on any other panel.
 --- END LOWER-FLANK GROUNDING ---
@@ -4270,9 +4280,12 @@ export async function GET(request) {
 
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed, HEADLAMP_BANDS[HEADLAMP_BAND_DEFAULT]);
 
-    // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired and the
-    // mandated lamp row is band-retained, never removed (CB7 fix, lib/parts.mjs)
-    const { gatedParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+    // Phase 2 — visibility gate (Test 1); lamp rows are rule-B paired. A1 (Vincent 5 Aug): a
+    // precautionary (iv≠true) mandated lamp is now moved OUT of the repair total into an inspection
+    // allowance — the gate returns those rows in gateAllowanceParts; merge them into allowanceParts
+    // (same £0-in-total, band-shown-as-allowance treatment as the reconcileParts lamp allowances).
+    const { gatedParts, gateAllowanceParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
+    if (gateAllowanceParts?.length) allowanceParts.push(...gateAllowanceParts);
 
     // Tier-1 orphan clamp disclosure — reconcileParts marks assumed-LED orphan rows; the disclosure
     // follows the assumption, so emit the assumed-LED inspection flag here wherever such a row survives

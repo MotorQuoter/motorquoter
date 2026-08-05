@@ -136,8 +136,9 @@ Key Cost Drivers:
 Format:
 - Part display name: reason this is a key cost driver
 - Part display name: reason
-Non-part cost concerns (hidden damage risk, structural uncertainty) belong in Red Flags, not here.]
-Red Flags: [anything that could make costs significantly higher]
+Non-part cost concerns (hidden damage risk, structural uncertainty) belong in Red Flags, not here.
+Do NOT list a panel the PANEL DAMAGE LEDGER marks FLOORED or CLEAR as a key cost driver — the pipeline did not cost it, so it is not a driver of the repair total. Cost drivers are drawn only from panels the ledger COSTED.]
+Red Flags: [anything that could make costs significantly higher. A panel the PANEL DAMAGE LEDGER marks FLOORED or CLEAR may appear here ONLY as an unconfirmed inspection risk — e.g. "inner sill cannot be confirmed from the photos — inspect" — and NEVER as confirmed or structural damage ("folded", "crushed", "deformed", "replacement and blend"): the pipeline did not confirm or cost that damage, so asserting it contradicts the costed reality. You MAY still raise the genuine unseeable risk behind such a panel, framed as an inspection item, not a confirmed finding.]
 Run-condition red flag: When Run Condition is Engine Start Only and the photos show no wheel, suspension, or underside damage that would explain why a running vehicle cannot drive, raise a red flag: absence of a visible mobility reason points to possible transmission/drivetrain failure — an unseeable, high-cost item. State this plainly in Red Flags and treat drivetrain as an inspection-class unknown.
 Alternative Damage Scenario: [if photos don't match description, state what else the visible evidence could indicate. Base the alternative on what the photos and damage description show — do not reason from salvage category]
 [AIRBAGS FIELD IS CODE-OWNED — do NOT output an Airbags: field. Physical bag deployment visible in cabin photos (torn covers, deployed material) belongs in Red Flags or Visible Damage Summary as a damage observation. The airbag warning-light state is assembled from the dashboard read and rendered by code.]
