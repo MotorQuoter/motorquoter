@@ -9,6 +9,7 @@ import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
+import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -5074,6 +5075,7 @@ export async function GET(request) {
         tradeAverage:  bregoData?.trade_average_valuation,   // same band input as the repair estimate
         exitValue,
         breakEven:     breakEvenHammer(assessment._marginScenarios),
+        rebuildHammer: rebuildCeilingHammer(assessment._marginScenarios),   // surfaces the ceiling when break-even sits above the ladder top (healthy repairable lots)
         hammerLadder:  exitValue != null ? buildHammerLadder(exitValue) : null,
         salvageGuide:  enrichedVd.salvageGuide || null,
         confidence:    assessment['Confidence Level'] || null,
