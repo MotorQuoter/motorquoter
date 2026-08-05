@@ -838,6 +838,38 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
+                {/* Parts Sourcing — shoppable affiliate links over the costed basket (AEP-style).
+                    Additive: costed figures above are unchanged. Disclosure is mandatory + visible. */}
+                {assessment._partsSourcing?.links?.length > 0 && (() => {
+                  const { disclosure, links } = assessment._partsSourcing;
+                  return (
+                    <div className="field-row">
+                      <div className="field-key">
+                        Parts Sourcing
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
+                          Your repair estimate is itemised above. These are live eBay UK listings to buy the same parts — a convenience only; eBay prices vary and don&apos;t change the estimate.
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                        {links.map((l, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+                            <span style={{ fontSize: 13, color: 'var(--text)' }}>
+                              <span style={{ fontWeight: 600 }}>{l.part}</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#4ade80', textTransform: 'uppercase', marginLeft: 8 }}>{l.feedLabel}</span>
+                            </span>
+                            <a href={l.url} target="_blank" rel="nofollow sponsored noopener noreferrer"
+                               style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', whiteSpace: 'nowrap', textDecoration: 'none' }}>
+                              Find on eBay →
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.5, marginTop: 10, fontStyle: 'italic' }}>
+                        {disclosure}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Key Cost Drivers — code-assembled driver list (_kcdParts, 4d) + optional model
                     judgement colour (claim-bound; may drop to empty → drivers stand alone). */}
                 {(assessment._kcdParts?.length > 0 || assessment['Key Cost Drivers']) ? (

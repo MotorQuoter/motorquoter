@@ -11,6 +11,7 @@ const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
+import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { withOneAutoCache } from '@/lib/oneautoCache';
@@ -4896,6 +4897,29 @@ export async function GET(request) {
       }
     } catch (e) {
       console.warn(`[DAMAGE CARDS] skipped — ${e?.message || e}`);
+    }
+
+    // Parts Sourcing (AEP-style) — purely additive shoppable-link layer. READS the reconciled
+    // basket (gatedParts); never mutates a costed figure. eBay UK is the only feed wired now.
+    // EPN campaign ID comes from server env; when unset the links are honest plain eBay searches
+    // (no campid) so nothing fabricated/broken ships — the panel switches live when the ID lands.
+    // Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
+    try {
+      const epn = {
+        campaignId: (process.env.EBAY_EPN_CAMPAIGN_ID || '').trim() || null,
+        customId:   (process.env.EBAY_EPN_CUSTOM_ID   || '').trim() || null,
+      };
+      const _sourcing = buildPartsSourcing({
+        parts:   gatedParts,
+        vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
+        epn,
+      });
+      if (_sourcing.links.length > 0) {
+        assessment._partsSourcing = _sourcing;
+        console.log(`[PARTS SOURCING] ${_sourcing.links.length} eBay link(s), campid=${epn.campaignId ? 'set' : 'unset (plain search)'}`);
+      }
+    } catch (e) {
+      console.warn(`[PARTS SOURCING] skipped — ${e?.message || e}`);
     }
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
     console.log(`[LAMP MONEY] rows_in_money=${lamp_money_rows} span_source=${lamp_span_source} orphan_collapse=${orphan_collapse} (lamp_count intent=${lamp_count})`);
