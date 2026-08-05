@@ -105,8 +105,13 @@ export default function PrivacyPage() {
           </div>
 
           <div className="section">
+            <div className="section-heading">Affiliate Links</div>
+            <p className="section-body">Some MotorQuoter reports — currently the Salvage Assessment Tool — include links to parts listed for sale on eBay UK. These are affiliate links provided through the eBay Partner Network: if you click one and go on to make a purchase, we may earn a small commission from eBay at no extra cost to you. When you click an affiliate link, the eBay Partner Network receives the referral so any resulting purchase can be attributed to us; this is governed by eBay&apos;s own privacy policy. This commission never affects the parts prices or repair estimates we show — those are calculated independently, and play no part in our valuations or recommendations. You are always free to buy parts anywhere; the links are a convenience only.</p>
+          </div>
+
+          <div className="section">
             <div className="section-heading">Cookies</div>
-            <p className="section-body">We use essential cookies only, required for session management and payment processing. We do not use advertising cookies, tracking cookies, or any third party analytics. You can disable cookies in your browser settings, but this may affect your ability to use the service.</p>
+            <p className="section-body">We use essential cookies only on MotorQuoter, required for session management and payment processing. We do not use advertising cookies, tracking cookies, or third-party analytics on our own site. Where a report includes affiliate links to eBay (see &quot;Affiliate Links&quot; above), clicking one takes you to eBay, which may set its own cookies under eBay&apos;s privacy policy — this only happens if you choose to click through, and no advertising or tracking cookie is set on MotorQuoter itself. You can disable cookies in your browser settings, but this may affect your ability to use the service.</p>
           </div>
 
           <div className="section">
@@ -116,7 +121,7 @@ export default function PrivacyPage() {
 
           <div className="section">
             <div className="section-heading">Last Updated</div>
-            <p className="section-body">May 2026</p>
+            <p className="section-body">August 2026</p>
           </div>
 
         </div>

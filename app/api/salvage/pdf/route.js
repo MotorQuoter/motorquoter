@@ -757,8 +757,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(140, 140, 140);
-    doc.text('Where to buy the costed parts — used / breaker parts on eBay UK', MARGIN, y);
-    y += 5;
+    const introLines = doc.splitTextToSize('Your repair estimate is itemised above. These are live eBay UK listings to buy the same parts — a convenience only; eBay prices vary and do not change the estimate.', CONTENT_W);
+    for (const line of introLines) { doc.text(line, MARGIN, y); y += 3.6; }
+    y += 1.4;
     for (const l of pdfSourcing.links) {
       checkPage(6);
       const feedColour = [22, 120, 60];
@@ -770,13 +771,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(...feedColour);
-      const meta = l.cost != null ? `${l.feedLabel}  ~£${Number(l.cost).toLocaleString('en-GB')}` : l.feedLabel;
-      doc.text(meta, MARGIN + partW, y);
-      // Clickable search link, right-aligned.
+      doc.text(l.feedLabel, MARGIN + partW, y);
+      // Clickable buy link, right-aligned.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(240, 90, 26);
-      const linkLabel = 'Search →';
+      const linkLabel = 'Find on eBay →';
       const linkW = doc.getTextWidth(linkLabel);
       doc.textWithLink(linkLabel, PAGE_W - MARGIN - linkW, y, { url: l.url });
       y += 5;

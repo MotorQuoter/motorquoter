@@ -842,13 +842,12 @@ export default function SalvageSuccessPage() {
                     Additive: costed figures above are unchanged. Disclosure is mandatory + visible. */}
                 {assessment._partsSourcing?.links?.length > 0 && (() => {
                   const { disclosure, links } = assessment._partsSourcing;
-                  const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : null;
                   return (
                     <div className="field-row">
                       <div className="field-key">
                         Parts Sourcing
                         <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
-                          Where to buy the costed parts — used / breaker parts on eBay UK
+                          Your repair estimate is itemised above. These are live eBay UK listings to buy the same parts — a convenience only; eBay prices vary and don&apos;t change the estimate.
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
@@ -857,11 +856,10 @@ export default function SalvageSuccessPage() {
                             <span style={{ fontSize: 13, color: 'var(--text)' }}>
                               <span style={{ fontWeight: 600 }}>{l.part}</span>
                               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#4ade80', textTransform: 'uppercase', marginLeft: 8 }}>{l.feedLabel}</span>
-                              {l.cost != null ? <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 6 }}>~{g(l.cost)}</span> : null}
                             </span>
                             <a href={l.url} target="_blank" rel="nofollow sponsored noopener noreferrer"
                                style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', whiteSpace: 'nowrap', textDecoration: 'none' }}>
-                              Search →
+                              Find on eBay →
                             </a>
                           </div>
                         ))}
