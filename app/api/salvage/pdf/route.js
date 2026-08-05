@@ -916,20 +916,20 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
     const range = (o) => o ? `${g(o.low)} - ${g(o.high)}${o.mid != null ? ` (avg ${g(o.mid)})` : ''}` : '—';
     const lines = [];
-    if (ib.asIsClean) lines.push(`As-is clean (undamaged retail): ${range(ib.asIsClean)}.`);
+    if (ib.asIsClean) lines.push(`Undamaged retail: ${range(ib.asIsClean)}.`);
     if (ib.afterRepairValue != null) lines.push(`After repair (Cat-adjusted): ${g(ib.afterRepairValue)}.`);
     if (ib.asIsSalvage) {
       const basis = ib.asIsSalvage.basis === 'salvageguide' ? 'SalvageGuide predicted bid'
                   : ib.asIsSalvage.basis === 'breakeven-band' ? 'estimated around break-even hammer' : '';
-      lines.push(`As-is salvage (unrepaired): ${range(ib.asIsSalvage)}${basis ? ` [${basis}]` : ''}.`);
+      lines.push(`As it stands (unrepaired): ${range(ib.asIsSalvage)}${basis ? ` [${basis}]` : ''}.`);
     }
-    if (ib.partOut) lines.push(`Part-out estimate: ${range(ib.partOut)}.`);
+    if (ib.partOut) lines.push(`Breaking value: ${range(ib.partOut)}.`);
     const c = ib.bidCeilings || {};
     if (c.rebuild || c.flip || c.partsOut) {
       lines.push('Max bid ceilings:');
-      if (c.rebuild)  lines.push(`  - Rebuild (MRB): ${g(c.rebuild.value)} — ${c.rebuild.assumption}`);
-      if (c.flip)     lines.push(`  - Flip as-is (MFB): ${g(c.flip.value)} — ${c.flip.assumption}`);
-      if (c.partsOut) lines.push(`  - Parts-out (MSB): ${g(c.partsOut.value)} — ${c.partsOut.assumption}`);
+      if (c.rebuild)  lines.push(`  - Repair & resell: ${g(c.rebuild.value)} — ${c.rebuild.assumption}`);
+      if (c.flip)     lines.push(`  - Sell on as it stands: ${g(c.flip.value)} — ${c.flip.assumption}`);
+      if (c.partsOut) lines.push(`  - Break for parts: ${g(c.partsOut.value)} — ${c.partsOut.assumption}`);
     }
     lines.push(`Indicative estimates — not a guaranteed valuation.${ib.confidence ? ` Confidence: ${ib.confidence}.` : ''}`);
     fieldBlock('Investment Analysis', lines.join('\n'));

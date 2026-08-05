@@ -1136,16 +1136,16 @@ export default function SalvageSuccessPage() {
                         </span>
                       </div>
                       <div className="field-val">
-                        {ib.asIsClean && <Row label="As-is clean (undamaged retail)" val={range(ib.asIsClean)} />}
+                        {ib.asIsClean && <Row label="Undamaged retail" val={range(ib.asIsClean)} />}
                         {ib.afterRepairValue != null && <Row label="After repair (Cat-adjusted)" val={g(ib.afterRepairValue)} />}
-                        {ib.asIsSalvage && <Row label="As-is salvage (unrepaired)" note={salvageBasis} val={range(ib.asIsSalvage)} />}
-                        {ib.partOut && <Row label="Part-out estimate" val={range(ib.partOut)} />}
+                        {ib.asIsSalvage && <Row label="As it stands (unrepaired)" note={salvageBasis} val={range(ib.asIsSalvage)} />}
+                        {ib.partOut && <Row label="Breaking value" val={range(ib.partOut)} />}
                         {(ceil.rebuild || ceil.flip || ceil.partsOut) && (
                           <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-dim)', marginBottom: 4 }}>Max bid ceilings</div>
-                            {ceil.rebuild && <Row label="Rebuild (MRB)" note={ceil.rebuild.assumption} val={g(ceil.rebuild.value)} />}
-                            {ceil.flip && <Row label="Flip as-is (MFB)" note={ceil.flip.assumption} val={g(ceil.flip.value)} />}
-                            {ceil.partsOut && <Row label="Parts-out (MSB)" note={ceil.partsOut.assumption} val={g(ceil.partsOut.value)} />}
+                            {ceil.rebuild && <Row label="Repair & resell" note={ceil.rebuild.assumption} val={g(ceil.rebuild.value)} />}
+                            {ceil.flip && <Row label="Sell on as it stands" note={ceil.flip.assumption} val={g(ceil.flip.value)} />}
+                            {ceil.partsOut && <Row label="Break for parts" note={ceil.partsOut.assumption} val={g(ceil.partsOut.value)} />}
                           </div>
                         )}
                         <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>

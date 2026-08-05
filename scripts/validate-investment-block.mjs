@@ -80,5 +80,16 @@ eq('rebuild null when no break-even', E.bidCeilings.rebuild, null);
 eq('flip null when no asIsSalvage', E.bidCeilings.flip, null);
 ok('partsOut still computes from part-out', E.bidCeilings.partsOut !== null);
 
+console.log('\n=== Case F: rebuildHammer surfaces the ceiling above the ladder (B fix) ===\n');
+// breakEven null (in-range crossing absent) but rebuildHammer supplied → rebuild renders from it.
+const F = buildInvestmentBlock({ retailAverage: 5000, exitValue: 11200, tradeAverage: 6000, breakEven: null, rebuildHammer: 6547, feeStackFn: feeStub });
+eq('rebuild uses rebuildHammer when breakEven null', F.bidCeilings.rebuild.value, 6547);
+// rebuildHammer takes precedence over breakEven when both present.
+const G = buildInvestmentBlock({ retailAverage: 5000, exitValue: 3000, tradeAverage: 4000, breakEven: 1500, rebuildHammer: 1800, feeStackFn: feeStub });
+eq('rebuildHammer takes precedence over breakEven', G.bidCeilings.rebuild.value, 1800);
+// still null when both absent.
+const H = buildInvestmentBlock({ retailAverage: 5000, exitValue: 3000, tradeAverage: 4000, breakEven: null, rebuildHammer: null, feeStackFn: feeStub });
+eq('rebuild null when both breakEven and rebuildHammer absent', H.bidCeilings.rebuild, null);
+
 console.log(`\n${passed + failed} checks: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
