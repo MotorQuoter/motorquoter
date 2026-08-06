@@ -1,0 +1,98 @@
+// replay — re-run the assessment engine against a captured fixture, with the paid providers mocked,
+// and diff the result against the stored baseline. This is the runner behind the A3 severity table
+// and the A2-residual check (Cowork §7/§8).
+//
+// Usage (note the loader flag — it resolves the app's "@/" alias + stubs next/server for Node):
+//   node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture]
+//   e.g.  node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs DMZ4614 --vision-live
+//
+// Guarantees (the replay contract): ZERO prod DB writes, ZERO Stripe, ZERO paid One-Auto calls.
+//   - One Auto: intercepted at the withOneAutoCache seam via __setOneAutoReplayProvider → fixtures.
+//   - Persistence/Stripe: runAssessment is the PURE pipeline; the route's envelope (which does the
+//     DB write + Stripe) is never entered — replay calls runAssessment directly.
+//   - --vision-live re-runs the Anthropic vision calls (few pence, the app's own model, not a paid
+//     provider re-charge) — required for A2 prose / A3 severity, which are Vision-judged.
+//   - --vision-fixture would replay frozen per-view verdicts at zero cost; those aren't persisted on
+//     historical rows, so it needs a capture add-on (flagged, not yet built).
+import { readFileSync, readdirSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { runAssessment } from '@/app/api/salvage/assess/route.js';
+import { __setOneAutoReplayProvider } from '@/lib/oneautoCache.js';
+import { diffAssessments, renderDiffTable } from './lib/assessmentDiff.mjs';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+function loadEnv() {
+  const txt = readFileSync(resolve(ROOT, '.env.local'), 'utf8');
+  for (const line of txt.split('\n')) {
+    if (!line.includes('=') || line.trim().startsWith('#')) continue;
+    const i = line.indexOf('=');
+    const k = line.slice(0, i).trim();
+    const v = line.slice(i + 1).trim().replace(/^["']|["']$/g, '');
+    if (!(k in process.env)) process.env[k] = v;
+  }
+}
+
+// Map a One Auto callType to the stored fixture it should replay. GB/NI lots use the SALVAGE*/
+// BREGO_GB seams; ROI-only seams (MARKETDEMAND/PRICEGUIDE/HPICHECK) return null (= "no data",
+// handled identically to a live empty response). null fixtures also return null.
+function makeFixtureProvider(paid) {
+  const map = {
+    BREGO_GB: paid.bregoValuation, BREGO_ROI: paid.bregoValuation,
+    SALVAGEGUIDE: paid.salvageGuide, SALVAGEHISTORY: paid.salvageHistory,
+    MARKETDEMAND: null, PRICEGUIDE: null, HPICHECK: null,
+  };
+  return (callType /*, normReg */) => {
+    const hit = map[callType] ?? null;
+    console.log(`[REPLAY ONEAUTO] ${callType} → ${hit ? 'fixture' : 'null'}`);
+    return hit;
+  };
+}
+
+async function main() {
+  const vrm = (process.argv[2] || '').toUpperCase();
+  const mode = process.argv.includes('--vision-fixture') ? 'vision-fixture' : 'vision-live';
+  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture]'); process.exit(2); }
+  if (mode === 'vision-fixture') {
+    console.error('--vision-fixture needs frozen per-view verdicts, which historical rows do not store.\n' +
+      'Capture add-on pending (freeze runPerViewAssess outputs). Use --vision-live for now.');
+    process.exit(3);
+  }
+
+  loadEnv();
+  const dir = resolve(ROOT, 'fixtures', vrm);
+  let fixture, baseline;
+  try {
+    fixture = JSON.parse(readFileSync(resolve(dir, 'fixture.json'), 'utf8'));
+    baseline = JSON.parse(readFileSync(resolve(dir, 'baseline-assessment.json'), 'utf8'));
+  } catch {
+    console.error(`No fixture at fixtures/${vrm}/. Capture it first:\n  node scripts/capture-fixture.mjs ${vrm}`);
+    process.exit(1);
+  }
+
+  // Rebuild the images array in the exact shape the pipeline consumes: data:image/jpeg;base64 strings.
+  const imgDir = resolve(dir, 'images');
+  const imgFiles = readdirSync(imgDir).filter(f => /\.(jpe?g|png)$/i.test(f)).sort();
+  const images = imgFiles.map(f => `data:image/jpeg;base64,${readFileSync(resolve(imgDir, f)).toString('base64')}`);
+  console.log(`Replaying ${vrm} — ${images.length} photos, mode=${mode}, market=${fixture.market}`);
+
+  // Install the fixture provider (One Auto seam) — after this, NO paid One Auto call can fire.
+  __setOneAutoReplayProvider(makeFixtureProvider(fixture.paidFixtures || {}));
+
+  const vd = fixture.vehicleDetails || {};
+  const t0 = Date.now();
+  const { assessment } = await runAssessment({
+    images,
+    vd,
+    market: fixture.market || 'GB',
+    roiTier: vd.roiTier || 'roi_free',
+  });
+  console.log(`runAssessment completed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+
+  const diff = diffAssessments(baseline, assessment);
+  console.log(renderDiffTable(diff, `${vrm}: stored baseline → replay (${mode})`));
+  process.exit(0);
+}
+
+main().catch(e => { console.error('REPLAY FAILED:', e); process.exit(1); });
