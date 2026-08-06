@@ -52,6 +52,11 @@ ok('VDS strips "crushed" after a floored front wing',
 // No floored panels → no change at all.
 ok('VDS no-ops when nothing is floored', neutraliseVDS(vds1, [], costed).text === vds1);
 
+// Synonym: "rocker" is the sill — a floored SILL described "folded rocker" must be caught.
+ok('VDS catches "folded rocker" for a floored Sill (synonym)',
+  !/folded/.test(neutraliseVDS('structure beneath the folded rocker cannot be confirmed.', ['Sill'], costed).text));
+ok('panelKeywords expands sill→rocker', panelKeywords('Sill').includes('rocker'));
+
 // ---- panelKeywords sanity ----
 ok('panelKeywords strips qualifiers/generics', JSON.stringify(panelKeywords('Front structure')) === JSON.stringify(['structure']));
 ok('panelKeywords drops parenthetical', !panelKeywords('SRS airbag (deployed)').includes('deployed'));
