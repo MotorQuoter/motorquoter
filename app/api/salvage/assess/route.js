@@ -10,6 +10,7 @@ import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
+import { scrubFlooredProse } from '@/lib/flooredProseScrub.mjs';
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
@@ -4968,6 +4969,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     } catch (e) {
       console.warn(`[DAMAGE CARDS] skipped — ${e?.message || e}`);
+    }
+
+    // Floored-panel prose scrub (Cowork §13). Deterministic post-processor: using the FINAL damage
+    // cards as ground truth, it drops Key-Cost-Driver lines whose lead panel was FLOORED (not costed)
+    // and neutralises severe-damage adjectives asserted on floored panels in KCD/VDS — the reliable
+    // fix for the slot/prose divergence a prompt clause could not close (proven on the harness).
+    // Costed panels and legitimate unseeable-risk framing are left untouched. Wrapped so it can never
+    // break the assessment.
+    try {
+      const _scrub = scrubFlooredProse(assessment);
+      if (_scrub.kcdDropped.length || _scrub.kcdChanges.length || _scrub.vdsChanges.length) {
+        console.log(`[FLOORED SCRUB] KCD dropped ${_scrub.kcdDropped.length}, neutralised KCD ${_scrub.kcdChanges.length} / VDS ${_scrub.vdsChanges.length}`);
+      }
+    } catch (e) {
+      console.warn(`[FLOORED SCRUB] skipped — ${e?.message || e}`);
     }
 
     // Parts Sourcing (AEP-style) — purely additive shoppable-link layer. READS the reconciled
