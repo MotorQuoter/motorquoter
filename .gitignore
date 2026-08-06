@@ -52,3 +52,8 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# Replay harness fixtures — local, regenerable from the DB via scripts/capture-fixture.mjs
+# while lot-images/DB retention holds (photos ~7wk+ verified). Not committed (binary photos +
+# large baselines would bloat the repo). Re-capture on a fresh machine before replaying.
+/fixtures

@@ -10,6 +10,7 @@ import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
+import { scrubFlooredProse } from '@/lib/flooredProseScrub.mjs';
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
@@ -1673,7 +1674,23 @@ const EV_VERDICT_TIER2_HARD = 'High-voltage battery and EV-system integrity coul
 const EV_VERDICT_TIER2_SOFT = 'High-voltage battery and EV cooling integrity cannot be confirmed from the listing photos. An EV specialist diagnostic is the deciding item before bidding — a removed, damaged, or isolated HV pack is the largest single value risk on a salvage EV. Do not assume the pack is sound because the body is intact (a crash trips the HV isolator; present-but-isolated looks identical to missing).';
 const EV_VERDICT_TIER3_NOTE = 'Runs and drives, clean instrument cluster, no adverse cooling or HV evidence — a strong indication the HV battery and EV systems are live and intact. Confirm with an EV diagnostic on inspection.';
 
-const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
+// A3 SEVERE-DISCIPLINE clause, factored out ONLY so the replay harness can A/B it (Cowork §11).
+// PROD-INERT: REPLAY_A3_OFF is never set in production, so this is the full clause (including its
+// trailing blank line) and PER_VIEW_PROMPT below interpolates to a string byte-identical to before.
+// When the harness sets REPLAY_A3_OFF=true it becomes '' (clause removed) — dev tooling only.
+const A3_SEVERE_DISCIPLINE = process.env.REPLAY_A3_OFF === 'true' ? '' : `SEVERE DISCIPLINE (ALL panels — A3, Vincent 5 Aug): grade SEVERE only when the photo POSITIVELY shows
+through-metal damage — a torn, split, cracked, crushed or folded panel, a broken or displaced body
+line, or structural deformation. The EXTENT of a scuffed AREA does not make it SEVERE: a surface scuff,
+scratch, graze, paint transfer, or light dent on a panel whose body line and metal are otherwise intact
+is MINOR (refinish/repair), however large the marked area. When you cannot tell a surface scuff from
+genuine deformation on a panel shown square-on, grade MODERATE — never default up to SEVERE. Do NOT
+escalate to SEVERE on the basis of dirt, road film, abrasion, or paint transfer without visible metal
+deformation. (This applies to every panel; the lower-flank grounding below is the stricter iv:false rule
+for SILL/SIDE_SKIRT specifically.)
+
+`;
+
+export const PER_VIEW_PROMPT = `You are assessing damage on a salvage vehicle from a SINGLE photograph. This is one view of several; other views are assessed separately. Assess ONLY what THIS photograph shows. Do not infer, assume, or carry over anything from any other view — you have not seen them.
 
 For each damage-relevant part you can assess in this photo, output one line in this exact format and nothing else:
 
@@ -1764,17 +1781,7 @@ severity (on iv:true only; use - on false/na/missing):
   MODERATE = clear impact damage, repair-grade
   MINOR    = cosmetic — scuff / scratch / light dent, refinish only
 
-SEVERE DISCIPLINE (ALL panels — A3, Vincent 5 Aug): grade SEVERE only when the photo POSITIVELY shows
-through-metal damage — a torn, split, cracked, crushed or folded panel, a broken or displaced body
-line, or structural deformation. The EXTENT of a scuffed AREA does not make it SEVERE: a surface scuff,
-scratch, graze, paint transfer, or light dent on a panel whose body line and metal are otherwise intact
-is MINOR (refinish/repair), however large the marked area. When you cannot tell a surface scuff from
-genuine deformation on a panel shown square-on, grade MODERATE — never default up to SEVERE. Do NOT
-escalate to SEVERE on the basis of dirt, road film, abrasion, or paint transfer without visible metal
-deformation. (This applies to every panel; the lower-flank grounding below is the stricter iv:false rule
-for SILL/SIDE_SKIRT specifically.)
-
---- LOWER-FLANK GROUNDING (SILL, SIDE_SKIRT, and the lower extent of the doors) ---
+${A3_SEVERE_DISCIPLINE}--- LOWER-FLANK GROUNDING (SILL, SIDE_SKIRT, and the lower extent of the doors) ---
 Lower rocker, sill and side-skirt panels routinely carry PRE-EXISTING kerb-rash, road film, dirt, stone-chips, light surface scuffs and shadow that are NOT fresh collision damage. Do NOT grade or cost these as damage. For SILL or SIDE_SKIRT to be iv:true, the photo must show actual DEFORMATION or IMPACT — a crease, dent, crack, gouge, or displacement consistent with the collision event. Surface scuff, scratch, dirt, road film, shadow, or kerb/abrasion rash ALONE on these lower-flank panels is iv:false (seen and undamaged) — it is NOT MINOR and NOT MODERATE. If the lower-flank condition is ambiguous between surface contamination / pre-existing kerb-rash and genuine light impact, use iv:na — do NOT default to grading it damaged. Apply the same judgement an assessor reaches in prose: scuffing that reads as pre-existing kerb/abrasion rather than fresh impact is not a costed panel. This rule is scoped to the lower-flank panels named here; it does NOT change how scuffs are graded on any other panel.
 --- END LOWER-FLANK GROUNDING ---
 
@@ -2706,6 +2713,13 @@ function srsTierFromSignals(deploymentConfirmedByEnum, paste) {
   return { deploymentConfirmed: true, tier: 1, confident: true, countResolved: false, branch: 'deployment-confirmed-count-unresolved→T1-floor' };
 }
 
+// Thrown by runAssessment when too many model calls exhausted their 529 retries (single-instance
+// call lost, or 3+ per-view calls lost). The route's envelope catches it to reset session status,
+// refund, and return 503 — the old inline 529-abort path, now surfaced from the pure pipeline.
+class AssessmentOverloadedError extends Error {
+  constructor(reason) { super(`assessment overloaded: ${reason}`); this.name = 'AssessmentOverloadedError'; this.reason = reason; }
+}
+
 export async function GET(request) {
   console.log(`[DEPLOY] sha=${process.env.VERCEL_GIT_COMMIT_SHA || 'n/a'} dep=${process.env.VERCEL_DEPLOYMENT_ID || 'n/a'} url=${process.env.VERCEL_URL || 'n/a'} env=${process.env.VERCEL_ENV || 'n/a'}`);
   const { searchParams } = new URL(request.url);
@@ -2884,6 +2898,93 @@ export async function GET(request) {
     } else {
       return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
     }
+
+    // === Pure assessment pipeline (extracted for the replay harness — Cowork §7/§8). The route
+    // keeps the Stripe/persistence envelope; runAssessment computes the assessment from
+    // (images + vehicle_details + market) with no DB writes, no Stripe, and no One-Auto billing of
+    // its own (One Auto flows through withOneAutoCache, which the harness overrides). The body below
+    // is unchanged — only wrapped — so the prod path stays byte-identical. ===
+    let assessment, enrichedVd;
+    try {
+      ({ assessment, enrichedVd } = await runAssessment({ images, vd, market, roiTier }));
+    } catch (pipelineErr) {
+      if (!(pipelineErr instanceof AssessmentOverloadedError)) throw pipelineErr;
+      // 529 overloaded — reset session status (as the generic catch would), refund, return 503.
+      if (promoToken) {
+        await supabase.from('salvage_sessions').update({ status: 'promo_redeemed' }).eq('id', salvageId).eq('status', 'processing');
+      } else {
+        await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
+      }
+      let refundStatus = 'no_charge';
+      let abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Please try again in a few minutes.";
+      if (!promoToken && paymentIntentId == null) {
+        // Charged session but paymentIntentId not captured — manual reconciliation needed
+        refundStatus = 'refund_failed';
+        abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away.";
+      } else if (paymentIntentId && chargeAmount) {
+        try {
+          const stripeInst = new Stripe(process.env.STRIPE_SECRET_KEY);
+          const refund = await stripeInst.refunds.create({ payment_intent: paymentIntentId, amount: chargeAmount });
+          console.log(`[529 ABORT] refund issued refundId=${refund.id} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
+          refundStatus = 'refunded';
+          abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.";
+        } catch (refErr) {
+          console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refErr.message);
+          refundStatus = 'refund_failed';
+          abortMessage = `Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away. (Reference: ${paymentIntentId}).`;
+        }
+      }
+      return NextResponse.json({
+        aborted: true,
+        reason: 'overloaded',
+        refundStatus,
+        message: abortMessage,
+      }, { status: 503 });
+    }
+
+    // Render hint (Commit 4): copy the session's payment_kind onto the assessment so both surfaces
+    // (web + PDF) can mark a free_report without a second query. Source of truth stays
+    // salvage_sessions.payment_kind; this is a denormalised copy, like the other assessment._ stamps.
+    assessment._payment_kind = session.payment_kind ?? null;
+
+    await supabase
+      .from('salvage_sessions')
+      .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
+      .eq('id', salvageId);
+
+    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
+
+  } catch (err) {
+    console.error('Salvage assess error:', err);
+    if (promoToken) {
+      // Promo: reset to promo_redeemed so the token remains usable for a retry.
+      await supabase
+        .from('salvage_sessions')
+        .update({ status: 'promo_redeemed' })
+        .eq('id', salvageId)
+        .eq('status', 'processing');
+    } else {
+      // Non-promo: reset to 'failed' so the client can retry without hitting the
+      // CB4 staleness window. Hard kills (maxDuration) bypass this catch and still
+      // need CB4 as a backstop — they leave the session 'processing' until detected stale.
+      await supabase
+        .from('salvage_sessions')
+        .update({ status: 'failed' })
+        .eq('id', salvageId)
+        .eq('status', 'processing');
+    }
+    return NextResponse.json({ error: err.message || 'Assessment failed' }, { status: 500 });
+  }
+}
+
+// ============================================================================================
+// runAssessment — the pure assessment pipeline. No Stripe, no DB writes, no One-Auto billing of its
+// own; the paid One Auto calls flow through withOneAutoCache (which the replay harness overrides
+// with stored fixtures). Shared by the GET route above and scripts/replay.mjs. Returns
+// { assessment, enrichedVd }. Interior throws propagate to the route's catch (status reset);
+// AssessmentOverloadedError is caught by the route for the 529 refund/503 path. (Cowork §7/§8.)
+// ============================================================================================
+export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Per-view assess calls fire here in parallel with the main call.
     // Grouping + amalgamate run inline after parseParts so the main-call part names
@@ -4818,36 +4919,7 @@ export async function GET(request) {
       if (shouldAbort) {
         const reason = singleExhausted ? 'singleInstanceCall' : 'perView>2';
         console.error(`[529 ABORT] reason=${reason} exhausted=[${[..._exhaustedCalls].join(', ')}]`);
-        if (promoToken) {
-          await supabase.from('salvage_sessions').update({ status: 'promo_redeemed' }).eq('id', salvageId).eq('status', 'processing');
-        } else {
-          await supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing');
-        }
-        let refundStatus = 'no_charge';
-        let abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Please try again in a few minutes.";
-        if (!promoToken && paymentIntentId == null) {
-          // Charged session but paymentIntentId not captured — manual reconciliation needed
-          refundStatus = 'refund_failed';
-          abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away.";
-        } else if (paymentIntentId && chargeAmount) {
-          try {
-            const stripeInst = new Stripe(process.env.STRIPE_SECRET_KEY);
-            const refund = await stripeInst.refunds.create({ payment_intent: paymentIntentId, amount: chargeAmount });
-            console.log(`[529 ABORT] refund issued refundId=${refund.id} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
-            refundStatus = 'refunded';
-            abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.";
-          } catch (refErr) {
-            console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refErr.message);
-            refundStatus = 'refund_failed';
-            abortMessage = `Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away. (Reference: ${paymentIntentId}).`;
-          }
-        }
-        return NextResponse.json({
-          aborted: true,
-          reason: 'overloaded',
-          refundStatus,
-          message: abortMessage,
-        }, { status: 503 });
+        throw new AssessmentOverloadedError(reason);   // route envelope resets status + refunds + 503
       } else if (_exhaustedCalls.size > 0) {
         console.log(`[529 OK] degraded-within-tolerance lostViews=${_pvExhaustedCount}`);
       }
@@ -4897,6 +4969,21 @@ export async function GET(request) {
       }
     } catch (e) {
       console.warn(`[DAMAGE CARDS] skipped — ${e?.message || e}`);
+    }
+
+    // Floored-panel prose scrub (Cowork §13). Deterministic post-processor: using the FINAL damage
+    // cards as ground truth, it drops Key-Cost-Driver lines whose lead panel was FLOORED (not costed)
+    // and neutralises severe-damage adjectives asserted on floored panels in KCD/VDS — the reliable
+    // fix for the slot/prose divergence a prompt clause could not close (proven on the harness).
+    // Costed panels and legitimate unseeable-risk framing are left untouched. Wrapped so it can never
+    // break the assessment.
+    try {
+      const _scrub = scrubFlooredProse(assessment);
+      if (_scrub.kcdDropped.length || _scrub.kcdChanges.length || _scrub.vdsChanges.length) {
+        console.log(`[FLOORED SCRUB] KCD dropped ${_scrub.kcdDropped.length}, neutralised KCD ${_scrub.kcdChanges.length} / VDS ${_scrub.vdsChanges.length}`);
+      }
+    } catch (e) {
+      console.warn(`[FLOORED SCRUB] skipped — ${e?.message || e}`);
     }
 
     // Parts Sourcing (AEP-style) — purely additive shoppable-link layer. READS the reconciled
@@ -5263,37 +5350,7 @@ export async function GET(request) {
 
     logEvent('assessment_submitted', { vrm: enrichedVd.vrm || '', metadata: { lot_number: enrichedVd.lotNumber || null } });
 
-    // Render hint (Commit 4): copy the session's payment_kind onto the assessment so both surfaces
-    // (web + PDF) can mark a free_report without a second query. Source of truth stays
-    // salvage_sessions.payment_kind; this is a denormalised copy, like the other assessment._ stamps.
-    assessment._payment_kind = session.payment_kind ?? null;
-
-    await supabase
-      .from('salvage_sessions')
-      .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
-      .eq('id', salvageId);
-
-    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
-
-  } catch (err) {
-    console.error('Salvage assess error:', err);
-    if (promoToken) {
-      // Promo: reset to promo_redeemed so the token remains usable for a retry.
-      await supabase
-        .from('salvage_sessions')
-        .update({ status: 'promo_redeemed' })
-        .eq('id', salvageId)
-        .eq('status', 'processing');
-    } else {
-      // Non-promo: reset to 'failed' so the client can retry without hitting the
-      // CB4 staleness window. Hard kills (maxDuration) bypass this catch and still
-      // need CB4 as a backstop — they leave the session 'processing' until detected stale.
-      await supabase
-        .from('salvage_sessions')
-        .update({ status: 'failed' })
-        .eq('id', salvageId)
-        .eq('status', 'processing');
-    }
-    return NextResponse.json({ error: err.message || 'Assessment failed' }, { status: 500 });
-  }
+    // Pure pipeline complete. The route envelope stamps assessment._payment_kind (needs the
+    // session), persists { status:'assessed', assessment, vehicle_details: enrichedVd }, and returns.
+    return { assessment, enrichedVd };
 }

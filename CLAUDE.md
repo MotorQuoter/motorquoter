@@ -104,6 +104,18 @@ DVSA_TOKEN_URL
 - Styling: Tailwind CSS configured but mostly unused; inline CSS could be migrated to utilities for maintainability
 - Database schema for `reg_lookup_cache` not tracked in repo (created manually in Supabase)
 
+## Testing & Replay Harness — Cost Policy (Vincent's directive, all future test runs)
+
+The replay harness (`scripts/replay.mjs`, `scripts/capture-fixture.mjs`) exists to tune the salvage engine without paying the full assessment stack (~£3–4.50/lot). Follow this cost policy for every test run:
+
+1. **Default `--vision-fixture` (£0)** for deterministic changes — costing, ceilings, reconciliation, parts, gates. Replay stored per-view verdicts; no model spend.
+2. **`--vision-live` (~4–5p/run) ONLY for model-generated changes** — per-view severity, and prose (Visible Damage Summary / Key Cost Drivers / Red Flags). Never use it for deterministic checks; unit-test those at £0.
+3. **Never re-run the paid One Auto stack in testing** — always use the fixture seam (`__setOneAutoReplayProvider`, £0). The paid stack (~£3–4.50/lot) is exactly what the harness exists to kill.
+4. **Minimal K and lots** — smallest sample that answers the question; start with 1–3 lots; scale only if warranted AND Vincent OKs.
+5. **Quote the spend BEFORE any live batch.** If a run would exceed **~£2**, flag for Vincent's go first.
+
+Replay never writes the production DB, never hits Stripe, never re-charges a paid provider (read-only fixtures). Dev tooling only; never on the prod path.
+
 ## Common Tasks
 
 ### Testing Tier Verification
