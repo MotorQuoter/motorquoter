@@ -90,6 +90,14 @@ async function main() {
   });
   console.log(`runAssessment completed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
+  // Optional: dump the freshly-computed assessment (for run-to-run variance checks / A/B diffs).
+  const dumpIdx = process.argv.indexOf('--dump');
+  if (dumpIdx > -1 && process.argv[dumpIdx + 1]) {
+    const { writeFileSync } = await import('fs');
+    writeFileSync(resolve(process.argv[dumpIdx + 1]), JSON.stringify(assessment, null, 2));
+    console.log(`dumped assessment → ${process.argv[dumpIdx + 1]}`);
+  }
+
   const diff = diffAssessments(baseline, assessment);
   console.log(renderDiffTable(diff, `${vrm}: stored baseline → replay (${mode})`));
   process.exit(0);
