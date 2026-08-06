@@ -17,9 +17,9 @@
 import { readFileSync, readdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { runAssessment } from '@/app/api/salvage/assess/route.js';
-import { __setOneAutoReplayProvider } from '@/lib/oneautoCache.js';
 import { diffAssessments, renderDiffTable } from './lib/assessmentDiff.mjs';
+// NOTE: runAssessment / oneautoCache are imported DYNAMICALLY inside main(), AFTER env is set —
+// PER_VIEW_PROMPT reads REPLAY_A3_OFF at module-load, so --a3-off must be in process.env first.
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -53,7 +53,8 @@ function makeFixtureProvider(paid) {
 async function main() {
   const vrm = (process.argv[2] || '').toUpperCase();
   const mode = process.argv.includes('--vision-fixture') ? 'vision-fixture' : 'vision-live';
-  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture]'); process.exit(2); }
+  const a3off = process.argv.includes('--a3-off');   // A3 SEVERE-DISCIPLINE clause removed (A/B off-arm)
+  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture] [--a3-off] [--dump <path>]'); process.exit(2); }
   if (mode === 'vision-fixture') {
     console.error('--vision-fixture needs frozen per-view verdicts, which historical rows do not store.\n' +
       'Capture add-on pending (freeze runPerViewAssess outputs). Use --vision-live for now.');
@@ -61,6 +62,12 @@ async function main() {
   }
 
   loadEnv();
+  // Set the A3 toggle BEFORE importing the route module — PER_VIEW_PROMPT reads REPLAY_A3_OFF at
+  // module-load. Then import runAssessment + the One-Auto seam dynamically so they see the env.
+  if (a3off) process.env.REPLAY_A3_OFF = 'true';
+  const { runAssessment } = await import('@/app/api/salvage/assess/route.js');
+  const { __setOneAutoReplayProvider } = await import('@/lib/oneautoCache.js');
+
   const dir = resolve(ROOT, 'fixtures', vrm);
   let fixture, baseline;
   try {
@@ -75,7 +82,7 @@ async function main() {
   const imgDir = resolve(dir, 'images');
   const imgFiles = readdirSync(imgDir).filter(f => /\.(jpe?g|png)$/i.test(f)).sort();
   const images = imgFiles.map(f => `data:image/jpeg;base64,${readFileSync(resolve(imgDir, f)).toString('base64')}`);
-  console.log(`Replaying ${vrm} — ${images.length} photos, mode=${mode}, market=${fixture.market}`);
+  console.log(`Replaying ${vrm} — ${images.length} photos, mode=${mode}, A3=${a3off ? 'OFF' : 'ON'}, market=${fixture.market}`);
 
   // Install the fixture provider (One Auto seam) — after this, NO paid One Auto call can fire.
   __setOneAutoReplayProvider(makeFixtureProvider(fixture.paidFixtures || {}));
