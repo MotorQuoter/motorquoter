@@ -1335,6 +1335,7 @@ export default function SalvageSuccessPage() {
             </div>
 
             <p className="footer-note">
+              <span style={{ color: 'var(--text)', fontWeight: 700 }}>Official DVLA &amp; DVSA data.</span><br />
               AI-generated guidance only. Not a professional repair quote. The repair figure is the sum of itemised parts costed as visible in the photos. Items not independently confirmable appear in Inspection Flags and italic allowance rows — they are not in this figure. Hidden, secondary, or unphotographed damage may increase actual costs.<br />
               MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
             </p>

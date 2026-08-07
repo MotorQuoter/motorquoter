@@ -380,6 +380,11 @@ export default function Home() {
         .hero-title span { color: var(--orange); display: block; }
         .hero-sub { margin-top: 16px; font-size: 16px; color: var(--text-dim); line-height: 1.5; max-width: 320px; margin-left: auto; margin-right: auto; }
 
+        .trust-strip { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+        .trust-badge { display: inline-flex; align-items: center; gap: 6px; font-family: 'Barlow Condensed', sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); border: 1px solid var(--border-dim); border-radius: 999px; padding: 5px 11px; white-space: nowrap; }
+        .trust-badge .trust-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+        .trust-badge .trust-experian { color: #a01346; font-weight: 800; }
+
         .form { padding: 0 20px; display: flex; flex-direction: column; gap: 20px; }
 
         .field-label { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.15em; color: var(--orange); text-transform: uppercase; margin-bottom: 8px; }
@@ -525,6 +530,9 @@ export default function Home() {
             KNOW YOUR<span>NUMBERS</span>
           </h1>
           <p className="hero-sub">UK &amp; Irish vehicle intelligence &mdash; cheaper and faster than CAP or HPI.</p>
+          <div className="trust-strip">
+            <span className="trust-badge"><span className="trust-dot" />Official DVLA &amp; DVSA data</span>
+          </div>
         </div>
 
         <div className="chooser-prompt">What are you here to do?</div>
@@ -760,6 +768,9 @@ export default function Home() {
                   {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
                   {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
                   {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
+                </div>
+                <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', padding: '0 20px 12px', letterSpacing: '0.02em' }}>
+                  Official <span style={{ fontWeight: 700, color: 'var(--text)' }}>DVLA &amp; DVSA</span> data
                 </div>
                 {result.mileageVerdict && (
                   <div

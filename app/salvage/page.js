@@ -907,6 +907,7 @@ export default function SalvagePage() {
         </div>
 
         <p className="footer-note">
+          <span style={{ color: 'var(--text)', fontWeight: 700 }}>Official DVLA &amp; DVSA data.</span><br />
           AI-powered damage assessment. Not a professional repair quote.<br />
           Not affiliated with Copart, IAA/SYNETIQ, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a> &nbsp;·&nbsp; <a href="/">← Back to VRM lookup</a>
         </p>
