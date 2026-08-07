@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 
 function fmtFirstReg(str) {
   if (!str) return null;
@@ -1013,6 +1014,7 @@ function PaymentSuccessContent() {
               {pdfLoading ? 'Generating PDF...' : '↓ Save as PDF'}
             </button>
             <button className="back-btn" onClick={() => router.push('/')}>← New search</button>
+            <TrustpilotReviewCollector heading="Was your report useful?" />
             <p className="footer-note">Not affiliated with CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a></p>
           </>
         )}

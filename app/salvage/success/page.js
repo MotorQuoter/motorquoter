@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
@@ -1333,6 +1334,8 @@ export default function SalvageSuccessPage() {
                 <div className="rerun-used">Re-run already used</div>
               ) : null}
             </div>
+
+            <TrustpilotReviewCollector heading="Was your salvage report useful?" />
 
             <p className="footer-note">
               <span style={{ color: 'var(--text)', fontWeight: 700 }}>Official DVLA &amp; DVSA data.</span><br />
