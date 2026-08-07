@@ -1,0 +1,17 @@
+# Normalise line endings: treat all text files as text and check them out with LF on every
+# platform. Fixes the CRLF-dirty working tree on Windows checkouts (core.autocrlf unset) where
+# `git status` showed every tracked file modified. (Cowork §8.5/§9.)
+* text=auto eol=lf
+
+# Binary types git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
