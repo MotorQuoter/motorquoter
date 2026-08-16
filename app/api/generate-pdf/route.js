@@ -324,6 +324,9 @@ function buildPdf(result, vrm, checks, checkDate) {
       if (gb.customsDutyFlag?.indicativeWithVat != null) row('  + Customs duty if not UK-origin', `up to ${fmtEur(gb.customsDutyFlag.indicativeWithVat)} (incl. VAT)`);
       const lead = ['We show both outcomes — neither is assumed. Which applies depends on the evidence below.'];
       if (ic.sellerType === 'dealer') lead.push('Ask the NI dealer for the UKIMS movement reference (MRN) for this car.');
+      const _nmt = gb.newMeansOfTransport;
+      if (_nmt?.near) lead.push('Close to Revenue’s "new vehicle" threshold (near 6 months or 6,000 km) - if under either, VAT (23%) is due regardless. Check with Revenue.');
+      else if (_nmt?.distanceUncheckable) lead.push('Mileage could not be confirmed, so the 6,000 km "new vehicle" limb was not checked - if 6,000 km or less, VAT (23%) is due regardless.');
       renderLines([...lead, ...noteLines(gb.basis)]);
     } else {
       const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
@@ -337,7 +340,7 @@ function buildPdf(result, vrm, checks, checkDate) {
         row(`  CO2 charge (${Math.round((vrt.band?.rate || 0) * 100)}%${vrt.floorApplied ? ', band min' : ''})`, fmtEur(vrt.co2Charge));
         row('  NOx levy', fmtEur(vrt.noxLevy));
       }
-      if (isGB) row('VAT (23%)', vat ? fmtEur(vat) : '-');
+      if (isGB || ic.newMeansOfTransport?.isNew) row('VAT (23%)', vat ? fmtEur(vat) : '-');
       if (customsDutyFlag) row('Customs duty', customsDutyFlag.applies === false
         ? 'Not applicable'
         : (customsDutyFlag.indicativeAmount != null ? `~${fmtEur(customsDutyFlag.indicativeAmount)} if it applies` : 'Origin-dependent'));

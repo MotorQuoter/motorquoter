@@ -67,12 +67,25 @@ export async function GET(request) {
   }
 
   const euroClass = dvla.euroStatus || euroFromYear(dvla.yearOfManufacture);
+  // New-means-of-transport age limb from DVLA first registration. Free tier has no odometer (DVLA
+  // only, no MOT) → distance limb is left unchecked and flagged honestly by the engine.
+  const _reg = dvla.monthOfFirstRegistration || (dvla.yearOfManufacture ? String(dvla.yearOfManufacture) : null);
+  let ageMonths = null;
+  if (_reg) {
+    const _m = String(_reg).match(/^(\d{4})(?:-(\d{2}))?/);
+    if (_m) {
+      const _y = parseInt(_m[1], 10), _mo = _m[2] ? parseInt(_m[2], 10) : 1;
+      const _now = new Date();
+      ageMonths = Math.max(0, (_now.getFullYear() - _y) * 12 + (_now.getMonth() + 1 - _mo));
+    }
+  }
   // Free tier: purchase price IS the OMSP, used as a floor (no range — low = avg = high).
   // Same presentation wrapper as the paid check — single or dual by sellerType.
   const estimate = estimateImportPresentation({
     sellerType,
     omspLow: purchasePrice, omspAvg: purchasePrice, omspHigh: purchasePrice,
     co2: dvla.co2Emissions, euroClass, fuel: dvla.fuelType, noxOverride, purchasePrice,
+    ageMonths, odometerKm: null,
   });
 
   return NextResponse.json({

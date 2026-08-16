@@ -931,6 +931,18 @@ function ImportCostSection({ result }) {
     </>
   );
 
+  // New-means-of-transport notice (VAT applies regardless of NI reliefs). Prominent, above the figures.
+  const nmt = ic.mode === 'dual' ? (ic.dual?.gb?.newMeansOfTransport || ic.dual?.ni?.newMeansOfTransport) : ic.newMeansOfTransport;
+  const nmtNotice = nmt && (nmt.isNew || nmt.near || nmt.distanceUncheckable) ? (
+    <div style={{ fontSize: 12.5, color: nmt.isNew ? 'var(--orange)' : 'var(--text)', background: nmt.isNew ? 'rgba(240,90,26,0.10)' : 'rgba(255,255,255,0.04)', border: `1px solid ${nmt.isNew ? 'rgba(240,90,26,0.4)' : 'var(--border-dim)'}`, borderRadius: 8, padding: '10px 12px', margin: '0 0 12px', lineHeight: 1.5 }}>
+      {nmt.isNew
+        ? <><strong>This car counts as NEW for VAT</strong> ({[nmt.ageNew && '6 months old or less', nmt.kmNew && '6,000 km or less'].filter(Boolean).join(' · ')}). Irish VAT at 23% is due regardless of where it has been or who is selling it — the NI reliefs cover used cars only.</>
+        : nmt.near
+          ? <><strong>Close to the “new vehicle” threshold.</strong> This car is near 6 months old or 6,000 km. If it’s under either, VAT (23%) is due regardless — check with Revenue before relying on the figures.</>
+          : <>We couldn’t confirm the mileage, so the 6,000 km “new vehicle” limb isn’t checked. If the car has 6,000 km or less, it counts as new and VAT (23%) is due regardless.</>}
+    </div>
+  ) : null;
+
   // ── DUAL (private / dealer): two outcomes side by side, neither labelled the answer ──
   if (ic.mode === 'dual') {
     const { ni, gb } = ic.dual;
@@ -944,6 +956,7 @@ function ImportCostSection({ result }) {
       <div className="card">
         <div className="section-title">Import to Ireland — Two Outcomes</div>
         <p style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '2px 0 12px' }}>Which one applies depends on the evidence below. We show both — neither is assumed.</p>
+        {nmtNotice}
         <div style={{ display: 'flex', gap: 10 }}>
           <div style={figCard}>
             <div style={figLabel}>If Revenue accepts your NI evidence</div>
@@ -972,12 +985,15 @@ function ImportCostSection({ result }) {
   return (
     <div className="card">
       <div className="section-title">Import to Ireland — Landed Cost</div>
+      {nmtNotice}
       <div style={{ textAlign: 'center', padding: '4px 0 12px' }}>
         <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Estimated total to import</div>
         <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--orange)', fontFamily: "'Barlow Condensed', sans-serif" }}>
           {range ? `${fmtEur(range.low)} – ${fmtEur(range.high)}` : fmtEur(grandTotal)}
         </div>
-        {isGB ? (
+        {nmt?.isNew ? (
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>VRT + VAT (new vehicle — VAT applies regardless of NI history)</div>
+        ) : isGB ? (
           <>
             {customsDutyFlag?.indicativeWithVat != null
               ? <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--yellow)', marginTop: 4, lineHeight: 1.35 }}>+ up to {fmtEur(customsDutyFlag.indicativeWithVat)} customs duty (incl. VAT on the duty) if the car isn’t UK-origin</div>
@@ -1000,7 +1016,7 @@ function ImportCostSection({ result }) {
           <div style={subSt}><span style={subKeySt}>NOx levy · {vrt.noxBasis}</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(vrt.noxLevy)}</span></div>
         </>
       )}
-      {isGB && <div style={rowSt}><span style={keySt}>VAT (23%)</span><span style={valSt}>{vat ? fmtEur(vat) : '—'}</span></div>}
+      {(isGB || nmt?.isNew) && <div style={rowSt}><span style={keySt}>VAT (23%)</span><span style={valSt}>{vat ? fmtEur(vat) : '—'}</span></div>}
       {customsDutyFlag && (
         <div style={rowSt}>
           <span style={keySt}>Customs duty</span>

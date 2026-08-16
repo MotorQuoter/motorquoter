@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estimateImportCost, estimateImportCostRange, estimateImportPresentation,
-  noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
+  classifyNewMeansOfTransport, noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
 import { CO2_BANDS, VRT_MINIMUM, NOX_CAP } from '../config/vrt.mjs';
 import { buildJurisdictionTimeline, provenanceConflict, yearOf } from '../lib/importProvenance.mjs';
@@ -296,4 +296,58 @@ test('gb / unknown → SINGLE GB (customs flagged)', () => {
   const unknown = estimateImportPresentation({ sellerType: 'wat', ...DUAL_INPUTS });
   assert.equal(unknown.mode, 'single');
   assert.equal(unknown.basis.provenance, 'GB');
+});
+
+// ── New means of transport (batch 27) — VAT applies regardless of NI reliefs ──────────────────
+
+test('classify: age limb alone (≤6 months) → new', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 3, odometerKm: 40000 });
+  assert.equal(c.isNew, true); assert.equal(c.ageNew, true); assert.equal(c.kmNew, false);
+});
+test('classify: distance limb alone (≤6,000 km) → new', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 24, odometerKm: 5000 });
+  assert.equal(c.isNew, true); assert.equal(c.kmNew, true); assert.equal(c.ageNew, false);
+});
+test('classify: both limbs → new', () => {
+  assert.equal(classifyNewMeansOfTransport({ ageMonths: 2, odometerKm: 1000 }).isNew, true);
+});
+test('classify: neither limb → used', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 24, odometerKm: 40000 });
+  assert.equal(c.isNew, false); assert.equal(c.near, false);
+});
+test('classify: near threshold (7 months / 6,500 km) flags near, not new', () => {
+  assert.equal(classifyNewMeansOfTransport({ ageMonths: 7, odometerKm: 40000 }).near, true);
+  assert.equal(classifyNewMeansOfTransport({ ageMonths: 24, odometerKm: 6500 }).near, true);
+  assert.equal(classifyNewMeansOfTransport({ ageMonths: 7, odometerKm: 6500 }).isNew, false);
+});
+test('classify: unknown mileage + not-new age → distance limb uncheckable', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 24, odometerKm: null });
+  assert.equal(c.isNew, false); assert.equal(c.distanceUncheckable, true);
+});
+test('classify: unknown mileage but new by age → not uncheckable (age settled it)', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 3, odometerKm: null });
+  assert.equal(c.isNew, true); assert.equal(c.distanceUncheckable, false);
+});
+
+test('engine: new means of transport forces VAT even on NI provenance', () => {
+  const used = estimateImportCost({ omsp: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', provenance: 'NI', purchasePrice: 20000, ageMonths: 36, odometerKm: 60000 });
+  assert.equal(used.vat, 0);                       // used NI car — VRT only
+  const brandNew = estimateImportCost({ omsp: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', provenance: 'NI', purchasePrice: 20000, ageMonths: 3, odometerKm: 1000 });
+  assert.equal(brandNew.vat, 4600);                // NEW NI car — VAT still due
+  assert.equal(brandNew.newMeansOfTransport.isNew, true);
+  assert.equal(brandNew.grandTotal, brandNew.vrt.total + 4600);
+});
+
+test('presentation: NEW means of transport SUPPRESSES the dual fork (private/dealer → single, VAT on)', () => {
+  const priv = estimateImportPresentation({ sellerType: 'private', omspLow: 30000, omspAvg: 30000, omspHigh: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', purchasePrice: 20000, ageMonths: 3, odometerKm: 1000 });
+  assert.equal(priv.mode, 'single');               // no fork
+  assert.equal(priv.newMeansForcedSingle, true);
+  assert.equal(priv.vat, 4600);                    // VAT applies despite 'private'
+  // pre2021 new car also gets VAT (single path, engine forces it).
+  const pre = estimateImportPresentation({ sellerType: 'pre2021', omspLow: 30000, omspAvg: 30000, omspHigh: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', purchasePrice: 20000, ageMonths: 2, odometerKm: 500 });
+  assert.equal(pre.mode, 'single');
+  assert.equal(pre.vat, 4600);
+  // A USED private car still forks.
+  const used = estimateImportPresentation({ sellerType: 'private', omspLow: 30000, omspAvg: 30000, omspHigh: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', purchasePrice: 20000, ageMonths: 36, odometerKm: 60000 });
+  assert.equal(used.mode, 'dual');
 });

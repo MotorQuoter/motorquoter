@@ -960,6 +960,27 @@ const dvla = await safeJson(dvlaRes);
         const noxRaw = searchParams.get('nox');
         const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
         const importKms = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10) || 50000;
+        // New-means-of-transport limbs (VAT applies regardless of NI reliefs). Age from DVLA first
+        // registration; distance from the latest DVSA MOT odometer, unit-converted to KM (Revenue's
+        // limb is 6,000 km; MOT odometer is often in miles — odometerUnit disambiguates).
+        const _reg = dvla.monthOfFirstRegistration || (dvla.yearOfManufacture ? String(dvla.yearOfManufacture) : null);
+        let ageMonths = null;
+        if (_reg) {
+          const _m = String(_reg).match(/^(\d{4})(?:-(\d{2}))?/);
+          if (_m) {
+            const _y = parseInt(_m[1], 10), _mo = _m[2] ? parseInt(_m[2], 10) : 1;
+            const _now = new Date();
+            ageMonths = Math.max(0, (_now.getFullYear() - _y) * 12 + (_now.getMonth() + 1 - _mo));
+          }
+        }
+        let odometerKm = null;
+        if (latestMot && latestMot.odometerValue != null) {
+          const _v = Number(String(latestMot.odometerValue).replace(/[^\d.]/g, ''));
+          if (Number.isFinite(_v) && _v >= 0) {
+            const _unit = String(latestMot.odometerUnit || '').toLowerCase();
+            odometerKm = _unit.startsWith('mi') ? Math.round(_v * 1.60934) : Math.round(_v);
+          }
+        }
         try {
           // 1) UK Vehicle Data — VIN + CO2 (integer) + emission_class + fuel
           const ukData = extractApiResult(await safeJson(
@@ -987,6 +1008,7 @@ const dvla = await safeJson(dvlaRes);
             omspAvg:  bregoIe?.retail_average_valuation ?? null,
             omspHigh: bregoIe?.retail_high_valuation    ?? null,
             co2: impCo2, euroClass, fuel: impFuel, noxOverride, purchasePrice,
+            ageMonths, odometerKm,
           });
           importCost = {
             ...presentation,

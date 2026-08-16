@@ -89,6 +89,7 @@ export default function ImportPage() {
   const isDual = est?.mode === 'dual';
   const single = isDual ? null : est;              // single-mode: est spreads the estimate
   const isGB = single?.basis?.provenance === 'GB';
+  const nmt = isDual ? est?.dual?.gb?.newMeansOfTransport : single?.newMeansOfTransport;
 
   async function subscribe() {
     if (!emailConsent) { setEmailErr('Please tick the box to confirm you’re happy to be emailed.'); return; }
@@ -184,6 +185,15 @@ export default function ImportPage() {
             <div className="section-title">Your rough import estimate</div>
             {result.vehicle && (
               <div className="veh">{[result.vehicle.year, result.vehicle.make, result.vehicle.fuel].filter(Boolean).join(' · ')}{result.vehicle.co2 != null ? ` · ${result.vehicle.co2} g/km` : ''}</div>
+            )}
+            {nmt && (nmt.isNew || nmt.near || nmt.distanceUncheckable) && (
+              <p className="floor-note" style={{ color: nmt.isNew ? '#f05a1a' : undefined }}>
+                {nmt.isNew
+                  ? <><strong>Counts as new for VAT</strong> ({[nmt.ageNew && '6 months or less', nmt.kmNew && '6,000 km or less'].filter(Boolean).join(' · ')}) — Irish VAT at 23% is due regardless of NI history or seller.</>
+                  : nmt.near
+                    ? <><strong>Close to the “new vehicle” threshold.</strong> If under 6 months or 6,000 km, VAT (23%) is due regardless — check with Revenue.</>
+                    : <>We couldn’t confirm the mileage here (free tier). If the car has 6,000 km or less it counts as new and VAT (23%) is due — the paid check reads the odometer.</>}
+              </p>
             )}
             {isDual ? (
               est.supported ? (
