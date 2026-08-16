@@ -6,7 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estimateImportCost, estimateImportCostRange, estimateImportPresentation,
-  classifyNewMeansOfTransport, noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
+  classifyNewMeansOfTransport, importScopeRefusal,
+  noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
 import { CO2_BANDS, VRT_MINIMUM, NOX_CAP } from '../config/vrt.mjs';
 import { buildJurisdictionTimeline, provenanceConflict, yearOf } from '../lib/importProvenance.mjs';
@@ -350,4 +351,53 @@ test('presentation: NEW means of transport SUPPRESSES the dual fork (private/dea
   // A USED private car still forks.
   const used = estimateImportPresentation({ sellerType: 'private', omspLow: 30000, omspAvg: 30000, omspHigh: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', purchasePrice: 20000, ageMonths: 36, odometerKm: 60000 });
   assert.equal(used.mode, 'dual');
+});
+
+// ── Category C by age (batch 28) — over 30 years → flat €200, CO2/NOx bypassed ────────────────
+
+test('over 30 years → Category C flat €200 VRT, CO2/NOx bypassed', () => {
+  const r = estimateImportCost({ omsp: 40000, co2: 260, euroClass: 'Euro 2', fuel: 'Petrol', provenance: 'GB', purchasePrice: 30000, ageMonths: 31 * 12 });
+  assert.equal(r.categoryC, true);
+  assert.equal(r.vrt.total, 200);           // flat — not 41% of €40,000
+  assert.equal(r.vrt.categoryC, true);
+  assert.equal(r.vrt.co2Charge, null);
+  assert.equal(r.vrt.noxLevy, 0);
+});
+
+test('just under 30 years → normal Category A (no flat rate)', () => {
+  const r = estimateImportCost({ omsp: 40000, co2: 120, euroClass: 'Euro 6', fuel: 'Petrol', provenance: 'GB', purchasePrice: 30000, ageMonths: 29 * 12 });
+  assert.equal(r.categoryC, false);
+  assert.ok(r.vrt.co2Charge > 200);         // CO2-banded, not flat
+});
+
+test('within 6 months of 30 years → near flag, still Category A', () => {
+  const r = estimateImportCost({ omsp: 20000, co2: 120, euroClass: 'Euro 5', fuel: 'Petrol', provenance: 'GB', purchasePrice: 15000, ageMonths: 30 * 12 - 3 });
+  assert.equal(r.categoryC, false);
+  assert.equal(r.categoryCNear, true);
+  assert.ok(r.notes.some(n => /close to 30 years/i.test(n)));
+});
+
+test('a >30yr car is NOT a new means of transport even at low km (classic guard); GB VAT still applies', () => {
+  const c = classifyNewMeansOfTransport({ ageMonths: 31 * 12, odometerKm: 3000 });
+  assert.equal(c.isNew, false);             // low km must not flag a classic as "new"
+  const r = estimateImportCost({ omsp: 40000, co2: 200, fuel: 'Petrol', provenance: 'GB', purchasePrice: 30000, ageMonths: 31 * 12, odometerKm: 3000 });
+  assert.equal(r.vrt.total, 200);           // Cat C VRT
+  assert.equal(r.vat, 6900);                // GB import VAT (23% × 30,000) still applies
+  assert.equal(r.newMeansOfTransport.isNew, false);
+  // NI-sourced used classic → no VAT
+  const ni = estimateImportCost({ omsp: 40000, co2: 200, fuel: 'Petrol', provenance: 'NI', purchasePrice: 30000, ageMonths: 31 * 12, odometerKm: 3000 });
+  assert.equal(ni.vat, 0);
+  assert.equal(ni.vrt.total, 200);
+});
+
+// ── Import scope gate (batch 28) — passenger cars (M1) only ───────────────────────────────────
+
+test('importScopeRefusal: M1 in scope; commercials/buses/tractors/unknown refused', () => {
+  assert.equal(importScopeRefusal('M1'), null);
+  assert.match(importScopeRefusal('N1'), /commercial|passenger cars only/i);
+  assert.match(importScopeRefusal('N3'), /commercial|passenger cars only/i);
+  assert.match(importScopeRefusal('M2'), /bus|passenger cars only/i);
+  assert.match(importScopeRefusal('T3'), /tractor|passenger cars only/i);
+  assert.match(importScopeRefusal(''), /couldn.t confirm|passenger car/i);   // absent → refuse, never assume M1
+  assert.match(importScopeRefusal(null), /couldn.t confirm|passenger car/i);
 });

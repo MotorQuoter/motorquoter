@@ -301,6 +301,7 @@ function buildPdf(result, vrm, checks, checkDate) {
         for (const d of ic.jurisdiction.evidence.revenueDocuments) lines.push(`${d.canEvidence ? '[shown] ' : '[buyer to obtain] '}${d.doc} (${d.source}).`);
         for (const l of ic.jurisdiction.evidence.limits) lines.push(l);
       }
+      lines.push('Moving your residence to Ireland, or a disabled driver/passenger? VRT reliefs may reduce or remove this - see Revenue’s reliefs page (revenue.ie/en/vrt/reliefs-and-exemptions).');
       if (basis?.disclaimer) lines.push(basis.disclaimer);
       return lines;
     };
@@ -336,7 +337,9 @@ function buildPdf(result, vrm, checks, checkDate) {
         row('+ Customs duty if not UK-origin', `up to ${fmtEur(customsDutyFlag.indicativeWithVat)} (incl. VAT on duty)`);
       }
       row('VRT (estimate)', (range && range.vrtLow != null) ? `${fmtEur(range.vrtLow)} - ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total));
-      if (vrt) {
+      if (vrt?.categoryC) {
+        row('  Flat rate - over 30 years (Category C)', fmtEur(200));
+      } else if (vrt) {
         row(`  CO2 charge (${Math.round((vrt.band?.rate || 0) * 100)}%${vrt.floorApplied ? ', band min' : ''})`, fmtEur(vrt.co2Charge));
         row('  NOx levy', fmtEur(vrt.noxLevy));
       }

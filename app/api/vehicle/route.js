@@ -20,7 +20,7 @@ import {
   cachedServiceHistoryOutcome,
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
-import { estimateImportPresentation } from '@/lib/importCost';
+import { estimateImportPresentation, importScopeRefusal } from '@/lib/importCost';
 import { buildJurisdictionTimeline, provenanceConflict } from '@/lib/importProvenance';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
@@ -944,7 +944,11 @@ const dvla = await safeJson(dvlaRes);
       // Brego Ireland valuation from VIN (OMSP proxy) → deterministic charge stack.
       // Fully graceful-degrading: any failure yields an unsupported result, never throws.
       let importCost = null;
-      if (checks.includes('import_cost')) {
+      const _importScope = checks.includes('import_cost') ? importScopeRefusal(dvla.typeApproval) : null;
+      if (checks.includes('import_cost') && _importScope) {
+        // Defence-in-depth: checkout already refuses commercials pre-payment; refuse here too.
+        importCost = { supported: false, mode: 'single', reason: _importScope };
+      } else if (checks.includes('import_cost')) {
         // sellerType drives single-vs-dual presentation (Vincent's batch-26 ruling). Back-compat:
         // derive from the legacy provenance param (NI → the unambiguous pre-2021 route). The
         // jurisdiction timeline (code-computed) EVIDENCES and WARNS; showing the NI figure beside the

@@ -90,6 +90,8 @@ export default function ImportPage() {
   const single = isDual ? null : est;              // single-mode: est spreads the estimate
   const isGB = single?.basis?.provenance === 'GB';
   const nmt = isDual ? est?.dual?.gb?.newMeansOfTransport : single?.newMeansOfTransport;
+  const catC = isDual ? est?.dual?.gb?.categoryC : single?.categoryC;
+  const catCNear = isDual ? est?.dual?.gb?.categoryCNear : single?.categoryCNear;
 
   async function subscribe() {
     if (!emailConsent) { setEmailErr('Please tick the box to confirm you’re happy to be emailed.'); return; }
@@ -180,12 +182,25 @@ export default function ImportPage() {
           {error && <div className="error">{error}</div>}
         </form>
 
-        {result && est && (
+        {result?.refused && (
+          <div className="card result">
+            <div className="section-title">Not a passenger car</div>
+            {result.vehicle && (
+              <div className="veh">{[result.vehicle.year, result.vehicle.make, result.vehicle.fuel].filter(Boolean).join(' · ')}{result.vehicle.typeApproval ? ` · ${result.vehicle.typeApproval}` : ''}</div>
+            )}
+            <p className="floor-note">{result.reason}</p>
+            <p className="disclaimer">Work out other categories with <a href="https://www.ros.ie/evrt-enquiry/vrtenquiry.html" target="_blank" rel="noopener noreferrer">Revenue’s official VRT calculator</a>.</p>
+          </div>
+        )}
+
+        {result && est && !result.refused && (
           <div className="card result">
             <div className="section-title">Your rough import estimate</div>
             {result.vehicle && (
               <div className="veh">{[result.vehicle.year, result.vehicle.make, result.vehicle.fuel].filter(Boolean).join(' · ')}{result.vehicle.co2 != null ? ` · ${result.vehicle.co2} g/km` : ''}</div>
             )}
+            {catC && <p className="floor-note"><strong>Over 30 years old → Category C flat €200 VRT</strong> (CO₂ and NOx don’t apply).</p>}
+            {catCNear && <p className="floor-note">Close to 30 years old — VRT is measured at the date you register it. If it passes 30 by then it’s a flat €200 (Category C). Check the exact date.</p>}
             {nmt && (nmt.isNew || nmt.near || nmt.distanceUncheckable) && (
               <p className="floor-note" style={{ color: nmt.isNew ? '#f05a1a' : undefined }}>
                 {nmt.isNew
@@ -238,6 +253,7 @@ export default function ImportPage() {
             )}
 
             <p className="disclaimer">Estimate only. The binding VRT is set by Revenue/NCTS when you register the car. VAT and customs are indicative and depend on the car’s origin — check with Revenue or a customs agent before you commit.</p>
+            <p className="disclaimer">Moving your residence to Ireland, or a disabled driver/passenger? VRT reliefs may reduce or remove this — see <a href="https://www.revenue.ie/en/vrt/reliefs-and-exemptions/index.aspx" target="_blank" rel="noopener noreferrer">Revenue’s reliefs page</a>.</p>
             <p className="disclaimer">MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</p>
             {sellerType !== 'gb' && <p className="disclaimer">VAT/customs-free only if the car was legally imported into NI — keep the NI V5C and NI service/MOT history for registration. We don’t decide whether you qualify; Revenue does.</p>}
           </div>

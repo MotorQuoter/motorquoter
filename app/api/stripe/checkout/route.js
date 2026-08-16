@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PRICING, IE_MENU, IMPORT_CHECK } from '@/config/pricing';
 import { rejectedKeys } from '@/lib/menuGate';
 import { hasVehicleGatedKey, notOfferableForVehicle } from '@/lib/offerability';
+import { importScopeRefusal } from '@/lib/importCost';
 
 function getSupabase() {
   return createClient(
@@ -56,6 +57,20 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Import check is temporarily unavailable' }, { status: 503 });
       }
       const cleanVrm = vrm.toUpperCase().replace(/\s/g, '');
+      // Scope gate — passenger cars (M1) only. Server-side guard so a direct POST can't buy an
+      // import check for a commercial (the /import form already blocks it client-side).
+      try {
+        const _ves = await fetch('https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles', {
+          method: 'POST',
+          headers: { 'x-api-key': process.env.DVLA_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ registrationNumber: cleanVrm }),
+        });
+        const _dvla = _ves.ok ? await _ves.json() : null;
+        const _refusal = importScopeRefusal(_dvla?.typeApproval);
+        if (_refusal) return NextResponse.json({ error: _refusal }, { status: 422 });
+      } catch (e) {
+        console.warn('[IMPORT CHECKOUT] scope pre-check failed, allowing (paid path re-checks):', e.message);
+      }
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
       const provenance = (body.provenance || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';

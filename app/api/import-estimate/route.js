@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { estimateImportPresentation } from '@/lib/importCost';
+import { estimateImportPresentation, importScopeRefusal } from '@/lib/importCost';
 
 // ── Free "VRT magnet" — Tier 1 of the Import to Ireland funnel ────────────────
 // DVLA-only (CO2 / fuel / year / euroStatus), no One Auto, no Brego, no Stripe → ~£0/use.
@@ -64,6 +64,17 @@ export async function GET(request) {
   }
   if (!dvla || !dvla.make) {
     return NextResponse.json({ error: "We couldn't find that registration with the DVLA — check it and try again." }, { status: 404 });
+  }
+
+  // Scope gate — passenger cars (M1) only. Refuse commercials/buses/tractors/unknown BEFORE any
+  // pay button is shown (never take money then refuse).
+  const scopeRefusal = importScopeRefusal(dvla.typeApproval);
+  if (scopeRefusal) {
+    return NextResponse.json({
+      refused: true,
+      reason: scopeRefusal,
+      vehicle: { make: dvla.make, year: dvla.yearOfManufacture ?? null, fuel: dvla.fuelType ?? null, typeApproval: dvla.typeApproval ?? null },
+    });
   }
 
   const euroClass = dvla.euroStatus || euroFromYear(dvla.yearOfManufacture);

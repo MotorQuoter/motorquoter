@@ -926,7 +926,8 @@ function ImportCostSection({ result }) {
 
   const disclaimers = (basis) => (
     <>
-      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, padding: '10px 0 0', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>Moving your residence to Ireland, or a disabled driver/passenger? VRT reliefs may reduce or remove this — see <a href="https://www.revenue.ie/en/vrt/reliefs-and-exemptions/index.aspx" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--orange)' }}>Revenue’s reliefs page</a>.</div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>{basis?.disclaimer}</div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
     </>
   );
@@ -1010,7 +1011,10 @@ function ImportCostSection({ result }) {
         <span style={keySt}>VRT (estimate)</span>
         <span style={valSt}>{range && range.vrtLow != null ? `${fmtEur(range.vrtLow)} – ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total)}</span>
       </div>
-      {vrt && (
+      {vrt?.categoryC && (
+        <div style={subSt}><span style={subKeySt}>Flat rate · over 30 years (Category C) — CO₂ and NOx don’t apply</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(200)}</span></div>
+      )}
+      {vrt && !vrt.categoryC && (
         <>
           <div style={subSt}><span style={subKeySt}>CO₂ charge · {Math.round((vrt.band?.rate || 0) * 100)}% band{vrt.floorApplied ? ' (band minimum)' : ''}</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(vrt.co2Charge)}</span></div>
           <div style={subSt}><span style={subKeySt}>NOx levy · {vrt.noxBasis}</span><span style={{ ...valSt, fontSize: 13, fontWeight: 600 }}>{fmtEur(vrt.noxLevy)}</span></div>
