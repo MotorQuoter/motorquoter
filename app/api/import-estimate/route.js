@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { estimateImportCostRange } from '@/lib/importCost';
+import { estimateImportPresentation } from '@/lib/importCost';
 
 // ── Free "VRT magnet" — Tier 1 of the Import to Ireland funnel ────────────────
 // DVLA-only (CO2 / fuel / year / euroStatus), no One Auto, no Brego, no Stripe → ~£0/use.
@@ -42,7 +42,10 @@ export async function GET(request) {
   const vrm = (searchParams.get('vrm') || '').toUpperCase().replace(/\s/g, '');
   if (!vrm) return NextResponse.json({ error: 'Enter the registration of the car you want to import.' }, { status: 400 });
 
-  const provenance = (searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+  const rawSeller = (searchParams.get('seller_type') || '').toLowerCase();
+  const sellerType = ['private', 'dealer', 'pre2021', 'gb'].includes(rawSeller)
+    ? rawSeller
+    : ((searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'pre2021' : 'gb');
   const purchasePrice = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
   const noxRaw = searchParams.get('nox');
   const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
@@ -65,9 +68,11 @@ export async function GET(request) {
 
   const euroClass = dvla.euroStatus || euroFromYear(dvla.yearOfManufacture);
   // Free tier: purchase price IS the OMSP, used as a floor (no range — low = avg = high).
-  const estimate = estimateImportCostRange({
+  // Same presentation wrapper as the paid check — single or dual by sellerType.
+  const estimate = estimateImportPresentation({
+    sellerType,
     omspLow: purchasePrice, omspAvg: purchasePrice, omspHigh: purchasePrice,
-    co2: dvla.co2Emissions, euroClass, fuel: dvla.fuelType, noxOverride, provenance, purchasePrice,
+    co2: dvla.co2Emissions, euroClass, fuel: dvla.fuelType, noxOverride, purchasePrice,
   });
 
   return NextResponse.json({

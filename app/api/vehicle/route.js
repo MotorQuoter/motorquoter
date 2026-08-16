@@ -20,7 +20,7 @@ import {
   cachedServiceHistoryOutcome,
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
-import { estimateImportCostRange } from '@/lib/importCost';
+import { estimateImportPresentation } from '@/lib/importCost';
 import { buildJurisdictionTimeline, provenanceConflict } from '@/lib/importProvenance';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
@@ -945,12 +945,17 @@ const dvla = await safeJson(dvlaRes);
       // Fully graceful-degrading: any failure yields an unsupported result, never throws.
       let importCost = null;
       if (checks.includes('import_cost')) {
-        // Buyer's affirmative choice drives the CHARGED figure (NI removes VAT+customs and legally
-        // needs V5C/service evidence the buyer holds; MOT jurisdiction alone is necessary, not
-        // sufficient). The jurisdiction timeline (code-computed) EVIDENCES and WARNS, never overrules.
-        const provenance = (searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+        // sellerType drives single-vs-dual presentation (Vincent's batch-26 ruling). Back-compat:
+        // derive from the legacy provenance param (NI → the unambiguous pre-2021 route). The
+        // jurisdiction timeline (code-computed) EVIDENCES and WARNS; showing the NI figure beside the
+        // GB one is NOT applying it — the buyer is shown a fork, never steered or auto-lowered.
+        const rawSeller = (searchParams.get('seller_type') || '').toLowerCase();
+        const sellerType = ['private', 'dealer', 'pre2021', 'gb'].includes(rawSeller)
+          ? rawSeller
+          : ((searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'pre2021' : 'gb');
         const jurisdiction = buildJurisdictionTimeline(dvsaData?.motTests, dvsaData?.firstUsedDate);
-        const provConflict = provenanceConflict(provenance, jurisdiction.flags);
+        // Conflict warning only bites when the buyer asserts an NI-qualifying route against a post-2020 GB test.
+        const provConflict = provenanceConflict(sellerType === 'gb' ? 'GB' : 'NI', jurisdiction.flags);
         const purchasePrice = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
         const noxRaw = searchParams.get('nox');
         const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
@@ -976,15 +981,15 @@ const dvla = await safeJson(dvlaRes);
               await fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvin/v2?vehicle_identification_number=${vin}&current_kms=${importKms}`, { headers: oneAutoHeaders() })
             ));
           }
-          const estimate = estimateImportCostRange({
+          const presentation = estimateImportPresentation({
+            sellerType,
             omspLow:  bregoIe?.retail_low_valuation     ?? null,
             omspAvg:  bregoIe?.retail_average_valuation ?? null,
             omspHigh: bregoIe?.retail_high_valuation    ?? null,
-            co2: impCo2, euroClass, fuel: impFuel, noxOverride, provenance, purchasePrice,
+            co2: impCo2, euroClass, fuel: impFuel, noxOverride, purchasePrice,
           });
           importCost = {
-            ...estimate,
-            inputs: { co2: impCo2, euroClass, fuel: impFuel, provenance, purchasePrice, noxOverride: noxOverride ?? null },
+            ...presentation,
             omsp: bregoIe ? {
               low:  bregoIe.retail_low_valuation     ?? null,
               avg:  bregoIe.retail_average_valuation ?? null,
@@ -996,7 +1001,7 @@ const dvla = await safeJson(dvlaRes);
           };
         } catch (e) {
           console.error('[IMPORT COST] compute failed:', e.message);
-          importCost = { supported: false, reason: 'Import estimate temporarily unavailable — please try again.', jurisdiction, provenanceConflict: provConflict };
+          importCost = { supported: false, mode: 'single', sellerType, reason: 'Import estimate temporarily unavailable — please try again.', jurisdiction, provenanceConflict: provConflict };
         }
       }
 

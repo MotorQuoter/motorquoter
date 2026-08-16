@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  estimateImportCost, estimateImportCostRange,
+  estimateImportCost, estimateImportCostRange, estimateImportPresentation,
   noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
 import { CO2_BANDS, VRT_MINIMUM, NOX_CAP } from '../config/vrt.mjs';
@@ -256,4 +256,44 @@ test('absence of NI tests never inverts to "not in NI" — reason stays non-comm
   const j = buildJurisdictionTimeline([mot('DVSA', 2019)], '2018-01-01'); // GB-only, but pre-2021 (no GB-after)
   assert.equal(j.flags.GB_TEST_AFTER_2020, false);
   assert.match(j.reason, /not proof the car was never in NI/i);
+});
+
+// ── Dual-figure presentation (TASK batch 26) — call the engine twice, no second code path ─────
+
+const DUAL_INPUTS = { omspLow: 30000, omspAvg: 30000, omspHigh: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel', purchasePrice: 20000 };
+
+test('private seller → DUAL: NI (VRT only) beside GB (VRT + VAT), neither applied', () => {
+  const p = estimateImportPresentation({ sellerType: 'private', ...DUAL_INPUTS });
+  assert.equal(p.mode, 'dual');
+  assert.equal(p.supported, true);
+  assert.equal(p.dual.ni.vat, 0);                       // NI branch: no VAT
+  assert.equal(p.dual.ni.customsDutyFlag.applies, false);
+  assert.equal(p.dual.gb.vat, 4600);                    // GB branch: 23% × 20,000
+  assert.equal(p.dual.gb.customsDutyFlag.indicativeWithVat, 2460); // duty + VAT on duty
+  // The two grand totals differ by exactly VAT (+ nothing else auto-added).
+  assert.equal(p.dual.gb.grandTotal - p.dual.ni.grandTotal, 4600);
+});
+
+test('dealer seller → DUAL, same shape as private', () => {
+  const p = estimateImportPresentation({ sellerType: 'dealer', ...DUAL_INPUTS });
+  assert.equal(p.mode, 'dual');
+  assert.ok(p.dual.ni && p.dual.gb);
+});
+
+test('pre2021 → SINGLE NI (EU goods, VRT only)', () => {
+  const p = estimateImportPresentation({ sellerType: 'pre2021', ...DUAL_INPUTS });
+  assert.equal(p.mode, 'single');
+  assert.equal(p.vat, 0);
+  assert.equal(p.basis.provenance, 'NI');
+});
+
+test('gb / unknown → SINGLE GB (customs flagged)', () => {
+  const gb = estimateImportPresentation({ sellerType: 'gb', ...DUAL_INPUTS });
+  assert.equal(gb.mode, 'single');
+  assert.equal(gb.basis.provenance, 'GB');
+  assert.equal(gb.vat, 4600);
+  // Unknown sellerType defaults to the safe GB single.
+  const unknown = estimateImportPresentation({ sellerType: 'wat', ...DUAL_INPUTS });
+  assert.equal(unknown.mode, 'single');
+  assert.equal(unknown.basis.provenance, 'GB');
 });

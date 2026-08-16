@@ -59,12 +59,16 @@ export async function POST(request) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
       const provenance = (body.provenance || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+      const rawSeller = String(body.seller_type ?? '').toLowerCase();
+      const sellerType = ['private', 'dealer', 'pre2021', 'gb'].includes(rawSeller)
+        ? rawSeller
+        : (provenance === 'NI' ? 'pre2021' : 'gb'); // back-compat from legacy provenance
       const purchasePrice = String(body.purchase_price ?? body.price ?? '').replace(/[^\d]/g, '');
       const nox = String(body.nox ?? '').replace(/[^\d]/g, '');
       const mileageStr = String(mileage ?? '').replace(/[^\d]/g, '');
       const succ = new URLSearchParams({
         vrm: cleanVrm, checks: 'import_cost', market: 'GB',
-        provenance, purchase_price: purchasePrice, nox, mileage: mileageStr,
+        seller_type: sellerType, purchase_price: purchasePrice, nox, mileage: mileageStr,
       });
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -81,7 +85,7 @@ export async function POST(request) {
         cancel_url: `${baseUrl}/import?cancelled=true`,
         metadata: {
           vrm: cleanVrm, checks: 'import_cost', market: 'GB', currency: 'eur',
-          provenance, purchase_price: purchasePrice, nox, mileage: mileageStr,
+          seller_type: sellerType, purchase_price: purchasePrice, nox, mileage: mileageStr,
         },
       });
       return NextResponse.json({ url: session.url });

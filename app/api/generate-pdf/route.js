@@ -292,10 +292,39 @@ function buildPdf(result, vrm, checks, checkDate) {
     const ic = result.importCost;
     const fmtEur = v => (v != null && isFinite(Number(v))) ? `€${Math.round(Number(v)).toLocaleString('en-IE')}` : '-';
     sectionTitle('Import to Ireland - Landed Cost');
+    // Shared: evidence + disclaimer note lines (identical for single and dual).
+    const noteLines = (basis) => {
+      const lines = [];
+      if (ic.provenanceConflict) lines.push(`IMPORTANT: ${ic.provenanceConflict}`);
+      if (ic.jurisdiction) {
+        lines.push(`NI import evidence — ${ic.jurisdiction.reason}`);
+        for (const d of ic.jurisdiction.evidence.revenueDocuments) lines.push(`${d.canEvidence ? '[shown] ' : '[buyer to obtain] '}${d.doc} (${d.source}).`);
+        for (const l of ic.jurisdiction.evidence.limits) lines.push(l);
+      }
+      if (basis?.disclaimer) lines.push(basis.disclaimer);
+      return lines;
+    };
+    const renderLines = (lines) => {
+      checkPage(8); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+      for (const l of lines) {
+        for (const line of doc.splitTextToSize(str(l), CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 3.6; }
+        y += 1;
+      }
+      y += 2;
+    };
+
     if (!ic.supported) {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
       for (const line of doc.splitTextToSize(ic.reason || 'Not applicable', CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 4; }
       y += 3;
+    } else if (ic.mode === 'dual') {
+      const { ni, gb } = ic.dual;
+      row('If Revenue accepts NI evidence', `${ni.range ? `${fmtEur(ni.range.low)} - ${fmtEur(ni.range.high)}` : fmtEur(ni.grandTotal)} (VRT only)`);
+      row('If not', `${gb.range ? `${fmtEur(gb.range.low)} - ${fmtEur(gb.range.high)}` : fmtEur(gb.grandTotal)} (VRT + VAT)`);
+      if (gb.customsDutyFlag?.indicativeWithVat != null) row('  + Customs duty if not UK-origin', `up to ${fmtEur(gb.customsDutyFlag.indicativeWithVat)} (incl. VAT)`);
+      const lead = ['We show both outcomes — neither is assumed. Which applies depends on the evidence below.'];
+      if (ic.sellerType === 'dealer') lead.push('Ask the NI dealer for the UKIMS movement reference (MRN) for this car.');
+      renderLines([...lead, ...noteLines(gb.basis)]);
     } else {
       const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
       const isGB = basis?.provenance === 'GB';
@@ -316,21 +345,7 @@ function buildPdf(result, vrm, checks, checkDate) {
       if (vrt?.noxBasis) lines.push(`NOx basis: ${vrt.noxBasis}.`);
       if (customsDutyFlag?.note) lines.push(customsDutyFlag.note);
       if (Array.isArray(notes)) for (const n of notes) lines.push(n);
-      if (ic.provenanceConflict) lines.push(`IMPORTANT: ${ic.provenanceConflict}`);
-      if (ic.jurisdiction) {
-        lines.push(`NI provenance — what this report can evidence: ${ic.jurisdiction.reason}`);
-        for (const d of ic.jurisdiction.evidence.revenueDocuments) {
-          lines.push(`${d.canEvidence ? '[shown] ' : '[buyer to obtain] '}${d.doc} (${d.source}).`);
-        }
-        for (const l of ic.jurisdiction.evidence.limits) lines.push(l);
-      }
-      if (basis?.disclaimer) lines.push(basis.disclaimer);
-      checkPage(8); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
-      for (const l of lines) {
-        for (const line of doc.splitTextToSize(str(l), CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 3.6; }
-        y += 1;
-      }
-      y += 2;
+      renderLines([...lines, ...noteLines(basis)]);
     }
   }
 

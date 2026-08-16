@@ -7,8 +7,9 @@ const fmtEur = n => (n != null && Number.isFinite(Number(n))) ? `€${Math.round
 export default function ImportPage() {
   const [reg, setReg] = useState('');
   const [price, setPrice] = useState('');
-  const [provenance, setProvenance] = useState('GB'); // safe/over-stating default
-  const [niQualifies, setNiQualifies] = useState(''); // '', 'yes', 'no'
+  // sellerType drives single-vs-dual presentation (Vincent's batch-26 ruling): 'private'|'dealer' →
+  // both outcomes shown; 'pre2021' → single NI (EU goods); 'gb' → single GB.
+  const [sellerType, setSellerType] = useState('gb');
   const [mileage, setMileage] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [nox, setNox] = useState('');
@@ -24,13 +25,9 @@ export default function ImportPage() {
   const [emailDone, setEmailDone] = useState(false);
   const [emailErr, setEmailErr] = useState('');
 
-  // Effective provenance: only "NI" if the buyer affirmatively confirmed the NI qualification.
-  const effectiveProvenance = (provenance === 'NI' && niQualifies === 'yes') ? 'NI' : 'GB';
-
   function validate() {
     if (!reg.trim()) return 'Enter the registration of the car.';
     if (!String(price).replace(/[^\d]/g, '')) return 'Enter the price you’re paying.';
-    if (provenance === 'NI' && !niQualifies) return 'Let us know whether it qualifies for the NI exemption.';
     return '';
   }
 
@@ -38,7 +35,7 @@ export default function ImportPage() {
     const p = new URLSearchParams({
       vrm: reg.toUpperCase().replace(/\s/g, ''),
       purchase_price: String(price).replace(/[^\d]/g, ''),
-      provenance: effectiveProvenance,
+      seller_type: sellerType,
     });
     if (nox) p.set('nox', String(nox).replace(/[^\d]/g, ''));
     if (mileage) p.set('mileage', String(mileage).replace(/[^\d]/g, ''));
@@ -72,7 +69,7 @@ export default function ImportPage() {
           vrm: reg.toUpperCase().replace(/\s/g, ''),
           checks: ['import_cost'],
           market: 'GB',
-          provenance: effectiveProvenance,
+          seller_type: sellerType,
           purchase_price: String(price).replace(/[^\d]/g, ''),
           nox: nox ? String(nox).replace(/[^\d]/g, '') : '',
           mileage: mileage ? String(mileage).replace(/[^\d]/g, '') : '',
@@ -89,15 +86,17 @@ export default function ImportPage() {
   }
 
   const est = result?.estimate;
-  const isGB = est?.basis?.provenance === 'GB';
+  const isDual = est?.mode === 'dual';
+  const single = isDual ? null : est;              // single-mode: est spreads the estimate
+  const isGB = single?.basis?.provenance === 'GB';
 
   async function subscribe() {
     if (!emailConsent) { setEmailErr('Please tick the box to confirm you’re happy to be emailed.'); return; }
     setEmailErr(''); setEmailBusy(true);
     try {
-      const summary = est?.vrt
-        ? `VRT from about ${fmtEur(est.vrt.total)}${isGB && est.vat ? ` · VAT ${fmtEur(est.vat)}` : ''}`
-        : '';
+      const summary = isDual
+        ? (est.supported ? `If NI-qualifying: from about ${fmtEur(est.dual.ni.grandTotal)} (VRT only); if not: ${fmtEur(est.dual.gb.grandTotal)} (VRT + VAT)` : '')
+        : (single?.vrt ? `VRT from about ${fmtEur(single.vrt.total)}${isGB && single.vat ? ` · VAT ${fmtEur(single.vat)}` : ''}` : '');
       const res = await fetch('/api/import-estimate/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -132,33 +131,34 @@ export default function ImportPage() {
           <input className="field" value={price} onChange={e => setPrice(e.target.value)} inputMode="numeric" placeholder="e.g. 18,000" />
           <div className="hint">You’re buying a UK car in £; your import cost is shown in €.</div>
 
-          <label className="field-label">Where are you buying the car?</label>
+          <label className="field-label">Where are you buying it, and what’s its NI history?</label>
           <div className="radios">
-            <label className={`radio ${provenance === 'GB' ? 'on' : ''}`}>
-              <input type="radio" name="prov" checked={provenance === 'GB'} onChange={() => { setProvenance('GB'); setNiQualifies(''); }} />
-              Great Britain (England, Scotland, Wales)
+            <label className={`radio ${sellerType === 'private' ? 'on' : ''}`}>
+              <input type="radio" name="seller" checked={sellerType === 'private'} onChange={() => setSellerType('private')} />
+              Private seller in Northern Ireland
             </label>
-            <label className={`radio ${provenance === 'NI' ? 'on' : ''}`}>
-              <input type="radio" name="prov" checked={provenance === 'NI'} onChange={() => setProvenance('NI')} />
-              Northern Ireland
+            <label className={`radio ${sellerType === 'dealer' ? 'on' : ''}`}>
+              <input type="radio" name="seller" checked={sellerType === 'dealer'} onChange={() => setSellerType('dealer')} />
+              Northern Ireland dealer / trade
+            </label>
+            <label className={`radio ${sellerType === 'pre2021' ? 'on' : ''}`}>
+              <input type="radio" name="seller" checked={sellerType === 'pre2021'} onChange={() => setSellerType('pre2021')} />
+              It was in NI before January 2021
+            </label>
+            <label className={`radio ${sellerType === 'gb' ? 'on' : ''}`}>
+              <input type="radio" name="seller" checked={sellerType === 'gb'} onChange={() => setSellerType('gb')} />
+              Great Britain seller / not sure
             </label>
           </div>
 
-          {provenance === 'NI' && (
+          {(sellerType === 'private' || sellerType === 'dealer') && (
             <div className="ni-box">
-              <p className="ni-q">To come in free of VAT and customs, the car must have been <strong>legally imported into NI</strong> — registered in NI before 1 January 2021, <em>or</em> you have the <strong>NI V5C plus NI service/MOT history</strong>. Does it qualify?</p>
-              <label className={`radio ${niQualifies === 'yes' ? 'on' : ''}`}>
-                <input type="radio" name="niq" checked={niQualifies === 'yes'} onChange={() => setNiQualifies('yes')} />
-                Yes — it qualifies
-              </label>
-              <label className={`radio ${niQualifies === 'no' ? 'on' : ''}`}>
-                <input type="radio" name="niq" checked={niQualifies === 'no'} onChange={() => setNiQualifies('no')} />
-                No / not sure
-              </label>
-              {niQualifies === 'yes' && <div className="hint">You’ll need the NI paperwork at registration.</div>}
-              {niQualifies === 'no' && <div className="hint">We’ll show the GB charges. If it turns out it was legally in NI, the VAT/customs may not apply — check with Revenue.</div>}
+              {sellerType === 'private'
+                ? <p className="ni-q">Revenue looks for the car having been in private ownership in NI for <strong>“a reasonable period of time”</strong> — Revenue’s own phrase; they don’t publish a length and decide case by case. We’ll show <strong>both</strong> outcomes so you can see what hinges on the evidence.</p>
+                : <p className="ni-q">Ask the dealer for the <strong>UKIMS movement reference (MRN)</strong> for this car — the record from when it was moved to NI. We’ll show <strong>both</strong> outcomes.</p>}
             </div>
           )}
+          {sellerType === 'pre2021' && <div className="hint">Treated as EU goods — no VAT or customs. Keep proof it was in NI before the cut-off.</div>}
 
           <label className="field-label">Mileage <span className="opt">(optional)</span></label>
           <input className="field" value={mileage} onChange={e => setMileage(e.target.value)} inputMode="numeric" placeholder="Sharpens the paid Irish valuation" />
@@ -185,15 +185,25 @@ export default function ImportPage() {
             {result.vehicle && (
               <div className="veh">{[result.vehicle.year, result.vehicle.make, result.vehicle.fuel].filter(Boolean).join(' · ')}{result.vehicle.co2 != null ? ` · ${result.vehicle.co2} g/km` : ''}</div>
             )}
-            {est.supported && est.vrt ? (
+            {isDual ? (
+              est.supported ? (
+                <>
+                  <div className="row"><span className="k">If Revenue accepts your NI evidence</span><span className="v">from about {fmtEur(est.dual.ni.grandTotal)} — VRT only</span></div>
+                  <div className="row"><span className="k">If not</span><span className="v warn">from about {fmtEur(est.dual.gb.grandTotal)} — VRT + VAT{est.dual.gb.customsDutyFlag?.indicativeWithVat != null ? `, + up to ${fmtEur(est.dual.gb.customsDutyFlag.indicativeWithVat)} duty` : ''}</span></div>
+                  <p className="floor-note">We show <strong>both</strong> — neither is assumed. These are <strong>floors</strong> from the price you entered; Revenue values the car itself (usually higher), so the real figures are likely more. The full check adds the Irish valuation and the NI evidence timeline.</p>
+                </>
+              ) : (
+                <p className="floor-note">{est.dual?.gb?.reason || 'We couldn’t compute an estimate from the free data — the exact check below will use a full Irish valuation.'}</p>
+              )
+            ) : single?.supported && single.vrt ? (
               <>
-                <div className="row"><span className="k">VRT</span><span className="v">from about {fmtEur(est.vrt.total)}</span></div>
-                {isGB && <div className="row"><span className="k">VAT (23%)</span><span className="v">{est.vat ? fmtEur(est.vat) : '—'}</span></div>}
+                <div className="row"><span className="k">VRT</span><span className="v">from about {fmtEur(single.vrt.total)}</span></div>
+                {isGB && <div className="row"><span className="k">VAT (23%)</span><span className="v">{single.vat ? fmtEur(single.vat) : '—'}</span></div>}
                 <div className="row"><span className="k">Customs</span><span className="v warn">{isGB ? 'origin-dependent' : 'not applicable'}</span></div>
                 <p className="floor-note">This is a <strong>floor</strong> based on the price you entered. Revenue values the car for VRT using its own Irish market price — usually higher — so the real figure is likely more.</p>
               </>
             ) : (
-              <p className="floor-note">{est.reason || 'We couldn’t compute an estimate from the free data — the exact check below will use a full Irish valuation.'}</p>
+              <p className="floor-note">{single?.reason || 'We couldn’t compute an estimate from the free data — the exact check below will use a full Irish valuation.'}</p>
             )}
 
             <button className="cta cta-pay" onClick={payForExact} disabled={paying}>
@@ -219,7 +229,7 @@ export default function ImportPage() {
 
             <p className="disclaimer">Estimate only. The binding VRT is set by Revenue/NCTS when you register the car. VAT and customs are indicative and depend on the car’s origin — check with Revenue or a customs agent before you commit.</p>
             <p className="disclaimer">MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</p>
-            {effectiveProvenance === 'NI' && <p className="disclaimer">VAT/customs-free only if the car was legally imported into NI — keep the NI V5C and service/MOT history for registration.</p>}
+            {sellerType !== 'gb' && <p className="disclaimer">VAT/customs-free only if the car was legally imported into NI — keep the NI V5C and NI service/MOT history for registration. We don’t decide whether you qualify; Revenue does.</p>}
           </div>
         )}
         <p className="page-note">MotorQuoter is not affiliated with or endorsed by the Revenue Commissioners or NCTS.</p>

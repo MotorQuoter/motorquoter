@@ -887,6 +887,13 @@ function ImportCostSection({ result }) {
   const ic = result.importCost;
   if (!ic) return null;
   const fmtEur = n => (n != null && Number.isFinite(Number(n))) ? `€${Math.round(Number(n)).toLocaleString('en-IE')}` : '—';
+  const rowSt = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderTop: '1px solid var(--border-dim)' };
+  const subSt = { ...rowSt, borderTop: 'none', padding: '3px 0' };
+  const keySt = { fontSize: 13, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em' };
+  const subKeySt = { fontSize: 11, color: 'var(--text-dim)', paddingRight: 10 };
+  const valSt = { fontSize: 15, fontWeight: 700, color: 'var(--text)' };
+  const noteSt = { fontSize: 11.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '6px 0 0' };
+
   if (!ic.supported) {
     return (
       <div className="card">
@@ -895,14 +902,73 @@ function ImportCostSection({ result }) {
       </div>
     );
   }
+
+  const conflictWarn = ic.provenanceConflict ? (
+    <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.3)', borderRadius: 8, padding: '10px 12px', margin: '0 0 12px', lineHeight: 1.5 }}>
+      ⚠ {ic.provenanceConflict}
+    </div>
+  ) : null;
+
+  const evidenceBlock = ic.jurisdiction ? (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-dim)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
+      <div style={{ ...keySt, marginBottom: 8, color: 'var(--text)' }}>NI import evidence — Revenue&rsquo;s three documents</div>
+      {ic.jurisdiction.evidence.revenueDocuments.map((d, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 0', fontSize: 12.5 }}>
+          <span style={{ color: 'var(--text)' }}>{d.canEvidence ? '✅' : '❌'} {d.doc}</span>
+          <span style={{ color: d.canEvidence ? '#4ade80' : 'var(--text-dim)', whiteSpace: 'nowrap', fontSize: 11 }}>{d.source}</span>
+        </div>
+      ))}
+      <div style={{ ...noteSt, paddingTop: 8 }}>We show what the record says and what Revenue asks for — we don&rsquo;t decide whether you qualify. The NI test history (free on gov.uk) shows the car was tested in NI; the V5C with an NI-resident keeper is what ties it to an owner in NI.</div>
+      <div style={noteSt}>{ic.jurisdiction.reason}</div>
+      {ic.jurisdiction.evidence.limits.map((l, i) => <div key={i} style={{ ...noteSt, padding: '2px 0 0' }}>• {l}</div>)}
+    </div>
+  ) : null;
+
+  const disclaimers = (basis) => (
+    <>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
+    </>
+  );
+
+  // ── DUAL (private / dealer): two outcomes side by side, neither labelled the answer ──
+  if (ic.mode === 'dual') {
+    const { ni, gb } = ic.dual;
+    const niTotal = ni.range ? `${fmtEur(ni.range.low)} – ${fmtEur(ni.range.high)}` : fmtEur(ni.grandTotal);
+    const gbTotal = gb.range ? `${fmtEur(gb.range.low)} – ${fmtEur(gb.range.high)}` : fmtEur(gb.grandTotal);
+    const dutyWithVat = gb.customsDutyFlag?.indicativeWithVat;
+    const figCard = { flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-dim)', borderRadius: 10, padding: '14px 12px', textAlign: 'center', minWidth: 0 };
+    const figLabel = { fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.07em', fontFamily: "'Barlow Condensed', sans-serif", lineHeight: 1.3, minHeight: 30 };
+    const figVal = { fontSize: 23, fontWeight: 900, color: 'var(--orange)', fontFamily: "'Barlow Condensed', sans-serif", margin: '4px 0 2px' };
+    return (
+      <div className="card">
+        <div className="section-title">Import to Ireland — Two Outcomes</div>
+        <p style={{ fontSize: 12.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '2px 0 12px' }}>Which one applies depends on the evidence below. We show both — neither is assumed.</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <div style={figCard}>
+            <div style={figLabel}>If Revenue accepts your NI evidence</div>
+            <div style={figVal}>{niTotal}</div>
+            <div style={{ fontSize: 12, color: 'var(--text)' }}>VRT only</div>
+          </div>
+          <div style={figCard}>
+            <div style={figLabel}>If not</div>
+            <div style={figVal}>{gbTotal}</div>
+            <div style={{ fontSize: 12, color: 'var(--text)' }}>VRT + VAT</div>
+            {dutyWithVat != null && <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2, lineHeight: 1.3 }}>+ up to {fmtEur(dutyWithVat)} duty (incl. VAT) if not UK-origin</div>}
+          </div>
+        </div>
+        <div style={{ ...noteSt, paddingBottom: 6 }}>Both use the same Irish valuation and VRT calculation; they differ only in whether VAT and customs apply.</div>
+        {ic.sellerType === 'dealer' && <div style={noteSt}>Buying from an NI dealer? Ask for the <strong>UKIMS movement reference (MRN)</strong> for this car — the electronic record from when it was moved to NI.</div>}
+        {conflictWarn}
+        {evidenceBlock}
+        {disclaimers(gb.basis)}
+      </div>
+    );
+  }
+
+  // ── SINGLE (gb / pre2021) ──
   const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
   const isGB = basis?.provenance === 'GB';
-  const rowSt = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderTop: '1px solid var(--border-dim)' };
-  const subSt = { ...rowSt, borderTop: 'none', padding: '3px 0' };
-  const keySt = { fontSize: 13, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em' };
-  const subKeySt = { fontSize: 11, color: 'var(--text-dim)', paddingRight: 10 };
-  const valSt = { fontSize: 15, fontWeight: 700, color: 'var(--text)' };
-  const noteSt = { fontSize: 11.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '6px 0 0' };
   return (
     <div className="card">
       <div className="section-title">Import to Ireland — Landed Cost</div>
@@ -919,27 +985,11 @@ function ImportCostSection({ result }) {
             <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.4 }}>Headline is VRT + VAT. Duty is 10% of the value and applies only if the car isn’t UK-built (TCA rules of origin).</div>
           </>
         ) : (
-          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>VRT only (NI-qualifying)</div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>VRT only (in NI before 1 Jan 2021 — EU goods)</div>
         )}
       </div>
-      {ic.provenanceConflict && (
-        <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.3)', borderRadius: 8, padding: '10px 12px', margin: '0 0 12px', lineHeight: 1.5 }}>
-          ⚠ {ic.provenanceConflict}
-        </div>
-      )}
-      {ic.jurisdiction && (
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-dim)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
-          <div style={{ ...keySt, marginBottom: 8, color: 'var(--text)' }}>NI import evidence — Revenue&rsquo;s three documents</div>
-          {ic.jurisdiction.evidence.revenueDocuments.map((d, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 0', fontSize: 12.5 }}>
-              <span style={{ color: 'var(--text)' }}>{d.canEvidence ? '✅' : '❌'} {d.doc}</span>
-              <span style={{ color: d.canEvidence ? '#4ade80' : 'var(--text-dim)', whiteSpace: 'nowrap', fontSize: 11 }}>{d.source}</span>
-            </div>
-          ))}
-          <div style={{ ...noteSt, paddingTop: 8 }}>{ic.jurisdiction.reason}</div>
-          {ic.jurisdiction.evidence.limits.map((l, i) => <div key={i} style={{ ...noteSt, padding: '2px 0 0' }}>• {l}</div>)}
-        </div>
-      )}
+      {conflictWarn}
+      {evidenceBlock}
       <div style={rowSt}>
         <span style={keySt}>VRT (estimate)</span>
         <span style={valSt}>{range && range.vrtLow != null ? `${fmtEur(range.vrtLow)} – ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total)}</span>
@@ -963,8 +1013,7 @@ function ImportCostSection({ result }) {
       )}
       {customsDutyFlag?.note && <div style={noteSt}>{customsDutyFlag.note}</div>}
       {Array.isArray(notes) && notes.map((n, i) => <div key={i} style={noteSt}>• {n}</div>)}
-      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
+      {disclaimers(basis)}
     </div>
   );
 }
@@ -1030,6 +1079,7 @@ function PaymentSuccessContent() {
   const isFree       = searchParams.get('free') === 'true';
   // Import-cost inputs — threaded from the checkout success_url so /api/vehicle recomputes exactly.
   const provenance   = searchParams.get('provenance');
+  const sellerType   = searchParams.get('seller_type');
   const purchasePrice = searchParams.get('purchase_price');
   const nox          = searchParams.get('nox');
 
@@ -1056,7 +1106,8 @@ function PaymentSuccessContent() {
         params.set('checks', verifyData.checks || searchParams.get('checks') || '');
       }
       if (mileage) params.append('mileage', mileage);
-      if (provenance)    params.set('provenance', provenance);
+      if (sellerType)    params.set('seller_type', sellerType);
+      if (provenance)    params.set('provenance', provenance); // back-compat for older links
       if (purchasePrice) params.set('purchase_price', purchasePrice);
       if (nox)           params.set('nox', nox);
       if (verifyData.paymentIntentId) params.set('paymentIntentId', verifyData.paymentIntentId);
@@ -1070,7 +1121,7 @@ function PaymentSuccessContent() {
       setError('Something went wrong. Please contact support — you have not been charged twice.');
       setStatus('error');
     }
-  }, [vrm, sessionId, isFree, mileage, market, roiTierParam, provenance, purchasePrice, nox, searchParams, router]);
+  }, [vrm, sessionId, isFree, mileage, market, roiTierParam, provenance, sellerType, purchasePrice, nox, searchParams, router]);
 
   useEffect(() => { runLookup(); }, [runLookup]);
 
