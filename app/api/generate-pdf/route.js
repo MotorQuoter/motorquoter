@@ -313,6 +313,14 @@ function buildPdf(result, vrm, checks, checkDate) {
       if (vrt?.noxBasis) lines.push(`NOx basis: ${vrt.noxBasis}.`);
       if (customsDutyFlag?.note) lines.push(customsDutyFlag.note);
       if (Array.isArray(notes)) for (const n of notes) lines.push(n);
+      if (ic.provenanceConflict) lines.push(`IMPORTANT: ${ic.provenanceConflict}`);
+      if (ic.jurisdiction) {
+        lines.push(`NI provenance — what this report can evidence: ${ic.jurisdiction.reason}`);
+        for (const d of ic.jurisdiction.evidence.revenueDocuments) {
+          lines.push(`${d.canEvidence ? '[shown] ' : '[buyer to obtain] '}${d.doc} (${d.source}).`);
+        }
+        for (const l of ic.jurisdiction.evidence.limits) lines.push(l);
+      }
       if (basis?.disclaimer) lines.push(basis.disclaimer);
       checkPage(8); doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
       for (const l of lines) {

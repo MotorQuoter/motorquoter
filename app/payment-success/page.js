@@ -936,6 +936,24 @@ function ImportCostSection({ result }) {
       )}
       {customsDutyFlag?.note && <div style={noteSt}>{customsDutyFlag.note}</div>}
       {Array.isArray(notes) && notes.map((n, i) => <div key={i} style={noteSt}>• {n}</div>)}
+      {ic.provenanceConflict && (
+        <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.3)', borderRadius: 8, padding: '10px 12px', margin: '10px 0 4px', lineHeight: 1.5 }}>
+          ⚠ {ic.provenanceConflict}
+        </div>
+      )}
+      {ic.jurisdiction && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-dim)' }}>
+          <div style={{ ...keySt, marginBottom: 6 }}>NI provenance — what this report can evidence</div>
+          {ic.jurisdiction.evidence.revenueDocuments.map((d, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontSize: 12.5 }}>
+              <span style={{ color: 'var(--text)' }}>{d.canEvidence ? '✅' : '❌'} {d.doc}</span>
+              <span style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap', fontSize: 11 }}>{d.source}</span>
+            </div>
+          ))}
+          <div style={noteSt}>{ic.jurisdiction.reason}</div>
+          {ic.jurisdiction.evidence.limits.map((l, i) => <div key={i} style={{ ...noteSt, padding: '2px 0 0' }}>• {l}</div>)}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
     </div>

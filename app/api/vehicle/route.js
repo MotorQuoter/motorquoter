@@ -21,6 +21,7 @@ import {
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { estimateImportCostRange } from '@/lib/importCost';
+import { buildJurisdictionTimeline, provenanceConflict } from '@/lib/importProvenance';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
 // plan `pro`, `fluid: true`, `functionDefaultTimeout: 300` — so this route already had a 300s
@@ -807,6 +808,7 @@ const dvla = await safeJson(dvlaRes);
       const needsMileageDetail = checks.includes('mileage_detail');
       const needsOwnerHistory = checks.includes('owner_history');
       const needsRoadTax = checks.includes('road_tax');
+      const needsImportCost = checks.includes('import_cost'); // needs DVSA motTests for the jurisdiction timeline (£0)
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
@@ -870,7 +872,7 @@ const dvla = await safeJson(dvlaRes);
         needsMarketDemand
           ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
-        ((needsMot || needsMileageDetail) && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
+        ((needsMot || needsMileageDetail || needsImportCost) && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
         needsSalvageHistory
           ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
@@ -943,7 +945,12 @@ const dvla = await safeJson(dvlaRes);
       // Fully graceful-degrading: any failure yields an unsupported result, never throws.
       let importCost = null;
       if (checks.includes('import_cost')) {
+        // Buyer's affirmative choice drives the CHARGED figure (NI removes VAT+customs and legally
+        // needs V5C/service evidence the buyer holds; MOT jurisdiction alone is necessary, not
+        // sufficient). The jurisdiction timeline (code-computed) EVIDENCES and WARNS, never overrules.
         const provenance = (searchParams.get('provenance') || 'GB').toUpperCase() === 'NI' ? 'NI' : 'GB';
+        const jurisdiction = buildJurisdictionTimeline(dvsaData?.motTests, dvsaData?.firstUsedDate);
+        const provConflict = provenanceConflict(provenance, jurisdiction.flags);
         const purchasePrice = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
         const noxRaw = searchParams.get('nox');
         const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
@@ -984,10 +991,12 @@ const dvla = await safeJson(dvlaRes);
               high: bregoIe.retail_high_valuation    ?? null,
               currency: bregoIe.currency_unit ?? 'EUR',
             } : null,
+            jurisdiction,
+            provenanceConflict: provConflict,
           };
         } catch (e) {
           console.error('[IMPORT COST] compute failed:', e.message);
-          importCost = { supported: false, reason: 'Import estimate temporarily unavailable — please try again.' };
+          importCost = { supported: false, reason: 'Import estimate temporarily unavailable — please try again.', jurisdiction, provenanceConflict: provConflict };
         }
       }
 

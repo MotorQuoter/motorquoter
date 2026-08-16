@@ -9,6 +9,10 @@ import {
   noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
 import { CO2_BANDS, VRT_MINIMUM, NOX_CAP } from '../config/vrt.mjs';
+import { buildJurisdictionTimeline, provenanceConflict, yearOf } from '../lib/importProvenance.mjs';
+
+// Helper: a DVSA/DVA-NI MOT test as the route sees it (completedDate = DD/MM/YYYY, formatDate output).
+const mot = (dataSource, year) => ({ dataSource, completedDate: `15/06/${year}` });
 
 test('NOx worked example reproduces Revenue: 90 mg/km diesel = €1,050', () => {
   assert.equal(noxLevyRaw(90), 1050); // 40×5 + 40×15 + 10×25
@@ -167,4 +171,77 @@ test('range wrapper spreads low→high and keeps a central estimate', () => {
   assert.equal(r.range.omspAvg, 30000);
   // central VRT = 16% × 30,000 + 800 NOx
   assert.equal(r.vrt.total, 4800 + 800);
+});
+
+// ── Jurisdiction timeline (TASK J) — code-computed provenance evidence ─────────
+
+test('yearOf parses DD/MM/YYYY and ISO', () => {
+  assert.equal(yearOf('15/06/2022'), 2022);
+  assert.equal(yearOf('2019-03-01T00:00:00.000Z'), 2019);
+  assert.equal(yearOf(''), null);
+  assert.equal(yearOf(null), null);
+});
+
+test('GB_TEST_AFTER_2020: a DVSA test after 2020 forces the GB route (VAT+customs on)', () => {
+  const j = buildJurisdictionTimeline([mot('DVSA', 2022), mot('DVA NI', 2019)], '2016-01-01');
+  assert.equal(j.flags.GB_TEST_AFTER_2020, true);
+  assert.equal(j.flags.NI_CONTINUOUS, false);          // GB-after-2020 forecloses continuity
+  assert.equal(j.suggestedProvenance, 'GB');
+  assert.equal(j.confidence, 'high');
+  assert.match(j.reason, /cannot apply|VAT and customs/i);
+});
+
+test('NI_CONTINUOUS: NI tests either side of 2021 with no later GB test → suggests NI', () => {
+  const j = buildJurisdictionTimeline([mot('DVA NI', 2019), mot('DVA NI', 2022)], '2017-05-01');
+  assert.equal(j.flags.NI_CONTINUOUS, true);
+  assert.equal(j.flags.GB_TEST_AFTER_2020, false);
+  assert.equal(j.suggestedProvenance, 'NI');
+});
+
+test('NI pre-2021 only (not continuous) → stays GB default, flags NI_TESTS_PRE_2021', () => {
+  const j = buildJurisdictionTimeline([mot('DVA NI', 2019)], '2016-01-01');
+  assert.equal(j.flags.NI_TESTS_PRE_2021, true);
+  assert.equal(j.flags.NI_CONTINUOUS, false);
+  assert.equal(j.suggestedProvenance, 'GB');
+});
+
+test('MIXED_HISTORY when both jurisdictions appear', () => {
+  const j = buildJurisdictionTimeline([mot('DVA NI', 2019), mot('DVSA', 2022)]);
+  assert.equal(j.flags.MIXED_HISTORY, true);
+});
+
+test('NO_TEST_HISTORY evidences nothing', () => {
+  const j = buildJurisdictionTimeline([], null);
+  assert.equal(j.flags.NO_TEST_HISTORY, true);
+  assert.equal(j.confidence, 'none');
+  assert.match(j.reason, /falls back to your declaration/i);
+});
+
+test('PRE_2017_BLIND from firstUsedDate before the NI 2017 data floor', () => {
+  const j = buildJurisdictionTimeline([mot('DVSA', 2019)], '2015-08-01');
+  assert.equal(j.flags.PRE_2017_BLIND, true);
+});
+
+test('evidence: NI MOT is shown only when NI tests exist; V5C/service always buyer-obtained', () => {
+  const withNi = buildJurisdictionTimeline([mot('DVA NI', 2019)]);
+  const niDoc = withNi.evidence.revenueDocuments.find(d => /NI MOT/.test(d.doc));
+  assert.equal(niDoc.canEvidence, true);
+  const noNi = buildJurisdictionTimeline([mot('DVSA', 2022)]);
+  assert.equal(noNi.evidence.revenueDocuments.find(d => /NI MOT/.test(d.doc)).canEvidence, false);
+  // V5C + service history are never auto-evidenced.
+  assert.ok(withNi.evidence.revenueDocuments.filter(d => d.canEvidence === false).length >= 2);
+});
+
+test('provenanceConflict fires ONLY when the buyer claims NI against a post-2020 GB test', () => {
+  const gbAfter = buildJurisdictionTimeline([mot('DVSA', 2022)]).flags;
+  assert.match(provenanceConflict('NI', gbAfter), /pre-2021 NI route likely does not apply/i);
+  assert.equal(provenanceConflict('GB', gbAfter), null);        // buyer at GB → no conflict
+  const niOnly = buildJurisdictionTimeline([mot('DVA NI', 2019), mot('DVA NI', 2022)]).flags;
+  assert.equal(provenanceConflict('NI', niOnly), null);         // NI claim consistent with NI evidence
+});
+
+test('absence of NI tests never inverts to "not in NI" — reason stays non-committal', () => {
+  const j = buildJurisdictionTimeline([mot('DVSA', 2019)], '2018-01-01'); // GB-only, but pre-2021 (no GB-after)
+  assert.equal(j.flags.GB_TEST_AFTER_2020, false);
+  assert.match(j.reason, /not proof the car was never in NI/i);
 });
