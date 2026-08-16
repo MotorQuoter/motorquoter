@@ -952,7 +952,7 @@ export default function Home() {
           </div>
           <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55 }}>
             <strong style={{ fontWeight: 700 }}>Importing a car from the UK?</strong>{' '}
-            Work out the VRT with <a href="https://www.revenue.ie/en/vrt/index.aspx" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--orange)', fontWeight: 600, textDecoration: 'none' }}>Revenue&rsquo;s official VRT calculator</a> — the free, official tool (opens in a new tab).
+            Work out the VRT with <a href="https://www.revenue.ie/en/vrt/calculating-vrt/index.aspx" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--orange)', fontWeight: 600, textDecoration: 'none' }}>Revenue&rsquo;s official VRT calculator</a> — the free, official tool (opens in a new tab).
           </div>
         </div>
 

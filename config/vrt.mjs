@@ -18,6 +18,10 @@
 // NOTE (brief deviation, intentional): the ship brief cited a "€100" minimum VRT from
 // memory. Revenue's current published minimum VRT payable is €140 (band-1 minimum) — used here.
 
+// RE-VERIFIED against revenue.ie 2026-08-16 (TASK I): all 20 CO2 Category-A bands, €140 minimum
+// VRT, NOx tiers €5/€15/€25, caps €4,850/€600, VAT 23%, duty 10% — unchanged since retrieval.
+// RE-CHECK CADENCE: annual Budget sweep for these VRT tables; the NI import-provenance rules in
+// lib/importProvenance.mjs move faster — re-check those quarterly and on any cited-URL 404.
 export const VRT_TABLES_RETRIEVED = '2026-07-30';
 
 // ── CO2 charge (Category A) ──────────────────────────────────────────────────

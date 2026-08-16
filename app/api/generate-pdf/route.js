@@ -300,6 +300,9 @@ function buildPdf(result, vrm, checks, checkDate) {
       const { vrt, vat, customsDutyFlag, grandTotal, basis, notes, range } = ic;
       const isGB = basis?.provenance === 'GB';
       row('Estimated Total', range ? `${fmtEur(range.low)} - ${fmtEur(range.high)}` : fmtEur(grandTotal));
+      if (isGB && customsDutyFlag?.indicativeWithVat != null) {
+        row('+ Customs duty if not UK-origin', `up to ${fmtEur(customsDutyFlag.indicativeWithVat)} (incl. VAT on duty)`);
+      }
       row('VRT (estimate)', (range && range.vrtLow != null) ? `${fmtEur(range.vrtLow)} - ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total));
       if (vrt) {
         row(`  CO2 charge (${Math.round((vrt.band?.rate || 0) * 100)}%${vrt.floorApplied ? ', band min' : ''})`, fmtEur(vrt.co2Charge));

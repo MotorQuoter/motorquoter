@@ -95,6 +95,18 @@ test('GB diesel: CO2 charge + NOx estimate + VAT + duty flag', () => {
   assert.equal(r.grandTotal, r.vrt.total + r.vat);
 });
 
+test('GB customs duty exposes the compounded add-on (duty + VAT on the duty)', () => {
+  const r = estimateImportCost({
+    omsp: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel',
+    provenance: 'GB', purchasePrice: 20000,
+  });
+  assert.equal(r.customsDutyFlag.indicativeAmount, 2000);       // 10% × 20,000
+  assert.equal(r.customsDutyFlag.indicativeWithVat, 2000 + 460); // + 23% × 2,000 = 2,460
+  assert.match(r.customsDutyFlag.note, /VAT is also charged on the duty/);
+  // Still excluded from the headline total.
+  assert.equal(r.grandTotal, r.vrt.total + r.vat);
+});
+
 test('NI-qualifying: VRT only, no VAT, duty does not apply', () => {
   const r = estimateImportCost({
     omsp: 30000, co2: 120, euroClass: 'Euro 6', fuel: 'Diesel',

@@ -911,8 +911,35 @@ function ImportCostSection({ result }) {
         <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--orange)', fontFamily: "'Barlow Condensed', sans-serif" }}>
           {range ? `${fmtEur(range.low)} – ${fmtEur(range.high)}` : fmtEur(grandTotal)}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{isGB ? 'VRT + VAT — customs duty extra if it applies' : 'VRT only (NI-qualifying)'}</div>
+        {isGB ? (
+          <>
+            {customsDutyFlag?.indicativeWithVat != null
+              ? <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--yellow)', marginTop: 4, lineHeight: 1.35 }}>+ up to {fmtEur(customsDutyFlag.indicativeWithVat)} customs duty (incl. VAT on the duty) if the car isn’t UK-origin</div>
+              : <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--yellow)', marginTop: 4 }}>+ customs duty if it applies (origin-dependent)</div>}
+            <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.4 }}>Headline is VRT + VAT. Duty is 10% of the value and applies only if the car isn’t UK-built (TCA rules of origin).</div>
+          </>
+        ) : (
+          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>VRT only (NI-qualifying)</div>
+        )}
       </div>
+      {ic.provenanceConflict && (
+        <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.3)', borderRadius: 8, padding: '10px 12px', margin: '0 0 12px', lineHeight: 1.5 }}>
+          ⚠ {ic.provenanceConflict}
+        </div>
+      )}
+      {ic.jurisdiction && (
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-dim)', borderRadius: 10, padding: '12px 14px', margin: '0 0 14px' }}>
+          <div style={{ ...keySt, marginBottom: 8, color: 'var(--text)' }}>NI import evidence — Revenue&rsquo;s three documents</div>
+          {ic.jurisdiction.evidence.revenueDocuments.map((d, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 0', fontSize: 12.5 }}>
+              <span style={{ color: 'var(--text)' }}>{d.canEvidence ? '✅' : '❌'} {d.doc}</span>
+              <span style={{ color: d.canEvidence ? '#4ade80' : 'var(--text-dim)', whiteSpace: 'nowrap', fontSize: 11 }}>{d.source}</span>
+            </div>
+          ))}
+          <div style={{ ...noteSt, paddingTop: 8 }}>{ic.jurisdiction.reason}</div>
+          {ic.jurisdiction.evidence.limits.map((l, i) => <div key={i} style={{ ...noteSt, padding: '2px 0 0' }}>• {l}</div>)}
+        </div>
+      )}
       <div style={rowSt}>
         <span style={keySt}>VRT (estimate)</span>
         <span style={valSt}>{range && range.vrtLow != null ? `${fmtEur(range.vrtLow)} – ${fmtEur(range.vrtHigh)}` : fmtEur(vrt?.total)}</span>
@@ -936,24 +963,6 @@ function ImportCostSection({ result }) {
       )}
       {customsDutyFlag?.note && <div style={noteSt}>{customsDutyFlag.note}</div>}
       {Array.isArray(notes) && notes.map((n, i) => <div key={i} style={noteSt}>• {n}</div>)}
-      {ic.provenanceConflict && (
-        <div style={{ fontSize: 12.5, color: 'var(--orange)', background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.3)', borderRadius: 8, padding: '10px 12px', margin: '10px 0 4px', lineHeight: 1.5 }}>
-          ⚠ {ic.provenanceConflict}
-        </div>
-      )}
-      {ic.jurisdiction && (
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-dim)' }}>
-          <div style={{ ...keySt, marginBottom: 6 }}>NI provenance — what this report can evidence</div>
-          {ic.jurisdiction.evidence.revenueDocuments.map((d, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontSize: 12.5 }}>
-              <span style={{ color: 'var(--text)' }}>{d.canEvidence ? '✅' : '❌'} {d.doc}</span>
-              <span style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap', fontSize: 11 }}>{d.source}</span>
-            </div>
-          ))}
-          <div style={noteSt}>{ic.jurisdiction.reason}</div>
-          {ic.jurisdiction.evidence.limits.map((l, i) => <div key={i} style={{ ...noteSt, padding: '2px 0 0' }}>• {l}</div>)}
-        </div>
-      )}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '10px 0 2px', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>{basis?.disclaimer}</div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
     </div>
