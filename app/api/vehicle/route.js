@@ -172,23 +172,6 @@ function deepFindOne(obj, rx, depth = 0) {
   return undefined;
 }
 
-// Compliance safety net (DVLA/One Auto, 31 Jul): the full VIN must NEVER reach any client-readable
-// field. Raw One Auto sub-results (autocheck, valuation, service history) can echo a VIN key. This
-// recursively masks any VIN-named key AND any bare 17-char VIN-shaped token to "…<last5>", in place.
-const VIN_KEY = /vehicle_identification_number|^vin$/i;
-const VIN_SHAPE = /^[A-HJ-NPR-Z0-9]{17}$/i; // VIN charset excludes I/O/Q; 17 chars
-function scrubVin(node, depth = 0) {
-  if (!node || typeof node !== 'object' || depth > 8) return node;
-  for (const [k, v] of Object.entries(node)) {
-    if (typeof v === 'string' && (VIN_KEY.test(k) || VIN_SHAPE.test(v.trim()))) {
-      node[k] = v.trim().length >= 5 ? `…${v.trim().slice(-5)}` : null;
-    } else if (v && typeof v === 'object') {
-      scrubVin(v, depth + 1);
-    }
-  }
-  return node;
-}
-
 async function safeJson(res) {
   const text = await res.text();
   if (!text || !text.trim()) return null;

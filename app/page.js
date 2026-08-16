@@ -581,6 +581,19 @@ export default function Home() {
             <div className="service-price">£{salvage.price.toFixed(2)} &middot; <span className="free-hl">first report free</span></div>
             <span className="service-btn service-btn-ghost"><span>Assess a salvage car</span><span>&rarr;</span></span>
           </div>
+
+          <div className="service-card" onClick={() => router.push('/import')}>
+            <div className="service-card-top">
+              <div className="service-ic">🇮🇪</div>
+              <div>
+                <div className="service-title">Cost a UK / NI import</div>
+                <div className="service-eyebrow">Importing to Ireland</div>
+              </div>
+            </div>
+            <div className="service-body">What it&rsquo;ll really cost to land a UK or NI car on Irish plates &mdash; VRT, VAT and customs, worked out before you buy.</div>
+            <div className="service-price"><span className="free-hl">Free</span> estimate &middot; full check &euro;9.99</div>
+            <span className="service-btn service-btn-ghost"><span>Check import cost</span><span>&rarr;</span></span>
+          </div>
         </div>
 
         <div className="form" id="reg-lookup">
