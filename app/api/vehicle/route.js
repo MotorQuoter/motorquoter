@@ -187,11 +187,17 @@ async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 15
 // collapsed into one null, which meant "no records", which auto-refunded the customer. Failure is
 // now distinguishable from emptiness, and only emptiness is allowed to spend money.
 async function fetchServiceHistory(url, options, pollOptions) {
+  // Elapsed time is logged on EVERY outcome, not just failures. Two live samples came in at 271 ms
+  // and 13,192 ms — a 48× spread — so the 60s window is sized against a distribution we do not
+  // have. This line is how one accumulates: grep [SVC HISTORY] in the logs and the real profile
+  // builds itself from production traffic instead of from two data points.
+  const startedAt = Date.now();
+
   // Every error return goes through here: one log line carrying the status code, and one throttled
   // ops alert. Awaited (Vercel does not guarantee post-response work runs) and time-boxed inside
   // sendOpsAlert, which never throws. Query string stripped — a VIN must not travel to an inbox.
   const fail = async (outcome, logLine) => {
-    console.error(`[SVC HISTORY] error — ${logLine}`);
+    console.error(`[SVC HISTORY] error after ${Date.now() - startedAt}ms — ${logLine}`);
     await sendOpsAlert(
       'service_history_failure',
       'MotorQuoter — service history call failed',
@@ -210,7 +216,7 @@ async function fetchServiceHistory(url, options, pollOptions) {
   // fetchWithPolling exhausts its attempts on a sustained 202 and returns null. That is the
   // provider still working, NOT an empty result — distinct log line, no refund, no alert storm.
   if (!res) {
-    console.error(`[SVC HISTORY] pending — 202 polling exhausted, provider did not answer inside the polling window (${url})`);
+    console.error(`[SVC HISTORY] pending after ${Date.now() - startedAt}ms — 202 polling exhausted, provider did not answer inside the polling window (${url})`);
     return classifyServiceHistory({ exhausted: true });
   }
 
@@ -242,6 +248,7 @@ async function fetchServiceHistory(url, options, pollOptions) {
   if (outcome.status === 'error') {
     return fail(outcome, `HTTP 200 but unusable — ${JSON.stringify(outcome.detail ?? '').slice(0, 300)} (keys: ${result ? Object.keys(result).join(',').slice(0, 200) : 'none'}) (${url})`);
   }
+  console.log(`[SVC HISTORY] ${outcome.status} in ${Date.now() - startedAt}ms — ${outcome.records.length} event(s) (${url.split('?')[0]})`);
   return outcome;
 }
 
