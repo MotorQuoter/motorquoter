@@ -19,8 +19,16 @@ function buildPdf(result, vrm, checks, checkDate) {
   const cazAdv = result.cazanaAdverts || {};
   const cazAdverts = cazAdv.result || [];
   const cazDem = result.cazanaDemand || {};
-  const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
+  // Server-normalised events — same array the refund decision was made on. No raw-key fallback:
+  // the raw shape uses date_of_service_event / mileage_observed and would render blank rows here.
+  const svcRecords  = result.serviceHistoryRecords ?? null;
+  const serviceHistoryUnavailable = result.serviceHistoryStatus === 'error' || result.serviceHistoryStatus === 'pending';
+  const serviceHistoryNotAsked = {
+    make_not_covered: 'This manufacturer is not covered by the OE service-history service',
+    pre_2012: 'OE service-history coverage starts at 2012 models - this vehicle predates it',
+    no_vin: 'No VIN available for this vehicle, so the records could not be looked up',
+  }[result.serviceHistoryNotAttempted] || null;
   const serviceHistoryRefunded = result.serviceHistoryRefunded ?? false;
   const serviceHistoryRefundFailed = result.serviceHistoryRefundFailed ?? false;
   // Charged-currency refund label (charge-derived from the server); config GBP fallback by market.
@@ -408,13 +416,13 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('service_history')) {
     const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || '';
     sectionTitle(`Service History${svcCoverageLabel ? ` - ${svcCoverageLabel}` : ''}`);
-    if (svcHistory?.service_records?.length > 0) {
-      for (const rec of svcHistory.service_records) {
+    if (svcRecords?.length > 0) {
+      for (const rec of svcRecords) {
         checkPage(12);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
         doc.text(dt(rec.date) || '-', MARGIN, y);
-        if (rec.mileage != null) { doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100); doc.text(`${num(rec.mileage)} mi`, MARGIN + 28, y); }
-        if (rec.service_type)    { doc.setFont('helvetica', 'normal'); doc.setTextColor(40, 40, 40); doc.text(clip(rec.service_type, 50), MARGIN + 58, y); }
+        if (rec.mileage != null) { doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100); doc.text(`${num(rec.mileage)} ${rec.mileageUnit || 'mi'}`, MARGIN + 28, y); }
+        if (rec.serviceType)     { doc.setFont('helvetica', 'normal'); doc.setTextColor(40, 40, 40); doc.text(clip(rec.serviceType, 50), MARGIN + 58, y); }
         y += 5;
         if (rec.dealer) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120); doc.text(clip(rec.dealer, 60), MARGIN, y); y += 4; }
         doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
@@ -422,7 +430,13 @@ function buildPdf(result, vrm, checks, checkDate) {
       }
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-      if (serviceHistoryRefunded) {
+      if (serviceHistoryUnavailable) {
+        doc.text('Service history could not be checked - the records provider did not respond.', MARGIN, y); y += 5;
+        doc.text('This is not a result for your vehicle: the check did not complete. Contact support', MARGIN, y); y += 5;
+        doc.text('and we will re-run it or refund this item.', MARGIN, y); y += 8;
+      } else if (serviceHistoryNotAsked) {
+        doc.text(`${serviceHistoryNotAsked}${serviceHistoryRefunded ? ` - ${serviceHistoryRefundLabel} refunded automatically` : ''}`, MARGIN, y); y += 8;
+      } else if (serviceHistoryRefunded) {
         doc.text(`No service history records found — ${serviceHistoryRefundLabel} refunded automatically`, MARGIN, y); y += 8;
       } else if (serviceHistoryRefundFailed) {
         doc.text('No service history records found. Refund could not be processed automatically — contact support for a manual refund.', MARGIN, y); y += 8;
