@@ -21,6 +21,9 @@ function buildPdf(result, vrm, checks, checkDate) {
   const cazDem = result.cazanaDemand || {};
   const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
+  // Same canonical array the refund decision used; raw-key fallback for pre-fix cache rows.
+  const svcRecords  = result.serviceHistoryRecords ?? svcHistory?.service_records ?? null;
+  const serviceHistoryUnavailable = result.serviceHistoryStatus === 'error' || result.serviceHistoryStatus === 'pending';
   const serviceHistoryRefunded = result.serviceHistoryRefunded ?? false;
   const serviceHistoryRefundFailed = result.serviceHistoryRefundFailed ?? false;
   // Charged-currency refund label (charge-derived from the server); config GBP fallback by market.
@@ -408,8 +411,8 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('service_history')) {
     const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || '';
     sectionTitle(`Service History${svcCoverageLabel ? ` - ${svcCoverageLabel}` : ''}`);
-    if (svcHistory?.service_records?.length > 0) {
-      for (const rec of svcHistory.service_records) {
+    if (svcRecords?.length > 0) {
+      for (const rec of svcRecords) {
         checkPage(12);
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
         doc.text(dt(rec.date) || '-', MARGIN, y);
@@ -422,7 +425,11 @@ function buildPdf(result, vrm, checks, checkDate) {
       }
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-      if (serviceHistoryRefunded) {
+      if (serviceHistoryUnavailable) {
+        doc.text('Service history could not be checked - the records provider did not respond.', MARGIN, y); y += 5;
+        doc.text('This is not a result for your vehicle: the check did not complete. Contact support', MARGIN, y); y += 5;
+        doc.text('and we will re-run it or refund this item.', MARGIN, y); y += 8;
+      } else if (serviceHistoryRefunded) {
         doc.text(`No service history records found — ${serviceHistoryRefundLabel} refunded automatically`, MARGIN, y); y += 8;
       } else if (serviceHistoryRefundFailed) {
         doc.text('No service history records found. Refund could not be processed automatically — contact support for a manual refund.', MARGIN, y); y += 8;

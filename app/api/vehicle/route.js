@@ -7,6 +7,14 @@ import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { checkMileageTimeline } from '@/lib/mileageCheck';
 import { summariseOwnerHistory, summarisePlateChanges } from '@/lib/ownerHistory';
+import { sendOpsAlert } from '@/lib/opsAlert';
+import {
+  classifyServiceHistory,
+  serviceHistoryNotAttempted,
+  shouldRefundServiceHistory,
+  isUncacheableServiceHistory,
+  cachedServiceHistoryOutcome,
+} from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 // Free mileage/clocking verdict from the DVSA MOT timeline (already pulled — no new cost).
@@ -104,11 +112,14 @@ async function executeServiceHistoryRefund(stripe, paymentIntentId, refund) {
 // cache-hit paths so they cannot drift. Refund state is NEVER cached: vehicle data may be
 // replayed from cache, but the refund verdict is computed live for every invocation, against the
 // retrieved session's own payment_intent (mode-matched), and idempotent via executeServiceHistoryRefund.
-// `records` is the normalised service-history array (payload.serviceHistory?.records at every site).
+// `outcome` is the discriminated result from fetchServiceHistory (or, on a cache hit, the outcome
+// reconstructed from the stored payload). REFUND ON 'empty' ONLY — a provider error or an
+// unanswered poll is not an empty result, and must never silently refund: the customer keeps their
+// report with service history marked unavailable, and the failure is logged with its status code.
 // No paidSession / payment_intent → no attempt → all-false → render falls to plain "not found".
-async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId, records, needsServiceHistory) {
+async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId, outcome, needsServiceHistory) {
   const out = { serviceHistoryRefunded: false, serviceHistoryRefund: null, serviceHistoryRefundFailed: false };
-  const svcEmpty = needsServiceHistory && (!records || records.length === 0);
+  const svcEmpty = needsServiceHistory && shouldRefundServiceHistory(outcome);
   const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
   if (!svcEmpty || !refundTarget) return out;
   const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
@@ -146,6 +157,71 @@ async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 15
     await new Promise(r => setTimeout(r, intervalMs));
   }
   return null;
+}
+
+// ── Service history fetch: IO + logging + alert. The outcome model itself lives in
+// lib/serviceHistory.mjs so it can be unit-tested without a network, a provider or Stripe.
+//
+// Until 19 Aug 2026 this returned a bare Response and nine documented vendor status codes
+// collapsed into one null, which meant "no records", which auto-refunded the customer. Failure is
+// now distinguishable from emptiness, and only emptiness is allowed to spend money.
+async function fetchServiceHistory(url, options, pollOptions) {
+  // Every error return goes through here: one log line carrying the status code, and one throttled
+  // ops alert. Awaited (Vercel does not guarantee post-response work runs) and time-boxed inside
+  // sendOpsAlert, which never throws. Query string stripped — a VIN must not travel to an inbox.
+  const fail = async (outcome, logLine) => {
+    console.error(`[SVC HISTORY] error — ${logLine}`);
+    await sendOpsAlert(
+      'service_history_failure',
+      'MotorQuoter — service history call failed',
+      `Service history provider call failed.<br>Endpoint: ${url.split('?')[0]}<br>HTTP status: ${outcome.httpStatus ?? 'n/a'}<br>Detail: ${String(outcome.detail ?? '').slice(0, 300)}<br><br>The customer was NOT auto-refunded — the report renders with service history marked unavailable.`
+    );
+    return outcome;
+  };
+
+  let res;
+  try {
+    res = await fetchWithPolling(url, options, pollOptions);
+  } catch (err) {
+    return fail(classifyServiceHistory({ httpStatus: 0, detail: err.message }), `fetch threw — ${err.message} (${url})`);
+  }
+
+  // fetchWithPolling exhausts its attempts on a sustained 202 and returns null. That is the
+  // provider still working, NOT an empty result — distinct log line, no refund, no alert storm.
+  if (!res) {
+    console.error(`[SVC HISTORY] pending — 202 polling exhausted, provider did not answer inside the polling window (${url})`);
+    return classifyServiceHistory({ exhausted: true });
+  }
+
+  if (res.status !== 200) {
+    let body = '';
+    try { body = (await res.text()).slice(0, 500); } catch { /* body already consumed or empty */ }
+    return fail(
+      classifyServiceHistory({ httpStatus: res.status, detail: body }),
+      `HTTP ${res.status} ${url} :: ${body.replace(/\s+/g, ' ')}`
+    );
+  }
+
+  let raw;
+  try {
+    raw = await safeJson(res);
+  } catch (err) {
+    return fail(
+      classifyServiceHistory({ httpStatus: 200, detail: `unparseable body: ${err.message}` }),
+      `HTTP 200 with unparseable body: ${err.message} (${url})`
+    );
+  }
+
+  const result = extractApiResult(raw);
+  const outcome = classifyServiceHistory({
+    httpStatus: 200,
+    result,
+    detail: result ? null : (raw?.result?.error ?? raw?.error ?? null),
+  });
+  if (outcome.status === 'error') {
+    return fail(outcome, `HTTP 200 but unusable — ${JSON.stringify(outcome.detail ?? '').slice(0, 300)} (keys: ${result ? Object.keys(result).join(',').slice(0, 200) : 'none'}) (${url})`);
+  }
+  return outcome;
 }
 
 const SERVICE_HISTORY_COVERAGE = new Map([
@@ -482,7 +558,7 @@ const dvla = await safeJson(dvlaRes);
     delete clean.serviceHistoryRefundFailed;
     const needsServiceHistory = checks.includes('ie_service_history') || checks.includes('service_history');
     const refundState = await evaluateServiceHistoryRefund(
-      new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, clean.serviceHistory?.records ?? null, needsServiceHistory);
+      new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, cachedServiceHistoryOutcome(clean), needsServiceHistory);
     return NextResponse.json({ ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at });
   }
 
@@ -509,12 +585,21 @@ const dvla = await safeJson(dvlaRes);
       const vin = cartell.vehicle_identification_number ?? null;
 
       // Start polling calls before awaiting non-polling calls
-      const svcHistoryPromise = (needsServiceHistory && vin)
-        ? fetchWithPolling(
-            `${ONE_AUTO_BASE}/oneauto/servicehistory/?vin=${vin}`,
-            { headers: oneAutoHeaders() }
-          )
-        : Promise.resolve(null);
+      //
+      // Endpoint corrected 19 Aug 2026. This line carried two independent faults, either of which
+      // was fatal: `oneauto/servicehistory/` is retired (404 "Requested API is not available",
+      // confirmed against both sandbox and live), and `vin` is not a parameter on any Ezyvin
+      // endpoint — the documented name is `vehicle_identification_number`, and a missing mandatory
+      // parameter returns 400. ie_service_history has therefore never worked and could not have.
+      const svcHistoryPromise = !needsServiceHistory
+        ? Promise.resolve(null)
+        : vin
+          ? fetchServiceHistory(
+              `${ONE_AUTO_BASE}/ezyvin/servicehistory/?vehicle_identification_number=${encodeURIComponent(vin)}`,
+              { headers: oneAutoHeaders() }
+            )
+          // Paid for, but Cartell gave us no VIN to look up — refundable, exactly as before.
+          : Promise.resolve(serviceHistoryNotAttempted('no_vin'));
 
       const historyPromise = needsHistory
         ? fetchWithPolling(
@@ -537,12 +622,11 @@ const dvla = await safeJson(dvlaRes);
           : Promise.resolve(null),
       ]);
 
-      // Await polling results
-      const [svcRes, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
+      // Await polling results. Service history returns a discriminated outcome, not a Response.
+      const [svcOutcome, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
       const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
-      const svcRaw    = svcRes         ? await safeJson(svcRes)         : null;
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
       const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
@@ -561,12 +645,12 @@ const dvla = await safeJson(dvlaRes);
         currency:   bregoRoiData.currency_unit            ?? null,
       } : null;
       const nctHistory   = nctRaw  ? extractApiResult(nctRaw)  : null;
-      const serviceHistory = svcRaw ? extractApiResult(svcRaw) : null;
+      const serviceHistory = svcOutcome?.result ?? null;
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
       // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
       const refundState = await evaluateServiceHistoryRefund(
-        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, serviceHistory?.records ?? null, needsServiceHistory);
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
 
       const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
@@ -588,12 +672,18 @@ const dvla = await safeJson(dvlaRes);
         bregoRoi,
         nctHistory,
         serviceHistory,
+        serviceHistoryStatus: svcOutcome?.status ?? null,
+        serviceHistoryRecords: svcOutcome?.records ?? null,
         ieHistory,
         market: 'IE',
         checks,
       };
 
-      await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      // Never cache a provider failure: a 48h TTL on an error would replay "unavailable" to every
+      // later buyer of this reg and hide the recovery. Empty and ok results cache as before.
+      if (!isUncacheableServiceHistory(svcOutcome)) {
+        await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });
       return NextResponse.json({ ...payload, ...refundState });
 
@@ -631,13 +721,24 @@ const dvla = await safeJson(dvlaRes);
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
 
-      // Service history may need polling — start it first
-      const svcHistoryPromise = (needsServiceHistory && svcCoverage !== null)
-        ? fetchWithPolling(
-            `${ONE_AUTO_BASE}/oneauto/servicehistory/?vehicle_registration_mark=${cleanVrm}`,
-            { headers: oneAutoHeaders() }
-          )
-        : Promise.resolve(null);
+      // Service history may need polling — start it first.
+      //
+      // Endpoint corrected 19 Aug 2026. `oneauto/servicehistory/` returns 404 "Requested API is
+      // not available" on BOTH sandbox and live — the path is retired, and every 404 fell through
+      // to a null result and auto-refunded the customer. Verified by probe on 19 Aug: the
+      // documented `ezyvin/servicehistoryfromvrm/` resolves (reaches the authoriser) where the old
+      // path does not. Note that One Auto retire paths individually — a sibling legacy path still
+      // being served is not evidence that this one is, which is why each was tested separately.
+      const svcHistoryPromise = !needsServiceHistory
+        ? Promise.resolve(null)
+        : svcCoverage !== null
+          ? fetchServiceHistory(
+              `${ONE_AUTO_BASE}/ezyvin/servicehistoryfromvrm/?vehicle_registration_mark=${cleanVrm}`,
+              { headers: oneAutoHeaders() }
+            )
+          // Paid for, but the make is not on the vendor's 44-manufacturer list — we know we cannot
+          // supply it, so no call is made and the refund still fires, exactly as before.
+          : Promise.resolve(serviceHistoryNotAttempted('make_not_covered'));
 
       // ── Brego mileage: user-entered → DVSA last MOT → 50,000 default ────────────
       const userMileageRaw = mileage.replace(/,/g, '');
@@ -700,13 +801,12 @@ const dvla = await safeJson(dvlaRes);
         }
       }
 
-      const svcRes = await svcHistoryPromise;
-      const serviceHistory = svcRes ? await safeJson(svcRes) : null;
-      const serviceHistoryData = extractApiResult(serviceHistory);
+      const svcOutcome = await svcHistoryPromise;
+      const serviceHistoryData = svcOutcome?.result ?? null;
 
       // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
       const refundState = await evaluateServiceHistoryRefund(
-        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, serviceHistoryData?.records ?? null, needsServiceHistory);
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
 
       const latestMot = motTests?.[0] || null;
 
@@ -742,6 +842,8 @@ const dvla = await safeJson(dvlaRes);
         cazanaDemand: extractApiResult(cazanaDemand),
         serviceHistory: serviceHistoryData,
         serviceHistoryCoverage: svcCoverage,
+        serviceHistoryStatus: svcOutcome?.status ?? null,
+        serviceHistoryRecords: svcOutcome?.records ?? null,
         salvageHistory: extractApiResult(salvageHistoryRaw),
         mileageVerdict: mileageTimeline.status !== 'insufficient'
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount }
@@ -759,7 +861,10 @@ const dvla = await safeJson(dvlaRes);
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
-      await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      // See isUncacheableServiceHistory — a provider failure must not be frozen into the 48h cache.
+      if (!isUncacheableServiceHistory(svcOutcome)) {
+        await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
+      }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
       return NextResponse.json({ ...payload, ...refundState });
     }
