@@ -7,6 +7,8 @@
 
 import {
   extractServiceRecords,
+  normaliseServiceEvent,
+  normaliseServiceEvents,
   classifyServiceHistory,
   serviceHistoryNotAttempted,
   shouldRefundServiceHistory,
@@ -108,6 +110,23 @@ assert('legacy row with records → ok',
   cachedServiceHistoryOutcome({ serviceHistory: { service_records: [EVENT] } }).status, 'ok');
 assert('missing payload → error (never refund on nothing)',
   cachedServiceHistoryOutcome(undefined).status, 'error');
+
+// ── 6. Per-event field names — the mismatch one level below the array name ────────────────────
+// The live 19 Aug trace showed the vendor sends `date_of_service_event` / `mileage_observed` /
+// `mileage_unit`, while both renderers read `date` / `mileage` / `service_type`. Unnormalised, a
+// car with six genuine records renders six rows with a blank date and no mileage.
+console.log('\n6. Per-event normalisation');
+const LIVE_SHAPE = { date_of_service_event: '2019-04-02', mileage_observed: 34000, mileage_unit: 'miles', service_type: 'Full service', service_provider: 'Main dealer' };
+assert('vendor date_of_service_event → date', normaliseServiceEvent(LIVE_SHAPE).date, '2019-04-02');
+assert('vendor mileage_observed → mileage', normaliseServiceEvent(LIVE_SHAPE).mileage, 34000);
+assert('mileage_unit "miles" → mi', normaliseServiceEvent(LIVE_SHAPE).mileageUnit, 'mi');
+assert('mileage_unit "km" preserved (Europe endpoint)', normaliseServiceEvent({ ...LIVE_SHAPE, mileage_unit: 'km' }).mileageUnit, 'km');
+assert('missing unit defaults to mi', normaliseServiceEvent({ date: 'x' }).mileageUnit, 'mi');
+assert('service_provider string → dealer', normaliseServiceEvent(LIVE_SHAPE).dealer, 'Main dealer');
+assert('service_provider object → its name', normaliseServiceEvent({ service_provider: { name: 'Bristol VW' } }).dealer, 'Bristol VW');
+assert('legacy flat shape still normalises', normaliseServiceEvent({ date: '2020-01-01', mileage: 10, service_type: 'Oil', dealer: 'X' }).serviceType, 'Oil');
+assert('array maps and drops junk', normaliseServiceEvents([LIVE_SHAPE, null]).length, 1);
+assert('non-array → null', normaliseServiceEvents('nope'), null);
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────────
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);

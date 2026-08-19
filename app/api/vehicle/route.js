@@ -10,12 +10,22 @@ import { summariseOwnerHistory, summarisePlateChanges } from '@/lib/ownerHistory
 import { sendOpsAlert } from '@/lib/opsAlert';
 import {
   classifyServiceHistory,
+  normaliseServiceEvents,
   serviceHistoryNotAttempted,
   shouldRefundServiceHistory,
   isUncacheableServiceHistory,
   cachedServiceHistoryOutcome,
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
+
+// Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
+// plan `pro`, `fluid: true`, `functionDefaultTimeout: 300` — so this route already had a 300s
+// ceiling, not the 10–15s a classic-serverless default would have given it. Declared anyway,
+// because the service-history call is now allowed to poll for up to 60s (see SERVICE_HISTORY_POLL)
+// and that headroom must not depend on a project-level default nobody set deliberately. A Vercel
+// hard kill at the ceiling bypasses try/catch (see assess/route.js:2838) and would land as exactly
+// the kind of silent null this whole branch exists to eliminate. Matches app/api/salvage/*.
+export const maxDuration = 300;
 
 // Free mileage/clocking verdict from the DVSA MOT timeline (already pulled — no new cost).
 // Returns the one-line verdict + status only; the full reading-by-reading timeline is the paid
@@ -149,6 +159,17 @@ async function safeJson(res) {
   if (!text || !text.trim()) return null;
   return JSON.parse(text);
 }
+
+// Poll budget for service history ONLY (Task 4). Sized against an observed live trace, not a
+// guess: GY67LLD returned 200 after 13,192 ms — 202 at 0 / 2456 / 4649 / 6806 / 8933 / 11062 ms,
+// then the payload. The old default (5 × 1500 = 7,500 ms) abandoned that call during its fifth
+// 202, ~5.7s early, returned null and refunded. 30 × 2000 = 60s gives ~4.5× the one completion we
+// have measured, and one sample is not a distribution. The 2s interval matches the vendor's own
+// observed cadence. Well inside the 300s function ceiling declared above.
+//
+// Deliberately NOT applied to fetchWithPolling's default: cartell/vehiclehistorycheck is the other
+// caller and its timing profile is unmeasured. Per call site, as briefed.
+const SERVICE_HISTORY_POLL = { maxAttempts: 30, intervalMs: 2000 };
 
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
@@ -591,15 +612,30 @@ const dvla = await safeJson(dvlaRes);
       // confirmed against both sandbox and live), and `vin` is not a parameter on any Ezyvin
       // endpoint — the documented name is `vehicle_identification_number`, and a missing mandatory
       // parameter returns 400. ie_service_history has therefore never worked and could not have.
+      // Task 5b — the IE path checked only that a VIN existed. `ezyvin/servicehistory/` is the same
+      // Ezyvin manufacturer dataset as the GB endpoint, keyed by VIN instead of VRM ("OE Service
+      // History (Europe) from VIN"), so the SAME 44-manufacturer list and the SAME MY-2012 floor
+      // apply. Cartell supplies the make as `manufacturer_desc` and the year as `manufactured_year`.
+      // The year limb is not in the brief's 5b, but it is the same vendor rule as 5a and leaving it
+      // off the IE path would knowingly keep half the gate open.
+      const ieMake = (cartell.manufacturer_desc || '').toUpperCase();
+      const ieCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(ieMake) || null) : null;
+      const ieSkipReason = !needsServiceHistory ? null
+        : !vin ? 'no_vin'
+        : ieCoverage === null ? 'make_not_covered'
+        : (cartell.manufactured_year && Number(cartell.manufactured_year) < 2012) ? 'pre_2012'
+        : null;
+
       const svcHistoryPromise = !needsServiceHistory
         ? Promise.resolve(null)
-        : vin
-          ? fetchServiceHistory(
+        : ieSkipReason
+          // Paid for, but unsupplyable — no call, refund still fires, exactly as before.
+          ? Promise.resolve(serviceHistoryNotAttempted(ieSkipReason))
+          : fetchServiceHistory(
               `${ONE_AUTO_BASE}/ezyvin/servicehistory/?vehicle_identification_number=${encodeURIComponent(vin)}`,
-              { headers: oneAutoHeaders() }
-            )
-          // Paid for, but Cartell gave us no VIN to look up — refundable, exactly as before.
-          : Promise.resolve(serviceHistoryNotAttempted('no_vin'));
+              { headers: oneAutoHeaders() },
+              SERVICE_HISTORY_POLL
+            );
 
       const historyPromise = needsHistory
         ? fetchWithPolling(
@@ -673,7 +709,8 @@ const dvla = await safeJson(dvlaRes);
         nctHistory,
         serviceHistory,
         serviceHistoryStatus: svcOutcome?.status ?? null,
-        serviceHistoryRecords: svcOutcome?.records ?? null,
+        serviceHistoryRecords: normaliseServiceEvents(svcOutcome?.records ?? null),
+        serviceHistoryNotAttempted: svcOutcome?.notAttempted ?? null,
         ieHistory,
         market: 'IE',
         checks,
@@ -720,6 +757,15 @@ const dvla = await safeJson(dvlaRes);
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
+      // Task 5a — the vendor's OE coverage starts at MODEL YEAR 2012, and the make filter alone
+      // let a 2008 Ford through to a call that could only ever return nothing. DVLA gives year of
+      // manufacture, not model year, so a car built late in 2011 could be a 2012 model and is
+      // skipped here; that costs a sale we could not have been confident of anyway, whereas
+      // calling for a genuinely pre-2012 car risks a chargeable 200 with no events.
+      const svcSkipReason = !needsServiceHistory ? null
+        : svcCoverage === null ? 'make_not_covered'
+        : (dvla.yearOfManufacture && Number(dvla.yearOfManufacture) < 2012) ? 'pre_2012'
+        : null;
 
       // Service history may need polling — start it first.
       //
@@ -731,14 +777,15 @@ const dvla = await safeJson(dvlaRes);
       // being served is not evidence that this one is, which is why each was tested separately.
       const svcHistoryPromise = !needsServiceHistory
         ? Promise.resolve(null)
-        : svcCoverage !== null
-          ? fetchServiceHistory(
+        : svcSkipReason
+          // Paid for, but we know up front we cannot supply it — no call is made and the refund
+          // still fires. Cheaper than a call that cannot succeed, and honest in the report.
+          ? Promise.resolve(serviceHistoryNotAttempted(svcSkipReason))
+          : fetchServiceHistory(
               `${ONE_AUTO_BASE}/ezyvin/servicehistoryfromvrm/?vehicle_registration_mark=${cleanVrm}`,
-              { headers: oneAutoHeaders() }
-            )
-          // Paid for, but the make is not on the vendor's 44-manufacturer list — we know we cannot
-          // supply it, so no call is made and the refund still fires, exactly as before.
-          : Promise.resolve(serviceHistoryNotAttempted('make_not_covered'));
+              { headers: oneAutoHeaders() },
+              SERVICE_HISTORY_POLL
+            );
 
       // ── Brego mileage: user-entered → DVSA last MOT → 50,000 default ────────────
       const userMileageRaw = mileage.replace(/,/g, '');
@@ -843,7 +890,8 @@ const dvla = await safeJson(dvlaRes);
         serviceHistory: serviceHistoryData,
         serviceHistoryCoverage: svcCoverage,
         serviceHistoryStatus: svcOutcome?.status ?? null,
-        serviceHistoryRecords: svcOutcome?.records ?? null,
+        serviceHistoryRecords: normaliseServiceEvents(svcOutcome?.records ?? null),
+        serviceHistoryNotAttempted: svcOutcome?.notAttempted ?? null,
         salvageHistory: extractApiResult(salvageHistoryRaw),
         mileageVerdict: mileageTimeline.status !== 'insufficient'
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount }

@@ -589,11 +589,19 @@ function ServiceHistorySection({ result }) {
   const refundFailed = result.serviceHistoryRefundFailed;
   // Canonical records from the server (same array the refund decision was made on). Falls back to
   // the raw payload key for cache rows written before the server started sending it.
-  const records = result.serviceHistoryRecords ?? svcHistory?.service_records ?? null;
+  const records = result.serviceHistoryRecords ?? null;
   // 'error' = the provider failed or answered in a shape we don't recognise; 'pending' = it never
   // answered inside the polling window. Neither is "no records" and neither is refunded, so the
   // report must say so rather than claim a clean empty result.
   const unavailable = result.serviceHistoryStatus === 'error' || result.serviceHistoryStatus === 'pending';
+  // We never asked the provider — the make is off the 44-manufacturer list, the vehicle predates
+  // the MY-2012 coverage floor, or there was no VIN. Saying "no records found" there would claim a
+  // result we never went and got.
+  const notAsked = {
+    make_not_covered: 'This manufacturer is not covered by the OE service-history service',
+    pre_2012: 'OE service-history coverage starts at 2012 models — this vehicle predates it',
+    no_vin: 'No VIN available for this vehicle, so the records could not be looked up',
+  }[result.serviceHistoryNotAttempted] || null;
   // Charged-currency refund label from the server (charge-derived). Fall back to the config
   // GBP figure by market only if the server didn't attach the amount (legacy/pre-fix rows).
   const refundLabel = (() => {
@@ -621,16 +629,18 @@ function ServiceHistorySection({ result }) {
               <div className="history-record" key={i}>
                 <div className="history-row">
                   <span className="history-date">{fmtDate(rec.date) || rec.date}</span>
-                  {rec.mileage != null && <span className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} mi</span>}
+                  {rec.mileage != null && <span className="history-mileage">{Number(rec.mileage).toLocaleString('en-GB')} {rec.mileageUnit || 'mi'}</span>}
                 </div>
-                {rec.service_type && <div className="history-detail">{rec.service_type}</div>}
-                {rec.dealer       && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.dealer}</div>}
+                {rec.serviceType && <div className="history-detail">{rec.serviceType}</div>}
+                {rec.dealer      && <div className="history-detail" style={{color:'var(--text-dim)'}}>{rec.dealer}</div>}
               </div>
             ))}
           </div>
         : unavailable
           ? <EmptyState text="Service history could not be checked — the records provider did not respond. This is not a result for your vehicle: it means the check did not complete. Please contact support and we'll re-run it or refund this item." />
-          : refunded
+          : notAsked
+            ? <EmptyState text={`${notAsked}${refunded ? ` — ${refundLabel} refunded to your card automatically` : ''}`} />
+            : refunded
             ? <EmptyState text={`No service history records found — ${refundLabel} refunded to your card automatically`} />
             : refundFailed
               ? <EmptyState text="No service history records found. Your refund could not be processed automatically — please contact support and it will be refunded manually." />
