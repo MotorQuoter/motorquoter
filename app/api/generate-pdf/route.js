@@ -19,7 +19,6 @@ function buildPdf(result, vrm, checks, checkDate) {
   const cazAdv = result.cazanaAdverts || {};
   const cazAdverts = cazAdv.result || [];
   const cazDem = result.cazanaDemand || {};
-  const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
   // Server-normalised events — same array the refund decision was made on. No raw-key fallback:
   // the raw shape uses date_of_service_event / mileage_observed and would render blank rows here.

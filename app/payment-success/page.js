@@ -583,12 +583,12 @@ function OwnerHistorySection({ result }) {
 // ── Service History ───────────────────────────────────────────────────────────
 
 function ServiceHistorySection({ result }) {
-  const svcHistory  = result.serviceHistory;
   const svcCoverage = result.serviceHistoryCoverage;
   const refunded     = result.serviceHistoryRefunded;
   const refundFailed = result.serviceHistoryRefundFailed;
-  // Canonical records from the server (same array the refund decision was made on). Falls back to
-  // the raw payload key for cache rows written before the server started sending it.
+  // Canonical, server-normalised records — the same array the refund decision was made on. No
+  // raw-key fallback: the vendor shape uses date_of_service_event / mileage_observed, which this
+  // markup would render as blank rows.
   const records = result.serviceHistoryRecords ?? null;
   // 'error' = the provider failed or answered in a shape we don't recognise; 'pending' = it never
   // answered inside the polling window. Neither is "no records" and neither is refunded, so the
@@ -641,10 +641,10 @@ function ServiceHistorySection({ result }) {
           : notAsked
             ? <EmptyState text={`${notAsked}${refunded ? ` — ${refundLabel} refunded to your card automatically` : ''}`} />
             : refunded
-            ? <EmptyState text={`No service history records found — ${refundLabel} refunded to your card automatically`} />
-            : refundFailed
-              ? <EmptyState text="No service history records found. Your refund could not be processed automatically — please contact support and it will be refunded manually." />
-              : <EmptyState text="No service history records found" />
+              ? <EmptyState text={`No service history records found — ${refundLabel} refunded to your card automatically`} />
+              : refundFailed
+                ? <EmptyState text="No service history records found. Your refund could not be processed automatically — please contact support and it will be refunded manually." />
+                : <EmptyState text="No service history records found" />
       }
     </div>
   );
