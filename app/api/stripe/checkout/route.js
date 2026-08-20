@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { rejectedKeys } from '@/lib/menuGate';
+import { hasVehicleGatedKey, notOfferableForVehicle } from '@/lib/offerability';
 
 function getSupabase() {
   return createClient(
@@ -84,6 +85,36 @@ export async function POST(request) {
     if (invalidKeys.length > 0) {
       console.warn(`[CHECKOUT] rejected unavailable keys: [${invalidKeys.join(',')}] vrm=${cleanVrm}`);
       return NextResponse.json({ error: `Unavailable items: ${invalidKeys.join(', ')}` }, { status: 400 });
+    }
+
+    // ── Per-vehicle offerability gate (Defect 2, 20 Aug) ──────────────────────────────────────────
+    // A key can be an enabled product yet not offerable for THIS vehicle (service history off the
+    // 44-make/2012 coverage gate). The allow-list only knows per-product state, so a disabled checkbox
+    // that still carried its key reached here and was charged. Re-derive make/year from DVLA
+    // server-side (the client's disabled control is only a courtesy) and run the SAME offerability the
+    // menu runs. Only fetch DVLA when a gated key is actually in the basket — no cost, but latency.
+    if (market !== 'IE' && hasVehicleGatedKey(checks)) {
+      try {
+        const dvlaRes = await fetch('https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles', {
+          method: 'POST',
+          headers: { 'x-api-key': process.env.DVLA_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ registrationNumber: cleanVrm }),
+        });
+        if (dvlaRes.ok) {
+          const dvla = await dvlaRes.json();
+          const notOfferable = notOfferableForVehicle(checks, { make: dvla.make, yearOfManufacture: dvla.yearOfManufacture });
+          if (notOfferable.length > 0) {
+            console.warn(`[CHECKOUT] rejected not-offerable-for-vehicle: [${notOfferable.join(',')}] vrm=${cleanVrm} make=${dvla.make} year=${dvla.yearOfManufacture}`);
+            return NextResponse.json({ error: `Not available for this vehicle: ${notOfferable.join(', ')}` }, { status: 400 });
+          }
+        } else {
+          // DVLA unreachable — do NOT block the sale on a transient outage. The vehicle route's own
+          // coverage skip + refund remains the backstop. Logged loud so the failure is distinguishable.
+          console.error(`[CHECKOUT] offerability DVLA precheck HTTP ${dvlaRes.status} vrm=${cleanVrm} — allowing, refund backstop stands`);
+        }
+      } catch (dvlaErr) {
+        console.error(`[CHECKOUT] offerability DVLA precheck threw (${dvlaErr.message}) vrm=${cleanVrm} — allowing, refund backstop stands`);
+      }
     }
     const paidKeys = checks.filter(key => menuMap[key] && menuMap[key].enabled && menuMap[key].price > 0);
     // FAIL LOUD: an opted-in EUR basket with any paid item lacking a positive priceEUR must NOT

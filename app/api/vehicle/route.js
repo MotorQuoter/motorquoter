@@ -36,7 +36,8 @@ export const maxDuration = 300;
 function buildMileageVerdict(motTests, opts = {}) {
   const m = checkMileageTimeline(motTests || [], opts);
   if (m.status === 'insufficient') return null;
-  return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readingCount };
+  return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readingCount,
+    hasRollback: m.hasRollback, enteredBelowMot: m.enteredBelowMot };
 }
 
 // ── VIN scrub (DVLA display condition) ────────────────────────────────────────
@@ -375,6 +376,11 @@ const dvla = await safeJson(dvlaRes);
 
       const freeMotTests = dvsaData?.motTests || null;
       const freeLatestMot = freeMotTests?.[0] || null;
+      // Feed the user's entered mileage into the FREE verdict too, so the free lookup and the paid
+      // mileage detail cannot contradict each other (Defect 4, 20 Aug — free said "consistent" while
+      // the paid check flagged the entered figure). Same guard as the paid path.
+      const freeMileageNum = parseInt((mileage || '').replace(/,/g, ''), 10);
+      const freeMileageValid = !isNaN(freeMileageNum) && freeMileageNum >= 1 && freeMileageNum <= 999999;
 
       const payload = {
         make: dvla.make,
@@ -390,7 +396,7 @@ const dvla = await safeJson(dvlaRes);
         motMileage: freeLatestMot?.odometerValue || null,
         motResult: freeLatestMot?.testResult || null,
         motHistory: freeMotTests,
-        mileageVerdict: buildMileageVerdict(freeMotTests),
+        mileageVerdict: buildMileageVerdict(freeMotTests, freeMileageValid ? { currentMileage: freeMileageNum } : {}),
         hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
@@ -910,7 +916,7 @@ const dvla = await safeJson(dvlaRes);
         serviceHistoryNotAttempted: svcOutcome?.notAttempted ?? null,
         salvageHistory: extractApiResult(salvageHistoryRaw),
         mileageVerdict: mileageTimeline.status !== 'insufficient'
-          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount }
+          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount, hasRollback: mileageTimeline.hasRollback, enteredBelowMot: mileageTimeline.enteredBelowMot }
           : null,
         mileageDetail: needsMileageDetail
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }

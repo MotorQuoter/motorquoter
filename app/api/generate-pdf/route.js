@@ -362,6 +362,10 @@ function buildPdf(result, vrm, checks, checkDate) {
       const date = it?.date_of_search || null;
       if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
     }
+    checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around.', CONTENT_W);
+    for (const line of psNote) { doc.text(line, MARGIN, y); y += 3.8; }
+    y += 2;
   }
 
   // ── Road Tax (computed, £0) ──────────────────────────────────────────────────────
@@ -517,29 +521,77 @@ function buildPdf(result, vrm, checks, checkDate) {
     }
   }
 
+  // ── Mileage / Clocking Check (paid) ─────────────────────────────────────────────
+  // Was ABSENT from the PDF while present on screen (Defect 3, 20 Aug). Mirrors the screen block.
+  if (has('mileage_detail') && result.mileageDetail) {
+    const md = result.mileageDetail;
+    const bad = md.status === 'discrepancy';
+    sectionTitle('Mileage / Clocking Check');
+    row('Verdict', clip(str(md.verdict).replace(/[⚠✓✗]/g, '').trim(), 92), bad ? 'bad' : 'good');
+    const anomalies = Array.isArray(md.anomalies) ? md.anomalies : [];
+    for (const a of anomalies) {
+      const to = a.toDate === 'entered' ? 'entered mileage' : a.toDate;
+      row('Drop', `${num(a.dropMiles)} mi: ${num(a.fromMiles)} mi (${a.fromDate}) -> ${num(a.toMiles)} mi (${to})`, 'bad');
+    }
+    const readings = Array.isArray(md.readings) ? md.readings : [];
+    for (const r of readings.slice(0, 20)) {
+      row(str(r.date), r.miles == null ? 'N/A (no reading recorded)' : `${num(r.miles)} mi${r.unit === 'km' ? ` (${num(r.raw)} km recorded)` : ''}`);
+    }
+    if (md.mixedUnits) {
+      checkPage(6); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+      doc.text('Readings in mixed units (mi & km) were normalised to miles before comparison.', MARGIN, y); y += 6;
+    }
+  }
+
+  // ── Owner / Keeper History (paid) ───────────────────────────────────────────────
+  // Was ABSENT from the PDF while present on screen (Defect 3, 20 Aug). Mirrors the screen block.
+  if (has('owner_history')) {
+    const oh = result.ownerHistory;
+    sectionTitle('Owner / Keeper History');
+    if (!oh || oh.status !== 'ok') {
+      checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
+      doc.text('No keeper-change history on record', MARGIN, y); y += 8;
+    } else {
+      row('Total Keepers', str(oh.totalKeepers ?? '-'));
+      row('Recorded Changes', str(oh.keeperChanges));
+      if (oh.latestChangeDate) row('Last Change', str(oh.latestChangeDate));
+      for (const c of (Array.isArray(oh.changes) ? oh.changes : [])) {
+        row(str(c.date || '-'), c.previousKeepers != null ? `after ${c.previousKeepers} previous keeper${c.previousKeepers === 1 ? '' : 's'}` : '-');
+      }
+      if (oh.plateChanges?.status === 'ok' && oh.plateChanges.plates.length > 0) {
+        for (const p of oh.plateChanges.plates) row('Previous Plate', `${p.plate}${p.date ? ` (removed ${p.date})` : ''}`);
+      }
+    }
+  }
+
   // ── Previous Adverts ──────────────────────────────────────────────────────────
-  if (has('previous_adverts') && cazAdverts.length > 0) {
+  if (has('previous_adverts')) {
     sectionTitle('Previous Listings');
-    checkPage(12);
-    doc.setFillColor(242, 242, 242);
-    doc.rect(MARGIN, y - 3, CONTENT_W, 7, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(70, 70, 70);
-    doc.text('Last Seen', MARGIN + 1, y + 1); doc.text('Price', MARGIN + 32, y + 1);
-    doc.text('Mileage', MARGIN + 62, y + 1); doc.text('Seller', MARGIN + 95, y + 1);
-    y += 8;
-    for (const ad of cazAdverts.slice(0, 10)) {
-      checkPage(8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
-      doc.text(dt(ad.last_seen_date) || '-', MARGIN + 1, y);
-      doc.setFont('helvetica', 'bold');
-      doc.text(ad.advertised_price_gbp != null ? money(ad.advertised_price_gbp) : '-', MARGIN + 32, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(ad.mileage_observed != null ? `${num(ad.mileage_observed)} mi` : '-', MARGIN + 62, y);
-      doc.setTextColor(100, 100, 100);
-      doc.text(clip(ad.seller_name || ad.dealer_type || '-', 35), MARGIN + 95, y);
-      y += 5;
-      doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
-      doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
+    if (cazAdverts.length > 0) {
+      checkPage(12);
+      doc.setFillColor(242, 242, 242);
+      doc.rect(MARGIN, y - 3, CONTENT_W, 7, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(70, 70, 70);
+      doc.text('Last Seen', MARGIN + 1, y + 1); doc.text('Price', MARGIN + 32, y + 1);
+      doc.text('Mileage', MARGIN + 62, y + 1); doc.text('Seller', MARGIN + 95, y + 1);
+      y += 8;
+      for (const ad of cazAdverts.slice(0, 10)) {
+        checkPage(8);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+        doc.text(dt(ad.last_seen_date) || '-', MARGIN + 1, y);
+        doc.setFont('helvetica', 'bold');
+        doc.text(ad.advertised_price_gbp != null ? money(ad.advertised_price_gbp) : '-', MARGIN + 32, y);
+        doc.setFont('helvetica', 'normal');
+        doc.text(ad.mileage_observed != null ? `${num(ad.mileage_observed)} mi` : '-', MARGIN + 62, y);
+        doc.setTextColor(100, 100, 100);
+        doc.text(clip(ad.seller_name || ad.dealer_type || '-', 35), MARGIN + 95, y);
+        y += 5;
+        doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
+        doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
+      }
+    } else {
+      checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
+      doc.text('No previous adverts found for this vehicle', MARGIN, y); y += 8;
     }
   }
 

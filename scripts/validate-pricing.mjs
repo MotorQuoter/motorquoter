@@ -10,10 +10,13 @@
 //
 // Run: node scripts/validate-pricing.mjs
 
+import { readFileSync } from 'node:fs';
 import { PRICING, IE_MENU } from '../config/pricing.js';
 import { rejectedKeys, needsAutocheck, enabledKeySet } from '../lib/menuGate.mjs';
 import { serviceHistoryOfferable } from '../config/serviceHistoryCoverage.mjs';
+import { notOfferableForVehicle, hasVehicleGatedKey } from '../lib/offerability.mjs';
 import { estimateRoadTax } from '../lib/roadTax.mjs';
+import { checkMileageTimeline } from '../lib/mileageCheck.mjs';
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -79,6 +82,49 @@ ok('roadtax: EV registered Apr 2025+ → £50,000 threshold line', /£50,000/.te
 ok('roadtax: petrol 2018 → £40,000 threshold line', /£40,000/.test(estimateRoadTax({ firstRegistration: '2018-03', co2: 130, fuelType: 'PETROL' }).supplement?.note || ''));
 eq('roadtax: regime boundary — 1 Apr 2017 is standard', estimateRoadTax({ firstRegistration: '2017-04', co2: 100, fuelType: 'PETROL' }).regime, 'standard_2017');
 eq('roadtax: regime boundary — Mar 2017 is CO2', estimateRoadTax({ firstRegistration: '2017-03', co2: 100, fuelType: 'PETROL' }).regime, 'co2_2001');
+
+// ── 4. PER-VEHICLE OFFERABILITY (Defect 2 — the second axis the allow-list can't see) ─────────────
+const MG_2017 = { make: 'MG', yearOfManufacture: 2017 };       // not among the 44 covered makes
+ok('offerability: service_history NOT offerable for MG → checkout rejects', notOfferableForVehicle(['valuation', 'service_history'], MG_2017).includes('service_history'));
+ok('offerability: FORD 2015 covered → not rejected', notOfferableForVehicle(['service_history'], { make: 'FORD', yearOfManufacture: 2015 }).length === 0);
+ok('offerability: FORD 2008 pre-2012 → rejected', notOfferableForVehicle(['service_history'], { make: 'FORD', yearOfManufacture: 2008 }).includes('service_history'));
+ok('offerability: non-gated keys never rejected', notOfferableForVehicle(['valuation', 'full_history', 'road_tax'], MG_2017).length === 0);
+ok('offerability: hasVehicleGatedKey true for service_history', hasVehicleGatedKey(['service_history']) === true);
+ok('offerability: hasVehicleGatedKey false for a plain basket', hasVehicleGatedKey(['valuation', 'full_history']) === false);
+
+// ── 5. MILEAGE — free/paid consistency + naming the source (Defect 4) ──────────────────────────────
+const T = (date, odo, unit = 'mi') => ({ completedDate: date, odometerValue: odo, odometerUnit: unit, testResult: 'PASSED' });
+const motRun = [T('01/06/2022', '60000'), T('01/06/2023', '70000'), T('01/06/2024', '74438')];
+// Entered figure below the last MOT: flagged (status discrepancy so BOTH surfaces warn) but NOT called clocking.
+const entered = checkMileageTimeline(motRun, { currentMileage: 74000 });
+ok('mileage: entered-below-MOT is flagged (discrepancy, both surfaces warn)', entered.status === 'discrepancy');
+ok('mileage: entered-below-MOT is NOT a rollback', entered.hasRollback === false && entered.enteredBelowMot === true);
+ok('mileage: entered-below-MOT wording does not accuse clocking', /typo/i.test(entered.verdict) && !/^⚠️ Mileage discrepancy — dropped/.test(entered.verdict));
+// A genuine MOT-vs-MOT rollback still reads as a clocking warning.
+const rollback = checkMileageTimeline([T('01/06/2022', '80000'), T('01/06/2023', '50000')]);
+ok('mileage: genuine MOT rollback still flags as clocking', rollback.hasRollback === true && /dropped from/.test(rollback.verdict));
+
+// ── 6. STRUCTURAL GUARDS — read the source, assert parity (Defect 1 + Defect 3) ────────────────────
+const pageSrc = readFileSync(new URL('../app/page.js', import.meta.url), 'utf8');
+const psSrc   = readFileSync(new URL('../app/payment-success/page.js', import.meta.url), 'utf8');
+const pdfSrc  = readFileSync(new URL('../app/api/generate-pdf/route.js', import.meta.url), 'utf8');
+
+// Defect 1: Select All must filter by offerability, not the raw menu.
+ok('guard: Select All selects only offerable enabled keys', pageSrc.includes('setSelectedKeys(enabledItems.filter(i => keyOfferableForVehicle(i.key)).map(i => i.key))'));
+ok('guard: page.js no longer selects the whole enabled menu unfiltered', !/setSelectedKeys\(enabledItems\.map\(i => i\.key\)\)/.test(pageSrc));
+
+// Defect 3: every purchasable content key with a screen renderer must have a PDF renderer.
+const PDF_TRIGGER = {
+  valuation: "has('valuation')", full_history: "has('full_history')",
+  salvagehistory: 'result.salvageHistory', market_demand: "has('market_demand')",
+  previous_adverts: "has('previous_adverts')", road_tax: "has('road_tax')",
+  mot: "has('mot')", mileage_detail: "has('mileage_detail')",
+  service_history: "has('service_history')", owner_history: "has('owner_history')",
+};
+for (const [k, tok] of Object.entries(PDF_TRIGGER)) {
+  ok(`parity: '${k}' renders on the payment-success screen`, psSrc.includes(`'${k}'`));
+  ok(`parity: '${k}' renders in the PDF`, pdfSrc.includes(tok));
+}
 
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

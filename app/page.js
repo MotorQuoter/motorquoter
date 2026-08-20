@@ -198,8 +198,20 @@ export default function Home() {
   };
 
   // ── Checklist toggle ─────────────────────────────────────────────────────────
+  // Per-vehicle offerability. A key can be enabled (a real product) yet not offerable for THIS
+  // vehicle — service history when the make/year fail the coverage gate. A disabled checkbox is only
+  // presentation; the offerable set is what selection (incl. Select All) must operate on, or an
+  // unavailable item rides into the basket and is charged (Defect 1, 20 Aug). General by key, not a
+  // service-history special case.
+  const keyOfferableForVehicle = (key) => {
+    if (key === 'service_history' && result?.make) {
+      return serviceHistoryOfferable({ make: result.make, yearOfManufacture: result.yearOfManufacture }).offerable;
+    }
+    return true;
+  };
   // Optional items = enabled items that are not always-locked (MOT) and not valuation
   const optionalItems = enabledItems.filter(i => !i.locked && i.key !== 'valuation');
+  const offerableOptionalItems = optionalItems.filter(i => keyOfferableForVehicle(i.key));
   const anyOptionalSelected = optionalItems.some(i => selectedKeys.includes(i.key));
   // Valuation is locked (mandatory) only while no optional item is selected
   const valuationLocked = !anyOptionalSelected;
@@ -219,15 +231,15 @@ export default function Home() {
     });
   };
 
-  const allOptionalSelected = optionalItems.length > 0 && optionalItems.every(i => selectedKeys.includes(i.key));
+  const allOptionalSelected = offerableOptionalItems.length > 0 && offerableOptionalItems.every(i => selectedKeys.includes(i.key));
 
   const handleSelectAll = () => {
     if (allOptionalSelected) {
       // Deselect all optional — keep only locked items (Valuation + MOT)
       setSelectedKeys(defaultSelected);
     } else {
-      // Select every enabled item
-      setSelectedKeys(enabledItems.map(i => i.key));
+      // Select every enabled item that is OFFERABLE for this vehicle (never the greyed-out ones).
+      setSelectedKeys(enabledItems.filter(i => keyOfferableForVehicle(i.key)).map(i => i.key));
     }
   };
 
