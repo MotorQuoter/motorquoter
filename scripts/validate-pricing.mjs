@@ -68,8 +68,15 @@ eq('roadtax: 2015 petrol 120g → band C £35', estimateRoadTax({ firstRegistrat
 eq('roadtax: 2010 diesel 999g → band M £790', estimateRoadTax({ firstRegistration: '2010-01', co2: 999, fuelType: 'DIESEL', engineCC: 3000 }).annual, 790);
 eq('roadtax: 2018 → standard £200', estimateRoadTax({ firstRegistration: '2018-03', co2: 130, fuelType: 'PETROL', engineCC: 1500 }).annual, 200);
 ok('roadtax: 2018 carries the conditional expensive-car supplement', !!estimateRoadTax({ firstRegistration: '2018-03', co2: 130, fuelType: 'PETROL' }).supplement);
-ok('roadtax: pre-2001 returns NO invented figure (annual null, honest note)', estimateRoadTax({ firstRegistration: '1998-05', engineCC: 1400 }).annual === null);
+// Pre-2001 rates supplied by Cowork 20 Aug from V149 April 2026 + gov.uk (agreeing sources).
+eq('roadtax: pre-2001 ≤1549cc → £230', estimateRoadTax({ firstRegistration: '1998-05', engineCC: 1400 }).annual, 230);
+eq('roadtax: pre-2001 >1549cc → £375', estimateRoadTax({ firstRegistration: '1998-05', engineCC: 1800 }).annual, 375);
+ok('roadtax: pre-2001 with unknown engine size → annual null (no guess)', estimateRoadTax({ firstRegistration: '1998-05', engineCC: null }).annual === null);
 ok('roadtax: 2005 with no CO2 on record → annual null, not a guess', estimateRoadTax({ firstRegistration: '2005-05', co2: null, fuelType: 'PETROL' }).annual === null);
+// EV expensive-car: £50,000 threshold, and zero-emission registered before 1 Apr 2025 is exempt.
+ok('roadtax: EV registered before Apr 2025 → NO supplement (exempt)', estimateRoadTax({ firstRegistration: '2022-06', co2: 0, fuelType: 'ELECTRIC' }).supplement === null);
+ok('roadtax: EV registered Apr 2025+ → £50,000 threshold line', /£50,000/.test(estimateRoadTax({ firstRegistration: '2025-06', co2: 0, fuelType: 'ELECTRIC' }).supplement?.note || ''));
+ok('roadtax: petrol 2018 → £40,000 threshold line', /£40,000/.test(estimateRoadTax({ firstRegistration: '2018-03', co2: 130, fuelType: 'PETROL' }).supplement?.note || ''));
 eq('roadtax: regime boundary — 1 Apr 2017 is standard', estimateRoadTax({ firstRegistration: '2017-04', co2: 100, fuelType: 'PETROL' }).regime, 'standard_2017');
 eq('roadtax: regime boundary — Mar 2017 is CO2', estimateRoadTax({ firstRegistration: '2017-03', co2: 100, fuelType: 'PETROL' }).regime, 'co2_2001');
 
