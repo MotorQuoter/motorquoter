@@ -95,8 +95,9 @@ ok('offerability: hasVehicleGatedKey false for a plain basket', hasVehicleGatedK
 // ── 5. MILEAGE — free/paid consistency + naming the source (Defect 4) ──────────────────────────────
 const T = (date, odo, unit = 'mi') => ({ completedDate: date, odometerValue: odo, odometerUnit: unit, testResult: 'PASSED' });
 const motRun = [T('01/06/2022', '60000'), T('01/06/2023', '70000'), T('01/06/2024', '74438')];
-// Entered figure below the last MOT: flagged (status discrepancy so BOTH surfaces warn) but NOT called clocking.
-const entered = checkMileageTimeline(motRun, { currentMileage: 74000 });
+// Entered figure well below the last MOT (gap > 1,000 tolerance): flagged (status discrepancy so BOTH
+// surfaces warn) but NOT called clocking.
+const entered = checkMileageTimeline(motRun, { currentMileage: 72000 });
 ok('mileage: entered-below-MOT is flagged (discrepancy, both surfaces warn)', entered.status === 'discrepancy');
 ok('mileage: entered-below-MOT is NOT a rollback', entered.hasRollback === false && entered.enteredBelowMot === true);
 ok('mileage: entered-below-MOT wording does not accuse clocking', /typo/i.test(entered.verdict) && !/^⚠️ Mileage discrepancy — dropped/.test(entered.verdict));
@@ -151,6 +152,20 @@ ok('guard: paid cache-hit recomputes verdict from cached substrate', routeSrc.in
 
 // Naming: one product, one name across surfaces.
 ok('guard: Previous Adverts title agrees on screen and PDF', psSrc.includes('SectionTitle>Previous Adverts') && pdfSrc.includes("sectionTitle('Previous Adverts')"));
+
+// ── 8. MILEAGE TOLERANCE — asymmetric, one declaration, boundary-tested (Defect batch 18) ──────────
+// Entered-vs-MOT = 1,000 mi (a user estimate, rounded); MOT-vs-MOT = 150 mi (a record vs itself).
+const lastMot = [T('01/06/2022', '60000'), T('01/06/2024', '74438')];
+ok('tolerance: entered 999 mi below last MOT → within tolerance (not flagged)', checkMileageTimeline(lastMot, { currentMileage: 74438 - 999 }).enteredBelowMot === false);
+ok('tolerance: entered 1001 mi below last MOT → flagged', checkMileageTimeline(lastMot, { currentMileage: 74438 - 1001 }).enteredBelowMot === true);
+ok('tolerance: the real 438-below case (Vincent) now PASSES', checkMileageTimeline(lastMot, { currentMileage: 74000 }).status === 'consistent');
+// MOT-vs-MOT stays tight at 150 (unchanged) — boundary either side.
+ok('tolerance: MOT-vs-MOT drop of 149 mi → no rollback (within 150)', checkMileageTimeline([T('01/06/2022', '70000'), T('01/06/2023', '69851')]).hasRollback === false);
+ok('tolerance: MOT-vs-MOT drop of 151 mi → rollback flagged', checkMileageTimeline([T('01/06/2022', '70000'), T('01/06/2023', '69849')]).hasRollback === true);
+// One declaration, in mileageCheck only — no surface re-declares a mileage tolerance.
+const tolDeclarers = [routeSrc, pageSrc, psSrc, pdfSrc].filter((s) => /toleranceMiles\s*[=?]|ROLLBACK_TOLERANCE|ENTERED_VS_MOT/.test(s)).length;
+ok('guard: mileage tolerances are declared only in mileageCheck (no surface copy)', tolDeclarers === 0);
+ok('guard: mileageCheck exports named entered (1000) + rollback (150) tolerances', mileageSrc.includes('export const ENTERED_VS_MOT_TOLERANCE_MILES = 1000') && mileageSrc.includes('export const MOT_ROLLBACK_TOLERANCE_MILES = 150'));
 
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
