@@ -367,7 +367,7 @@ function buildPdf(result, vrm, checks, checkDate) {
       if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
     }
     checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
-    const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around.', CONTENT_W);
+    const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around. Includes checks run through MotorQuoter.', CONTENT_W);
     for (const line of psNote) { doc.text(line, MARGIN, y); y += 3.8; }
     y += 2;
   }

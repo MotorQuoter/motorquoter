@@ -375,7 +375,7 @@ function PreviousSearchesSection({ result }) {
               );
             })}
             <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
-              How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around.
+              How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around. Includes checks run through MotorQuoter.
             </div>
           </div>
       }

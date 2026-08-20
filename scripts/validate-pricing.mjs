@@ -152,6 +152,7 @@ ok('guard: paid cache-hit recomputes verdict from cached substrate', routeSrc.in
 
 // Naming: one product, one name across surfaces.
 ok('guard: Previous Adverts title agrees on screen and PDF', psSrc.includes('SectionTitle>Previous Adverts') && pdfSrc.includes("sectionTitle('Previous Adverts')"));
+ok('guard: Previous Searches self-check caveat present on screen and PDF', psSrc.includes('Includes checks run through MotorQuoter') && pdfSrc.includes('Includes checks run through MotorQuoter'));
 
 // ── 8. MILEAGE TOLERANCE — asymmetric, one declaration, boundary-tested (Defect batch 18) ──────────
 // Entered-vs-MOT = 1,000 mi (a user estimate, rounded); MOT-vs-MOT = 150 mi (a record vs itself).
