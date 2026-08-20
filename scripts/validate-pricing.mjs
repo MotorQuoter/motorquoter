@@ -126,5 +126,31 @@ for (const [k, tok] of Object.entries(PDF_TRIGGER)) {
   ok(`parity: '${k}' renders in the PDF`, pdfSrc.includes(tok));
 }
 
+// ── 7. MILEAGE VERDICT — one path, PDF wraps, cache is vehicle-scoped (Defects 4/5/6) ──────────────
+const routeSrc   = readFileSync(new URL('../app/api/vehicle/route.js', import.meta.url), 'utf8');
+const mileageSrc  = readFileSync(new URL('../lib/mileageCheck.mjs', import.meta.url), 'utf8');
+
+// One verdict engine only — the human verdict string is produced in exactly one module.
+const producers = [pageSrc, psSrc, pdfSrc, routeSrc, mileageSrc].filter((s) => s.includes('Mileage consistent across')).length;
+ok('guard: "Mileage consistent across" is produced in exactly one module (mileageCheck)', producers === 1 && mileageSrc.includes('Mileage consistent across'));
+
+// Defect 5 — the PDF verdict WRAPS (splitTextToSize + pdfText), never clip/truncate.
+ok('guard: PDF mileage verdict wraps via splitTextToSize(pdfText(md.verdict))', pdfSrc.includes('splitTextToSize(pdfText(md.verdict)'));
+ok('guard: PDF mileage verdict is not clipped/truncated', !/clip\(str\(md\.verdict\)/.test(pdfSrc));
+
+// Defect 6 — the entered-vs-MOT itemised line is neutral (no rollback marker) on both surfaces.
+ok('guard: screen neutralises the entered-vs-MOT detail line', psSrc.includes("a._userEntered || a.toDate === 'entered'"));
+ok('guard: PDF neutralises the entered-vs-MOT detail line', pdfSrc.includes("a._userEntered || a.toDate === 'entered'"));
+
+// Defect 4 — entered mileage (request-scoped) is NOT frozen into a VRM-keyed cache row; both hit-paths
+// recompute from the cached MOT substrate, and both store the MOT-only verdict.
+ok('guard: free path caches the MOT-only verdict (no entered mileage)', routeSrc.includes('mileageVerdict: buildMileageVerdict(freeMotTests),'));
+ok('guard: paid path caches the MOT-only verdict (mileageTimelineBase)', routeSrc.includes('mileageVerdict: mkVerdict(mileageTimelineBase)'));
+ok('guard: free cache-hit recomputes verdict from cached substrate', routeSrc.includes('buildMileageVerdict(cached.payload?.motHistory'));
+ok('guard: paid cache-hit recomputes verdict from cached substrate', routeSrc.includes('checkMileageTimeline(clean.motHistory'));
+
+// Naming: one product, one name across surfaces.
+ok('guard: Previous Adverts title agrees on screen and PDF', psSrc.includes('SectionTitle>Previous Adverts') && pdfSrc.includes("sectionTitle('Previous Adverts')"));
+
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -646,9 +646,15 @@ function MileageDetailSection({ result }) {
       {anomalies.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           {anomalies.map((a, i) => (
-            <div key={i} className="mot-failure">
-              ✗ Reading dropped {Number(a.dropMiles).toLocaleString('en-GB')} mi — {Number(a.fromMiles).toLocaleString('en-GB')} mi ({a.fromDate}) → {Number(a.toMiles).toLocaleString('en-GB')} mi ({a.toDate === 'entered' ? 'entered mileage' : a.toDate})
-            </div>
+            a._userEntered || a.toDate === 'entered'
+              // Entered-vs-MOT is the user's own figure, almost always a typo — neutral, no ✗, no
+              // "dropped". Reserve the failure marker for a genuine MOT-vs-MOT rollback (Defect 6).
+              ? <div key={i} style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5, padding: '2px 0' }}>
+                  The mileage you entered ({Number(a.toMiles).toLocaleString('en-GB')} mi) is {Number(a.dropMiles).toLocaleString('en-GB')} mi below the last MOT reading ({Number(a.fromMiles).toLocaleString('en-GB')} mi, {a.fromDate}).
+                </div>
+              : <div key={i} className="mot-failure">
+                  ✗ Reading dropped {Number(a.dropMiles).toLocaleString('en-GB')} mi — {Number(a.fromMiles).toLocaleString('en-GB')} mi ({a.fromDate}) → {Number(a.toMiles).toLocaleString('en-GB')} mi ({a.toDate})
+                </div>
           ))}
         </div>
       )}

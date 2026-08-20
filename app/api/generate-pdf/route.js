@@ -64,6 +64,10 @@ function buildPdf(result, vrm, checks, checkDate) {
   };
   const str  = (v) => (v == null ? '-' : String(v));
   const clip = (s, max) => s && s.length > max ? s.slice(0, max - 1) + '...' : (s || '-');
+  // Make a string safe for the base PDF font: drop emoji / symbols it renders as artefacts (the "þ"
+  // where the screen shows ⚠️), and downgrade smart punctuation to ASCII. Use for any model/verdict
+  // text before splitTextToSize — never clip a verdict, always wrap it.
+  const pdfText = (s) => String(s == null ? '' : s).replace(/[^\x00-\x7F£]/g, (c) => ({ '—': '-', '–': '-', '’': "'", '‘': "'", '“': '"', '”': '"', '…': '...' }[c] ?? '')).replace(/\s+/g, ' ').trim();
 
   function checkPage(needed = 10) {
     if (y + needed > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
@@ -377,7 +381,7 @@ function buildPdf(result, vrm, checks, checkDate) {
     if (result.taxStatus) row('Current Status', str(result.taxStatus), result.taxStatus === 'Taxed' ? 'good' : undefined);
     checkPage(10);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
-    const rtText = `${rt.supplement ? rt.supplement.note + ' ' : ''}${rt.note} Guide only - confirm the exact amount at gov.uk/vehicle-tax-rate-tables.`;
+    const rtText = pdfText(`${rt.supplement ? rt.supplement.note + ' ' : ''}${rt.note} Guide only - confirm the exact amount at gov.uk/vehicle-tax-rate-tables.`);
     const rtNote = doc.splitTextToSize(rtText, CONTENT_W);
     for (const line of rtNote) { doc.text(line, MARGIN, y); y += 3.8; }
     y += 2;
@@ -527,11 +531,22 @@ function buildPdf(result, vrm, checks, checkDate) {
     const md = result.mileageDetail;
     const bad = md.status === 'discrepancy';
     sectionTitle('Mileage / Clocking Check');
-    row('Verdict', clip(str(md.verdict).replace(/[⚠✓✗]/g, '').trim(), 92), bad ? 'bad' : 'good');
+    // The verdict WRAPS across lines — it must never be truncated mid-sentence, because the tail is the
+    // half that reassures ("usually a typo, not a sign the vehicle has been clocked") (Defect 5). Strip
+    // emoji / smart punctuation the base PDF font can't draw (the "þ" artefact) (Defect 5 minor).
+    checkPage(10);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    doc.setTextColor(bad ? 170 : 0, bad ? 0 : 120, 0);
+    for (const line of doc.splitTextToSize(pdfText(md.verdict), CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
+    y += 2;
     const anomalies = Array.isArray(md.anomalies) ? md.anomalies : [];
     for (const a of anomalies) {
-      const to = a.toDate === 'entered' ? 'entered mileage' : a.toDate;
-      row('Drop', `${num(a.dropMiles)} mi: ${num(a.fromMiles)} mi (${a.fromDate}) -> ${num(a.toMiles)} mi (${to})`, 'bad');
+      if (a._userEntered || a.toDate === 'entered') {
+        // Entered-vs-MOT: the user's own figure, not a rollback — neutral, no failure marker (Defect 6).
+        row('Note', `Entered mileage is ${num(a.dropMiles)} mi below the last MOT reading (${num(a.fromMiles)} mi, ${a.fromDate})`);
+      } else {
+        row('Rollback', `dropped ${num(a.dropMiles)} mi: ${num(a.fromMiles)} mi (${a.fromDate}) -> ${num(a.toMiles)} mi (${a.toDate})`, 'bad');
+      }
     }
     const readings = Array.isArray(md.readings) ? md.readings : [];
     for (const r of readings.slice(0, 20)) {
@@ -566,7 +581,7 @@ function buildPdf(result, vrm, checks, checkDate) {
 
   // ── Previous Adverts ──────────────────────────────────────────────────────────
   if (has('previous_adverts')) {
-    sectionTitle('Previous Listings');
+    sectionTitle('Previous Adverts');
     if (cazAdverts.length > 0) {
       checkPage(12);
       doc.setFillColor(242, 242, 242);

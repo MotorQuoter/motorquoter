@@ -348,10 +348,22 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Free lookups are not available for Irish-registered vehicles' }, { status: 400 });
     }
 
+    // Entered mileage is REQUEST-SCOPED: it must be recomputed per request and NEVER served from a
+    // VRM-keyed cache row. A verdict baked from one customer's entered figure would otherwise be shown
+    // to the next customer looking up the same reg (Defect 4, 20 Aug — a stale free_GB row served
+    // "consistent" over a fresh entered figure). Same class as money-fields-never-cached. Computed
+    // here so it governs both the cache-hit and the fresh path below.
+    const freeMileageNum = parseInt((mileage || '').replace(/,/g, ''), 10);
+    const freeMileageValid = !isNaN(freeMileageNum) && freeMileageNum >= 1 && freeMileageNum <= 999999;
+    const freeMileageOpts = freeMileageValid ? { currentMileage: freeMileageNum } : {};
+
     const cacheKey = 'free_GB';
     const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
     if (cached) {
-      return NextResponse.json({ ...cached.payload, _cached: true, _cachedAt: cached.created_at });
+      // Recompute the mileage verdict from the CACHED MOT substrate + THIS request's entered mileage —
+      // never trust the verdict stored on the row (it was computed for a different request).
+      const freshVerdict = buildMileageVerdict(cached.payload?.motHistory, freeMileageOpts);
+      return NextResponse.json({ ...cached.payload, mileageVerdict: freshVerdict, _cached: true, _cachedAt: cached.created_at });
     }
 
     try {
@@ -376,11 +388,6 @@ const dvla = await safeJson(dvlaRes);
 
       const freeMotTests = dvsaData?.motTests || null;
       const freeLatestMot = freeMotTests?.[0] || null;
-      // Feed the user's entered mileage into the FREE verdict too, so the free lookup and the paid
-      // mileage detail cannot contradict each other (Defect 4, 20 Aug — free said "consistent" while
-      // the paid check flagged the entered figure). Same guard as the paid path.
-      const freeMileageNum = parseInt((mileage || '').replace(/,/g, ''), 10);
-      const freeMileageValid = !isNaN(freeMileageNum) && freeMileageNum >= 1 && freeMileageNum <= 999999;
 
       const payload = {
         make: dvla.make,
@@ -396,7 +403,9 @@ const dvla = await safeJson(dvlaRes);
         motMileage: freeLatestMot?.odometerValue || null,
         motResult: freeLatestMot?.testResult || null,
         motHistory: freeMotTests,
-        mileageVerdict: buildMileageVerdict(freeMotTests, freeMileageValid ? { currentMileage: freeMileageNum } : {}),
+        // CACHE the MOT-only (vehicle-scoped) verdict — no entered mileage. The response below carries
+        // the request-scoped verdict; the two are deliberately different so the row stays reusable.
+        mileageVerdict: buildMileageVerdict(freeMotTests),
         hasOutstandingRecall: dvsaData?.hasOutstandingRecall ?? null,
         co2Emissions: dvla.co2Emissions,
         dateOfLastV5CIssued: dvla.dateOfLastV5CIssued,
@@ -410,7 +419,9 @@ const dvla = await safeJson(dvlaRes);
 
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       logEvent('lookup_submitted', { vrm: cleanVrm, tier: 'free', market: 'GB' });
-      return NextResponse.json(payload);
+      // Response carries the request-scoped verdict (entered mileage applied) — NOT the base verdict
+      // just cached. The free lookup and the paid check now compute the entered figure identically.
+      return NextResponse.json({ ...payload, mileageVerdict: buildMileageVerdict(freeMotTests, freeMileageOpts) });
     } catch (err) {
       console.error('DVLA lookup error:', err);
       return NextResponse.json({ error: err.message || 'Lookup failed' }, { status: 500 });
@@ -581,6 +592,20 @@ const dvla = await safeJson(dvlaRes);
     delete clean.serviceHistoryRefunded;
     delete clean.serviceHistoryRefund;
     delete clean.serviceHistoryRefundFailed;
+    // Mileage verdict/detail are REQUEST-SCOPED (they depend on the entered mileage) — recompute them
+    // from the CACHED MOT substrate + THIS request's entered figure, never serve the row's stored
+    // verdict. Same class as the refund strip above and the free-path fix (Defect 4, 20 Aug).
+    {
+      const um = parseInt((mileage || '').replace(/,/g, ''), 10);
+      const umValid = !isNaN(um) && um >= 1 && um <= 999999;
+      const tl = checkMileageTimeline(clean.motHistory || [], umValid ? { currentMileage: um } : {});
+      clean.mileageVerdict = tl.status !== 'insufficient'
+        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredBelowMot: tl.enteredBelowMot }
+        : null;
+      if (checks.includes('mileage_detail')) {
+        clean.mileageDetail = { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits };
+      }
+    }
     const needsServiceHistory = checks.includes('ie_service_history') || checks.includes('service_history');
     const refundState = await evaluateServiceHistoryRefund(
       new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, cachedServiceHistoryOutcome(clean), needsServiceHistory);
@@ -883,6 +908,15 @@ const dvla = await safeJson(dvlaRes);
       // data; the full reading-by-reading breakdown is the paid `mileage_detail` add-on. The
       // user-entered mileage, when valid, is checked against the latest MOT as a "now" reading.
       const mileageTimeline = checkMileageTimeline(motTests || [], userMileageValid ? { currentMileage: userMileageNum } : {});
+      // Base (MOT-only) timeline for the CACHE — entered mileage is request-scoped and must not be
+      // frozen into a VRM-keyed row (Defect 4, 20 Aug). The response below carries the entered figure.
+      const mileageTimelineBase = checkMileageTimeline(motTests || [], {});
+      const mkVerdict = (tl) => tl.status !== 'insufficient'
+        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredBelowMot: tl.enteredBelowMot }
+        : null;
+      const mkDetail = (tl) => needsMileageDetail
+        ? { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits }
+        : null;
 
       const payload = {
         make: dvla.make,
@@ -915,12 +949,8 @@ const dvla = await safeJson(dvlaRes);
         serviceHistoryRecords: normaliseServiceEvents(svcOutcome?.records ?? null),
         serviceHistoryNotAttempted: svcOutcome?.notAttempted ?? null,
         salvageHistory: extractApiResult(salvageHistoryRaw),
-        mileageVerdict: mileageTimeline.status !== 'insufficient'
-          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, mixedUnits: mileageTimeline.mixedUnits, readingCount: mileageTimeline.readingCount, hasRollback: mileageTimeline.hasRollback, enteredBelowMot: mileageTimeline.enteredBelowMot }
-          : null,
-        mileageDetail: needsMileageDetail
-          ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }
-          : null,
+        mileageVerdict: mkVerdict(mileageTimelineBase),
+        mileageDetail: mkDetail(mileageTimelineBase),
         ownerHistory,
         roadTax: needsRoadTax ? estimateRoadTax({
           firstRegistration: dvla.monthOfFirstRegistration,
@@ -943,7 +973,9 @@ const dvla = await safeJson(dvlaRes);
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
-      return NextResponse.json({ ...payload, ...refundState });
+      // Response carries the request-scoped mileage verdict/detail (entered figure applied), NOT the
+      // MOT-only versions just cached.
+      return NextResponse.json({ ...payload, mileageVerdict: mkVerdict(mileageTimeline), mileageDetail: mkDetail(mileageTimeline), ...refundState });
     }
 
   } catch (err) {
