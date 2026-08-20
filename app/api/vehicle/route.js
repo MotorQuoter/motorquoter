@@ -7,6 +7,9 @@ import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { checkMileageTimeline } from '@/lib/mileageCheck';
 import { summariseOwnerHistory, summarisePlateChanges } from '@/lib/ownerHistory';
+import { estimateRoadTax } from '@/lib/roadTax';
+import { SERVICE_HISTORY_COVERAGE } from '@/config/serviceHistoryCoverage';
+import { needsAutocheck as autocheckNeeded } from '@/lib/menuGate';
 import { sendOpsAlert } from '@/lib/opsAlert';
 import {
   classifyServiceHistory,
@@ -252,20 +255,8 @@ async function fetchServiceHistory(url, options, pollOptions) {
   return outcome;
 }
 
-const SERVICE_HISTORY_COVERAGE = new Map([
-  ['AUDI', 'full'], ['BMW', 'full'], ['CUPRA', 'full'], ['FORD', 'full'],
-  ['HONDA', 'full'], ['INFINITI', 'full'], ['JAGUAR', 'full'], ['LAND ROVER', 'full'],
-  ['LEXUS', 'full'], ['MAZDA', 'full'], ['MERCEDES-BENZ', 'full'], ['MINI', 'full'],
-  ['NISSAN', 'full'], ['OPEL', 'full'], ['PORSCHE', 'full'], ['SEAT', 'full'],
-  ['SKODA', 'full'], ['TOYOTA', 'full'], ['VAUXHALL', 'full'], ['VOLKSWAGEN', 'full'],
-  ['AIXAM', 'limited'], ['ALPINE', 'limited'], ['BENTLEY', 'limited'], ['DAF', 'limited'],
-  ['DS', 'limited'], ['FERRARI', 'limited'], ['IVECO', 'limited'], ['MASERATI', 'limited'],
-  ['PIAGGIO', 'limited'], ['SUBARU', 'limited'], ['SUZUKI', 'limited'], ['YAMAHA', 'limited'],
-  ['ALFA ROMEO', 'workshop'], ['CHRYSLER', 'workshop'], ['CITROEN', 'workshop'],
-  ['DACIA', 'workshop'], ['DODGE', 'workshop'], ['FIAT', 'workshop'], ['JEEP', 'workshop'],
-  ['KIA', 'workshop'], ['PEUGEOT', 'workshop'], ['POLESTAR', 'workshop'],
-  ['RENAULT', 'workshop'], ['VOLVO', 'workshop'],
-]);
+// SERVICE_HISTORY_COVERAGE lifted to config/serviceHistoryCoverage.mjs (20 Aug) so the MENU can gate
+// on make+year before payment — one source, server and browser agree. Behaviour here is unchanged.
 
 function getSupabase() {
   return createClient(
@@ -752,7 +743,11 @@ const dvla = await safeJson(dvlaRes);
         );
       }
 
-      const needsAutocheck = checks.some(c => ['writeoff', 'finance', 'stolen'].includes(c));
+      // AutoCheck is now driven by the single `full_history` bundle (£6.99), NOT by the retired
+      // writeoff/finance/stolen singles. Those three keys can no longer be purchased (rejected at
+      // checkout, 20 Aug) so a live basket never carries them; their render components remain for
+      // already-paid historical reports. One call still serves all six AutoCheck blocks.
+      const needsAutocheck = autocheckNeeded(checks);
       const needsValuation = checks.includes('valuation');
       const needsMot = checks.includes('mot');
       const needsMarketDemand = checks.includes('market_demand');
@@ -761,6 +756,7 @@ const dvla = await safeJson(dvlaRes);
       const needsSalvageHistory = checks.includes('salvagehistory');
       const needsMileageDetail = checks.includes('mileage_detail');
       const needsOwnerHistory = checks.includes('owner_history');
+      const needsRoadTax = checks.includes('road_tax');
 
       const dvlaMake = dvla.make?.toUpperCase() || '';
       const svcCoverage = needsServiceHistory ? (SERVICE_HISTORY_COVERAGE.get(dvlaMake) || null) : null;
@@ -828,7 +824,11 @@ const dvla = await safeJson(dvlaRes);
         needsSalvageHistory
           ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
-        needsOwnerHistory
+        // TASK-6 — stop the keeper double-buy. AutoCheck already returns keeper_data_items /
+        // cherished_data_items, so when the basket also triggers AutoCheck (full_history) we serve
+        // keeper + plate data from that payload and skip this 20p (24p true) UKVD call. owner_history
+        // bought standalone still fetches UKVD, so the call is correct when it is the only source.
+        (needsOwnerHistory && !needsAutocheck)
           ? fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
           : Promise.resolve(null),
       ]);
@@ -844,7 +844,16 @@ const dvla = await safeJson(dvlaRes);
       // Parse → scrub the VIN OUT of the raw response IMMEDIATELY (display condition) → then read
       // only keeper/plate data from the scrubbed object. The VIN never reaches `payload`.
       let ownerHistory = null;
-      if (needsOwnerHistory && ownerDetailsRes) {
+      if (needsOwnerHistory && needsAutocheck && autocheck?.result) {
+        // TASK-6 — derive keeper/plate history from the AutoCheck payload already in hand (no UKVD
+        // call). `keeper_data_items` carries the SAME { number_previous_keepers,
+        // date_of_last_keeper_change } shape summariseOwnerHistory() consumes (confirmed against the
+        // cached IJI2900 payload), and summarisePlateChanges() already reads cherished_data_items
+        // defensively — same normaliser, both sources, one output shape.
+        const ac = autocheck.result;
+        const summary = summariseOwnerHistory(ac.keeper_data_items);
+        ownerHistory = { ...summary, plateChanges: summarisePlateChanges(ac.cherished_data_items) };
+      } else if (needsOwnerHistory && ownerDetailsRes) {
         const ownerRaw = scrubVin(await safeJson(ownerDetailsRes));
         const ownerResult = extractApiResult(ownerRaw);
         if (ownerResult) {
@@ -907,6 +916,13 @@ const dvla = await safeJson(dvlaRes);
           ? { status: mileageTimeline.status, verdict: mileageTimeline.verdict, readings: mileageTimeline.readings, anomalies: mileageTimeline.anomalies, mixedUnits: mileageTimeline.mixedUnits }
           : null,
         ownerHistory,
+        roadTax: needsRoadTax ? estimateRoadTax({
+          firstRegistration: dvla.monthOfFirstRegistration,
+          yearOfManufacture: dvla.yearOfManufacture,
+          co2: dvla.co2Emissions,
+          fuelType: dvla.fuelType,
+          engineCC: dvla.engineCapacity ?? null,
+        }) : null,
         market: 'GB',
         checks,
         valuationMileage: needsValuation ? bregoMileage : null,

@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { PRICING, IE_MENU } from '@/config/pricing';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -35,7 +36,12 @@ function buildPdf(result, vrm, checks, checkDate) {
   const serviceHistoryRefundLabel = (() => {
     const r = result.serviceHistoryRefund;
     if (r && typeof r.amount === 'number') return `${r.currency === 'eur' ? '€' : '£'}${(r.amount / 100).toFixed(2)}`;
-    return isIE ? '£5.00' : '£3.49';
+    // Legacy-row fallback only; real refund is charge-derived server-side. Read from config, not a
+    // hardcoded second path (the £3.49 removed 20 Aug — service_history is now £4.99).
+    const cfgPrice = isIE
+      ? IE_MENU.find(i => i.key === 'ie_service_history')?.price
+      : PRICING.menu.find(i => i.key === 'service_history')?.price;
+    return typeof cfgPrice === 'number' ? `£${cfgPrice.toFixed(2)}` : '';
   })();
 
   const money = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
@@ -267,8 +273,12 @@ function buildPdf(result, vrm, checks, checkDate) {
     }
   }
 
+  // Full History bundle renders all six AutoCheck blocks; the legacy writeoff/finance/stolen keys
+  // still render their own block for already-paid historical reports (removed from sale 20 Aug).
+  const hasFullHistory = has('full_history');
+
   // ── Write-off ────────────────────────────────────────────────────────────────
-  if (has('writeoff')) {
+  if (has('writeoff') || hasFullHistory) {
     const hasWriteOff = ac.condition_data_qty > 0;
     const writeOffItem = ac.condition_data_items?.[0];
     const wSrc = writeOffItem?.recovered_category_desc || writeOffItem?.vehicle_status || '';
@@ -280,7 +290,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Finance ───────────────────────────────────────────────────────────────────
-  if (has('finance')) {
+  if (has('finance') || hasFullHistory) {
     const hasFinance = ac.finance_data_qty > 0;
     sectionTitle('Finance Check', 'Data provided by Experian');
     row('Outstanding Finance', hasFinance ? '[!] Finance outstanding' : '[OK] No finance recorded', hasFinance ? 'bad' : 'good');
@@ -292,7 +302,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Stolen ────────────────────────────────────────────────────────────────────
-  if (has('stolen')) {
+  if (has('stolen') || hasFullHistory) {
     const hasStolen = ac.stolen_vehicle_data_qty > 0;
     sectionTitle('Stolen Check', 'Data provided by Experian');
     row(isIE ? 'Stolen Register' : 'Police Database', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
@@ -306,6 +316,67 @@ function buildPdf(result, vrm, checks, checkDate) {
       for (const line of noteLines) { doc.text(line, MARGIN, y); y += 3.8; }
       y += 2;
     }
+  }
+
+  // ── High-Risk Markers (Full History bundle) ─────────────────────────────────────
+  if (hasFullHistory) {
+    const qty = ac.high_risk_data_qty ?? 0;
+    const items = Array.isArray(ac.high_risk_data_items) ? ac.high_risk_data_items : [];
+    sectionTitle('High-Risk Markers', 'Data provided by Experian');
+    row('High-Risk Markers', qty > 0 ? `[!] ${qty} marker${qty === 1 ? '' : 's'} recorded` : '[OK] None recorded', qty > 0 ? 'bad' : 'good');
+    for (const it of items) {
+      const type = it?.high_risk_type || it?.type || it?.description || it?.marker || 'Marker recorded';
+      row('Marker', clip(str(type), 60));
+      const party = it?.registered_to || it?.company || it?.organisation || it?.interested_party || null;
+      if (party) row('Recorded By', clip(str(party), 60));
+    }
+    checkPage(8);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    const hrNote = doc.splitTextToSize('High-risk markers are recorded by third parties (e.g. ex-rental / ex-fleet use, or a registered interest). This shows what is on record; it does not clear a vehicle.', CONTENT_W);
+    for (const line of hrNote) { doc.text(line, MARGIN, y); y += 3.8; }
+    y += 2;
+  }
+
+  // ── Plate Changes (Full History bundle) ─────────────────────────────────────────
+  if (hasFullHistory) {
+    const qty = ac.cherished_data_qty ?? 0;
+    const items = Array.isArray(ac.cherished_data_items) ? ac.cherished_data_items : [];
+    sectionTitle('Plate Changes', 'Data provided by Experian');
+    row('Registration Changes', qty > 0 ? `${qty} recorded` : '[OK] None recorded', qty > 0 ? undefined : 'good');
+    for (const it of items) {
+      const plate = it?.previous_vehicle_registration_mark || it?.previous_vrm || it?.registration_mark || null;
+      const date  = it?.cherished_plate_transfer_date || it?.date_of_receipt || it?.date_of_change || it?.date || null;
+      if (plate) row('Previous Plate', str(plate));
+      if (date)  row('Change Date', dt(date));
+    }
+  }
+
+  // ── Previous Searches (Full History bundle) ─────────────────────────────────────
+  if (hasFullHistory) {
+    const qty = ac.previous_search_qty ?? 0;
+    const items = Array.isArray(ac.previous_search_items) ? ac.previous_search_items : [];
+    sectionTitle('Previous Searches', 'Data provided by Experian');
+    row('Recent Checks', qty > 0 ? `${qty} recorded` : '[OK] No recent searches', qty > 0 ? undefined : 'good');
+    for (const it of items.slice(0, 12)) {
+      const who  = it?.business_type_searching || null;
+      const date = it?.date_of_search || null;
+      if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
+    }
+  }
+
+  // ── Road Tax (computed, £0) ──────────────────────────────────────────────────────
+  if (has('road_tax') && result.roadTax) {
+    const rt = result.roadTax;
+    sectionTitle('Road Tax');
+    row('Annual Road Tax', rt.annual != null ? `£${rt.annual}/year` : 'See gov.uk/vehicle-tax-rate-tables', rt.annual != null ? 'good' : undefined);
+    if (rt.basis) row('Basis', clip(str(rt.basis), 60));
+    if (result.taxStatus) row('Current Status', str(result.taxStatus), result.taxStatus === 'Taxed' ? 'good' : undefined);
+    checkPage(10);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    const rtText = `${rt.supplement ? rt.supplement.note + ' ' : ''}${rt.note} Guide only - confirm the exact amount at gov.uk/vehicle-tax-rate-tables.`;
+    const rtNote = doc.splitTextToSize(rtText, CONTENT_W);
+    for (const line of rtNote) { doc.text(line, MARGIN, y); y += 3.8; }
+    y += 2;
   }
 
   // ── Salvage History ───────────────────────────────────────────────────────────

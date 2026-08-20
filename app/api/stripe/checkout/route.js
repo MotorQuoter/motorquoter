@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { PRICING, IE_MENU } from '@/config/pricing';
+import { rejectedKeys } from '@/lib/menuGate';
 
 function getSupabase() {
   return createClient(
@@ -70,6 +71,20 @@ export async function POST(request) {
     const allMenuItems = [...PRICING.menu, ...IE_MENU];
     const menuMap = Object.fromEntries(allMenuItems.map(i => [i.key, i]));
     const posNum = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+
+    // ── Allow-list gate — reject unknown or DISABLED keys outright (not a deny-list) ─────────────
+    // Every requested key must be a CURRENTLY-ENABLED menu item. A disabled key (e.g. writeoff /
+    // finance / stolen after the 20 Aug removal) or an unknown key must never survive into
+    // `metadata.checks` / `success_url` below: /api/vehicle binds the paid scope from that metadata,
+    // so a key that reaches it is treated as paid. This is the ROI_TIERS hole exactly — a crafted
+    // `valuation,writeoff` basket bills £1.99 (writeoff dropped from line items) yet, if writeoff
+    // rode into metadata, would fire the £2.40 AutoCheck the customer never paid for. Reject the whole
+    // request; do NOT silently drop the offending key.
+    const invalidKeys = rejectedKeys(checks, allMenuItems);
+    if (invalidKeys.length > 0) {
+      console.warn(`[CHECKOUT] rejected unavailable keys: [${invalidKeys.join(',')}] vrm=${cleanVrm}`);
+      return NextResponse.json({ error: `Unavailable items: ${invalidKeys.join(', ')}` }, { status: 400 });
+    }
     const paidKeys = checks.filter(key => menuMap[key] && menuMap[key].enabled && menuMap[key].price > 0);
     // FAIL LOUD: an opted-in EUR basket with any paid item lacking a positive priceEUR must NOT
     // fall back to GBP (silent GBP-charge-to-a-EUR-customer is the reconciliation-only failure).

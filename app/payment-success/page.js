@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
+import { PRICING, IE_MENU } from '@/config/pricing';
 
 function fmtFirstReg(str) {
   if (!str) return null;
@@ -259,6 +260,155 @@ function StolenSection({ result }) {
           </div>
       }
       {!isIE && ac != null && <ExperianAttribution />}
+    </div>
+  );
+}
+
+// ── High Risk markers (Full History bundle) ─────────────────────────────────────
+// The commercial pick: flags ex-fleet / ex-rental use and third-party registered interests — real
+// money off a valuation and invisible to a buyer. Copy discipline (brief TASK-1): this is a register
+// of markers OTHERS have added. It shows what is recorded; it does NOT clear a vehicle. `_qty` is the
+// confident flag; `_items[]` member fields are provisional (never observed non-empty) so they render
+// defensively — "not available" over a blank, never a throw.
+
+function HighRiskSection({ result }) {
+  const ac = result.autocheck;
+  const qty = ac?.high_risk_data_qty ?? null;
+  const items = Array.isArray(ac?.high_risk_data_items) ? ac.high_risk_data_items : [];
+  const flagged = qty > 0;
+  return (
+    <div className="card">
+      <SectionTitle>High-Risk Markers</SectionTitle>
+      {ac == null
+        ? <EmptyState text="High-risk data not available for this vehicle" />
+        : <div className="flag-list">
+            <FlagRow
+              label="High-Risk Markers"
+              value={flagged ? `⚠️ ${qty} marker${qty === 1 ? '' : 's'} recorded` : '✓ None recorded'}
+              tone={flagged ? 'red' : 'green'}
+            />
+            {items.map((it, i) => {
+              const type  = it?.high_risk_type || it?.type || it?.description || it?.marker || 'Marker recorded';
+              const party = it?.registered_to || it?.company || it?.organisation || it?.interested_party || null;
+              const date  = it?.date_of_interest || it?.date || it?.start_date || null;
+              return (
+                <div key={i} style={{marginTop: 8, padding: '10px 14px', background: 'var(--bg3)', borderRadius: 8, fontSize: 13}}>
+                  <div style={{fontWeight: 600, marginBottom: 4}}>{type}</div>
+                  {party && <div style={{color: 'var(--text-dim)'}}>{party}</div>}
+                  {date && <div style={{color: 'var(--text-dim)'}}>{fmtDate(date)}</div>}
+                </div>
+              );
+            })}
+            <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
+              High-risk markers are recorded by third parties — for example ex-rental or ex-fleet use, or a registered interest. This shows what is on record; it does not clear a vehicle.
+            </div>
+          </div>
+      }
+      {ac != null && <ExperianAttribution />}
+    </div>
+  );
+}
+
+// ── Plate changes (Full History bundle) ─────────────────────────────────────────
+// `cherished_data_*` — previous registration marks. `_items[]` shape provisional; read defensively.
+
+function PlateChangesSection({ result }) {
+  const ac = result.autocheck;
+  const qty = ac?.cherished_data_qty ?? null;
+  const items = Array.isArray(ac?.cherished_data_items) ? ac.cherished_data_items : [];
+  const changed = qty > 0;
+  return (
+    <div className="card">
+      <SectionTitle>Plate Changes</SectionTitle>
+      {ac == null
+        ? <EmptyState text="Plate-change data not available for this vehicle" />
+        : <div className="flag-list">
+            <FlagRow
+              label="Registration Changes"
+              value={changed ? `${qty} recorded` : '✓ None recorded'}
+              tone={changed ? 'amber' : 'green'}
+            />
+            {items.map((it, i) => {
+              const plate = it?.previous_vehicle_registration_mark || it?.previous_vrm || it?.registration_mark || null;
+              const date  = it?.cherished_plate_transfer_date || it?.date_of_receipt || it?.date_of_change || it?.date || null;
+              return (
+                <div key={i} style={{marginTop: 8, padding: '10px 14px', background: 'var(--bg3)', borderRadius: 8, fontSize: 13}}>
+                  {plate ? <div style={{fontWeight: 600, marginBottom: 4}}>{plate}</div> : <div style={{color: 'var(--text-dim)'}}>Registration change recorded</div>}
+                  {date && <div style={{color: 'var(--text-dim)'}}>{fmtDate(date)}</div>}
+                </div>
+              );
+            })}
+          </div>
+      }
+      {ac != null && <ExperianAttribution />}
+    </div>
+  );
+}
+
+// ── Previous searches (Full History bundle) ─────────────────────────────────────
+// `previous_search_*` — how many others have checked this car recently. qty:0 is a real, reassuring
+// answer. `_items[]` shape OBSERVED { date_of_search, time_of_search, business_type_searching }.
+
+function PreviousSearchesSection({ result }) {
+  const ac = result.autocheck;
+  const qty = ac?.previous_search_qty ?? null;
+  const items = Array.isArray(ac?.previous_search_items) ? ac.previous_search_items : [];
+  return (
+    <div className="card">
+      <SectionTitle>Previous Searches</SectionTitle>
+      {ac == null
+        ? <EmptyState text="Search-history data not available for this vehicle" />
+        : <div className="flag-list">
+            <FlagRow
+              label="Recent Checks"
+              value={qty > 0 ? `${qty} recorded` : '✓ No recent searches'}
+              tone={qty > 0 ? 'amber' : 'green'}
+            />
+            {items.map((it, i) => {
+              const date = it?.date_of_search || null;
+              const who  = it?.business_type_searching || null;
+              return (
+                <div key={i} style={{marginTop: 8, padding: '10px 14px', background: 'var(--bg3)', borderRadius: 8, fontSize: 13}}>
+                  {who && <div style={{fontWeight: 600, marginBottom: 4}}>{who}</div>}
+                  {date && <div style={{color: 'var(--text-dim)'}}>{fmtDate(date)}</div>}
+                </div>
+              );
+            })}
+            <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
+              How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around.
+            </div>
+          </div>
+      }
+      {ac != null && <ExperianAttribution />}
+    </div>
+  );
+}
+
+// ── Road Tax (computed, £0) ──────────────────────────────────────────────────────
+
+function RoadTaxSection({ result }) {
+  const rt = result.roadTax;
+  return (
+    <div className="card">
+      <SectionTitle>Road Tax</SectionTitle>
+      {rt == null
+        ? <EmptyState text="Road tax data not available for this vehicle" />
+        : <div className="flag-list">
+            {rt.annual != null
+              ? <FlagRow label="Annual Road Tax" value={`£${rt.annual}/year`} tone="green" />
+              : <FlagRow label="Annual Road Tax" value="See gov.uk" tone="amber" />}
+            <DataRow label="Basis" value={rt.basis} />
+            {result.taxStatus && <DataRow label="Current Status" value={result.taxStatus} tone={result.taxStatus === 'Taxed' ? 'green' : undefined} />}
+            {rt.supplement && (
+              <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
+                {rt.supplement.note}
+              </div>
+            )}
+            <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
+              {rt.note} Guide only — confirm the exact amount at gov.uk/vehicle-tax-rate-tables.
+            </div>
+          </div>
+      }
     </div>
   );
 }
@@ -607,7 +757,12 @@ function ServiceHistorySection({ result }) {
   const refundLabel = (() => {
     const r = result.serviceHistoryRefund;
     if (r && typeof r.amount === 'number') return `${r.currency === 'eur' ? '€' : '£'}${(r.amount / 100).toFixed(2)}`;
-    return result.market === 'IE' ? '£5.00' : '£3.49';
+    // Last-resort label for legacy rows the server didn't stamp an amount on; the real refund is
+    // charge-derived server-side. Read the current price from config — never a hardcoded second path.
+    const cfgPrice = result.market === 'IE'
+      ? IE_MENU.find(i => i.key === 'ie_service_history')?.price
+      : PRICING.menu.find(i => i.key === 'service_history')?.price;
+    return typeof cfgPrice === 'number' ? `£${cfgPrice.toFixed(2)}` : '';
   })();
   const coverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || null;
 
@@ -1015,12 +1170,19 @@ function PaymentSuccessContent() {
             ) : (
               <>
                 {checks.includes('valuation')        && <ValuationSection       result={result} />}
-                {checks.includes('writeoff')          && <WriteoffSection        result={result} />}
-                {checks.includes('finance')           && <FinanceSection         result={result} />}
-                {checks.includes('stolen')            && <StolenSection          result={result} />}
+                {/* Full History bundle (full_history) renders all six AutoCheck blocks. The legacy
+                    writeoff/finance/stolen keys still render their block for already-paid historical
+                    reports — they can no longer be purchased (removed 20 Aug). */}
+                {(checks.includes('writeoff') || checks.includes('full_history')) && <WriteoffSection        result={result} />}
+                {(checks.includes('finance')  || checks.includes('full_history')) && <FinanceSection         result={result} />}
+                {(checks.includes('stolen')   || checks.includes('full_history')) && <StolenSection          result={result} />}
+                {checks.includes('full_history')      && <HighRiskSection        result={result} />}
+                {checks.includes('full_history')      && <PlateChangesSection    result={result} />}
+                {checks.includes('full_history')      && <PreviousSearchesSection result={result} />}
                 {checks.includes('salvagehistory')    && <SalvageHistorySection  result={result} />}
                 {checks.includes('market_demand')     && <MarketDemandSection    result={result} />}
                 {checks.includes('previous_adverts')  && <PreviousAdvertsSection result={result} />}
+                {checks.includes('road_tax')          && <RoadTaxSection         result={result} />}
                 {checks.includes('mot')               && <MotSection             result={result} />}
                 {checks.includes('mileage_detail')    && <MileageDetailSection   result={result} />}
                 {checks.includes('owner_history')     && <OwnerHistorySection    result={result} />}

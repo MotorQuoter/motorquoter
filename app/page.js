@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { isRoiPlate } from '@/lib/roiPlate';
+import { serviceHistoryOfferable } from '@/config/serviceHistoryCoverage';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
@@ -11,11 +12,15 @@ const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
 const ieEnabledItems = IE_MENU.filter(i => i.enabled);
 const ieDefaultSelected = ieEnabledItems.filter(i => i.preSelected).map(i => i.key);
 
-const FULL_COVERAGE_MAKES = new Set([
-  'AUDI', 'BMW', 'CUPRA', 'FORD', 'HONDA', 'INFINITI', 'JAGUAR', 'LAND ROVER',
-  'LEXUS', 'MAZDA', 'MERCEDES-BENZ', 'MINI', 'NISSAN', 'OPEL', 'PORSCHE',
-  'SEAT', 'SKODA', 'TOYOTA', 'VAUXHALL', 'VOLKSWAGEN',
-]);
+// Service-history coverage gate: make + year, from the SINGLE shared source both the server and this
+// menu import (config/serviceHistoryCoverage.mjs). Offering the item only when the free DVLA lookup
+// already shows it is coverable turns a would-be charge-then-refund into a non-sale. The messages
+// name the reason. VIN presence is not knowable pre-payment (DVLA returns none) and stays a server-
+// side outcome with its existing honest refund path.
+const svcCoverageReason = {
+  make_not_covered: 'OE service history is not available for this manufacturer',
+  pre_2012: 'OE service history covers 2012 models onward — this vehicle predates it',
+};
 
 export default function Home() {
   const router = useRouter();
@@ -105,8 +110,8 @@ export default function Home() {
         setError(data.error);
       } else {
         setResult(data);
-        const make = data.make?.toUpperCase() || null;
-        if (make && !FULL_COVERAGE_MAKES.has(make)) {
+        // Deselect service_history if this vehicle fails the coverage gate (make + year).
+        if (data.make && !serviceHistoryOfferable({ make: data.make, yearOfManufacture: data.yearOfManufacture }).offerable) {
           setSelectedKeys(prev => prev.filter(k => k !== 'service_history'));
         }
       }
@@ -547,7 +552,7 @@ export default function Home() {
               </div>
             </div>
             <div className="service-body">Any UK reg &mdash; tax, MOT, mileage, write-off, finance, stolen. Free lookup to start, then pay for only the checks you want.</div>
-            <div className="service-price"><span className="free-hl">Free</span> lookup &middot; checks from £1.49</div>
+            <div className="service-price"><span className="free-hl">Free</span> lookup &middot; checks from £0.99</div>
             <span className="service-btn service-btn-primary"><span>Check a car</span><span>&rarr;</span></span>
           </div>
 
@@ -829,8 +834,11 @@ export default function Home() {
                 {enabledItems.map(item => {
                   const selected = selectedKeys.includes(item.key);
                   const isLocked = item.key === 'valuation' ? valuationLocked : item.locked;
-                  const vehicleMake = result?.make?.toUpperCase() || null;
-                  const svcUnavailable = item.key === 'service_history' && vehicleMake !== null && !FULL_COVERAGE_MAKES.has(vehicleMake);
+                  const svcGate = (item.key === 'service_history' && result?.make)
+                    ? serviceHistoryOfferable({ make: result.make, yearOfManufacture: result.yearOfManufacture })
+                    : null;
+                  const svcUnavailable = svcGate ? !svcGate.offerable : false;
+                  const svcReason = svcGate && !svcGate.offerable ? (svcCoverageReason[svcGate.reason] || 'Service history not available for this vehicle') : null;
                   return (
                     <div
                       key={item.key}
@@ -844,9 +852,9 @@ export default function Home() {
                       <div className="check-info">
                         <div className="check-label">{item.label}</div>
                         <div className="check-desc">
-                          {svcUnavailable ? 'Service history not available for this vehicle' : item.description}
+                          {svcUnavailable ? svcReason : item.description}
                         </div>
-                        {['writeoff', 'finance', 'stolen'].includes(item.key) && (
+                        {item.key === 'full_history' && (
                           <div style={{ fontSize: 10, color: '#a01346', marginTop: 2, fontWeight: 600 }}>Data provided by Experian</div>
                         )}
                       </div>

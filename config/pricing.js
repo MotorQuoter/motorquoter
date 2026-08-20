@@ -87,29 +87,18 @@ export const PRICING = {
       locked: true,
       enabled: true,
     },
+    // Full History Check — single Experian AutoCheck (£2.00 list / £2.40 true, VAT-inc; we are not
+    // VAT registered and cannot reclaim). Supersedes the former writeoff/finance/stolen singles, which
+    // each forced the same £2.40 call against a sub-£2.50 sale and lost money bought alone (VAT finding,
+    // 20 Aug). Those three keys are removed from the menu; their render components stay for already-paid
+    // historical reports. One call now serves six blocks: write-off/Cat S·N, finance, stolen, high-risk
+    // markers, plate changes and previous searches.
     {
-      key: 'writeoff',
-      label: 'Write-off / Cat S/N Check',
-      description: 'Insurance write-off category and history',
-      price: 2.49,
-      preSelected: false,
-      locked: false,
-      enabled: true,
-    },
-    {
-      key: 'finance',
-      label: 'Finance Check',
-      description: 'Outstanding finance against the vehicle',
-      price: 1.49,
-      preSelected: false,
-      locked: false,
-      enabled: true,
-    },
-    {
-      key: 'stolen',
-      label: 'Stolen Check',
-      description: 'Police stolen vehicle database check',
-      price: 1.29,
+      key: 'full_history',
+      label: 'Full History Check',
+      description: 'Write-off & Cat S/N, outstanding finance, stolen marker, high-risk markers (ex-fleet/ex-rental & recorded interests), plate changes and previous searches — one Experian AutoCheck.',
+      price: 6.99,
+      cost: 2.40,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -128,7 +117,7 @@ export const PRICING = {
       key: 'market_demand',
       label: 'Market Demand',
       description: 'How quickly this vehicle sells in the current market',
-      price: 0.69,
+      price: 0.99,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -137,7 +126,7 @@ export const PRICING = {
       key: 'previous_adverts',
       label: 'Previous Adverts',
       description: 'Previous asking prices and listings for this vehicle',
-      price: 0.79,
+      price: 0.99,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -164,7 +153,10 @@ export const PRICING = {
       key: 'service_history',
       label: 'Service History',
       description: 'OE manufacturer service records where available',
-      price: 3.49,
+      // £3.49 → £4.99 (20 Aug): at true cost (£2.50 list / £3.00 inc VAT) the old price cleared 7%.
+      // Offered only when the vehicle passes the coverage gate (make + year, client-side; VIN checked
+      // server-side) so a legitimately-uncovered car is a non-sale, not a charge-then-refund.
+      price: 4.99,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -174,6 +166,20 @@ export const PRICING = {
       label: 'Owner / Keeper History',
       description: 'Number of previous keepers, each ownership-change date, and any previous registration plates (GB & NI).',
       price: 0.99,
+      preSelected: false,
+      locked: false,
+      enabled: true,
+    },
+    {
+      // Road tax (VED) — COMPUTED from the free DVLA payload (reg date, CO2, fuel, engine size). Cost £0;
+      // One Auto's tax endpoint adds nothing we cannot compute (list price is an optional input there too,
+      // and DVLA never returns it — the expensive-car supplement is shown as a conditional line, never
+      // silently omitted). Guide-only framing, same discipline as VRT. See lib/roadTax.mjs.
+      key: 'road_tax',
+      label: 'Road Tax Cost',
+      description: 'Annual road tax (VED) for this vehicle, worked out from its DVLA record — registration date, CO2, fuel type and engine size.',
+      price: 0.99,
+      cost: 0,
       preSelected: false,
       locked: false,
       enabled: true,
