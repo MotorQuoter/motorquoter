@@ -789,27 +789,33 @@ export default function Home() {
                 <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', padding: '0 20px 12px', letterSpacing: '0.02em' }}>
                   Official <span style={{ fontWeight: 700, color: 'var(--text)' }}>DVLA &amp; DVSA</span> data
                 </div>
-                {result.mileageVerdict && (
-                  <div
-                    className="mileage-verdict"
-                    style={{
-                      margin: '2px 16px 16px',
-                      padding: '11px 13px',
-                      borderRadius: 9,
-                      fontSize: 13.5,
-                      lineHeight: 1.45,
-                      fontWeight: 600,
-                      border: `1.5px solid ${result.mileageVerdict.status === 'discrepancy' ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.35)'}`,
-                      background: result.mileageVerdict.status === 'discrepancy' ? 'rgba(248,113,113,0.08)' : 'rgba(74,222,128,0.07)',
-                      color: result.mileageVerdict.status === 'discrepancy' ? '#f87171' : '#4ade80',
-                    }}
-                  >
-                    {result.mileageVerdict.verdict}
-                    <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 500, color: 'var(--text-dim)' }}>
-                      Add the full reading-by-reading timeline to your report — £0.99
+                {result.mileageVerdict && (() => {
+                  const mv = result.mileageVerdict;
+                  // Three tones: clocking = warning (red); confirm-the-figure query = neutral (amber),
+                  // never a warning; consistent = green. The query is surfaced HERE, pre-checkout, so a
+                  // wrong figure is caught before it prices the valuation (batch 19).
+                  const tone = mv.status === 'discrepancy'
+                    ? { border: 'rgba(248,113,113,0.4)', bg: 'rgba(248,113,113,0.08)', color: '#f87171' }
+                    : mv.status === 'query'
+                    ? { border: 'rgba(245,200,66,0.45)', bg: 'rgba(245,200,66,0.10)', color: 'var(--yellow)' }
+                    : { border: 'rgba(74,222,128,0.35)', bg: 'rgba(74,222,128,0.07)', color: '#4ade80' };
+                  const valuationSelected = selectedKeys.includes('valuation');
+                  return (
+                    <div
+                      className="mileage-verdict"
+                      style={{ margin: '2px 16px 16px', padding: '11px 13px', borderRadius: 9, fontSize: 13.5, lineHeight: 1.45, fontWeight: 600, border: `1.5px solid ${tone.border}`, background: tone.bg, color: tone.color }}
+                    >
+                      {mv.verdict}
+                      {mv.status === 'query'
+                        ? <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 500, color: 'var(--text-dim)' }}>
+                            {valuationSelected ? 'Your valuation will use this figure — ' : ''}edit the mileage box above and look up again if it needs correcting.
+                          </div>
+                        : <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 500, color: 'var(--text-dim)' }}>
+                            Add the full reading-by-reading timeline to your report — £0.99
+                          </div>}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 

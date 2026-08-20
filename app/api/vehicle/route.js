@@ -37,7 +37,7 @@ function buildMileageVerdict(motTests, opts = {}) {
   const m = checkMileageTimeline(motTests || [], opts);
   if (m.status === 'insufficient') return null;
   return { status: m.status, verdict: m.verdict, mixedUnits: m.mixedUnits, readingCount: m.readingCount,
-    hasRollback: m.hasRollback, enteredBelowMot: m.enteredBelowMot };
+    hasRollback: m.hasRollback, enteredQuery: m.enteredQuery, enteredBelowMot: m.enteredBelowMot, enteredAboveRate: m.enteredAboveRate };
 }
 
 // ── VIN scrub (DVLA display condition) ────────────────────────────────────────
@@ -355,7 +355,7 @@ export async function GET(request) {
     // here so it governs both the cache-hit and the fresh path below.
     const freeMileageNum = parseInt((mileage || '').replace(/,/g, ''), 10);
     const freeMileageValid = !isNaN(freeMileageNum) && freeMileageNum >= 1 && freeMileageNum <= 999999;
-    const freeMileageOpts = freeMileageValid ? { currentMileage: freeMileageNum } : {};
+    const freeMileageOpts = freeMileageValid ? { currentMileage: freeMileageNum, asOf: Date.now() } : {};
 
     const cacheKey = 'free_GB';
     const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
@@ -598,9 +598,9 @@ const dvla = await safeJson(dvlaRes);
     {
       const um = parseInt((mileage || '').replace(/,/g, ''), 10);
       const umValid = !isNaN(um) && um >= 1 && um <= 999999;
-      const tl = checkMileageTimeline(clean.motHistory || [], umValid ? { currentMileage: um } : {});
+      const tl = checkMileageTimeline(clean.motHistory || [], umValid ? { currentMileage: um, asOf: Date.now() } : {});
       clean.mileageVerdict = tl.status !== 'insufficient'
-        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredBelowMot: tl.enteredBelowMot }
+        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredQuery: tl.enteredQuery, enteredBelowMot: tl.enteredBelowMot, enteredAboveRate: tl.enteredAboveRate }
         : null;
       if (checks.includes('mileage_detail')) {
         clean.mileageDetail = { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits };
@@ -907,12 +907,12 @@ const dvla = await safeJson(dvlaRes);
       // Mileage/clocking timeline (unit-normalised). Verdict rides every GB report that has MOT
       // data; the full reading-by-reading breakdown is the paid `mileage_detail` add-on. The
       // user-entered mileage, when valid, is checked against the latest MOT as a "now" reading.
-      const mileageTimeline = checkMileageTimeline(motTests || [], userMileageValid ? { currentMileage: userMileageNum } : {});
+      const mileageTimeline = checkMileageTimeline(motTests || [], userMileageValid ? { currentMileage: userMileageNum, asOf: Date.now() } : {});
       // Base (MOT-only) timeline for the CACHE — entered mileage is request-scoped and must not be
       // frozen into a VRM-keyed row (Defect 4, 20 Aug). The response below carries the entered figure.
       const mileageTimelineBase = checkMileageTimeline(motTests || [], {});
       const mkVerdict = (tl) => tl.status !== 'insufficient'
-        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredBelowMot: tl.enteredBelowMot }
+        ? { status: tl.status, verdict: tl.verdict, mixedUnits: tl.mixedUnits, readingCount: tl.readingCount, hasRollback: tl.hasRollback, enteredQuery: tl.enteredQuery, enteredBelowMot: tl.enteredBelowMot, enteredAboveRate: tl.enteredAboveRate }
         : null;
       const mkDetail = (tl) => needsMileageDetail
         ? { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits }

@@ -98,12 +98,12 @@ const motRun = [T('01/06/2022', '60000'), T('01/06/2023', '70000'), T('01/06/202
 // Entered figure well below the last MOT (gap > 1,000 tolerance): flagged (status discrepancy so BOTH
 // surfaces warn) but NOT called clocking.
 const entered = checkMileageTimeline(motRun, { currentMileage: 72000 });
-ok('mileage: entered-below-MOT is flagged (discrepancy, both surfaces warn)', entered.status === 'discrepancy');
+ok('mileage: entered-below-MOT is a QUERY, not a discrepancy', entered.status === 'query');
 ok('mileage: entered-below-MOT is NOT a rollback', entered.hasRollback === false && entered.enteredBelowMot === true);
-ok('mileage: entered-below-MOT wording does not accuse clocking', /typo/i.test(entered.verdict) && !/^⚠️ Mileage discrepancy — dropped/.test(entered.verdict));
-// A genuine MOT-vs-MOT rollback still reads as a clocking warning.
+ok('mileage: entered query wording asks to confirm, never accuses clocking', /is it right\?/i.test(entered.verdict) && !/clock/i.test(entered.verdict) && !/⚠️/.test(entered.verdict));
+// A genuine MOT-vs-MOT rollback still reads as a clocking warning (discrepancy, not query).
 const rollback = checkMileageTimeline([T('01/06/2022', '80000'), T('01/06/2023', '50000')]);
-ok('mileage: genuine MOT rollback still flags as clocking', rollback.hasRollback === true && /dropped from/.test(rollback.verdict));
+ok('mileage: genuine MOT rollback still flags as clocking discrepancy', rollback.status === 'discrepancy' && rollback.hasRollback === true && /dropped from/.test(rollback.verdict));
 
 // ── 6. STRUCTURAL GUARDS — read the source, assert parity (Defect 1 + Defect 3) ────────────────────
 const pageSrc = readFileSync(new URL('../app/page.js', import.meta.url), 'utf8');
@@ -162,10 +162,22 @@ ok('tolerance: the real 438-below case (Vincent) now PASSES', checkMileageTimeli
 // MOT-vs-MOT stays tight at 150 (unchanged) — boundary either side.
 ok('tolerance: MOT-vs-MOT drop of 149 mi → no rollback (within 150)', checkMileageTimeline([T('01/06/2022', '70000'), T('01/06/2023', '69851')]).hasRollback === false);
 ok('tolerance: MOT-vs-MOT drop of 151 mi → rollback flagged', checkMileageTimeline([T('01/06/2022', '70000'), T('01/06/2023', '69849')]).hasRollback === true);
-// One declaration, in mileageCheck only — no surface re-declares a mileage tolerance.
-const tolDeclarers = [routeSrc, pageSrc, psSrc, pdfSrc].filter((s) => /toleranceMiles\s*[=?]|ROLLBACK_TOLERANCE|ENTERED_VS_MOT/.test(s)).length;
-ok('guard: mileage tolerances are declared only in mileageCheck (no surface copy)', tolDeclarers === 0);
-ok('guard: mileageCheck exports named entered (1000) + rollback (150) tolerances', mileageSrc.includes('export const ENTERED_VS_MOT_TOLERANCE_MILES = 1000') && mileageSrc.includes('export const MOT_ROLLBACK_TOLERANCE_MILES = 150'));
+
+// SOFT CEILING — entered ABOVE last MOT is queried on implied RATE, not gap (batch 19). Pin asOf so
+// months-since is deterministic: last MOT 60,000 on 01/01/2024, asOf 01/07/2024 ≈ 6 months.
+const asOf = Date.UTC(2024, 6, 1);
+const above = [T('01/01/2024', '60000')];
+ok('ceiling: normal driving above last MOT (3,000 over ≈500/mo) → consistent', checkMileageTimeline(above, { currentMileage: 63000, asOf }).status === 'consistent');
+ok('ceiling: 16,000 over ≈2,700/mo (under 3,000) → not queried', checkMileageTimeline(above, { currentMileage: 76000, asOf }).enteredAboveRate === false);
+const aboveQuery = checkMileageTimeline(above, { currentMileage: 90000, asOf });
+ok('ceiling: 30,000 over ≈5,000/mo (over 3,000) → QUERY', aboveQuery.status === 'query' && aboveQuery.enteredAboveRate === true);
+ok('ceiling: transposed digit (60k→160k in 6mo ≈16,700/mo) → QUERY', checkMileageTimeline(above, { currentMileage: 160000, asOf }).enteredAboveRate === true);
+ok('ceiling: an above query never reads as clocking', !/clock/i.test(checkMileageTimeline(above, { currentMileage: 160000, asOf }).verdict));
+
+// One declaration, in mileageCheck only — no surface re-declares any mileage threshold.
+const tolDeclarers = [routeSrc, pageSrc, psSrc, pdfSrc].filter((s) => /toleranceMiles\s*[=?]|ROLLBACK_TOLERANCE|ENTERED_VS_MOT|IMPLIED_USAGE/.test(s)).length;
+ok('guard: mileage thresholds are declared only in mileageCheck (no surface copy)', tolDeclarers === 0);
+ok('guard: mileageCheck exports named entered (1000) + rollback (150) + usage (3000) thresholds', mileageSrc.includes('export const ENTERED_VS_MOT_TOLERANCE_MILES = 1000') && mileageSrc.includes('export const MOT_ROLLBACK_TOLERANCE_MILES = 150') && mileageSrc.includes('export const ENTERED_IMPLIED_USAGE_QUERY_PER_MONTH = 3000'));
 
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

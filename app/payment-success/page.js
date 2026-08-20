@@ -627,7 +627,13 @@ function MileageDetailSection({ result }) {
   if (!detail) return null;
   const readings = Array.isArray(detail.readings) ? detail.readings : [];
   const anomalies = Array.isArray(detail.anomalies) ? detail.anomalies : [];
-  const isDiscrepancy = detail.status === 'discrepancy';
+  // Three tones: 'discrepancy' = clocking (red), 'query' = confirm-the-figure (amber, neutral),
+  // else consistent (green). A query is never styled as a failure (batch 19).
+  const tone = detail.status === 'discrepancy'
+    ? { border: 'rgba(248,113,113,0.4)', bg: 'rgba(248,113,113,0.08)', color: '#f87171' }
+    : detail.status === 'query'
+    ? { border: 'rgba(245,200,66,0.45)', bg: 'rgba(245,200,66,0.10)', color: 'var(--yellow)' }
+    : { border: 'rgba(74,222,128,0.35)', bg: 'rgba(74,222,128,0.07)', color: '#4ade80' };
 
   return (
     <div className="card">
@@ -635,9 +641,7 @@ function MileageDetailSection({ result }) {
       <div
         style={{
           padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13.5, fontWeight: 600, lineHeight: 1.45,
-          border: `1.5px solid ${isDiscrepancy ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.35)'}`,
-          background: isDiscrepancy ? 'rgba(248,113,113,0.08)' : 'rgba(74,222,128,0.07)',
-          color: isDiscrepancy ? '#f87171' : '#4ade80',
+          border: `1.5px solid ${tone.border}`, background: tone.bg, color: tone.color,
         }}
       >
         {detail.verdict}
@@ -646,11 +650,13 @@ function MileageDetailSection({ result }) {
       {anomalies.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           {anomalies.map((a, i) => (
-            a._userEntered || a.toDate === 'entered'
-              // Entered-vs-MOT is the user's own figure, almost always a typo — neutral, no ✗, no
-              // "dropped". Reserve the failure marker for a genuine MOT-vs-MOT rollback (Defect 6).
+            (a._userEntered || a.toDate === 'entered')
+              // The user's OWN entered figure — neutral, no ✗, no "dropped". Reserve the failure marker
+              // for a genuine MOT-vs-MOT rollback (Defects 6 + batch 19).
               ? <div key={i} style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5, padding: '2px 0' }}>
-                  The mileage you entered ({Number(a.toMiles).toLocaleString('en-GB')} mi) is {Number(a.dropMiles).toLocaleString('en-GB')} mi below the last MOT reading ({Number(a.fromMiles).toLocaleString('en-GB')} mi, {a.fromDate}).
+                  {a._enteredAbove
+                    ? <>The mileage you entered ({Number(a.toMiles).toLocaleString('en-GB')} mi) implies about {Number(a.impliedPerMonth).toLocaleString('en-GB')} mi/month since the last MOT reading ({Number(a.fromMiles).toLocaleString('en-GB')} mi, {a.fromDate}).</>
+                    : <>The mileage you entered ({Number(a.toMiles).toLocaleString('en-GB')} mi) is {Number(a.dropMiles).toLocaleString('en-GB')} mi below the last MOT reading ({Number(a.fromMiles).toLocaleString('en-GB')} mi, {a.fromDate}).</>}
                 </div>
               : <div key={i} className="mot-failure">
                   ✗ Reading dropped {Number(a.dropMiles).toLocaleString('en-GB')} mi — {Number(a.fromMiles).toLocaleString('en-GB')} mi ({a.fromDate}) → {Number(a.toMiles).toLocaleString('en-GB')} mi ({a.toDate})

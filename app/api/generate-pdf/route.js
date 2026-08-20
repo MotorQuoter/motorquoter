@@ -529,21 +529,25 @@ function buildPdf(result, vrm, checks, checkDate) {
   // Was ABSENT from the PDF while present on screen (Defect 3, 20 Aug). Mirrors the screen block.
   if (has('mileage_detail') && result.mileageDetail) {
     const md = result.mileageDetail;
-    const bad = md.status === 'discrepancy';
     sectionTitle('Mileage / Clocking Check');
-    // The verdict WRAPS across lines — it must never be truncated mid-sentence, because the tail is the
-    // half that reassures ("usually a typo, not a sign the vehicle has been clocked") (Defect 5). Strip
-    // emoji / smart punctuation the base PDF font can't draw (the "þ" artefact) (Defect 5 minor).
+    // The verdict WRAPS across lines — never truncated mid-sentence (Defect 5). Strip emoji / smart
+    // punctuation the base PDF font can't draw (the "þ" artefact). Colour by outcome: clocking
+    // ('discrepancy') red, confirm-the-figure ('query') amber, consistent green (batch 19).
     checkPage(10);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-    doc.setTextColor(bad ? 170 : 0, bad ? 0 : 120, 0);
+    if (md.status === 'discrepancy') doc.setTextColor(170, 0, 0);
+    else if (md.status === 'query') doc.setTextColor(150, 110, 0);
+    else doc.setTextColor(0, 120, 0);
     for (const line of doc.splitTextToSize(pdfText(md.verdict), CONTENT_W)) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
     y += 2;
     const anomalies = Array.isArray(md.anomalies) ? md.anomalies : [];
     for (const a of anomalies) {
       if (a._userEntered || a.toDate === 'entered') {
-        // Entered-vs-MOT: the user's own figure, not a rollback — neutral, no failure marker (Defect 6).
-        row('Note', `Entered mileage is ${num(a.dropMiles)} mi below the last MOT reading (${num(a.fromMiles)} mi, ${a.fromDate})`);
+        // The user's own entered figure — neutral note, no failure marker (Defect 6 / batch 19).
+        const note = a._enteredAbove
+          ? `Entered mileage implies about ${num(a.impliedPerMonth)} mi/month since the last MOT reading (${num(a.fromMiles)} mi, ${a.fromDate})`
+          : `Entered mileage is ${num(a.dropMiles)} mi below the last MOT reading (${num(a.fromMiles)} mi, ${a.fromDate})`;
+        row('Note', note);
       } else {
         row('Rollback', `dropped ${num(a.dropMiles)} mi: ${num(a.fromMiles)} mi (${a.fromDate}) -> ${num(a.toMiles)} mi (${a.toDate})`, 'bad');
       }

@@ -66,12 +66,12 @@ test('tiny drop within tolerance → consistent (absorbs rounding/granularity)',
   assert.equal(r.status, 'consistent');
 });
 
-test('user-entered current mileage below the latest MOT → discrepancy (old guard, unit-aware)', () => {
+test('user-entered current mileage below the latest MOT → query (confirm-the-figure, unit-aware)', () => {
   const r = checkMileageTimeline([
     T('01/06/2023', '62000', 'mi'),
     T('01/06/2022', '55000', 'mi'),
   ], { currentMileage: 48000 });
-  assert.equal(r.status, 'discrepancy');
+  assert.equal(r.status, 'query');
   assert.ok(r.anomalies.some((a) => a._userEntered && a.toMiles === 48000));
 });
 
