@@ -79,6 +79,46 @@ ALTER TABLE used_sessions ENABLE ROW LEVEL SECURITY;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 2b. paid_reports  (BUILD_StoredReports, 21 Aug)
+--     A paid report must survive the tab closing. Keyed on the purchase, it stores the EXACT payload
+--     the customer was served so a re-open is a DB read and nothing else — no supplier calls, no
+--     free re-fetch. Short-lived (crash recovery only, STORED_REPORT_TTL_MINUTES = 10); the durable
+--     copy reaches the customer by email at purchase.
+--     ⚠️ MUST be created in Supabase before the feature works — schema.sql is not auto-applied.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS paid_reports (
+  session_id  text        PRIMARY KEY,   -- Stripe cs_... OR the promo/free UUID token
+  vrm         text        NOT NULL,
+  checks      text        NOT NULL,      -- comma-joined, as delivered
+  market      text        NOT NULL DEFAULT 'GB',
+  payload     jsonb       NOT NULL,      -- the EXACT response the customer was served
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS paid_reports_created_at_idx ON paid_reports (created_at);
+ALTER TABLE paid_reports ENABLE ROW LEVEL SECURITY;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2c. redeemed_sessions  (DDL was missing from the repo — flagged 19 Aug, added here)
+--     The FREE / promo path's single-use token record. Columns transcribed from the live usage in
+--     app/api/stripe/verify/route.js (token, used, checks, vrm, market, roi_tier) — VERIFY against the
+--     live table before applying; it was created manually and may carry columns not read here.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS redeemed_sessions (
+  token       text        PRIMARY KEY,
+  used        boolean     NOT NULL DEFAULT false,
+  checks      text,
+  vrm         text,
+  market      text        DEFAULT 'GB',
+  roi_tier    text,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE redeemed_sessions ENABLE ROW LEVEL SECURITY;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 3. salvage_sessions
 --    Persists the full lifecycle of a salvage damage assessment:
 --    image upload → Stripe payment → Claude assessment → optional re-run.
