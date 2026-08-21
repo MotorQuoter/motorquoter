@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PRICING, IE_MENU } from '@/config/pricing';
+import { experianVerdict } from '@/lib/experianHistory';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -14,7 +15,11 @@ function buildPdf(result, vrm, checks, checkDate) {
   const has = (key) => checks.includes(key);
   const isIE = result.market === 'IE';
 
-  const ac  = (isIE ? result.hpi : result.autocheck) || {};
+  // Finding 1: a failed/empty Experian call yields NULL. Keep the raw block to tell "checked, clear"
+  // (qty 0) from "never ran" (null) — the verdict decision lives in experianVerdict(). `ac` (|| {}) is
+  // ONLY for reading detail fields, and only ever under `!v.missing`.
+  const acRaw = isIE ? result.hpi : result.autocheck;
+  const ac  = acRaw || {};
   const val = result.valuation || {};
   const motHistory = result.motHistory || [];
   const cazAdv = result.cazanaAdverts || {};
@@ -283,34 +288,34 @@ function buildPdf(result, vrm, checks, checkDate) {
 
   // ── Write-off ────────────────────────────────────────────────────────────────
   if (has('writeoff') || hasFullHistory) {
-    const hasWriteOff = ac.condition_data_qty > 0;
-    const writeOffItem = ac.condition_data_items?.[0];
-    const wSrc = writeOffItem?.recovered_category_desc || writeOffItem?.vehicle_status || '';
-    const wMatch = wSrc.match(/\bCAT\s*([A-Z])\b/i);
-    const wLabel = hasWriteOff ? (wMatch ? `Cat ${wMatch[1]}` : (wSrc || 'Write-off recorded')) : null;
     sectionTitle('Write-off / Cat S·N Check', 'Data provided by Experian');
-    row('Write-off Status', hasWriteOff ? `[!] ${wLabel}` : '[OK] No write-off recorded', hasWriteOff ? 'bad' : 'good');
-    if (writeOffItem?.total_loss_date) row('Total Loss Date', dt(writeOffItem.total_loss_date));
+    const v = experianVerdict(acRaw, 'writeoff');
+    row('Write-off Status', v.value, v.tone);
+    if (!v.missing) {
+      const writeOffItem = ac.condition_data_items?.[0];
+      if (writeOffItem?.total_loss_date) row('Total Loss Date', dt(writeOffItem.total_loss_date));
+    }
   }
 
   // ── Finance ───────────────────────────────────────────────────────────────────
   if (has('finance') || hasFullHistory) {
-    const hasFinance = ac.finance_data_qty > 0;
     sectionTitle('Finance Check', 'Data provided by Experian');
-    row('Outstanding Finance', hasFinance ? '[!] Finance outstanding' : '[OK] No finance recorded', hasFinance ? 'bad' : 'good');
-    const items = ac.finance_data_items || [];
-    for (const f of items) {
-      if (f.finance_company) row('Finance Company', f.finance_company);
-      if (f.agreement_type)  row('Agreement Type', f.agreement_type);
+    const v = experianVerdict(acRaw, 'finance');
+    row('Outstanding Finance', v.value, v.tone);
+    if (!v.missing) {
+      for (const f of (ac.finance_data_items || [])) {
+        if (f.finance_company) row('Finance Company', f.finance_company);
+        if (f.agreement_type)  row('Agreement Type', f.agreement_type);
+      }
     }
   }
 
   // ── Stolen ────────────────────────────────────────────────────────────────────
   if (has('stolen') || hasFullHistory) {
-    const hasStolen = ac.stolen_vehicle_data_qty > 0;
     sectionTitle('Stolen Check', 'Data provided by Experian');
-    row(isIE ? 'Stolen Register' : 'Police Database', hasStolen ? '[!] Recorded as stolen' : '[OK] Not recorded stolen', hasStolen ? 'bad' : 'good');
-    if (isIE) {
+    const v = experianVerdict(acRaw, 'stolen');
+    row(isIE ? 'Stolen Register' : 'Police Database', v.value, v.tone);
+    if (!v.missing && isIE) {
       checkPage(10);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
@@ -324,52 +329,58 @@ function buildPdf(result, vrm, checks, checkDate) {
 
   // ── High-Risk Markers (Full History bundle) ─────────────────────────────────────
   if (hasFullHistory) {
-    const qty = ac.high_risk_data_qty ?? 0;
-    const items = Array.isArray(ac.high_risk_data_items) ? ac.high_risk_data_items : [];
     sectionTitle('High-Risk Markers', 'Data provided by Experian');
-    row('High-Risk Markers', qty > 0 ? `[!] ${qty} marker${qty === 1 ? '' : 's'} recorded` : '[OK] None recorded', qty > 0 ? 'bad' : 'good');
-    for (const it of items) {
-      const type = it?.high_risk_type || it?.type || it?.description || it?.marker || 'Marker recorded';
-      row('Marker', clip(str(type), 60));
-      const party = it?.registered_to || it?.company || it?.organisation || it?.interested_party || null;
-      if (party) row('Recorded By', clip(str(party), 60));
+    const v = experianVerdict(acRaw, 'high_risk');
+    row('High-Risk Markers', v.value, v.tone);
+    if (!v.missing) {
+      const items = Array.isArray(ac.high_risk_data_items) ? ac.high_risk_data_items : [];
+      for (const it of items) {
+        const type = it?.high_risk_type || it?.type || it?.description || it?.marker || 'Marker recorded';
+        row('Marker', clip(str(type), 60));
+        const party = it?.registered_to || it?.company || it?.organisation || it?.interested_party || null;
+        if (party) row('Recorded By', clip(str(party), 60));
+      }
+      checkPage(8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+      const hrNote = doc.splitTextToSize('High-risk markers are recorded by third parties (e.g. ex-rental / ex-fleet use, or a registered interest). This shows what is on record; it does not clear a vehicle.', CONTENT_W);
+      for (const line of hrNote) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 2;
     }
-    checkPage(8);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
-    const hrNote = doc.splitTextToSize('High-risk markers are recorded by third parties (e.g. ex-rental / ex-fleet use, or a registered interest). This shows what is on record; it does not clear a vehicle.', CONTENT_W);
-    for (const line of hrNote) { doc.text(line, MARGIN, y); y += 3.8; }
-    y += 2;
   }
 
   // ── Plate Changes (Full History bundle) ─────────────────────────────────────────
   if (hasFullHistory) {
-    const qty = ac.cherished_data_qty ?? 0;
-    const items = Array.isArray(ac.cherished_data_items) ? ac.cherished_data_items : [];
     sectionTitle('Plate Changes', 'Data provided by Experian');
-    row('Registration Changes', qty > 0 ? `${qty} recorded` : '[OK] None recorded', qty > 0 ? undefined : 'good');
-    for (const it of items) {
-      const plate = it?.previous_vehicle_registration_mark || it?.previous_vrm || it?.registration_mark || null;
-      const date  = it?.cherished_plate_transfer_date || it?.date_of_receipt || it?.date_of_change || it?.date || null;
-      if (plate) row('Previous Plate', str(plate));
-      if (date)  row('Change Date', dt(date));
+    const v = experianVerdict(acRaw, 'plate');
+    row('Registration Changes', v.value, v.tone);
+    if (!v.missing) {
+      const items = Array.isArray(ac.cherished_data_items) ? ac.cherished_data_items : [];
+      for (const it of items) {
+        const plate = it?.previous_vehicle_registration_mark || it?.previous_vrm || it?.registration_mark || null;
+        const date  = it?.cherished_plate_transfer_date || it?.date_of_receipt || it?.date_of_change || it?.date || null;
+        if (plate) row('Previous Plate', str(plate));
+        if (date)  row('Change Date', dt(date));
+      }
     }
   }
 
   // ── Previous Searches (Full History bundle) ─────────────────────────────────────
   if (hasFullHistory) {
-    const qty = ac.previous_search_qty ?? 0;
-    const items = Array.isArray(ac.previous_search_items) ? ac.previous_search_items : [];
     sectionTitle('Previous Searches', 'Data provided by Experian');
-    row('Recent Checks', qty > 0 ? `${qty} recorded` : '[OK] No recent searches', qty > 0 ? undefined : 'good');
-    for (const it of items.slice(0, 12)) {
-      const who  = it?.business_type_searching || null;
-      const date = it?.date_of_search || null;
-      if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
+    const v = experianVerdict(acRaw, 'searches');
+    row('Recent Checks', v.value, v.tone);
+    if (!v.missing) {
+      const items = Array.isArray(ac.previous_search_items) ? ac.previous_search_items : [];
+      for (const it of items.slice(0, 12)) {
+        const who  = it?.business_type_searching || null;
+        const date = it?.date_of_search || null;
+        if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
+      }
+      checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+      const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around. Includes checks run through MotorQuoter.', CONTENT_W);
+      for (const line of psNote) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 2;
     }
-    checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
-    const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around. Includes checks run through MotorQuoter.', CONTENT_W);
-    for (const line of psNote) { doc.text(line, MARGIN, y); y += 3.8; }
-    y += 2;
   }
 
   // ── Road Tax (computed, £0) ──────────────────────────────────────────────────────
