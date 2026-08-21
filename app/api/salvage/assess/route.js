@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { createCanvas, loadImage } from 'canvas';
+import { formatOdometer } from '@/lib/odometerDisplay';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { MODELS } from '@/config/models';
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
@@ -3227,13 +3228,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       enrichedVd.fuelType && `DVLA Fuel Type: ${enrichedVd.fuelType}`,
       enrichedVd.taxStatus && `Tax Status: ${enrichedVd.taxStatus}`,
       enrichedVd.motStatus && `MOT Status: ${enrichedVd.motStatus}`,
-      enrichedVd.lastMotMileage && `Last MOT Recorded Mileage: ${enrichedVd.lastMotMileage} miles`,
+      // "Recorded" dropped: lastMotMileage is normalised at source (data.motMileage), so for a km car
+      // this is no longer the RECORDED figure — the word would make the prompt assert something false.
+      enrichedVd.lastMotMileage && `Last MOT Mileage: ${enrichedVd.lastMotMileage} miles`,
       (() => {
         const mh = enrichedVd.motHistory;
         if (!Array.isArray(mh) || mh.length === 0) return null;
         const lines = mh.slice(0, 15).map(t => {
           const result  = (t.testResult || '').toUpperCase() === 'PASSED' ? 'PASS' : 'FAIL';
-          const odo     = t.odometerValue != null ? `${Number(t.odometerValue).toLocaleString('en-GB')}mi` : '';
+          // Feed the model NORMALISED miles — a raw km reading labelled "mi" makes it read a unit
+          // switch as a rollback. Keep the km original explicit (genuine import/NI signal), never silent.
+          const o = formatOdometer(t);
+          const odo = o.miles == null ? ''
+            : o.isKm
+              ? `${Number(o.miles).toLocaleString('en-GB')}mi (recorded ${Number(String(o.recordedValue).replace(/,/g, '')).toLocaleString('en-GB')}km)`
+              : `${Number(o.miles).toLocaleString('en-GB')}mi`;
           const remarks = (t.defects || [])
             .slice(0, 4)
             .map(d => `${(d.type || 'ADVISORY').toUpperCase()}: ${(d.text || '').slice(0, 60)}`)

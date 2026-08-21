@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { experianVerdict } from '@/lib/experianHistory';
-import { toMiles, normUnit } from '@/lib/mileageCheck';
+import { formatOdometer } from '@/lib/odometerDisplay';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -494,21 +494,19 @@ function buildPdf(result, vrm, checks, checkDate) {
           // computing it for rows cached before this change. For a km reading, annotate with the
           // recorded value — inline when it fits the column, otherwise on a sub-line so the annotation
           // is never clipped (a truncated unit note is worse than none).
-          const odoMi = test.odometerMiles ?? toMiles(test.odometerValue, test.odometerUnit);
+          const odo = formatOdometer(test);
           let kmSubline = null;
-          if (odoMi == null) {
+          if (odo.miles == null) {
             doc.text('-', MARGIN + 52, y);
-          } else if ((test.odometerRecordedUnit || normUnit(test.odometerUnit)) === 'km') {
-            const recVal = test.odometerRecordedValue ?? test.odometerValue;
-            const inline = `${num(odoMi)} mi (${num(recVal)} km)`;
-            if (doc.getTextWidth(inline) <= (90 - 52 - 2)) {   // fits before the Expiry column at MARGIN+90
-              doc.text(inline, MARGIN + 52, y);
+          } else if (odo.isKm) {
+            if (doc.getTextWidth(odo.label) <= (90 - 52 - 2)) {   // fits before the Expiry column at MARGIN+90
+              doc.text(odo.label, MARGIN + 52, y);
             } else {
-              doc.text(`${num(odoMi)} mi`, MARGIN + 52, y);
-              kmSubline = `Odometer recorded in km: ${num(recVal)} km = ${num(odoMi)} mi`;
+              doc.text(`${num(odo.miles)} mi`, MARGIN + 52, y);
+              kmSubline = `Odometer recorded in km: ${num(odo.recordedValue)} km = ${num(odo.miles)} mi`;
             }
           } else {
-            doc.text(`${num(odoMi)} mi`, MARGIN + 52, y);
+            doc.text(odo.label, MARGIN + 52, y);
           }
           doc.text(str(test.expiryDate || '-'), MARGIN + 90, y);
           y += 5;

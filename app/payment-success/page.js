@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
+import { formatOdometer } from '@/lib/odometerDisplay';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 function fmtFirstReg(str) {
@@ -597,15 +598,18 @@ function MotSection({ result }) {
             {motHistory.map((test, i) => {
               const advisories = test.defects?.filter(r => r.type === 'ADVISORY') || [];
               const failures   = test.defects?.filter(r => ['MAJOR', 'MINOR', 'DANGEROUS'].includes(r.type)) || [];
+              // Normalised, matching the paid Mileage timeline verbatim — this card was the last surface
+              // still printing "104,471 KM" and inviting the false subtraction (screen-vs-PDF divergence).
+              const odo = formatOdometer(test, { kmSuffix: ' recorded' });
               return (
                 <div className="history-record" key={i}>
                   <div className="history-row">
                     <span className="history-date">{test.completedDate}</span>
                     <span className={test.testResult === 'PASSED' ? 'badge-pass' : 'badge-fail'}>{test.testResult}</span>
                   </div>
-                  {test.odometerValue && (
+                  {odo.label && (
                     <div className="history-mileage">
-                      {Number(test.odometerValue).toLocaleString('en-GB')} {test.odometerUnit || 'mi'}
+                      {odo.label}
                       {test.expiryDate && <span style={{marginLeft: 8, color: 'var(--text-dim)'}}>Expires {test.expiryDate}</span>}
                     </div>
                   )}

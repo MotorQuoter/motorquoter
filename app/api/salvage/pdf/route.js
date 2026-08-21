@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
+import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
@@ -388,7 +389,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       const testLine = [
         test.testResult,
         test.completedDate,
-        test.odometerValue ? `${Number(test.odometerValue).toLocaleString()} mi` : null,
+        formatOdometer(test).label,   // normalised miles; km rows annotated "(NNN km)" — free-flow line, no column collision
         pass && test.expiryDate ? `exp ${test.expiryDate}` : null,
       ].filter(Boolean).join(' - ');
       doc.setFont('helvetica', 'bold');

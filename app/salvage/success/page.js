@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
+import { formatOdometer } from '@/lib/odometerDisplay';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
@@ -587,7 +588,7 @@ export default function SalvageSuccessPage() {
                           </span>
                           <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                             {test.completedDate}
-                            {test.odometerValue ? ` · ${Number(test.odometerValue).toLocaleString()} mi` : ''}
+                            {formatOdometer(test).label ? ` · ${formatOdometer(test).label}` : ''}
                             {pass && test.expiryDate ? ` · exp ${test.expiryDate}` : ''}
                           </span>
                         </div>

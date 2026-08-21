@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
+import { formatOdometer } from '@/lib/odometerDisplay';
 
 const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const MAX_PHOTOS = 40;          // shared ceiling: individual-photo path and zip path both cap here
@@ -745,7 +746,7 @@ export default function SalvagePage() {
                           <div key={i} style={{ marginBottom: 3 }}>
                             <div style={{ fontSize: 11, display: 'flex', gap: 6 }}>
                               <span style={{ color: pass ? '#4ade80' : '#f87171', fontWeight: 700, flexShrink: 0 }}>{pass ? '✓' : '✗'}</span>
-                              <span style={{ color: 'var(--text-dim)' }}>{test.completedDate}{test.odometerValue ? ` · ${Number(test.odometerValue).toLocaleString()} mi` : ''}</span>
+                              <span style={{ color: 'var(--text-dim)' }}>{test.completedDate}{formatOdometer(test).label ? ` · ${formatOdometer(test).label}` : ''}</span>
                             </div>
                             {advisories.map((adv, j) => (
                               <div key={j} style={{ fontSize: 10, color: 'var(--text-dim)', paddingLeft: 16, lineHeight: 1.4 }}>↳ {adv.text}</div>
