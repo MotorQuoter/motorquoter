@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { createCanvas, loadImage } from 'canvas';
-import { formatOdometer } from '@/lib/odometerDisplay';
+import { formatOdometerCompact } from '@/lib/odometerDisplay';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { MODELS } from '@/config/models';
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
@@ -3238,11 +3238,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           const result  = (t.testResult || '').toUpperCase() === 'PASSED' ? 'PASS' : 'FAIL';
           // Feed the model NORMALISED miles — a raw km reading labelled "mi" makes it read a unit
           // switch as a rollback. Keep the km original explicit (genuine import/NI signal), never silent.
-          const o = formatOdometer(t);
-          const odo = o.miles == null ? ''
-            : o.isKm
-              ? `${Number(o.miles).toLocaleString('en-GB')}mi (recorded ${Number(String(o.recordedValue).replace(/,/g, '')).toLocaleString('en-GB')}km)`
-              : `${Number(o.miles).toLocaleString('en-GB')}mi`;
+          const odo = formatOdometerCompact(t);
           const remarks = (t.defects || [])
             .slice(0, 4)
             .map(d => `${(d.type || 'ADVISORY').toUpperCase()}: ${(d.text || '').slice(0, 60)}`)

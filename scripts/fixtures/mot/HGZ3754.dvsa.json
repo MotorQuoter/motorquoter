@@ -1,0 +1,56 @@
+{
+  "_source": "DVSA MOT History API via /api/vehicle?tier=free",
+  "_capturedAt": "2026-08-21",
+  "_note": "Captured substrate. Do NOT hand-edit values - recapture instead.",
+  "vrm": "HGZ3754",
+  "make": "MG",
+  "model": "3 FORM SPORT VTI-TECH",
+  "yearOfManufacture": 2017,
+  "distinctUnits": [
+    "MI"
+  ],
+  "mixedUnits": false,
+  "latestUnit": "MI",
+  "motTests": [
+    {
+      "completedDate": "14/03/2026",
+      "testResult": "PASSED",
+      "expiryDate": "13/03/2027",
+      "odometerValue": "74438",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "07/03/2026",
+      "testResult": "FAILED",
+      "expiryDate": "08/03/2026",
+      "odometerValue": "74402",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "09/03/2024",
+      "testResult": "PASSED",
+      "expiryDate": "08/03/2026",
+      "odometerValue": "61307",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "04/03/2023",
+      "testResult": "PASSED",
+      "expiryDate": "03/03/2024",
+      "odometerValue": "56941",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "12/02/2022",
+      "testResult": "PASSED",
+      "expiryDate": "28/02/2023",
+      "odometerValue": "50186",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    }
+  ]
+}

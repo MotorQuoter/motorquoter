@@ -2,7 +2,13 @@
 // Run: node --test scripts/validate-mileage-check.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { checkMileageTimeline, toMiles } from '../lib/mileageCheck.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const loadFixture = (vrm) => JSON.parse(readFileSync(join(HERE, 'fixtures', 'mot', `${vrm}.dvsa.json`), 'utf8'));
 
 // DVSA-shaped test (newest-first, as the API returns — the checker sorts by date itself).
 const T = (date, value, unit) => ({ completedDate: date, odometerValue: value, odometerUnit: unit, testResult: 'PASSED' });
@@ -145,15 +151,10 @@ test('a REAL rollback is still caught even with a 0-mile row present', () => {
 
 // GY67LLD — the live fixture: six real tests, two of them km, sitting BELOW four later mi readings.
 // Independent OE service data proves 64,915 mi on 28/10/2020. This is the "apparent drop that is not a
-// rollback" case in one vehicle. Rows as DVSA returns them (un-normalised, uppercase units, FAILED row).
-const GY67LLD = [
-  { completedDate: '27/11/2025', odometerValue: 111119, odometerUnit: 'MI', testResult: 'PASSED' },
-  { completedDate: '28/12/2023', odometerValue: 96601,  odometerUnit: 'MI', testResult: 'PASSED' },
-  { completedDate: '04/11/2022', odometerValue: 86538,  odometerUnit: 'MI', testResult: 'PASSED' },
-  { completedDate: '29/10/2021', odometerValue: 72743,  odometerUnit: 'MI', testResult: 'PASSED' },
-  { completedDate: '03/11/2020', odometerValue: 104498, odometerUnit: 'KM', testResult: 'PASSED' },
-  { completedDate: '27/10/2020', odometerValue: 104471, odometerUnit: 'KM', testResult: 'FAILED' },
-];
+// rollback" case in one vehicle. Loaded from the CAPTURED DVSA response (scripts/fixtures/mot), not
+// hand-typed — the project's own rule: read what was actually received, never a memory of it. (DVSA
+// returns odometerValue as a STRING; parseOdometer handles it, so the assertions are unchanged.)
+const GY67LLD = loadFixture('GY67LLD').motTests;
 
 test('GY67LLD fixture — mixed mi/km, six readings, CONSISTENT, km rows resolve to miles', () => {
   const r = checkMileageTimeline(GY67LLD);

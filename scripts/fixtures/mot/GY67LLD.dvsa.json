@@ -1,0 +1,65 @@
+{
+  "_source": "DVSA MOT History API via /api/vehicle?tier=free",
+  "_capturedAt": "2026-08-21",
+  "_note": "Captured substrate. Do NOT hand-edit values - recapture instead.",
+  "vrm": "GY67LLD",
+  "make": "MERCEDES-BENZ",
+  "model": "E 200 D SE AUTO",
+  "yearOfManufacture": 2017,
+  "distinctUnits": [
+    "MI",
+    "KM"
+  ],
+  "mixedUnits": true,
+  "latestUnit": "MI",
+  "motTests": [
+    {
+      "completedDate": "27/11/2025",
+      "testResult": "PASSED",
+      "expiryDate": "26/11/2026",
+      "odometerValue": "111119",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "28/12/2023",
+      "testResult": "PASSED",
+      "expiryDate": "27/12/2025",
+      "odometerValue": "96601",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "04/11/2022",
+      "testResult": "PASSED",
+      "expiryDate": "22/11/2023",
+      "odometerValue": "86538",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "29/10/2021",
+      "testResult": "PASSED",
+      "expiryDate": "22/11/2022",
+      "odometerValue": "72743",
+      "odometerUnit": "MI",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "03/11/2020",
+      "testResult": "PASSED",
+      "expiryDate": "22/11/2021",
+      "odometerValue": "104498",
+      "odometerUnit": "KM",
+      "odometerResultType": "READ"
+    },
+    {
+      "completedDate": "27/10/2020",
+      "testResult": "FAILED",
+      "expiryDate": null,
+      "odometerValue": "104471",
+      "odometerUnit": "KM",
+      "odometerResultType": "READ"
+    }
+  ]
+}
