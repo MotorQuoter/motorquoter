@@ -28,6 +28,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Vehicle type not supported' }, { status: 400 });
     }
 
+    // MotorQuoter Salvage is UK-only. Refuse an IE lot server-side — BEFORE the salvage_sessions
+    // insert and the Stripe session — so a crafted POST can't create an orphan row or a paid session
+    // for a report we don't produce (assess/route.js skips the salvage-history/valuation/bid-predictor
+    // for IE). The client no longer offers the toggle; this is the enforcement.
+    if (market === 'IE') {
+      return NextResponse.json({ error: 'MotorQuoter Salvage covers UK vehicles only.' }, { status: 400 });
+    }
+
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
     const roiTierKey = market === 'IE' ? (roiTier || 'roi_free') : null;

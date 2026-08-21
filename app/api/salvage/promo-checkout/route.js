@@ -37,6 +37,12 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Vehicle type not supported' }, { status: 400 });
     }
 
+    // MotorQuoter Salvage is UK-only — refuse an IE lot BEFORE the atomic token consume / promo
+    // increment below, so a refused lot never burns a free report or a promo use.
+    if (market === 'IE') {
+      return NextResponse.json({ error: 'MotorQuoter Salvage covers UK vehicles only.' }, { status: 400 });
+    }
+
     // Sale-passed reject gate (Commit 4): computed once from the raw paste already in
     // vehicleDetails. null saleDate (absent/unparseable) never fires. Free path rejects before the
     // atomic consume; promo path before the increment (skipped for bypass codes).
