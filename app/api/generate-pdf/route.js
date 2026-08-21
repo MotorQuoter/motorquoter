@@ -301,6 +301,9 @@ function buildPdf(result, vrm, checks, checkDate) {
         const d = m ? `${+m[3]} ${MO[+m[2] - 1]} ${m[1]}` : ic.fx.date;
         lines.push(`Converted at £1 = €${Number(ic.fx.rate).toFixed(2)} (${d}). You pay in £; Irish charges are in €.`);
       }
+      if (ic.importMileage) {
+        lines.push(`Mileage ${Number(ic.importMileage.miles).toLocaleString('en-GB')} mi (${Number(ic.importMileage.km).toLocaleString('en-GB')} km) - Irish valuations are in kilometres.`);
+      }
       if (ic.provenanceConflict) lines.push(`IMPORTANT: ${ic.provenanceConflict}`);
       if (ic.jurisdiction) {
         lines.push(`NI import evidence — ${ic.jurisdiction.reason}`);

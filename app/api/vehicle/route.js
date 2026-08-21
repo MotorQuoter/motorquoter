@@ -21,7 +21,7 @@ import {
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { estimateImportPresentation, importScopeRefusal } from '@/lib/importCost';
-import { GBP_EUR_RATE, GBP_EUR_RETRIEVED } from '@/config/vrt';
+import { GBP_EUR_RATE, GBP_EUR_RETRIEVED, MI_TO_KM } from '@/config/vrt';
 import { buildJurisdictionTimeline, provenanceConflict } from '@/lib/importProvenance';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
@@ -969,7 +969,12 @@ const dvla = await safeJson(dvlaRes);
         const purchasePrice = purchasePriceGbp == null ? null : Math.round(purchasePriceGbp * GBP_EUR_RATE);
         const noxRaw = searchParams.get('nox');
         const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
-        const importKms = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10) || 50000;
+        // /import is a BRITISH car — the seller reads MILES (the form now labels the field so). Brego
+        // Ireland wants km, so convert at the boundary. ⚠️ The ie_valuation path (:707, roiMileage) is
+        // an IRISH car — km already — and is deliberately left unconverted. DEFAULT (no mileage entered)
+        // stays 50,000 KM: a km figure that BYPASSES the multiply, so it is never double-converted.
+        const importMiles = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10) || null;
+        const importKms = importMiles == null ? 50000 : Math.round(importMiles * MI_TO_KM);
         // New-means-of-transport limbs (VAT applies regardless of NI reliefs). Age from DVLA first
         // registration; distance from the latest DVSA MOT odometer, unit-converted to KM (Revenue's
         // limb is 6,000 km; MOT odometer is often in miles — odometerUnit disambiguates).
@@ -988,7 +993,9 @@ const dvla = await safeJson(dvlaRes);
           const _v = Number(String(latestMot.odometerValue).replace(/[^\d.]/g, ''));
           if (Number.isFinite(_v) && _v >= 0) {
             const _unit = String(latestMot.odometerUnit || '').toLowerCase();
-            odometerKm = _unit.startsWith('mi') ? Math.round(_v * 1.60934) : Math.round(_v);
+            // Unit-aware already (reads odometerUnit); consolidated onto the ONE MI_TO_KM constant so
+            // it can't drift from the /import conversion (was an inlined mi→km literal — §5.4 find, 21 Aug).
+            odometerKm = _unit.startsWith('mi') ? Math.round(_v * MI_TO_KM) : Math.round(_v);
           }
         }
         try {
@@ -1025,6 +1032,9 @@ const dvla = await safeJson(dvlaRes);
             // The GBP→EUR pin applied to the VAT base (omsp is Brego EUR, not converted) — shown on
             // screen + PDF so the figure is reproducible. Present only when a £ price was supplied.
             fx: purchasePriceGbp != null ? { rate: GBP_EUR_RATE, date: GBP_EUR_RETRIEVED } : null,
+            // The mi→km the Irish valuation was run at — shown so a customer seeing a km figure they
+            // never typed knows it is a conversion, not an error. Present only when mileage was entered.
+            importMileage: importMiles != null ? { miles: importMiles, km: importKms } : null,
             omsp: bregoIe ? {
               low:  bregoIe.retail_low_valuation     ?? null,
               avg:  bregoIe.retail_average_valuation ?? null,

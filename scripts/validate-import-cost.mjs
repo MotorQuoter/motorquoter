@@ -9,7 +9,7 @@ import {
   classifyNewMeansOfTransport, importScopeRefusal,
   noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
-import { CO2_BANDS, VRT_MINIMUM, NOX_CAP, GBP_EUR_RATE, GBP_EUR_RETRIEVED } from '../config/vrt.mjs';
+import { CO2_BANDS, VRT_MINIMUM, NOX_CAP, GBP_EUR_RATE, GBP_EUR_RETRIEVED, MI_TO_KM } from '../config/vrt.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -518,4 +518,48 @@ test('§3.6 — no bare 1.17 in the paid path; rate string reaches screen AND PD
   assert.doesNotMatch(_read('app/api/vehicle/route.js'), /\b1\.17\b/);
   assert.match(_read('app/payment-success/page.js'), /Converted at £1 = €/);        // screen
   assert.match(_read('app/api/generate-pdf/route.js'), /Converted at £1 = €/);       // PDF
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /import mileage was entered in MILES but sent to Brego Ireland as current_kms
+// (BUILD_ImportMileageUnit, 21 Aug). British car → convert; Irish (ie_valuation) → not.
+// ─────────────────────────────────────────────────────────────────────────────
+test('§3.1 — import path converts miles→km: 74,000 mi → current_kms 119,091', () => {
+  assert.equal(Math.round(74000 * MI_TO_KM), 119091);
+  const src = _read('app/api/vehicle/route.js');
+  // the import boundary converts, defaulting to 50,000 KM (bypasses the multiply — never doubled)
+  assert.match(src, /importKms = importMiles == null \? 50000 : Math\.round\(importMiles \* MI_TO_KM\)/);
+  assert.match(src, /current_kms=\$\{importKms\}/);
+});
+
+test('§3.2 — INVERSE: the ie_valuation (Irish car) path stays km, UNCONVERTED', () => {
+  const src = _read('app/api/vehicle/route.js');
+  // roiMileage → current_kms with NO MI_TO_KM anywhere on that line (Irish owner already reads km)
+  assert.match(src, /current_kms=\$\{roiMileage \|\| 50000\}/);
+  assert.doesNotMatch(src, /roiMileage[^\n]*MI_TO_KM/);
+  assert.doesNotMatch(src, /MI_TO_KM[^\n]*roiMileage/);
+});
+
+test('§3.3 — no mileage entered → 50,000 km default, not double-converted', () => {
+  // importMiles == null → 50000 (a km figure), so 50000 is NOT multiplied by MI_TO_KM
+  assert.notEqual(50000, Math.round(50000 * MI_TO_KM));   // 80,467 would be the bug
+  assert.match(_read('app/api/vehicle/route.js'), /importMiles == null \? 50000 :/);
+});
+
+test('§3.4 — MI_TO_KM read from config, never inlined (no bare 1.609)', () => {
+  assert.doesNotMatch(_read('app/api/vehicle/route.js'), /\b1\.609/);
+  assert.doesNotMatch(_read('app/api/import-estimate/route.js'), /\b1\.609/);
+  assert.match(_read('app/api/vehicle/route.js'), /MI_TO_KM/);
+});
+
+test('§3.5 — round-trip: MI_TO_KM × KM_TO_MI ≈ 1 (catches a drifted constant)', () => {
+  const m = _read('lib/mileageCheck.mjs').match(/KM_TO_MI\s*=\s*([\d.]+)/);
+  assert.ok(m, 'KM_TO_MI literal found in lib/mileageCheck.mjs');
+  const kmToMi = Number(m[1]);
+  assert.ok(Math.abs(MI_TO_KM * kmToMi - 1) < 1e-4, `MI_TO_KM(${MI_TO_KM}) × KM_TO_MI(${kmToMi}) = ${MI_TO_KM * kmToMi}`);
+});
+
+test('§3.6 — the mi/km line reaches the paid screen AND PDF', () => {
+  assert.match(_read('app/payment-success/page.js'), /Irish valuations are in kilometres/);
+  assert.match(_read('app/api/generate-pdf/route.js'), /Irish valuations are in kilometres/);
 });

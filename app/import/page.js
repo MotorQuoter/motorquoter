@@ -164,8 +164,8 @@ export default function ImportPage() {
           )}
           {sellerType === 'pre2021' && <div className="hint">Treated as EU goods — no VAT or customs. Keep proof it was in NI before the cut-off.</div>}
 
-          <label className="field-label">Mileage <span className="opt">(optional)</span></label>
-          <input className="field" value={mileage} onChange={e => setMileage(e.target.value)} inputMode="numeric" placeholder="Sharpens the paid Irish valuation" />
+          <label className="field-label">Mileage in miles <span className="opt">(optional)</span></label>
+          <input className="field" value={mileage} onChange={e => setMileage(e.target.value)} inputMode="numeric" placeholder="In miles — sharpens the paid Irish valuation" />
 
           <button type="button" className="advanced-toggle" onClick={() => setShowAdvanced(s => !s)}>
             {showAdvanced ? '− ' : '+ '}Advanced — exact NOx from your V5C

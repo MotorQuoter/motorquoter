@@ -43,6 +43,15 @@ export const GBP_EUR_RATE = 1.17;          // pinned — Alpha Vantage GBP/EUR 1
 export const GBP_EUR_RETRIEVED = '2026-08-21';
 export const GBP_EUR_SOURCE = 'Alpha Vantage realtime GBP/EUR 1.16719 @ 16:19 UTC 2026-08-21';
 
+// ── Miles → kilometres, for the /import mileage INPUT only ───────────────────
+// /import is for a BRITISH car — the seller reads a UK odometer in MILES — but Brego Ireland's
+// valuation takes `current_kms`. Convert once at the boundary (vehicle/route.js). The ie_valuation
+// menu path is an IRISH car (km already) and is deliberately NOT converted. This is the exact twin of
+// KM_TO_MI = 0.621371 in lib/mileageCheck.mjs: 1.609344 mi→km. Kept as an independent literal (not an
+// inverted import) so neither reads as derived from the other; validate-import-cost §3.5 round-trips
+// the pair (MI_TO_KM × KM_TO_MI ≈ 1) so a drift is caught.
+export const MI_TO_KM = 1.609344;
+
 // ── CO2 charge (Category A) ──────────────────────────────────────────────────
 // CO2 charge = rate × OMSP, subject to the per-band € minimum.
 // maxCo2 = INCLUSIVE upper bound (g/km); the last band (>190) uses Infinity.

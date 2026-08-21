@@ -900,6 +900,12 @@ function ImportCostSection({ result }) {
       Converted at £1 = €{Number(ic.fx.rate).toFixed(2)} ({fmtFx(ic.fx.date)}). You pay in £; Irish charges are in €.
     </div>
   ) : null;
+  // The mi→km the Irish valuation ran at — so a km figure the customer never typed reads as a conversion.
+  const mileageNote = ic.importMileage ? (
+    <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textAlign: 'center', marginTop: 2, lineHeight: 1.4 }}>
+      Mileage {Number(ic.importMileage.miles).toLocaleString('en-GB')} mi ({Number(ic.importMileage.km).toLocaleString('en-GB')} km) — Irish valuations are in kilometres.
+    </div>
+  ) : null;
 
   if (!ic.supported) {
     return (
@@ -979,6 +985,7 @@ function ImportCostSection({ result }) {
           </div>
         </div>
         {fxNote}
+{mileageNote}
         <div style={{ ...noteSt, paddingBottom: 6 }}>Both use the same Irish valuation and VRT calculation; they differ only in whether VAT and customs apply.</div>
         {ic.sellerType === 'dealer' && <div style={noteSt}>Buying from an NI dealer? Ask for the <strong>UKIMS movement reference (MRN)</strong> for this car — the electronic record from when it was moved to NI.</div>}
         {conflictWarn}
@@ -1013,6 +1020,7 @@ function ImportCostSection({ result }) {
           <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>VRT only (in NI before 1 Jan 2021 — EU goods)</div>
         )}
         {fxNote}
+{mileageNote}
       </div>
       {conflictWarn}
       {evidenceBlock}
