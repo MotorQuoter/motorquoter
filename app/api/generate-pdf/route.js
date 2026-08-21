@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { experianVerdict } from '@/lib/experianHistory';
+import { toMiles, normUnit } from '@/lib/mileageCheck';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -487,9 +488,31 @@ function buildPdf(result, vrm, checks, checkDate) {
           doc.setTextColor(test.testResult === 'PASSED' ? 0 : 170, test.testResult === 'PASSED' ? 120 : 0, 0);
           doc.text(str(test.testResult || '-'), MARGIN + 27, y);
           doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20);
-          doc.text(test.odometerValue ? `${num(test.odometerValue)} mi` : '-', MARGIN + 52, y);
+          // Mileage — normalised to miles. This table previously hardcoded " mi" and printed a km
+          // reading as "104,471 mi", which let a reader do the subtraction and read a phantom rollback
+          // (the false clocking allegation Vincent saw). Prefer the boundary field; fall back to
+          // computing it for rows cached before this change. For a km reading, annotate with the
+          // recorded value — inline when it fits the column, otherwise on a sub-line so the annotation
+          // is never clipped (a truncated unit note is worse than none).
+          const odoMi = test.odometerMiles ?? toMiles(test.odometerValue, test.odometerUnit);
+          let kmSubline = null;
+          if (odoMi == null) {
+            doc.text('-', MARGIN + 52, y);
+          } else if ((test.odometerRecordedUnit || normUnit(test.odometerUnit)) === 'km') {
+            const recVal = test.odometerRecordedValue ?? test.odometerValue;
+            const inline = `${num(odoMi)} mi (${num(recVal)} km)`;
+            if (doc.getTextWidth(inline) <= (90 - 52 - 2)) {   // fits before the Expiry column at MARGIN+90
+              doc.text(inline, MARGIN + 52, y);
+            } else {
+              doc.text(`${num(odoMi)} mi`, MARGIN + 52, y);
+              kmSubline = `Odometer recorded in km: ${num(recVal)} km = ${num(odoMi)} mi`;
+            }
+          } else {
+            doc.text(`${num(odoMi)} mi`, MARGIN + 52, y);
+          }
           doc.text(str(test.expiryDate || '-'), MARGIN + 90, y);
           y += 5;
+          if (kmSubline) { checkPage(5); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120); doc.text(kmSubline, MARGIN + 4, y); y += 4; doc.setFontSize(8.5); doc.setTextColor(20, 20, 20); }
           for (const f of fails) { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(170, 0, 0); doc.text(`[${f.type}] ${clip(f.text, 86)}`, MARGIN + 4, y); y += 4; }
           for (const a of advs)  { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(140, 90, 0); doc.text(`[A] ${clip(a.text, 90)}`, MARGIN + 4, y); y += 4; }
           doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);

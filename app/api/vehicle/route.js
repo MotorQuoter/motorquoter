@@ -400,7 +400,7 @@ const dvla = await safeJson(dvlaRes);
         taxDueDate: dvla.taxDueDate,
         motStatus: dvla.motStatus,
         motExpiryDate: freeLatestMot?.expiryDate || null,
-        motMileage: freeLatestMot?.odometerValue || null,
+        motMileage: freeLatestMot?.odometerMiles ?? null,   // unit-normalised (km→mi) at the DVSA boundary
         motResult: freeLatestMot?.testResult || null,
         motHistory: freeMotTests,
         // CACHE the MOT-only (vehicle-scoped) verdict — no entered mileage. The response below carries
@@ -834,7 +834,7 @@ const dvla = await safeJson(dvlaRes);
 
       const { mileage: bregoMileage, source: bregoMileageSource } = getMileageForValuation({
         formMileage: userMileageValid ? userMileageNum : null,
-        dvsaMileage: earlyDvsaData?.motTests?.[0]?.odometerValue ?? null,
+        dvsaMileage: earlyDvsaData?.motTests?.[0]?.odometerMiles ?? null,   // normalised miles — the valuation is priced on THIS
         formMileageSource: 'user_entered',
       });
 
@@ -938,7 +938,7 @@ const dvla = await safeJson(dvlaRes);
         autocheck: autocheck?.result || null,
         valuation: valuation?.result || null,
         motExpiryDate: latestMot?.expiryDate || null,
-        motMileage: latestMot?.odometerValue || null,
+        motMileage: latestMot?.odometerMiles ?? null,   // unit-normalised (km→mi) at the DVSA boundary
         motResult: latestMot?.testResult || null,
         motHistory: motTests || null,
         cazanaAdverts: cazanaAdverts?.error ? null : cazanaAdverts,
@@ -964,7 +964,7 @@ const dvla = await safeJson(dvlaRes);
         valuationMileage: needsValuation ? bregoMileage : null,
         valuationMileageSource: needsValuation ? bregoMileageSource : null,
         valuationMileageDate: (needsValuation && bregoMileageSource === 'dvsa_mot') ? (latestMot?.completedDate || null) : null,
-        dvsaLastMileage: latestMot?.odometerValue || null,
+        dvsaLastMileage: latestMot?.odometerMiles ?? null,   // normalised: the payment-success >500 flag compares this to valuationMileage (also miles)
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
