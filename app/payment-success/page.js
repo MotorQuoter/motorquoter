@@ -893,6 +893,13 @@ function ImportCostSection({ result }) {
   const subKeySt = { fontSize: 11, color: 'var(--text-dim)', paddingRight: 10 };
   const valSt = { fontSize: 15, fontWeight: 700, color: 'var(--text)' };
   const noteSt = { fontSize: 11.5, color: 'var(--text-dim)', lineHeight: 1.5, padding: '6px 0 0' };
+  // The GBP→EUR pin applied to the VAT/customs base (reproducible figure — shown here and on the PDF).
+  const fmtFx = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return m ? `${+m[3]} ${M[+m[2] - 1]} ${m[1]}` : iso; };
+  const fxNote = ic.fx ? (
+    <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textAlign: 'center', marginTop: 4, lineHeight: 1.4 }}>
+      Converted at £1 = €{Number(ic.fx.rate).toFixed(2)} ({fmtFx(ic.fx.date)}). You pay in £; Irish charges are in €.
+    </div>
+  ) : null;
 
   if (!ic.supported) {
     return (
@@ -971,6 +978,7 @@ function ImportCostSection({ result }) {
             {dutyWithVat != null && <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2, lineHeight: 1.3 }}>+ up to {fmtEur(dutyWithVat)} duty (incl. VAT) if not UK-origin</div>}
           </div>
         </div>
+        {fxNote}
         <div style={{ ...noteSt, paddingBottom: 6 }}>Both use the same Irish valuation and VRT calculation; they differ only in whether VAT and customs apply.</div>
         {ic.sellerType === 'dealer' && <div style={noteSt}>Buying from an NI dealer? Ask for the <strong>UKIMS movement reference (MRN)</strong> for this car — the electronic record from when it was moved to NI.</div>}
         {conflictWarn}
@@ -1004,6 +1012,7 @@ function ImportCostSection({ result }) {
         ) : (
           <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>VRT only (in NI before 1 Jan 2021 — EU goods)</div>
         )}
+        {fxNote}
       </div>
       {conflictWarn}
       {evidenceBlock}

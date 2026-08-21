@@ -21,6 +21,7 @@ import {
 } from '@/lib/serviceHistory';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { estimateImportPresentation, importScopeRefusal } from '@/lib/importCost';
+import { GBP_EUR_RATE, GBP_EUR_RETRIEVED } from '@/config/vrt';
 import { buildJurisdictionTimeline, provenanceConflict } from '@/lib/importProvenance';
 
 // Explicit, was inherited. Confirmed from the project's own resource config rather than assumed:
@@ -960,7 +961,12 @@ const dvla = await safeJson(dvlaRes);
         const jurisdiction = buildJurisdictionTimeline(dvsaData?.motTests, dvsaData?.firstUsedDate);
         // Conflict warning only bites when the buyer asserts an NI-qualifying route against a post-2020 GB test.
         const provConflict = provenanceConflict(sellerType === 'gb' ? 'GB' : 'NI', jurisdiction.flags);
-        const purchasePrice = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
+        const purchasePriceGbp = parseInt((searchParams.get('purchase_price') || searchParams.get('price') || '0').replace(/[^\d]/g, ''), 10) || null;
+        // The VAT/customs base is a EURO charge on the price the buyer paid — that price arrives in £,
+        // so convert it ONCE here (same pin as the free tier). ⚠️ Do NOT convert `omsp` below: it is
+        // Brego Ireland, ALREADY EUR — multiplying it would inflate VRT 17% the other way. These two
+        // sit two lines apart at the presentation call; convert one, leave the other.
+        const purchasePrice = purchasePriceGbp == null ? null : Math.round(purchasePriceGbp * GBP_EUR_RATE);
         const noxRaw = searchParams.get('nox');
         const noxOverride = (noxRaw != null && noxRaw !== '') ? Number(noxRaw) : undefined;
         const importKms = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10) || 50000;
@@ -1016,6 +1022,9 @@ const dvla = await safeJson(dvlaRes);
           });
           importCost = {
             ...presentation,
+            // The GBP→EUR pin applied to the VAT base (omsp is Brego EUR, not converted) — shown on
+            // screen + PDF so the figure is reproducible. Present only when a £ price was supplied.
+            fx: purchasePriceGbp != null ? { rate: GBP_EUR_RATE, date: GBP_EUR_RETRIEVED } : null,
             omsp: bregoIe ? {
               low:  bregoIe.retail_low_valuation     ?? null,
               avg:  bregoIe.retail_average_valuation ?? null,

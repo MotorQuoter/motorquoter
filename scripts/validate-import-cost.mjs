@@ -466,3 +466,56 @@ test('§4.5 — the route converts once and surfaces fx {rate,date} for the on-s
   // and the page renders it
   assert.match(_read('app/import/page.js'), /Converted at £1 = €/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAID import VAT/customs base was raw £ into the euro engine (BUILD_PaidImportVAT,
+// 21 Aug). omsp (VRT) stays Brego EUR; ONLY purchasePrice (VAT/customs) converts.
+// ─────────────────────────────────────────────────────────────────────────────
+test('§3.1 — PAID GB: £8,000 → VAT base €9,360, VAT = 23% × 9,360 (not × 8,000)', () => {
+  const base = Math.round(8000 * GBP_EUR_RATE);      // 9,360
+  const r = estimateImportCost({ omsp: 15000, purchasePrice: base, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB' });
+  assert.equal(r.vat, Math.round(0.23 * 9360));      // 2,153
+  const wrong = estimateImportCost({ omsp: 15000, purchasePrice: 8000, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB' });
+  assert.equal(wrong.vat, Math.round(0.23 * 8000));  // 1,840 — the pre-fix figure
+  assert.notEqual(r.vat, wrong.vat);
+  // customs (indicative) is the same base
+  assert.equal(r.customsDutyFlag.indicativeAmount, Math.round(0.10 * 9360));
+});
+
+test('§3.2 — INVERSE: omsp (VRT) is used AS-IS, never multiplied — a Brego €9,000 stays 9,000', () => {
+  const bregoEur = 9000;
+  const r = estimateImportCost({ omsp: bregoEur, purchasePrice: 5000, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB' });
+  assert.equal(r.vrt.co2Charge, Math.round(0.1675 * bregoEur));   // 1,508 — NOT 0.1675 × 9000 × 1.17
+  assert.notEqual(r.vrt.co2Charge, Math.round(0.1675 * bregoEur * GBP_EUR_RATE));
+  // the paid route converts purchasePrice but NOT the Brego omsp
+  const routeSrc = _read('app/api/vehicle/route.js');
+  assert.match(routeSrc, /purchasePrice = purchasePriceGbp == null \? null : Math\.round\(purchasePriceGbp \* GBP_EUR_RATE\)/);
+  assert.match(routeSrc, /omspLow:\s*bregoIe\?\.retail_low_valuation\s*\?\?\s*null/);           // omsp line present
+  assert.doesNotMatch(routeSrc, /retail_low_valuation[^\n]*GBP_EUR_RATE/);                       // and NOT multiplied
+});
+
+test('§3.3 — NI-used is unaffected: no VAT, no customs, price irrelevant', () => {
+  const a = estimateImportCost({ omsp: 12000, purchasePrice: 8000,  co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'NI' });
+  const b = estimateImportCost({ omsp: 12000, purchasePrice: 9360,  co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'NI' });
+  assert.equal(a.vat, 0);
+  assert.equal(a.customsDutyFlag.applies, false);
+  assert.equal(a.grandTotal, b.grandTotal);          // converting the price changed nothing for NI-used
+});
+
+test('§3.4 — new-means-of-transport on an NI car: VAT applies, on the CONVERTED base', () => {
+  const base = Math.round(8000 * GBP_EUR_RATE);
+  const r = estimateImportCost({ omsp: 15000, purchasePrice: base, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'NI', ageMonths: 3, odometerKm: 4000 });
+  assert.equal(r.vat, Math.round(0.23 * 9360));      // NMT forces VAT even on NI, and it uses €9,360
+});
+
+test('§3.5 — free and paid agree on the VAT base for the same £ price', () => {
+  assert.equal(Math.round(8000 * GBP_EUR_RATE), Math.round(8000 * GBP_EUR_RATE));   // same pin, same point
+  assert.match(_read('app/api/vehicle/route.js'), /GBP_EUR_RATE/);
+  assert.match(_read('app/api/import-estimate/route.js'), /GBP_EUR_RATE/);
+});
+
+test('§3.6 — no bare 1.17 in the paid path; rate string reaches screen AND PDF', () => {
+  assert.doesNotMatch(_read('app/api/vehicle/route.js'), /\b1\.17\b/);
+  assert.match(_read('app/payment-success/page.js'), /Converted at £1 = €/);        // screen
+  assert.match(_read('app/api/generate-pdf/route.js'), /Converted at £1 = €/);       // PDF
+});

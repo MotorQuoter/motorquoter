@@ -295,6 +295,12 @@ function buildPdf(result, vrm, checks, checkDate) {
     // Shared: evidence + disclaimer note lines (identical for single and dual).
     const noteLines = (basis) => {
       const lines = [];
+      if (ic.fx) {
+        const m = String(ic.fx.date).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const d = m ? `${+m[3]} ${MO[+m[2] - 1]} ${m[1]}` : ic.fx.date;
+        lines.push(`Converted at £1 = €${Number(ic.fx.rate).toFixed(2)} (${d}). You pay in £; Irish charges are in €.`);
+      }
       if (ic.provenanceConflict) lines.push(`IMPORTANT: ${ic.provenanceConflict}`);
       if (ic.jurisdiction) {
         lines.push(`NI import evidence — ${ic.jurisdiction.reason}`);
