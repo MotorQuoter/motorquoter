@@ -9,7 +9,10 @@ import {
   classifyNewMeansOfTransport, importScopeRefusal,
   noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
-import { CO2_BANDS, VRT_MINIMUM, NOX_CAP } from '../config/vrt.mjs';
+import { CO2_BANDS, VRT_MINIMUM, NOX_CAP, GBP_EUR_RATE, GBP_EUR_RETRIEVED } from '../config/vrt.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { buildJurisdictionTimeline, provenanceConflict, yearOf } from '../lib/importProvenance.mjs';
 
 // Helper: a DVSA/DVA-NI MOT test as the route sees it (completedDate = DD/MM/YYYY, formatDate output).
@@ -400,4 +403,66 @@ test('importScopeRefusal: M1 in scope; commercials/buses/tractors/unknown refuse
   assert.match(importScopeRefusal('T3'), /tractor|passenger cars only/i);
   assert.match(importScopeRefusal(''), /couldn.t confirm|passenger car/i);   // absent → refuse, never assume M1
   assert.match(importScopeRefusal(null), /couldn.t confirm|passenger car/i);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GBP→EUR conversion on the FREE import estimate (BUILD_ImportFX, 21 Aug).
+// The £ purchase price was fed to the euro engine unconverted → ~17% light.
+// ─────────────────────────────────────────────────────────────────────────────
+const _HERE = dirname(fileURLToPath(import.meta.url));
+const _read = (rel) => readFileSync(join(_HERE, '..', rel), 'utf8');
+
+test('the pinned rate is 1.17 (normal rounding of 1.16719), dated', () => {
+  assert.equal(GBP_EUR_RATE, 1.17);
+  assert.equal(Number(GBP_EUR_RATE).toFixed(2), '1.17');   // the string shown to the customer
+  assert.equal(GBP_EUR_RETRIEVED, '2026-08-21');
+});
+
+test('§4.1 — HGZ3754: £8,000 → €9,360 OMSP → VRT ≈ €2,068 (the regression this fixes)', () => {
+  const omspEur = Math.round(8000 * GBP_EUR_RATE);
+  assert.equal(omspEur, 9360);                              // converted, not the raw £8,000
+  const r = estimateImportCost({
+    omsp: omspEur, purchasePrice: omspEur,
+    co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB',
+  });
+  assert.ok(r.vrt, 'VRT computed');
+  // 124 g/km → 16.75% band on €9,360 = €1,568; Euro-6 petrol NOx 60 mg/km = €500 → ≈ €2,068
+  assert.ok(Math.abs(r.vrt.total - 2068) <= 2, `VRT total ${r.vrt.total} ≈ 2068`);
+  // and it must NOT be the unconverted figure (£8,000 as euro → ≈ €1,840)
+  const rawWrong = estimateImportCost({ omsp: 8000, purchasePrice: 8000, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB' });
+  assert.ok(Math.abs(rawWrong.vrt.total - 1840) <= 3, `unconverted ${rawWrong.vrt.total} ≈ 1840`);
+  assert.notEqual(r.vrt.total, rawWrong.vrt.total);
+});
+
+test('§4.2 — conversion is a single multiply: round(price × rate), never squared', () => {
+  const price = 8000;
+  const once = Math.round(price * GBP_EUR_RATE);
+  const twice = Math.round(price * GBP_EUR_RATE * GBP_EUR_RATE);
+  assert.equal(once, 9360);
+  assert.notEqual(once, twice);                             // guard against a double conversion (10,951)
+});
+
+test('§4.3 — INVERSE regression: the engine does NOT convert; a Brego-EUR OMSP is used as-is', () => {
+  // The paid path passes Brego Ireland euros straight in. VRT must be rate×OMSP, NOT rate×OMSP×1.17.
+  const bregoEur = 12000;
+  const r = estimateImportCost({ omsp: bregoEur, purchasePrice: bregoEur, co2: 124, euroClass: 'Euro 6', fuel: 'petrol', provenance: 'GB' });
+  const expectedCo2 = Math.round(0.1675 * bregoEur);       // 16.75% of the euro figure, unmultiplied
+  assert.equal(r.vrt.co2Charge, expectedCo2);
+  // the engine source carries no FX constant at all
+  assert.doesNotMatch(_read('lib/importCost.mjs'), /GBP_EUR|1\.17|gbpToEur|\bexchange\b/i);
+});
+
+test('§4.4 — rate read from config, never inlined: no bare 1.17 in the import path', () => {
+  assert.doesNotMatch(_read('app/api/import-estimate/route.js'), /\b1\.17\b/);
+  assert.doesNotMatch(_read('lib/importCost.mjs'), /\b1\.17\b/);
+  // the route imports the constant
+  assert.match(_read('app/api/import-estimate/route.js'), /GBP_EUR_RATE/);
+});
+
+test('§4.5 — the route converts once and surfaces fx {rate,date} for the on-screen string', () => {
+  const src = _read('app/api/import-estimate/route.js');
+  assert.match(src, /Math\.round\(purchasePrice \* GBP_EUR_RATE\)/);   // one conversion, where OMSP is set
+  assert.match(src, /fx:.*rate: GBP_EUR_RATE.*date: GBP_EUR_RETRIEVED/s);
+  // and the page renders it
+  assert.match(_read('app/import/page.js'), /Converted at £1 = €/);
 });

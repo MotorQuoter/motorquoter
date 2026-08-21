@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { estimateImportPresentation, importScopeRefusal } from '@/lib/importCost';
+import { GBP_EUR_RATE, GBP_EUR_RETRIEVED } from '@/config/vrt';
 
 // ── Free "VRT magnet" — Tier 1 of the Import to Ireland funnel ────────────────
 // DVLA-only (CO2 / fuel / year / euroStatus), no One Auto, no Brego, no Stripe → ~£0/use.
@@ -90,18 +91,24 @@ export async function GET(request) {
       ageMonths = Math.max(0, (_now.getFullYear() - _y) * 12 + (_now.getMonth() + 1 - _mo));
     }
   }
-  // Free tier: purchase price IS the OMSP, used as a floor (no range — low = avg = high).
-  // Same presentation wrapper as the paid check — single or dual by sellerType.
+  // Free tier: the buyer's PRICE is the OMSP floor (low = avg = high). It is entered in £ but every
+  // Irish charge is levied in EURO, so convert ONCE here — before the engine sees it — and feed the
+  // euro figure to BOTH the VRT OMSP and the VAT/customs base (importCost.mjs uses omsp for VRT and
+  // purchasePrice for VAT). Leaving either in sterling under-states that limb by ~17%.
+  // The PAID check uses Brego Ireland (already EUR) — this conversion is free-tier only.
+  const omspEur = purchasePrice != null ? Math.round(purchasePrice * GBP_EUR_RATE) : null;
   const estimate = estimateImportPresentation({
     sellerType,
-    omspLow: purchasePrice, omspAvg: purchasePrice, omspHigh: purchasePrice,
-    co2: dvla.co2Emissions, euroClass, fuel: dvla.fuelType, noxOverride, purchasePrice,
+    omspLow: omspEur, omspAvg: omspEur, omspHigh: omspEur,
+    co2: dvla.co2Emissions, euroClass, fuel: dvla.fuelType, noxOverride, purchasePrice: omspEur,
     ageMonths, odometerKm: null,
   });
 
   return NextResponse.json({
     tier: 'free',
     floor: true,
+    // The exact rate + date applied — so the customer-facing figure is reproducible (rendered on screen).
+    fx: purchasePrice != null ? { rate: GBP_EUR_RATE, date: GBP_EUR_RETRIEVED, gbp: purchasePrice, eur: omspEur } : null,
     vehicle: {
       make: dvla.make,
       colour: dvla.colour ?? null,

@@ -24,6 +24,25 @@
 // lib/importProvenance.mjs move faster — re-check those quarterly and on any cited-URL 404.
 export const VRT_TABLES_RETRIEVED = '2026-07-30';
 
+// ── GBP→EUR for the FREE import estimate ONLY ────────────────────────────────
+// Irish VRT, VAT and every other charge are levied IN EUROS on a EURO value. The only sterling
+// figure in the import funnel is the price the buyer pays for the car, so it must be converted to
+// euro BEFORE the engine sees it — the engine uses that value for BOTH the VRT OMSP and the
+// VAT/customs base. Without this the pound figure was used as a euro OMSP and the free estimate ran
+// ~17% light (verified on HGZ3754, 21 Aug). Convert at ONE point (import-estimate/route.js), same
+// discipline as toMiles / experianVerdict.
+// The PAID check does NOT use this — its OMSP is Brego Ireland, already EUR; multiplying it would
+// re-introduce the bug. Pinned, not live: a figure a customer acts on must be reproducible, and a
+// live quote would add a runtime dependency to a tax estimate.
+// ⚠️ Rounded NORMALLY, not biased. 1.16719 → 1.17. Skewing the rate to keep the estimate "a floor"
+// was proposed and WITHDRAWN (batch 25→26): the estimate is already a floor because the OMSP used is
+// the buyer's price and Revenue's is usually higher (the page says so) — biasing the FX on top just
+// makes the euro value wrong, which is the defect this fixes. A monthly drift check (Cowork-owned,
+// first fire 1 Sep) reviews it; NOTHING repins automatically — a repin is Vincent's product decision.
+export const GBP_EUR_RATE = 1.17;          // pinned — Alpha Vantage GBP/EUR 1.16719, 16:19 UTC
+export const GBP_EUR_RETRIEVED = '2026-08-21';
+export const GBP_EUR_SOURCE = 'Alpha Vantage realtime GBP/EUR 1.16719 @ 16:19 UTC 2026-08-21';
+
 // ── CO2 charge (Category A) ──────────────────────────────────────────────────
 // CO2 charge = rate × OMSP, subject to the per-band € minimum.
 // maxCo2 = INCLUSIVE upper bound (g/km); the last band (>190) uses Infinity.

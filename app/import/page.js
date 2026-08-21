@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 const fmtEur = n => (n != null && Number.isFinite(Number(n))) ? `€${Math.round(Number(n)).toLocaleString('en-IE')}` : '—';
+const fxDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return iso || ''; const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${+m[3]} ${M[+m[2] - 1]} ${m[1]}`; };
 
 export default function ImportPage() {
   const [reg, setReg] = useState('');
@@ -229,6 +230,10 @@ export default function ImportPage() {
               </>
             ) : (
               <p className="floor-note">{single?.reason || 'We couldn’t compute an estimate from the free data — the exact check below will use a full Irish valuation.'}</p>
+            )}
+
+            {result.fx && (
+              <p className="floor-note" style={{ opacity: 0.7 }}>Converted at £1 = €{Number(result.fx.rate).toFixed(2)} ({fxDate(result.fx.date)}). You pay in £; Irish charges are in €.</p>
             )}
 
             <button className="cta cta-pay" onClick={payForExact} disabled={paying}>
