@@ -14,6 +14,7 @@ import { sendOpsAlert } from '@/lib/opsAlert';
 import { readStoredReport, writeStoredReport } from '@/lib/paidReports';
 import { dispatchReportEmail } from '@/lib/email.mjs';
 import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
+import { classifyApiResult, isProviderFailure, extractApiResult } from '@/lib/apiOutcome.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -154,12 +155,10 @@ const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.c
 const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
 const CACHE_TTL_HOURS = 48;
 
-function extractApiResult(data) {
-  if (!data || data.error) return null;
-  const result = data.result ?? data;
-  if (result?.error) return null;
-  return result;
-}
+// extractApiResult / classifyApiResult now live in lib/apiOutcome.mjs (C§5) — imported at the top.
+// The inline version here collapsed "provider errored" and "genuinely empty" into one null; the
+// classifier separates them so the render can be honest and the refund registry (C§6) fires on a
+// provider failure only.
 
 async function safeJson(res) {
   const text = await res.text();
@@ -976,6 +975,22 @@ const dvla = await safeJson(dvlaRes);
         ? { status: tl.status, verdict: tl.verdict, readings: tl.readings, anomalies: tl.anomalies, mixedUnits: tl.mixedUnits }
         : null;
 
+      // Per-block provider outcomes (C§5): 'ok' | 'error' | 'empty', recorded only for REQUESTED paid
+      // blocks. The render reads these to say "this check could not be completed" on a provider FAILURE
+      // instead of the untrue "…not available for this vehicle", and the refund registry (C§6) refunds
+      // a paid item whose provider call failed. AutoCheck's one outcome covers all six Experian blocks.
+      const autocheckOutcome = needsAutocheck       ? classifyApiResult(autocheck)        : null;
+      const valuationOutcome = needsValuation       ? classifyApiResult(valuation)         : null;
+      const salvageOutcome   = needsSalvageHistory  ? classifyApiResult(salvageHistoryRaw) : null;
+      const demandOutcome    = needsMarketDemand    ? classifyApiResult(cazanaDemand)      : null;
+      const advertsOutcome   = needsPreviousAdverts ? classifyApiResult(cazanaAdverts)     : null;
+      const checkOutcomes = {};
+      if (autocheckOutcome) checkOutcomes.autocheck        = autocheckOutcome.reason ?? 'ok';
+      if (valuationOutcome) checkOutcomes.valuation        = valuationOutcome.reason ?? 'ok';
+      if (salvageOutcome)   checkOutcomes.salvagehistory   = salvageOutcome.reason   ?? 'ok';
+      if (demandOutcome)    checkOutcomes.market_demand    = demandOutcome.reason     ?? 'ok';
+      if (advertsOutcome)   checkOutcomes.previous_adverts = advertsOutcome.reason    ?? 'ok';
+
       const payload = {
         make: dvla.make,
         model: dvsaData?.model || null,
@@ -1019,6 +1034,7 @@ const dvla = await safeJson(dvlaRes);
         }) : null,
         market: 'GB',
         checks,
+        _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
         valuationMileage: needsValuation ? bregoMileage : null,
         valuationMileageSource: needsValuation ? bregoMileageSource : null,
         valuationMileageDate: (needsValuation && bregoMileageSource === 'dvsa_mot') ? (latestMot?.completedDate || null) : null,

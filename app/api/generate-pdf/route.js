@@ -24,6 +24,16 @@ export function buildPdf(result, vrm, checks, checkDate) {
   // ONLY for reading detail fields, and only ever under `!v.missing`.
   const acRaw = isIE ? result.hpi : result.autocheck;
   const ac  = acRaw || {};
+  // C§5 — when a block is missing because the PROVIDER FAILED (error/empty), say so honestly instead
+  // of "…not available for this vehicle" (a false statement about the car). Only overrides the
+  // missing-text; a genuine qty:0 clean result is untouched.
+  const providerFailed = (block) => {
+    const o = result?._checkOutcomes?.[block];
+    return o === 'error' || o === 'empty';
+  };
+  const PDF_PROVIDER_FAILED = 'Check could not be completed - provider did not respond; contact support to re-run or refund.';
+  const verdictValue = (v, block) => (v.missing && providerFailed(block)) ? PDF_PROVIDER_FAILED : v.value;
+  const acBlock = isIE ? 'hpi' : 'autocheck'; // the outcome key for the six Experian/HPI blocks
   const val = result.valuation || {};
   const motHistory = result.motHistory || [];
   const cazAdv = result.cazanaAdverts || {};
@@ -294,7 +304,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (has('writeoff') || hasFullHistory) {
     sectionTitle('Write-off / Cat S·N Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'writeoff');
-    row('Write-off Status', v.value, v.tone);
+    row('Write-off Status', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const writeOffItem = ac.condition_data_items?.[0];
       if (writeOffItem?.total_loss_date) row('Total Loss Date', dt(writeOffItem.total_loss_date));
@@ -305,7 +315,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (has('finance') || hasFullHistory) {
     sectionTitle('Finance Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'finance');
-    row('Outstanding Finance', v.value, v.tone);
+    row('Outstanding Finance', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       for (const f of (ac.finance_data_items || [])) {
         if (f.finance_company) row('Finance Company', f.finance_company);
@@ -318,7 +328,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (has('stolen') || hasFullHistory) {
     sectionTitle('Stolen Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'stolen');
-    row(isIE ? 'Stolen Register' : 'Police Database', v.value, v.tone);
+    row(isIE ? 'Stolen Register' : 'Police Database', verdictValue(v, acBlock), v.tone);
     if (!v.missing && isIE) {
       checkPage(10);
       doc.setFont('helvetica', 'normal');
@@ -335,7 +345,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('High-Risk Markers', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'high_risk');
-    row('High-Risk Markers', v.value, v.tone);
+    row('High-Risk Markers', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.high_risk_data_items) ? ac.high_risk_data_items : [];
       for (const it of items) {
@@ -356,7 +366,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('Plate Changes', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'plate');
-    row('Registration Changes', v.value, v.tone);
+    row('Registration Changes', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.cherished_data_items) ? ac.cherished_data_items : [];
       for (const it of items) {
@@ -372,7 +382,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('Previous Searches', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'searches');
-    row('Recent Checks', v.value, v.tone);
+    row('Recent Checks', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.previous_search_items) ? ac.previous_search_items : [];
       for (const it of items.slice(0, 12)) {

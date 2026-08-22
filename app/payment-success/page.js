@@ -72,6 +72,20 @@ function EmptyState({ text }) {
   return <div className="history-empty">{text}</div>;
 }
 
+// C§5 — a paid check that FAILED at the provider must NOT read as "…not available for this vehicle"
+// (a false statement about the car). Given the per-block outcome the route carries in _checkOutcomes,
+// a block absent because the provider FAILED (error/empty) reads as "could not be completed" and is
+// refundable; a block the provider answered but does not hold keeps the honest "not available".
+function checkFailed(result, block) {
+  const o = result?._checkOutcomes?.[block];
+  return o === 'error' || o === 'empty';
+}
+const PROVIDER_FAILED_TEXT =
+  "This check could not be completed — the provider did not respond. This is not a result for your vehicle; the check did not complete. Please contact support and we'll re-run it or refund this item.";
+function emptyText(result, block, absentText) {
+  return checkFailed(result, block) ? PROVIDER_FAILED_TEXT : absentText;
+}
+
 // ── Vehicle Identity ──────────────────────────────────────────────────────────
 
 function IdentitySection({ result }) {
@@ -140,7 +154,7 @@ function ValuationSection({ result }) {
   if (!val) return (
     <div className="card">
       <SectionTitle>Valuation</SectionTitle>
-      <EmptyState text="Valuation data not available for this vehicle" />
+      <EmptyState text={emptyText(result, 'valuation', 'Valuation data not available for this vehicle')} />
     </div>
   );
   return (
@@ -186,7 +200,7 @@ function WriteoffSection({ result }) {
     <div className="card">
       <SectionTitle>Write-off / Cat S·N Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Write-off data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Write-off data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Write-off Status"
@@ -214,7 +228,7 @@ function FinanceSection({ result }) {
     <div className="card">
       <SectionTitle>Finance Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Finance data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Finance data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Outstanding Finance"
@@ -246,7 +260,7 @@ function StolenSection({ result }) {
     <div className="card">
       <SectionTitle>Stolen Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Stolen data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Stolen data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label={isIE ? 'Stolen Register Check' : 'Police Stolen Database'}
@@ -281,7 +295,7 @@ function HighRiskSection({ result }) {
     <div className="card">
       <SectionTitle>High-Risk Markers</SectionTitle>
       {ac == null
-        ? <EmptyState text="High-risk data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'High-risk data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="High-Risk Markers"
@@ -322,7 +336,7 @@ function PlateChangesSection({ result }) {
     <div className="card">
       <SectionTitle>Plate Changes</SectionTitle>
       {ac == null
-        ? <EmptyState text="Plate-change data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Plate-change data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Registration Changes"
@@ -358,7 +372,7 @@ function PreviousSearchesSection({ result }) {
     <div className="card">
       <SectionTitle>Previous Searches</SectionTitle>
       {ac == null
-        ? <EmptyState text="Search-history data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Search-history data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Recent Checks"
@@ -425,7 +439,7 @@ function SalvageHistorySection({ result }) {
     <div className="card">
       <SectionTitle>Salvage History Check</SectionTitle>
       {sh == null
-        ? <EmptyState text="Salvage history data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'salvagehistory', 'Salvage history data not available for this vehicle')} />
         : !found
           ? <div className="flag-list">
               <FlagRow label="Salvage Auction History" value="✓ No previous salvage auction records found" tone="green" />
@@ -512,7 +526,7 @@ function MarketDemandSection({ result }) {
     <div className="card">
       <SectionTitle>Market Demand</SectionTitle>
       {!cazDem
-        ? <EmptyState text="Market demand data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'market_demand', 'Market demand data not available for this vehicle')} />
         : <div className="info-grid">
             {demandScore != null && <div className="info-cell"><div className="info-key">Demand Score</div><div className="info-val">{demandScore} / 100</div></div>}
             {daysToSell != null && <div className="info-cell"><div className="info-key">Avg Days to Sell</div><div className="info-val">{daysToSell}</div></div>}
