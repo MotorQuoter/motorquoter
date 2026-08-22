@@ -58,7 +58,8 @@ export const IE_MENU = [
     key: 'ie_service_history',
     label: 'Service History',
     description: 'OE digital service records where available',
-    price: 5.00,
+    // IE sterling-price rule (config/ieMenuPricing.mjs): €5.99 ÷ 1.17 = £5.12 → nearest .99 = £4.99.
+    price: 4.99,       // ⚠️ LIVE −1p (was £5.00) — the default GBP charging path for an IE customer.
     priceEUR: 5.99,
     preSelected: false,
     locked: false,
@@ -68,14 +69,12 @@ export const IE_MENU = [
     key: 'ie_history',
     label: 'Full History Check',
     description: 'Cartell — write-off, finance, mileage, stolen, tax, NCT detail',
-    // ⚠️ INTERNALLY INCONSISTENT — awaiting Vincent's sterling figure. The 16 Aug decision repriced
-    // this to €24.99 (against a £14.40 gross Cartell-via-One-Auto cost: ~28% on that route, ~58% on
-    // MotorCheck) but was never applied to the code. priceEUR is now correct; `price` (£) has NO
-    // decision of record — €24.99 was set alone, no sterling twin — so 15.00 is left untouched
-    // rather than inventing a number. Still enabled:false, so no live exposure (render shell only;
-    // result.ieHistory has no renderer). ROI_TIERS deletion still rides the ROI menu work, not here.
-    price: 15.00,      // ← £ twin undecided; do NOT derive from priceEUR — Vincent's call
-    priceEUR: 24.99,   // 16 Aug decision, finally applied (was 17.99 = break-even)
+    // IE sterling-price rule (config/ieMenuPricing.mjs): €24.99 ÷ 1.17 = £21.36 → nearest .99 = £20.99.
+    // priceEUR €24.99 is the 16 Aug decision; £20.99 is its sterling twin under the rule (Vincent, 22
+    // Aug — batch 32). Still enabled:false, so no live exposure. ROI_TIERS deletion rides the ROI menu
+    // work, not here.
+    price: 20.99,      // derived; do NOT edit in isolation — change priceEUR and re-derive via the rule
+    priceEUR: 24.99,
     preSelected: false,
     locked: false,
     enabled: false,

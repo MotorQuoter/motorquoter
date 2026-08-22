@@ -17,6 +17,7 @@ import { serviceHistoryOfferable } from '../config/serviceHistoryCoverage.mjs';
 import { notOfferableForVehicle, hasVehicleGatedKey } from '../lib/offerability.mjs';
 import { estimateRoadTax } from '../lib/roadTax.mjs';
 import { checkMileageTimeline } from '../lib/mileageCheck.mjs';
+import { nearest99, derivedIeGbpPrice, IE_MENU_GBP_EUR_RATE } from '../config/ieMenuPricing.mjs';
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -55,12 +56,27 @@ eq('price: service_history £4.99 (no £3.49)', menuMap.service_history?.price, 
 ok('price: no menu item is still £3.49', !MENU.some(i => i.price === 3.49));
 eq('price: market_demand £0.99', menuMap.market_demand?.price, 0.99);
 eq('price: previous_adverts £0.99', menuMap.previous_adverts?.price, 0.99);
-// IE frozen — supplier decision pending.
-eq('IE frozen: ie_service_history £5.00', menuMap.ie_service_history?.price, 5.00);
-eq('IE frozen: ie_history still disabled', menuMap.ie_history?.enabled, false);
-// €24.99 is the 16 Aug decision of record — pin it so it cannot drift back to the break-even 17.99 a
-// third time. The £ twin is deliberately NOT asserted: no sterling figure was ever decided.
+// IE sterling-price rule (batch 32): an IE row's `price` is its `priceEUR` ÷ GBP_EUR_RATE, rounded to
+// the nearest .99, HELD AS A LITERAL. This round-trip is the gate — a euro reprice that forgets the
+// sterling twin turns it red (the exact blind spot behind the £15.00/€24.99 split). Held numbers vs
+// derived numbers, one currency to the other, from config/ieMenuPricing.mjs.
+for (const row of IE_MENU) {
+  if (!row.priceEUR) continue; // zero-priced rows (ie_nct) are out of scope — skip, don't assert 0===0
+  eq(`IE rule: ${row.key} £${row.price} === nearest99(€${row.priceEUR} ÷ ${IE_MENU_GBP_EUR_RATE})`,
+     row.price, derivedIeGbpPrice(row.priceEUR));
+}
 eq('IE frozen: ie_history priceEUR €24.99 (not break-even 17.99)', menuMap.ie_history?.priceEUR, 24.99);
+eq('IE: ie_history £20.99 (the derived sterling twin)', menuMap.ie_history?.price, 20.99);
+eq('IE: ie_service_history moved to £4.99 (LIVE −1p from £5.00)', menuMap.ie_service_history?.price, 4.99);
+eq('IE frozen: ie_history still disabled', menuMap.ie_history?.enabled, false);
+// The rule is IE_MENU-only. salvageAssessment is EXCLUDED (its EUR path is retired — SalvageIEDoor);
+// pin its £ explicitly so nobody later "completes" the rule by applying it there.
+eq('salvageAssessment.price pinned £8.99 (rule does NOT touch it)', PRICING.salvageAssessment.price, 8.99);
+// nearest99 itself — the tie rule and the guards the round-trip leans on.
+eq('nearest99: €5.99÷1.17 → £4.99', derivedIeGbpPrice(5.99), 4.99);
+eq('nearest99: €24.99÷1.17 → £20.99', derivedIeGbpPrice(24.99), 20.99);
+eq('nearest99: exact tie 1.49 rounds UP to 1.99', nearest99(1.49), 1.99);
+eq('nearest99: 0 / absent → 0 (skipped by callers)', nearest99(0), 0);
 
 // ── 3a. COVERAGE gate (make + year; VIN stays server-side) ────────────────────────
 ok('coverage: FORD 2015 offerable', serviceHistoryOfferable({ make: 'FORD', yearOfManufacture: 2015 }).offerable === true);
