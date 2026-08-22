@@ -9,7 +9,10 @@ const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const LABEL_W = 64;
 
-function buildPdf(result, vrm, checks, checkDate) {
+// Exported so the report can be built server-side (BUILD_StoredReports §4b — the purchase email
+// attaches this exact PDF). Pure function of its arguments: no request, no I/O. Callers must NOT
+// self-POST /api/generate-pdf to obtain a PDF server-side; import and call this directly.
+export function buildPdf(result, vrm, checks, checkDate) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
