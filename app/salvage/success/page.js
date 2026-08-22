@@ -219,7 +219,12 @@ export default function SalvageSuccessPage() {
         }
         throw new Error(body.error || 'Re-run failed');
       }
-      router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${vehicleDetails?.vrm || ''}`);
+      // Carry the ownership credential to the re-run form — rerun-submit now requires it (C§1). Uses
+      // the same credential this handler just proved to /api/salvage/rerun.
+      const cred = promoTokenRef.current
+        ? `&promo_token=${encodeURIComponent(promoTokenRef.current)}`
+        : `&session_id=${encodeURIComponent(sessionIdRef.current || '')}`;
+      router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${encodeURIComponent(vehicleDetails?.vrm || '')}${cred}`);
     } catch(e) {
       setErrorMsg(e.message);
       setStatus('error');

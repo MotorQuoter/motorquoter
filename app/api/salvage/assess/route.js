@@ -2762,6 +2762,14 @@ export async function GET(request) {
       if (stripeSession.payment_status !== 'paid') {
         return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
       }
+      // Bind the paid session to THIS salvage session (C§2). Without this, a paid session for salvage A
+      // could drive an assessment of salvage B — the promo branch above already binds promoToken, and
+      // the vehicle product binds the paid VRM (vehicle/route.js). checkout writes metadata.salvage_id
+      // (checkout:145); require it to match, so paymentIntentId/chargeAmount below (and the auto-refund
+      // path that reads chargeAmount) are the RIGHT payment for this lot.
+      if (stripeSession.metadata?.salvage_id !== salvageId) {
+        return NextResponse.json({ error: 'Payment does not match this assessment' }, { status: 403 });
+      }
       paymentIntentId = stripeSession.payment_intent || null;
       chargeAmount    = stripeSession.amount_total   || null;
     }

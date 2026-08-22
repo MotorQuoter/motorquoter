@@ -29,7 +29,6 @@ npm run lint      # Run ESLint
 - `/api/stripe/verify` - Verifies payment status by session ID, returns tier for tier-gated data
 - `/api/platescan` - Uses Claude vision API (claude-sonnet-4-5) to extract registration from photo
 - `/api/dvla` - Direct DVLA Vehicle Enquiry API proxy (minimal use)
-- `/api/oneauto` - Generic OneAuto API proxy (currently unused)
 
 ### Data Flow
 1. **Free tier**: User enters VRM → Direct `/api/vehicle?vrm=...&tier=free` call → Returns DVLA data only

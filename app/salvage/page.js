@@ -53,6 +53,9 @@ export default function SalvagePage() {
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
+  // The ownership credential carried from the success page — rerun-submit now requires it (auth gap C§1).
+  const [rerunSessionId, setRerunSessionId] = useState('');
+  const [rerunPromoToken, setRerunPromoToken] = useState('');
   const [freeReportToken, setFreeReportToken] = useState(''); // Commit 3: single-use free-report credential from the verify redirect
   const [auctionSource, setAuctionSource] = useState('copart');
   const [copartMileage, setCopartMileage] = useState('');
@@ -101,6 +104,8 @@ export default function SalvagePage() {
     if (rerunId) {
       setIsRerun(true);
       setRerunSalvageId(rerunId);
+      setRerunSessionId(params.get('session_id') || '');
+      setRerunPromoToken(params.get('promo_token') || '');
       if (rerunVrm) {
         setDetails(p => ({ ...p, vrm: rerunVrm.toUpperCase() }));
         handleVrmLookup(rerunVrm.toUpperCase());
@@ -455,7 +460,11 @@ export default function SalvagePage() {
         const res = await fetch('/api/salvage/rerun-submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ salvage_id: rerunSalvageId, vehicleDetails, imagePaths, market }),
+          body: JSON.stringify({
+            salvage_id: rerunSalvageId, vehicleDetails, imagePaths, market,
+            // Ownership credential (C§1) — carried from the success page; rerun-submit rejects without it.
+            ...(rerunPromoToken ? { promo_token: rerunPromoToken } : { session_id: rerunSessionId }),
+          }),
         });
         if (!res.ok) {
           const ct = res.headers.get('content-type') || '';
