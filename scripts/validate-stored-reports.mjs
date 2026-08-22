@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { decideStoredReport, readStoredReport, writeStoredReport } from '../lib/paidReports.mjs';
+import { decideStoredReport, readStoredReport, writeStoredReport, sweepExpiredStoredReports } from '../lib/paidReports.mjs';
 import { STORED_REPORT_TTL_MINUTES, STORED_REPORT_TTL_MS } from '../config/storedReports.mjs';
 import { isFirstRedemption } from '../lib/promoRedemption.mjs';
 
@@ -90,19 +90,31 @@ console.log('\n6. writeStoredReport → readStoredReport round-trip, and zero su
         select() { return this; },
         eq(_col, val) { this._eq = val; return this; },
         maybeSingle() { return Promise.resolve({ data: store.get(this._eq) || null, error: null }); },
+        // .delete().lt('created_at', cutoff) — the retention sweep.
+        delete() { return { lt(_col, cutoff) { for (const [k, v] of store) if (v.created_at < cutoff) store.delete(k); return Promise.resolve({ error: null }); } }; },
       };
     },
   };
+  // Seed an already-expired row (relative to REAL now, since the sweep uses Date.now()); the write's
+  // opportunistic sweep must remove it.
+  store.set('cs_old', { session_id: 'cs_old', vrm: 'OLD', payload: { a: 1 }, created_at: new Date(Date.now() - STORED_REPORT_TTL_MS - 60_000).toISOString() });
   const served = { make: 'BMW', mileageVerdict: { status: 'ok' }, checks: ['valuation', 'full_history'] };
   const wrote = await writeStoredReport(fake, { sessionId: 'cs_test_1', vrm: 'AB12CDE', checks: ['valuation', 'full_history'], market: 'GB', payload: served });
   assertTrue('write reports success', wrote);
   assert('checks stored comma-joined', store.get('cs_test_1').checks, 'valuation,full_history');
   assert('payload stored verbatim', store.get('cs_test_1').payload.make, 'BMW');
+  assertTrue('the write swept the expired row (retention, batch 31 §4)', !store.has('cs_old'));
+  assertTrue('the fresh row it just wrote survives the sweep', store.has('cs_test_1'));
 
   const reopen = await readStoredReport(fake, 'cs_test_1', 'AB12CDE');
   assert('re-open serves', reopen.action, 'serve');
   assert('re-open payload byte-identical to what was served', { make: reopen.payload.make, checks: reopen.payload.checks }, { make: 'BMW', checks: ['valuation', 'full_history'] });
   assert('re-open of an unknown session → proceed (first view)', (await readStoredReport(fake, 'cs_unknown', 'AB12CDE')).action, 'proceed');
+
+  // The sweep is best-effort — a delete error never throws.
+  const brokenSweep = { from() { return { delete() { return { lt() { return Promise.resolve({ error: { code: 'XX', message: 'no' } }); } }; } }; } };
+  await sweepExpiredStoredReports(brokenSweep); // must not throw
+  assertTrue('sweep with a delete error does not throw', true);
 }
 
 // ── 7. Degrade-safe: a missing paid_reports table must NOT surface as a false failure ─────────────

@@ -97,6 +97,10 @@ CREATE TABLE IF NOT EXISTS paid_reports (
 );
 CREATE INDEX IF NOT EXISTS paid_reports_created_at_idx ON paid_reports (created_at);
 ALTER TABLE paid_reports ENABLE ROW LEVEL SECURITY;
+-- Retention: the app sweeps expired rows opportunistically on each write (see
+-- lib/paidReports.sweepExpiredStoredReports — a row past the 10-minute TTL is unreadable), so no cron
+-- is required. Manual belt-and-braces if writes ever stall (a row can only be served for 10 min):
+--   DELETE FROM paid_reports WHERE created_at < now() - INTERVAL '10 minutes';
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
