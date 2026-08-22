@@ -13,6 +13,7 @@ import { needsAutocheck as autocheckNeeded } from '@/lib/menuGate';
 import { sendOpsAlert } from '@/lib/opsAlert';
 import { readStoredReport, writeStoredReport } from '@/lib/paidReports';
 import { dispatchReportEmail } from '@/lib/email.mjs';
+import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -556,7 +557,10 @@ const dvla = await safeJson(dvlaRes);
   if (market === 'IE' && roiTierParam) {
     const isPro = ['roi_pro', 'roi_history'].includes(roiTierParam);
     const isHistory = roiTierParam === 'roi_history';
-    const roiCacheKey = `roi:${roiTierParam}`;
+    // Finding 2: every ROI tier includes a valuation (bregoRoi / cartell priceguide) computed at the
+    // entered mileage, and the ROI hit path returns the cached payload VERBATIM with no recompute — so
+    // the mileage MUST be in the key here, always, or a different-mileage buyer gets the wrong figure.
+    const roiCacheKey = `roi:${roiTierParam}_mi:${mileageCacheKeyPart(mileage)}`;
 
     const roiCached = await getCachedResult(supabase, cleanVrm, roiCacheKey);
     if (roiCached) {
@@ -626,7 +630,11 @@ const dvla = await safeJson(dvlaRes);
   }
 
   const sortedKey = [...checks].sort().join(',');
-  const cacheKey = `checks:${sortedKey}_${market}`;
+  // Mileage-key the entry only when a valuation (GB `valuation` / IE `ie_valuation`) was bought — the
+  // one field that is priced at the entered mileage. Everything else is mileage-independent and keeps
+  // its shared entry (the mileage VERDICT is recomputed per-request on a hit at :588-612, unaffected).
+  const valuationInKey = checks.includes('valuation') || checks.includes('ie_valuation');
+  const cacheKey = `checks:${sortedKey}_${market}${valuationInKey ? `_mi:${mileageCacheKeyPart(mileage)}` : ''}`;
 
   const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
   if (cached) {

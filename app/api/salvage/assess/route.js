@@ -3149,7 +3149,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           const result = raw?.result ?? raw;
           return (result && !result.error) ? result : null;
         }),
-        withOneAutoCache('BREGO_GB', cleanVrmB, async () => {
+        // Finding 7: current_mileage varies the valuation → it must be in the cache key.
+        withOneAutoCache('BREGO_GB', cleanVrmB, { current_mileage: brMileage }, async () => {
           const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs });
           const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
           const result = raw?.result ?? raw;
@@ -3158,17 +3159,28 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // SalvageGuide Bid Predictor — labelled market cross-check. Data-layer only; salvage_category
         // is a DATA param (never enters the model's context — category-blindness is unaffected).
         // Fail-safe: any error / missing category / no numbers → null → the block is simply omitted.
-        withOneAutoCache('SALVAGEGUIDE', cleanVrmB, async () => {
+        // Finding 7: salvage_category / current_mileage / primary_damage_desc ALL vary the prediction,
+        // so all three are in the cache key — a re-listed VRM at a new category no longer serves the
+        // stale one. Computed once here for both the key and the request.
+        (() => {
           const sgCat = catLetter(enrichedVd.category)?.toUpperCase();
-          if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
-          const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
-          if (Number.isFinite(Number(brMileage))) p.set('current_mileage', String(Math.round(brMileage)));
-          if (enrichedVd.primaryDamage) p.set('primary_damage_desc', enrichedVd.primaryDamage);
-          const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          const result = raw?.result ?? raw;
-          return (result && !result.error) ? result : null;
-        }),
+          const sgMileage = Number.isFinite(Number(brMileage)) ? String(Math.round(brMileage)) : undefined;
+          const sgDamage = enrichedVd.primaryDamage || undefined;
+          return withOneAutoCache(
+            'SALVAGEGUIDE', cleanVrmB,
+            { salvage_category: sgCat, current_mileage: sgMileage, primary_damage_desc: sgDamage },
+            async () => {
+              if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
+              const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
+              if (sgMileage) p.set('current_mileage', sgMileage);
+              if (sgDamage) p.set('primary_damage_desc', sgDamage);
+              const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
+              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+              const result = raw?.result ?? raw;
+              return (result && !result.error) ? result : null;
+            }
+          );
+        })(),
       ]);
 
       if (shResult) {
