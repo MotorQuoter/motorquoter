@@ -73,6 +73,11 @@ console.log('\n5. Route wiring');
   ok('web confirms the refund in the failed block ("We\'ve refunded this item")', page.includes("We've refunded this item"));
   const pdf = readFileSync(join(ROOT, 'app/api/generate-pdf/route.js'), 'utf8');
   ok('PDF confirms the refund on a failed block', pdf.includes('Could not be completed - refunded'));
+
+  // C§7 — the signal: a paid provider failure fires a throttled ops alert (auto-top-up killed the
+  // balance cue). Sibling predicate isProviderFailure, not isInfraFailure.
+  ok('a paid provider failure fires the oneauto-paid-call-failed ops alert', route.includes("'oneauto-paid-call-failed'"));
+  ok('the alert is gated on anyProviderFailed', /anyProviderFailed\)\s*\{[\s\S]{0,600}oneauto-paid-call-failed/.test(route));
 }
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);

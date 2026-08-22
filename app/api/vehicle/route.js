@@ -1056,6 +1056,25 @@ const dvla = await safeJson(dvlaRes);
         new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, checks, checkOutcomes);
       const anyProviderFailed = Object.values(checkOutcomes).some(isProviderFailure);
 
+      // C§7 — the signal. Auto top-up removed the "balance ran out" cue, so a failing paid path is now
+      // silent. Fire a throttled ops alert whenever a paid provider call errors on a live purchase,
+      // carrying the VRM, the failed blocks and whether each was auto-refunded. isProviderFailure is
+      // the sibling predicate to isInfraFailure — supplier failures, not Claude infra. Awaited
+      // (throttled + 2s-boxed), never throws.
+      if (anyProviderFailed) {
+        const failedBlocks = Object.entries(checkOutcomes).filter(([, r]) => isProviderFailure(r)).map(([b, r]) => `${b}:${r}`);
+        const refunded = Object.entries(paidRefunds).filter(([, v]) => v.refunded).map(([k]) => k);
+        const failedRefund = Object.entries(paidRefunds).filter(([, v]) => v.refundFailed).map(([k]) => k);
+        await sendOpsAlert(
+          'oneauto-paid-call-failed',
+          `[MotorQuoter] Paid provider call failed - ${cleanVrm}`,
+          `A paid provider call failed on a live purchase.<br>VRM: ${cleanVrm}<br>Market: GB<br>` +
+          `Failed: ${failedBlocks.join(', ')}<br>Auto-refunded: ${refunded.length ? refunded.join(', ') : 'none'}<br>` +
+          `Refund FAILED (needs manual): ${failedRefund.length ? failedRefund.join(', ') : 'none'}<br>` +
+          `Session: ${stripeSessionId.slice(0, 14)}…`
+        );
+      }
+
       const payload = {
         make: dvla.make,
         model: dvsaData?.model || null,
