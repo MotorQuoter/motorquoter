@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
@@ -11,6 +11,8 @@ import { estimateRoadTax } from '@/lib/roadTax';
 import { SERVICE_HISTORY_COVERAGE } from '@/config/serviceHistoryCoverage';
 import { needsAutocheck as autocheckNeeded } from '@/lib/menuGate';
 import { sendOpsAlert } from '@/lib/opsAlert';
+import { readStoredReport, writeStoredReport } from '@/lib/paidReports';
+import { dispatchReportEmail } from '@/lib/email.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -302,6 +304,24 @@ async function storeCachedResult(supabase, cleanVrm, cacheKey, payload) {
   }
 }
 
+// Persist the EXACT served payload under the purchase (so a re-open is a pure DB read), then email
+// the PDF to the customer post-response (BUILD_StoredReports §2.2 / §4b). The write is awaited — a
+// re-open within the window must find the row. The email runs in after() so the customer's page load
+// never waits on Brevo; both are internally guarded and never fail the response. Called at EVERY paid
+// return site, cached or fresh — a first view served from reg_lookup_cache must still be stored under
+// THIS session, or that customer's re-open would fall through to the replay-bind 403.
+async function persistAndEmailReport(supabase, paidSession, { sessionId, vrm, checks, market, served }) {
+  await writeStoredReport(supabase, { sessionId, vrm, checks, market, payload: served });
+  const email = paidSession?.customer_details?.email || null;
+  if (!email) {
+    console.warn(`[REPORT EMAIL] no customer_details.email on session=${String(sessionId).slice(0, 14)}… — not sent`);
+    return;
+  }
+  after(async () => {
+    await dispatchReportEmail({ to: email, vrm, result: served, checks: served?.checks || checks, market });
+  });
+}
+
 const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
 
 const FREE_RATE_LIMIT = 10;
@@ -466,6 +486,29 @@ const dvla = await safeJson(dvlaRes);
     console.warn(`[VEHICLE AUTH] VRM mismatch — paid=${paidVrm || '∅'} requested=${cleanVrm}`);
     return NextResponse.json({ error: 'Payment does not match this vehicle' }, { status: 403 });
   }
+  // ── Stored-report re-open (BUILD_StoredReports) ──────────────────────────────────────────────
+  // The purchase is genuine (paid + VRM-matched). If it was already served, re-open it as a PURE DB
+  // READ — no supplier calls, no reg_lookup_cache read, no replay bind — and return BEFORE the bind
+  // below (whose job is first-view replay protection, and which would otherwise 403 a legitimate
+  // returning customer with the very "already used" message this branch exists to remove). A missing
+  // paid_reports table degrades to a normal first view (see lib/paidReports.mjs), never to a false
+  // "payment could not be verified".
+  {
+    const stored = await readStoredReport(supabase, stripeSessionId, cleanVrm);
+    if (stored.action === 'serve') {
+      console.log(`[STORED REPORT] re-open served session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm} (zero supplier calls)`);
+      return NextResponse.json(stored.payload);
+    }
+    if (stored.action === 'expired') {
+      console.log(`[STORED REPORT] expired session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm}`);
+      return NextResponse.json(
+        { error: 'This report has expired. Please check your emailed copy, or buy a fresh report for current data.',
+          storedReportExpired: true, storedAt: stored.storedAt },
+        { status: 410 }
+      );
+    }
+  }
+
   // Checks / tier subset — every requested check (GB) or the roiTier (IE) must be covered by what
   // the session actually paid for. A requested item absent from the paid metadata → reject.
   if (market === 'IE' && roiTierParam) {
@@ -517,7 +560,9 @@ const dvla = await safeJson(dvlaRes);
 
     const roiCached = await getCachedResult(supabase, cleanVrm, roiCacheKey);
     if (roiCached) {
-      return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
+      const served = { ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served });
+      return NextResponse.json(served);
     }
 
     const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
@@ -576,6 +621,7 @@ const dvla = await safeJson(dvlaRes);
 
     await storeCachedResult(supabase, cleanVrm, roiCacheKey, roiPayload);
     logEvent('report_viewed', { vrm: cleanVrm, tier: roiTierParam, market: 'IE' });
+    await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served: roiPayload });
     return NextResponse.json(roiPayload);
   }
 
@@ -609,7 +655,9 @@ const dvla = await safeJson(dvlaRes);
     const needsServiceHistory = checks.includes('ie_service_history') || checks.includes('service_history');
     const refundState = await evaluateServiceHistoryRefund(
       new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, cachedServiceHistoryOutcome(clean), needsServiceHistory);
-    return NextResponse.json({ ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at });
+    const servedCached = { ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at };
+    await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market, served: servedCached });
+    return NextResponse.json(servedCached);
   }
 
   try {
@@ -751,7 +799,9 @@ const dvla = await safeJson(dvlaRes);
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });
-      return NextResponse.json({ ...payload, ...refundState });
+      const served = { ...payload, ...refundState };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market: 'IE', served });
+      return NextResponse.json(served);
 
     } else {
       // ── GB PAID PATH ──────────────────────────────────────────────────────────
@@ -974,8 +1024,11 @@ const dvla = await safeJson(dvlaRes);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
       // Response carries the request-scoped mileage verdict/detail (entered figure applied), NOT the
-      // MOT-only versions just cached.
-      return NextResponse.json({ ...payload, mileageVerdict: mkVerdict(mileageTimeline), mileageDetail: mkDetail(mileageTimeline), ...refundState });
+      // MOT-only versions just cached. This SERVED object — not the cached one — is what is stored, so
+      // a re-open shows the customer the exact verdict they bought (§2.2).
+      const served = { ...payload, mileageVerdict: mkVerdict(mileageTimeline), mileageDetail: mkDetail(mileageTimeline), ...refundState };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market: 'GB', served });
+      return NextResponse.json(served);
     }
 
   } catch (err) {

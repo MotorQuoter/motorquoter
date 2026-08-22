@@ -1158,6 +1158,17 @@ function PaymentSuccessContent() {
               </div>
             </div>
 
+            {result._stored && result._storedAt && (
+              <div style={{
+                margin: '0 20px 8px', padding: '8px 12px', borderRadius: 8,
+                background: 'var(--card-2, rgba(255,255,255,0.04))', border: '1px solid var(--border, rgba(255,255,255,0.08))',
+                fontSize: 12, color: 'var(--text-dim)', textAlign: 'center',
+              }}>
+                Report as at {new Date(result._storedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+                {' '}This is the report you purchased — for current data, run a new report.
+              </div>
+            )}
+
             <RecallWarning result={result} />
 
             {vehicleImage && (

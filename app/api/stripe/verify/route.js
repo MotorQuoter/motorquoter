@@ -53,16 +53,14 @@ export async function GET(request) {
   }
 
   // ── Stripe path ──────────────────────────────────────────────────────────────
-  const { data: existing } = await supabase
-    .from('used_sessions')
-    .select('session_id')
-    .eq('session_id', sessionId)
-    .maybeSingle();
-
-  if (existing) {
-    return NextResponse.json({ error: 'This payment link has already been used' }, { status: 403 });
-  }
-
+  // verify is NO LONGER a report-access gate. Its old 403-on-second-call is exactly what told a
+  // paying customer "payment could not be verified" the moment they refreshed (BUILD_StoredReports
+  // §2.3). Report access is decided in ONE place now — /api/vehicle, stored-vs-fresh. Here, a genuinely
+  // paid session ALWAYS returns its checks/vrm/market, whether or not it has been seen before.
+  //
+  // used_sessions is KEPT for the one thing it is actually needed for: counting a promo redemption
+  // exactly once. The insert is the atomic once-guard — a clean insert means "first time, do the
+  // increment"; a 23505 conflict means "already counted, skip it" (a repeat open must not re-increment).
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     const paid = session.payment_status === 'paid';
@@ -71,25 +69,25 @@ export async function GET(request) {
       return NextResponse.json({ paid: false });
     }
 
-    // Insert with conflict check — guards against two simultaneous requests racing through the check above
+    // Claim the once-guard. Only a CLEAN insert (no error) is a first redemption → increment. A 23505
+    // (already present) or any other error → do NOT increment, but still return the paid report.
+    let firstRedemption = false;
     try {
       const { error: insertError } = await supabase
         .from('used_sessions')
         .insert({ session_id: sessionId });
-
-      if (insertError?.code === '23505') {
-        return NextResponse.json({ error: 'This payment link has already been used' }, { status: 403 });
-      }
-      if (insertError) {
-        console.error('used_sessions insert error:', insertError);
+      if (!insertError) {
+        firstRedemption = true;
+      } else if (insertError.code !== '23505') {
+        console.error('used_sessions insert error (promo increment skipped, report still served):', insertError);
       }
     } catch (insertErr) {
-      console.error('used_sessions insert exception:', insertErr);
+      console.error('used_sessions insert exception (promo increment skipped, report still served):', insertErr);
     }
 
-    // Increment uses_so_far for any non-free promo code used at checkout
+    // Increment uses_so_far for a non-free promo code — ONCE per session, on the first redemption only.
     const promoCode = session.metadata?.promo_code;
-    if (promoCode) {
+    if (promoCode && firstRedemption) {
       supabase
         .from('promo_codes')
         .select('uses_so_far')
