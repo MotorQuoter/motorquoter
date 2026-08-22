@@ -32,7 +32,18 @@ export function buildPdf(result, vrm, checks, checkDate) {
     return o === 'error' || o === 'empty';
   };
   const PDF_PROVIDER_FAILED = 'Check could not be completed - provider did not respond; contact support to re-run or refund.';
-  const verdictValue = (v, block) => (v.missing && providerFailed(block)) ? PDF_PROVIDER_FAILED : v.value;
+  const PDF_BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand' };
+  const verdictValue = (v, block) => {
+    if (!(v.missing && providerFailed(block))) return v.value;
+    const r = result?._refunds?.[PDF_BLOCK_TO_ITEM[block]];
+    if (r?.refunded) {
+      const amt = r.refund && typeof r.refund.amount === 'number'
+        ? ` (${r.refund.currency === 'eur' ? '€' : '£'}${(r.refund.amount / 100).toFixed(2)})`
+        : '';
+      return `Could not be completed - refunded${amt}.`;
+    }
+    return PDF_PROVIDER_FAILED;
+  };
   const acBlock = isIE ? 'hpi' : 'autocheck'; // the outcome key for the six Experian/HPI blocks
   const val = result.valuation || {};
   const motHistory = result.motHistory || [];

@@ -15,6 +15,7 @@ import { readStoredReport, writeStoredReport } from '@/lib/paidReports';
 import { dispatchReportEmail } from '@/lib/email.mjs';
 import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
 import { classifyApiResult, isProviderFailure, extractApiResult } from '@/lib/apiOutcome.mjs';
+import { refundableItems, REFUND_REGISTRY } from '@/lib/refundRegistry.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -147,6 +148,64 @@ async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId
     out.serviceHistoryRefund = { ...refund, refundId: result.refundId };
   } else {
     out.serviceHistoryRefundFailed = true;
+  }
+  return out;
+}
+
+// ── Generalised auto-refund (C§6) — any provider-backed paid item whose call FAILED refunds its own
+// charge. Same charge-derived + idempotent discipline as the service-history path, generalised via
+// REFUND_REGISTRY rather than special-cased a second time. service_history keeps its own evaluator
+// (different trigger: empty-records, not provider-failure; and its live refunds are by-amount).
+async function deriveItemRefund(stripe, stripeSessionId, paidSession, reg) {
+  const currency = (paidSession?.currency || 'gbp').toLowerCase();
+  try {
+    const li = await stripe.checkout.sessions.listLineItems(stripeSessionId, { limit: 100 });
+    const match = li.data.find(l => reg.line.test(l.description || ''));
+    if (match && match.amount_total > 0) return { amount: match.amount_total, currency: (match.currency || currency).toLowerCase() };
+  } catch (e) {
+    console.warn('[REFUND] line-item read failed:', e.message);
+  }
+  const isIE = (paidSession?.metadata?.market || 'GB') === 'IE';
+  const eur = currency === 'eur';
+  const cfgKey = (isIE && reg.cfgIE) ? reg.cfgIE : reg.cfg;
+  const cfg = (isIE ? IE_MENU : PRICING.menu).find(i => i.key === cfgKey);
+  const price = eur ? (cfg?.priceEUR ?? cfg?.price) : cfg?.price;
+  return { amount: Math.round((price ?? 0) * 100), currency };
+}
+
+// Idempotent per ITEM via refund metadata — two failed items sharing a price (market_demand /
+// previous_adverts at £0.99) must each refund, which a by-amount check cannot tell apart.
+async function executeItemRefund(stripe, paymentIntentId, refund, item) {
+  try {
+    const existing = await stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+    const dup = existing.data.find(r => r.metadata?.item === item);
+    if (dup) {
+      console.log(`[REFUND] idempotent ${dup.id} ${item} (already refunded) — ${refund.currency} ${refund.amount}`);
+      return { ok: true, refundId: dup.id };
+    }
+    const r = await stripe.refunds.create({ payment_intent: paymentIntentId, amount: refund.amount, metadata: { item } });
+    console.log(`[REFUND] executed ${r.id} ${item} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId})`);
+    return { ok: true, refundId: r.id };
+  } catch (err) {
+    console.error(`[REFUND] FAILED ${item} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId}): ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Evaluate + issue auto-refunds for every paid item whose provider call FAILED (state 2). Polarity is
+// decided by the pure refundableItems() — a clean qty:0 is a delivered product and never reaches here.
+// Returns { item: { refunded:true, refund } | { refundFailed:true } }. No payment_intent → no refunds.
+async function evaluatePaidRefunds(stripe, paidSession, stripeSessionId, checks, checkOutcomes) {
+  const items = refundableItems(checks, checkOutcomes);
+  const out = {};
+  if (!items.length) return out;
+  const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
+  if (!refundTarget) return out;
+  for (const item of items) {
+    const refund = await deriveItemRefund(stripe, stripeSessionId, paidSession, REFUND_REGISTRY[item]);
+    if (!refund.amount) continue;
+    const result = await executeItemRefund(stripe, refundTarget, refund, item);
+    out[item] = result.ok ? { refunded: true, refund: { ...refund, refundId: result.refundId } } : { refundFailed: true };
   }
   return out;
 }
@@ -991,6 +1050,12 @@ const dvla = await safeJson(dvlaRes);
       if (demandOutcome)    checkOutcomes.market_demand    = demandOutcome.reason     ?? 'ok';
       if (advertsOutcome)   checkOutcomes.previous_adverts = advertsOutcome.reason    ?? 'ok';
 
+      // C§6 — auto-refund any paid item whose provider call FAILED (state 2). Live + idempotent per
+      // item; a clean qty:0 never reaches it (pure polarity in refundableItems). {} on the happy path.
+      const paidRefunds = await evaluatePaidRefunds(
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, checks, checkOutcomes);
+      const anyProviderFailed = Object.values(checkOutcomes).some(isProviderFailure);
+
       const payload = {
         make: dvla.make,
         model: dvsaData?.model || null,
@@ -1035,6 +1100,7 @@ const dvla = await safeJson(dvlaRes);
         market: 'GB',
         checks,
         _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
+        _refunds: paidRefunds,           // C§6 — per-item auto-refund state (empty on the happy path)
         valuationMileage: needsValuation ? bregoMileage : null,
         valuationMileageSource: needsValuation ? bregoMileageSource : null,
         valuationMileageDate: (needsValuation && bregoMileageSource === 'dvsa_mot') ? (latestMot?.completedDate || null) : null,
@@ -1042,8 +1108,11 @@ const dvla = await safeJson(dvlaRes);
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
-      // See isUncacheableServiceHistory — a provider failure must not be frozen into the 48h cache.
-      if (!isUncacheableServiceHistory(svcOutcome)) {
+      // A provider failure must not be frozen into the 48h cache — else another customer buying the
+      // same reg is served the errored payload AND auto-refunded for a call THEY never made (which
+      // might have succeeded fresh). Covers service history (isUncacheableServiceHistory) and now any
+      // C§5 block failure (anyProviderFailed).
+      if (!isUncacheableServiceHistory(svcOutcome) && !anyProviderFailed) {
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });

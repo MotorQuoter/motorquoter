@@ -82,8 +82,18 @@ function checkFailed(result, block) {
 }
 const PROVIDER_FAILED_TEXT =
   "This check could not be completed — the provider did not respond. This is not a result for your vehicle; the check did not complete. Please contact support and we'll re-run it or refund this item.";
+// A failed block maps to its refundable menu item, so the render can confirm the refund (C§6).
+const BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', previous_adverts: 'previous_adverts' };
 function emptyText(result, block, absentText) {
-  return checkFailed(result, block) ? PROVIDER_FAILED_TEXT : absentText;
+  if (!checkFailed(result, block)) return absentText;
+  const r = result?._refunds?.[BLOCK_TO_ITEM[block]];
+  if (r?.refunded) {
+    const amt = r.refund && typeof r.refund.amount === 'number'
+      ? ` (${r.refund.currency === 'eur' ? '€' : '£'}${(r.refund.amount / 100).toFixed(2)})`
+      : '';
+    return `This check could not be completed — the provider did not respond, so it was not a result for your vehicle. We've refunded this item${amt}.`;
+  }
+  return PROVIDER_FAILED_TEXT;
 }
 
 // ── Vehicle Identity ──────────────────────────────────────────────────────────
