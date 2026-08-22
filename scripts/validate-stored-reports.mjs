@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { decideStoredReport, readStoredReport, writeStoredReport } from '../lib/paidReports.mjs';
 import { STORED_REPORT_TTL_MINUTES, STORED_REPORT_TTL_MS } from '../config/storedReports.mjs';
+import { isFirstRedemption } from '../lib/promoRedemption.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -142,11 +143,29 @@ console.log('\n9. app/api/stripe/verify/route.js — de-gated, promo increment o
   const stripePath = v.slice(v.indexOf('── Stripe path'));
   assertTrue('the Stripe path no longer 403s a returning customer', !stripePath.includes('already been used'));
   assertTrue('promo increment is gated on a first redemption only', stripePath.includes('firstRedemption'));
-  assertTrue('a clean insert marks the first redemption', stripePath.includes('firstRedemption = true'));
+  assertTrue('the first-redemption decision uses the shared once-guard helper', stripePath.includes('isFirstRedemption(insertError)'));
   // The increment MUTATION must sit behind the firstRedemption gate, not fire on every open.
   const iGate   = stripePath.indexOf('promoCode && firstRedemption');
   const iUpdate = stripePath.indexOf('.update({ uses_so_far');
   assertTrue('the uses_so_far update is inside the firstRedemption-gated block', iGate > 0 && iGate < iUpdate);
+}
+
+// ── 9b. Promo counted EXACTLY ONCE across three opens of one session (§3a — the behaviour, tested) ─
+console.log('\n9b. Three opens of one promo session → uses_so_far incremented exactly once');
+{
+  // Simulate the used_sessions once-guard: the first insert is clean; a session_id PK collision on
+  // every later open returns 23505. isFirstRedemption(insertError) is the exact gate the route uses.
+  const used = new Set();
+  const insert = (sid) => (used.has(sid) ? { code: '23505' } : (used.add(sid), null));
+  let increments = 0;
+  for (let open = 1; open <= 3; open++) {
+    const err = insert('cs_promo_1');
+    if (isFirstRedemption(err)) increments += 1; // the route only increments uses_so_far here
+  }
+  assert('a promo session opened three times increments uses_so_far exactly once', increments, 1);
+  assert('the first open is the redemption', isFirstRedemption(null), true);
+  assert('a 23505 collision is never a redemption', isFirstRedemption({ code: '23505' }), false);
+  assert('a transient DB error is NOT counted (undercount is the safe direction)', isFirstRedemption({ code: '08006' }), false);
 }
 
 // ── 10. STRUCTURAL — the email is one shared sender, and it never fails a page load ───────────────

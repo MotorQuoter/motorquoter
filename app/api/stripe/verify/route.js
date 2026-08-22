@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { logEvent } from '@/lib/analytics';
+import { isFirstRedemption } from '@/lib/promoRedemption';
 
 function getSupabase() {
   return createClient(
@@ -76,9 +77,8 @@ export async function GET(request) {
       const { error: insertError } = await supabase
         .from('used_sessions')
         .insert({ session_id: sessionId });
-      if (!insertError) {
-        firstRedemption = true;
-      } else if (insertError.code !== '23505') {
+      firstRedemption = isFirstRedemption(insertError);
+      if (insertError && insertError.code !== '23505') {
         console.error('used_sessions insert error (promo increment skipped, report still served):', insertError);
       }
     } catch (insertErr) {
