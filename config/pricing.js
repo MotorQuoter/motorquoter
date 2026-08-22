@@ -68,8 +68,14 @@ export const IE_MENU = [
     key: 'ie_history',
     label: 'Full History Check',
     description: 'Cartell — write-off, finance, mileage, stolen, tax, NCT detail',
-    price: 15.00,
-    priceEUR: 17.99,
+    // ⚠️ INTERNALLY INCONSISTENT — awaiting Vincent's sterling figure. The 16 Aug decision repriced
+    // this to €24.99 (against a £14.40 gross Cartell-via-One-Auto cost: ~28% on that route, ~58% on
+    // MotorCheck) but was never applied to the code. priceEUR is now correct; `price` (£) has NO
+    // decision of record — €24.99 was set alone, no sterling twin — so 15.00 is left untouched
+    // rather than inventing a number. Still enabled:false, so no live exposure (render shell only;
+    // result.ieHistory has no renderer). ROI_TIERS deletion still rides the ROI menu work, not here.
+    price: 15.00,      // ← £ twin undecided; do NOT derive from priceEUR — Vincent's call
+    priceEUR: 24.99,   // 16 Aug decision, finally applied (was 17.99 = break-even)
     preSelected: false,
     locked: false,
     enabled: false,

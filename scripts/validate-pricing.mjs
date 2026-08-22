@@ -58,6 +58,9 @@ eq('price: previous_adverts £0.99', menuMap.previous_adverts?.price, 0.99);
 // IE frozen — supplier decision pending.
 eq('IE frozen: ie_service_history £5.00', menuMap.ie_service_history?.price, 5.00);
 eq('IE frozen: ie_history still disabled', menuMap.ie_history?.enabled, false);
+// €24.99 is the 16 Aug decision of record — pin it so it cannot drift back to the break-even 17.99 a
+// third time. The £ twin is deliberately NOT asserted: no sterling figure was ever decided.
+eq('IE frozen: ie_history priceEUR €24.99 (not break-even 17.99)', menuMap.ie_history?.priceEUR, 24.99);
 
 // ── 3a. COVERAGE gate (make + year; VIN stays server-side) ────────────────────────
 ok('coverage: FORD 2015 offerable', serviceHistoryOfferable({ make: 'FORD', yearOfManufacture: 2015 }).offerable === true);
