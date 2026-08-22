@@ -1061,6 +1061,15 @@ const dvla = await safeJson(dvlaRes);
       // carrying the VRM, the failed blocks and whether each was auto-refunded. isProviderFailure is
       // the sibling predicate to isInfraFailure — supplier failures, not Claude infra. Awaited
       // (throttled + 2s-boxed), never throws.
+      //
+      // ⚠️ READ THIS IF YOU ARE THE FIRST TO SEE THIS ALERT (batch 35 §2): classifyApiResult maps a
+      // bare EMPTY BODY to reason 'empty' → refundable, on the (unverified) inference that a healthy
+      // "no record held" answer is a populated object, never an empty body. A STEADY TRICKLE of this
+      // alert on ONE provider, with customers reporting they DID receive their report, is the
+      // signature that that provider answers a legitimate "no record" with an empty body — in which
+      // case we are refunding delivered sales for that block, and its classification needs the
+      // observed shape. It errs toward the customer, so it is not urgent, but that is the one place a
+      // real response could contradict the design.
       if (anyProviderFailed) {
         const failedBlocks = Object.entries(checkOutcomes).filter(([, r]) => isProviderFailure(r)).map(([b, r]) => `${b}:${r}`);
         const refunded = Object.entries(paidRefunds).filter(([, v]) => v.refunded).map(([k]) => k);
