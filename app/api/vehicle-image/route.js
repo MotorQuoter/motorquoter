@@ -1,6 +1,14 @@
-import { oneAutoFetch } from '@/lib/oneAuto.mjs';
+import { after } from 'next/server';
+import { oneAutoFetch, withOneAutoLog, flushOneAutoLog } from '@/lib/oneAuto.mjs';
 
+// Wrapper (commit 2): log this request's One Auto image calls (buffered, one post-response write).
 export async function POST(request) {
+  const { result, calls } = await withOneAutoLog(() => handleImagePost(request));
+  if (calls.length) after(() => flushOneAutoLog(calls, null));
+  return result;
+}
+
+async function handleImagePost(request) {
   try {
     const { vrm, colour } = await request.json();
     if (!vrm) return Response.json({ imageUrl: null });

@@ -222,6 +222,31 @@ ALTER TABLE oneauto_cache ENABLE ROW LEVEL SECURITY;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 5. oneauto_call_log  (feat/oneauto-fetch commit 2, 23 Aug)
+--    One row PER REQUEST (buffered, not per call): every One Auto call the request made, with its
+--    latency and ok flag. Records COUNTS, never COSTS — the rate lives in One Auto's invoice, which
+--    only Vincent can pull. This is the spend-log FOUNDATION under §7 part 2 and the E costing model;
+--    a count × a list price is still a list price.
+--    ⚠️ MUST be created in Supabase before the log writes land — schema.sql is not auto-applied. The
+--    write is wrapped and non-fatal, so a missing table degrades to no logging (the report is unaffected).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS oneauto_call_log (
+  id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id  text,                    -- the paid Stripe/promo session, when the request had one
+  vrm         text,                    -- the vehicle the calls were for (first non-null in the batch)
+  call_count  integer     NOT NULL,
+  -- [{ endpoint, vrm, ok, ms, ts }] — endpoint is the path (no query), ms is per-call latency.
+  calls       jsonb       NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS oneauto_call_log_created_at_idx ON oneauto_call_log (created_at DESC);
+ALTER TABLE oneauto_call_log ENABLE ROW LEVEL SECURITY;
+-- No permissive policies — service role bypasses RLS; all other roles blocked.
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Cleanup queries (run manually or via pg_cron as needed)
 -- ─────────────────────────────────────────────────────────────────────────────
 

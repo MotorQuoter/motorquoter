@@ -16,7 +16,7 @@ import { dispatchReportEmail } from '@/lib/email.mjs';
 import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
 import { classifyApiResult, isProviderFailure, extractApiResult } from '@/lib/apiOutcome.mjs';
 import { refundableItems, REFUND_REGISTRY } from '@/lib/refundRegistry.mjs';
-import { ONE_AUTO_BASE, oneAutoHeaders, oneAutoFetch } from '@/lib/oneAuto.mjs';
+import { ONE_AUTO_BASE, oneAutoHeaders, oneAutoFetch, withOneAutoLog, flushOneAutoLog } from '@/lib/oneAuto.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -402,7 +402,18 @@ function checkFreeRateLimit(request) {
   return true;
 }
 
+// Thin wrapper (C§7 / feat/oneauto-fetch commit 2): run the handler inside a request-scoped One Auto
+// call log, then flush ONE buffered row post-response via after() — no customer latency, one write.
 export async function GET(request) {
+  const { result, calls } = await withOneAutoLog(() => handleVehicleGet(request));
+  if (calls.length) {
+    const sessionId = (() => { try { return new URL(request.url).searchParams.get('session_id'); } catch { return null; } })();
+    after(() => flushOneAutoLog(calls, sessionId));
+  }
+  return result;
+}
+
+async function handleVehicleGet(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
   const mileage = searchParams.get('mileage') || '';
