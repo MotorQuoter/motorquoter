@@ -16,6 +16,7 @@ import { dispatchReportEmail } from '@/lib/email.mjs';
 import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
 import { classifyApiResult, isProviderFailure, extractApiResult } from '@/lib/apiOutcome.mjs';
 import { refundableItems, REFUND_REGISTRY } from '@/lib/refundRegistry.mjs';
+import { ONE_AUTO_BASE, oneAutoHeaders, oneAutoFetch } from '@/lib/oneAuto.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -210,8 +211,8 @@ async function evaluatePaidRefunds(stripe, paidSession, stripeSessionId, checks,
   return out;
 }
 
-const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
+// ONE_AUTO_BASE / oneAutoHeaders / oneAutoFetch now live in lib/oneAuto.mjs (imported above) — one
+// definition each, one choke point. CARTELL_BASE moved there too (it was dead — see that file).
 const CACHE_TTL_HOURS = 48;
 
 // extractApiResult / classifyApiResult now live in lib/apiOutcome.mjs (C§5) — imported at the top.
@@ -238,7 +239,10 @@ const SERVICE_HISTORY_POLL = { maxAttempts: 30, intervalMs: 2000 };
 
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(url, options);
+    // Both callers (ezyvin service history, cartell/vehiclehistorycheck) are One Auto; `url` is the
+    // absolute One Auto URL and `options` already carries oneAutoHeaders — oneAutoFetch passes both
+    // through unchanged, so this is byte-identical while still flowing through the one choke point.
+    const res = await oneAutoFetch(url, options);
     if (res.status !== 202) return res;
     await new Promise(r => setTimeout(r, intervalMs));
   }
@@ -380,8 +384,6 @@ async function persistAndEmailReport(supabase, paidSession, { sessionId, vrm, ch
     await dispatchReportEmail({ to: email, vrm, result: served, checks: served?.checks || checks, market });
   });
 }
-
-const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
 
 const FREE_RATE_LIMIT = 10;
 const FREE_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -630,11 +632,11 @@ const dvla = await safeJson(dvlaRes);
     const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
 
     const [cartellRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
-      fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() }),
-      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
-      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+      oneAutoFetch(`cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`),
+      oneAutoFetch(`percayso/marketdemandfromvrm/?vrm=${cleanVrm}`),
+      oneAutoFetch(`cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`),
+      isHistory ? oneAutoFetch(`cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
+      isHistory ? oneAutoFetch(`cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
     ]);
 
     const cartellData = await safeJson(cartellRes);
@@ -736,9 +738,8 @@ const dvla = await safeJson(dvlaRes);
       const needsHistory        = checks.includes('ie_history');
 
       // Cartell identity — always fetched; provides base vehicle data and VIN
-      const cartellRes = await fetch(
-        `${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`,
-        { headers: oneAutoHeaders() }
+      const cartellRes = await oneAutoFetch(
+        `cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`
       );
       const cartellData = await safeJson(cartellRes);
       const cartell = cartellData?.success === true ? cartellData.result : null;
@@ -791,13 +792,13 @@ const dvla = await safeJson(dvlaRes);
       const [nctHistoryRes, bregoRoiRes] = await Promise.all([
         // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         // needsValuation
-        //   ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`, { headers: oneAutoHeaders() })
+        //   ? oneAutoFetch(`cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`)
         //   : Promise.resolve(null),
         needsNct
-          ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`)
           : Promise.resolve(null),
       ]);
 
@@ -956,27 +957,27 @@ const dvla = await safeJson(dvlaRes);
 
       const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes, ownerDetailsRes] = await Promise.all([
         needsAutocheck
-          ? fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${bregoMileage}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${bregoMileage}`)
           : Promise.resolve(null),
         needsPreviousAdverts
-          ? fetch(`${ONE_AUTO_BASE}/percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         needsMarketDemand
-          ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         ((needsMot || needsMileageDetail) && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
         needsSalvageHistory
-          ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         // TASK-6 — stop the keeper double-buy. AutoCheck already returns keeper_data_items /
         // cherished_data_items, so when the basket also triggers AutoCheck (full_history) we serve
         // keeper + plate data from that payload and skip this 20p (24p true) UKVD call. owner_history
         // bought standalone still fetches UKVD, so the call is correct when it is the only source.
         (needsOwnerHistory && !needsAutocheck)
-          ? fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
       ]);
 

@@ -1,5 +1,4 @@
-const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
+import { oneAutoFetch } from '@/lib/oneAuto.mjs';
 
 export async function POST(request) {
   try {
@@ -9,9 +8,8 @@ export async function POST(request) {
     const cleanVrm = vrm.replace(/\s+/g, '').toUpperCase();
 
     // Step 1: resolve image_id from VRM
-    const searchRes = await fetch(
-      `${ONE_AUTO_BASE}/oneauto/imagesearchfromvrm/?vehicle_registration_mark=${cleanVrm}`,
-      { headers: oneAutoHeaders() }
+    const searchRes = await oneAutoFetch(
+      `oneauto/imagesearchfromvrm/?vehicle_registration_mark=${cleanVrm}`
     );
     if (!searchRes.ok) return Response.json({ imageUrl: null });
 
@@ -35,9 +33,8 @@ export async function POST(request) {
     const params = new URLSearchParams({ image_id: String(imageId), image_background: 'Transparent' });
     if (colour) params.set('generic_colour_desc', colour);
 
-    const imgRes = await fetch(
-      `${ONE_AUTO_BASE}/oneauto/imagefromid/?${params}`,
-      { headers: oneAutoHeaders() }
+    const imgRes = await oneAutoFetch(
+      `oneauto/imagefromid/?${params}`
     );
     if (!imgRes.ok) return Response.json({ imageUrl: null });
 
