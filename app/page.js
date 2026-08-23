@@ -6,6 +6,7 @@ import { PRICING, IE_MENU } from '@/config/pricing';
 import { isRoiPlate } from '@/lib/roiPlate';
 import { serviceHistoryOfferable } from '@/config/serviceHistoryCoverage';
 import { genuineMotReadingCount } from '@/lib/offerability';
+import { motStatusPresentation } from '@/lib/motTone';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
@@ -760,10 +761,25 @@ export default function Home() {
                   {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
                   {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
                   {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
-                  {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+                  {(() => {
+                    // Age-eligible GB classic with no current MOT → neutral (no class), never red/amber
+                    // as neglect and never green as a pass; row still shows even if motStatus is absent.
+                    const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: 'GB' });
+                    if (!result.motStatus && !motPres.exempt) return null;
+                    const cls = motPres.tone === 'ok' ? 'good' : motPres.tone === 'alert' ? 'warn' : '';
+                    return <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${cls}`.trim()}>{motPres.label}</span></div>;
+                  })()}
                   {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
                   {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
                 </div>
+                {(() => {
+                  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: 'GB' });
+                  return motPres.exempt ? (
+                    <div style={{ margin: '2px 16px 14px', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, fontWeight: 500, border: '1.5px solid var(--border, rgba(255,255,255,0.14))', background: 'rgba(255,255,255,0.03)', color: 'var(--text-dim)' }}>
+                      {motPres.note}
+                    </div>
+                  ) : null;
+                })()}
                 <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', padding: '0 20px 12px', letterSpacing: '0.02em' }}>
                   Official <span style={{ fontWeight: 700, color: 'var(--text)' }}>DVLA &amp; DVSA</span> data
                 </div>

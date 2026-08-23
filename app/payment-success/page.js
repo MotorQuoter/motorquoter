@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 import { formatOdometer } from '@/lib/odometerDisplay';
+import { motStatusPresentation } from '@/lib/motTone';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 function fmtFirstReg(str) {
@@ -100,6 +101,10 @@ function emptyText(result, block, absentText) {
 
 function IdentitySection({ result }) {
   const isIE = result.market === 'IE';
+  // Age-eligible GB classic with no current MOT → neutral, with the exemption wording; never amber
+  // (neglect) and never green (a pass that never happened). IE/NCT is untouched (UK MOT law only).
+  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: isIE ? 'IE' : 'GB' });
+  const motColor = motPres.tone === 'ok' ? '#4ade80' : motPres.tone === 'alert' ? '#f5c842' : 'var(--text-dim)';
   return (
     <div className="card">
       <SectionTitle>Vehicle Identity</SectionTitle>
@@ -113,7 +118,7 @@ function IdentitySection({ result }) {
         {result.co2Emissions    && <div className="info-cell"><div className="info-key">CO₂</div><div className="info-val">{result.co2Emissions} g/km</div></div>}
         {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{fmtFirstReg(result.monthOfFirstRegistration)}</div></div>}
         {result.taxStatus       && <div className="info-cell"><div className="info-key">Tax</div><div className="info-val" style={{color: result.taxStatus === 'Taxed' ? '#4ade80' : '#f87171'}}>{result.taxStatus}</div></div>}
-        {result.motStatus       && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: result.motStatus === 'Valid' ? '#4ade80' : '#f5c842'}}>{result.motStatus}</div></div>}
+        {(result.motStatus || motPres.exempt) && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: motColor}}>{motPres.label}</div></div>}
         {result.nctExpiryDate   && <div className="info-cell"><div className="info-key">NCT Expiry</div><div className="info-val">{fmtDate(result.nctExpiryDate) || result.nctExpiryDate}</div></div>}
         {result.dateOfLastV5CIssued && <div className="info-cell"><div className="info-key">Last V5C</div><div className="info-val">{fmtDate(result.dateOfLastV5CIssued)}</div></div>}
         {!isIE && result.valuationMileage != null && (() => {
@@ -153,6 +158,11 @@ function IdentitySection({ result }) {
           );
         })()}
       </div>
+      {motPres.exempt && (
+        <div style={{ margin: '4px 0 0', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, border: '1.5px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.03)', color: 'var(--text-dim)' }}>
+          {motPres.note}
+        </div>
+      )}
     </div>
   );
 }

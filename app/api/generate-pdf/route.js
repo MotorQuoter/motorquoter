@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { experianVerdict } from '@/lib/experianHistory';
 import { formatOdometer } from '@/lib/odometerDisplay';
+import { motStatusPresentation } from '@/lib/motTone';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -186,10 +187,25 @@ export function buildPdf(result, vrm, checks, checkDate) {
   if (result.fuelType)                 row('Fuel Type',     result.fuelType);
   if (result.co2Emissions)             row('CO2 Emissions', `${result.co2Emissions} g/km`);
   if (result.taxStatus)                row('Tax Status',    result.taxStatus,  result.taxStatus !== 'Taxed' ? 'bad' : undefined);
-  if (result.motStatus)                row(isIE ? 'NCT Status' : 'MOT Status', result.motStatus, result.motStatus !== 'Valid' ? 'bad' : undefined);
+  // MOT/NCT status. A 40-year-old GB vehicle with no current MOT is age-eligible for exemption, not
+  // neglected — motStatusPresentation renders it NEUTRAL (never red, never a green all-clear) and
+  // forces the row to appear even when motStatus is absent (a hidden row is its own rule-10 failure).
+  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: isIE ? 'IE' : 'GB' });
+  if (result.motStatus || motPres.exempt) {
+    // Non-exempt unchanged: Valid was already neutral here (only non-Valid was red). exempt → neutral too.
+    const motTone = motPres.tone === 'alert' ? 'bad' : undefined;
+    row(isIE ? 'NCT Status' : 'MOT Status', motPres.label, motTone);
+  }
   if (result.monthOfFirstRegistration) row('First Registered', fmtFirstReg(result.monthOfFirstRegistration));
   if (result.dateOfLastV5CIssued)      row('Last V5C Issued', dt(result.dateOfLastV5CIssued));
   if (result.nctExpiryDate)            row('NCT Expiry',    dt(result.nctExpiryDate));
+  // Exemption wording — both facts, no verdict (batch 47 §2). Neutral grey, not the road-tax orange.
+  if (motPres.exempt) {
+    checkPage(12);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    for (const line of doc.splitTextToSize(pdfText(motPres.note), CONTENT_W)) { doc.text(line, MARGIN, y); y += 3.8; }
+    y += 2;
+  }
 
   // ── Outstanding Safety Recall ─────────────────────────────────────────────────
   // Finding 8: a live safety warning was screen-only (no hasOutstandingRecall anywhere in the PDF).
