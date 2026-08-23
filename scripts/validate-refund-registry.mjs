@@ -80,5 +80,43 @@ console.log('\n5. Route wiring');
   ok('the alert is gated on anyProviderFailed', /anyProviderFailed\)\s*\{[\s\S]{0,600}oneauto-paid-call-failed/.test(route));
 }
 
+// ── 6. IE parity (batch 48 §8) — ie_valuation now gets the same honesty+refund as GB valuation ──────
+console.log('\n6. IE failure-honesty parity');
+ok('ie_valuation is a registry key', 'ie_valuation' in REFUND_REGISTRY);
+ok('ie_valuation resolves its € price via cfgIE (not the GB cfg)', REFUND_REGISTRY.ie_valuation.cfgIE === 'ie_valuation');
+ok('ie_valuation has its OWN block (no collision with GB valuation)',
+   REFUND_REGISTRY.ie_valuation.block === 'ie_valuation' && REFUND_REGISTRY.valuation.block === 'valuation');
+// Polarity, explicit.
+assert('ie_valuation error → refund', refundableItems(['ie_valuation'], { ie_valuation: 'error' }), ['ie_valuation']);
+assert('ie_valuation empty → refund', refundableItems(['ie_valuation'], { ie_valuation: 'empty' }), ['ie_valuation']);
+assert('ie_valuation ok (delivered, maybe no bands) → NO refund', refundableItems(['ie_valuation'], { ie_valuation: 'ok' }), []);
+// Inert on GB — a GB basket never carries ie_valuation, so it can never refund there.
+assert('GB basket cannot refund ie_valuation', refundableItems(['full_history', 'valuation'], { autocheck: 'ok', valuation: 'ok', ie_valuation: 'error' }), []);
+
+console.log('\n7. IE branch + render wiring');
+{
+  const route = readFileSync(join(ROOT, 'app/api/vehicle/route.js'), 'utf8');
+  // The IE branch must run the SAME classify → outcomes → refund → alert path GB has.
+  ok('IE classifies the ie_valuation provider call', route.includes('bregoOutcome') && route.includes('classifyApiResult(bregoRoiRaw)'));
+  ok('IE records the ie_valuation outcome', route.includes('checkOutcomes.ie_valuation'));
+  ok('IE runs the generalised evaluatePaidRefunds', /evaluatePaidRefunds\([\s\S]{0,120}checkOutcomes/.test(route));
+  ok('IE payload carries _checkOutcomes and _refunds', /market: 'IE'[\s\S]{0,200}_checkOutcomes/.test(route));
+  ok('IE fires the ops alert with Market: IE', route.includes('Market: IE'));
+  // The IE cache write must be guarded on anyProviderFailed too (route now has two such guards: GB + IE).
+  ok('both branches guard the cache on !anyProviderFailed', (route.match(/!anyProviderFailed/g) || []).length >= 2);
+
+  const page = readFileSync(join(ROOT, 'app/payment-success/page.js'), 'utf8');
+  ok('payment-success maps ie_valuation in BLOCK_TO_ITEM', /BLOCK_TO_ITEM\s*=\s*\{[^}]*ie_valuation:/.test(page));
+  ok('the ie_valuation section renders on purchase, not only when bregoRoi is present',
+     page.includes("checks.includes('ie_valuation') && <BregoRoiValuationSection") && !/ie_valuation'\) && result\.bregoRoi && <BregoRoiValuationSection/.test(page));
+  ok('the section shows the honest failure text for ie_valuation', page.includes("emptyText(result, 'ie_valuation'"));
+
+  const pdf = readFileSync(join(ROOT, 'app/api/generate-pdf/route.js'), 'utf8');
+  ok('PDF gates the IE valuation on the purchase, not on bregoRoi presence',
+     pdf.includes("isIE && has('ie_valuation')") && !/has\('ie_valuation'\) && result\.bregoRoi\)/.test(pdf));
+  ok('PDF maps ie_valuation in PDF_BLOCK_TO_ITEM', /PDF_BLOCK_TO_ITEM\s*=\s*\{[^}]*ie_valuation:/.test(pdf));
+  ok('PDF shows the honest failure verdict for ie_valuation', pdf.includes("}, 'ie_valuation')"));
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

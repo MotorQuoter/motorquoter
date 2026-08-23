@@ -813,7 +813,11 @@ const dvla = await safeJson(dvlaRes);
       // Parse
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
-      const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
+      // C§5 (batch 48 §8): classify the ie_valuation provider call so a FAILURE reads as "could not be
+      // completed" + refunds, while a genuine ok-with-no-bands stays a delivered answer. Same predicate
+      // as GB. .result is what extractApiResult returned before — the bands parse below is unchanged.
+      const bregoOutcome = needsValuation ? classifyApiResult(bregoRoiRaw) : null;
+      const bregoRoiData = bregoOutcome?.result ?? null;
 
       const bregoRoi = bregoRoiData ? {
         retailLow:  bregoRoiData.retail_low_valuation     ?? null,
@@ -828,8 +832,32 @@ const dvla = await safeJson(dvlaRes);
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
       // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
+      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
       const refundState = await evaluateServiceHistoryRefund(
-        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
+        stripeClient, paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
+
+      // C§5/§6 for the IE branch (batch 48 §8) — the GB honesty+refund path never ran here, so
+      // ie_valuation took the money and vanished on a provider failure. Now: per-block outcome, and an
+      // auto-refund for any paid IE item whose call FAILED (refundableItems is pure polarity — a clean
+      // ok result never reaches it). service_history keeps its own evaluator above (empty-records trigger).
+      const checkOutcomes = {};
+      if (bregoOutcome) checkOutcomes.ie_valuation = bregoOutcome.reason ?? 'ok';
+      const paidRefunds = await evaluatePaidRefunds(
+        stripeClient, paidSession, stripeSessionId, checks, checkOutcomes);
+      const anyProviderFailed = Object.values(checkOutcomes).some(isProviderFailure);
+      if (anyProviderFailed) {
+        const failedBlocks = Object.entries(checkOutcomes).filter(([, r]) => isProviderFailure(r)).map(([b, r]) => `${b}:${r}`);
+        const refunded = Object.entries(paidRefunds).filter(([, v]) => v.refunded).map(([k]) => k);
+        const failedRefund = Object.entries(paidRefunds).filter(([, v]) => v.refundFailed).map(([k]) => k);
+        await sendOpsAlert(
+          'oneauto-paid-call-failed',
+          `[MotorQuoter] Paid provider call failed - ${cleanVrm}`,
+          `A paid provider call failed on a live purchase.<br>VRM: ${cleanVrm}<br>Market: IE<br>` +
+          `Failed: ${failedBlocks.join(', ')}<br>Auto-refunded: ${refunded.length ? refunded.join(', ') : 'none'}<br>` +
+          `Refund FAILED (needs manual): ${failedRefund.length ? failedRefund.join(', ') : 'none'}<br>` +
+          `Session: ${stripeSessionId.slice(0, 14)}…`
+        );
+      }
 
       const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
@@ -855,11 +883,15 @@ const dvla = await safeJson(dvlaRes);
         ieHistory,
         market: 'IE',
         checks,
+        _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
+        _refunds: paidRefunds,           // C§6 — per-item auto-refund state (empty on the happy path)
       };
 
       // Never cache a provider failure: a 48h TTL on an error would replay "unavailable" to every
-      // later buyer of this reg and hide the recovery. Empty and ok results cache as before.
-      if (!isUncacheableServiceHistory(svcOutcome)) {
+      // later buyer of this reg AND auto-refund them for a call they never made. Covers service history
+      // (isUncacheableServiceHistory) and now any C§5 block failure (anyProviderFailed) — same guard as GB.
+      // Empty and ok results cache as before.
+      if (!isUncacheableServiceHistory(svcOutcome) && !anyProviderFailed) {
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });

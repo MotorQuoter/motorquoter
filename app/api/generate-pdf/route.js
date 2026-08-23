@@ -33,7 +33,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
     return o === 'error' || o === 'empty';
   };
   const PDF_PROVIDER_FAILED = 'Check could not be completed - provider did not respond; contact support to re-run or refund.';
-  const PDF_BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand' };
+  const PDF_BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', ie_valuation: 'ie_valuation' };
   const verdictValue = (v, block) => {
     if (!(v.missing && providerFailed(block))) return v.value;
     const r = result?._refunds?.[PDF_BLOCK_TO_ITEM[block]];
@@ -313,8 +313,15 @@ export function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── IE Brego Valuation (checks path) ─────────────────────────────────────────
-  if (isIE && has('ie_valuation') && result.bregoRoi) {
+  // batch 48 §8: gate on the PURCHASE, not on bregoRoi presence — a provider failure must say so (and
+  // show the refund) instead of the whole section disappearing after the customer paid.
+  if (isIE && has('ie_valuation')) {
     const brego = result.bregoRoi;
+    const hasBands = brego && (brego.retailHigh != null || brego.tradeLow != null);
+    if (!hasBands) {
+      sectionTitle('Valuation');
+      row('Valuation', verdictValue({ missing: true, value: 'Valuation data not available for this vehicle' }, 'ie_valuation'));
+    } else {
     const fmtEur = v => v != null ? `€${Number(v).toLocaleString('en-IE')}` : '-';
     sectionTitle('Valuation');
     checkPage(12);
@@ -340,6 +347,7 @@ export function buildPdf(result, vrm, checks, checkDate) {
       y += 5;
       doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
       doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
+    }
     }
   }
 

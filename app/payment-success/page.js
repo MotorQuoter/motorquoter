@@ -84,7 +84,7 @@ function checkFailed(result, block) {
 const PROVIDER_FAILED_TEXT =
   "This check could not be completed — the provider did not respond. This is not a result for your vehicle; the check did not complete. Please contact support and we'll re-run it or refund this item.";
 // A failed block maps to its refundable menu item, so the render can confirm the refund (C§6).
-const BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', previous_adverts: 'previous_adverts' };
+const BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', previous_adverts: 'previous_adverts', ie_valuation: 'ie_valuation' };
 function emptyText(result, block, absentText) {
   if (!checkFailed(result, block)) return absentText;
   const r = result?._refunds?.[BLOCK_TO_ITEM[block]];
@@ -871,9 +871,21 @@ function RoiValuationSection({ result }) {
 
 function BregoRoiValuationSection({ result }) {
   const v = result.bregoRoi;
-  if (!v) return null;
+  // batch 48 §8: a paid ie_valuation whose provider FAILED used to vanish (null → no section, no refund
+  // shown). Now, if it was purchased but has no bands, say so honestly — "could not be completed" +
+  // refund note on a provider failure, the plain "not available" on a genuine ok-with-no-bands.
+  const purchased = result.checks?.includes('ie_valuation');
+  const hasBands = v && (v.retailHigh != null || v.tradeLow != null);
+  if (!hasBands) {
+    if (!purchased) return null;
+    return (
+      <div className="card">
+        <SectionTitle>Valuation</SectionTitle>
+        <EmptyState text={emptyText(result, 'ie_valuation', 'Valuation data not available for this vehicle')} />
+      </div>
+    );
+  }
   const { retailLow, retailAvg, retailHigh, tradeLow, tradeAvg, tradeHigh } = v;
-  if (retailHigh == null && tradeLow == null) return null;
   const fmtEur = n => n != null ? `€${Number(n).toLocaleString('en-IE')}` : '—';
   const rows = [
     { label: 'High',    retail: retailHigh, trade: tradeHigh },
@@ -1240,7 +1252,9 @@ function PaymentSuccessContent() {
                 {checks.includes('mileage_detail')    && <MileageDetailSection   result={result} />}
                 {checks.includes('owner_history')     && <OwnerHistorySection    result={result} />}
                 {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
-                {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
+                {/* No `&& result.bregoRoi` — the section must render on a provider failure too, to say so
+                    honestly and show the refund (batch 48 §8). The section handles the no-bands case. */}
+                {result.market === 'IE' && checks.includes('ie_valuation') && <BregoRoiValuationSection result={result} />}
               </>
             )}
 
