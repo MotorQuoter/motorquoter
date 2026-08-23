@@ -18,6 +18,7 @@ import { notOfferableForVehicle, hasVehicleGatedKey } from '../lib/offerability.
 import { estimateRoadTax } from '../lib/roadTax.mjs';
 import { checkMileageTimeline } from '../lib/mileageCheck.mjs';
 import { nearest99, derivedIeGbpPrice, IE_MENU_GBP_EUR_RATE } from '../config/ieMenuPricing.mjs';
+import { MENU_COSTS, MARKET_OVERHEAD, COST_FLOOR_PCT, worstCaseMargin } from '../config/menuCosts.mjs';
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -214,6 +215,49 @@ ok('ceiling: an above query never reads as clocking', !/clock/i.test(checkMileag
 const tolDeclarers = [routeSrc, pageSrc, psSrc, pdfSrc].filter((s) => /toleranceMiles\s*[=?]|ROLLBACK_TOLERANCE|ENTERED_VS_MOT|IMPLIED_USAGE/.test(s)).length;
 ok('guard: mileage thresholds are declared only in mileageCheck (no surface copy)', tolDeclarers === 0);
 ok('guard: mileageCheck exports named entered (1000) + rollback (150) + usage (3000) thresholds', mileageSrc.includes('export const ENTERED_VS_MOT_TOLERANCE_MILES = 1000') && mileageSrc.includes('export const MOT_ROLLBACK_TOLERANCE_MILES = 150') && mileageSrc.includes('export const ENTERED_IMPLIED_USAGE_QUERY_PER_MONTH = 3000'));
+
+// ── 8. THE MARGIN GATE (branch E, batch 43) — assert MONEY, not just literals ─────────────────────
+// The gate existed because five items lost money bought singly, yet had no cost/margin assertion at
+// all — ie_history sat at £15.00 / £14.40 cost (17p) through 105 green checks. Now every enabled item
+// clears its gross cost + a floor, worst case (bought ALONE, + its market overhead).
+const KNOWN_BASES = new Set(['account-rate', 'free', 'invoiced']);
+const marketOf = (key) => IE_MENU.some(i => i.key === key) ? 'IE' : 'GB';
+
+// §1.1 absence ≠ zero: every menu item must have a cost entry.
+for (const item of MENU) {
+  ok(`cost: '${item.key}' has a grossCost entry (absence is a failure, never £0)`, !!MENU_COSTS[item.key]);
+}
+// §4 unknown blocks enabled; a known basis permits.
+for (const item of MENU.filter(i => i.enabled)) {
+  const c = MENU_COSTS[item.key];
+  ok(`cost: enabled '${item.key}' has a KNOWN basis (unknown must block enabled:true)`, !!c && c.basis !== 'unknown' && KNOWN_BASES.has(c.basis));
+}
+// §2/§3/§5 worst-case single-item margin ≥ floor, GBP and (modelled) EUR, market overhead included.
+for (const item of MENU.filter(i => i.enabled && i.price > 0)) {
+  const mk = marketOf(item.key);
+  const m = worstCaseMargin(item.key, item.price, mk);
+  ok(`margin: '${item.key}' worst-case £${item.price} alone = ${m ? (m.marginPct * 100).toFixed(1) : '??'}% ≥ ${(COST_FLOOR_PCT * 100)}% (cost £${m?.cost.toFixed(2)})`, !!m && m.marginPct >= COST_FLOOR_PCT);
+  if (mk === 'IE' && item.priceEUR > 0) {
+    const me = worstCaseMargin(item.key, item.priceEUR / IE_MENU_GBP_EUR_RATE, 'IE'); // MODELLED: GBP Stripe rate, no EUR charge has settled
+    ok(`margin: '${item.key}' EUR path €${item.priceEUR} (modelled) = ${me ? (me.marginPct * 100).toFixed(1) : '??'}% ≥ ${(COST_FLOOR_PCT * 100)}%`, !!me && me.marginPct >= COST_FLOOR_PCT);
+  }
+}
+// §6 no second source of cost truth in config/pricing.js.
+ok('config/pricing.js carries NO cost field (menuCosts is the single source)', !/^\s*cost:\s*[\d.]/m.test(readFileSync(new URL('../config/pricing.js', import.meta.url), 'utf8')));
+// Inverse regression (brief §6.2): sharedWith is IGNORED — an item priced below its STANDALONE cost
+// FAILS the floor even though it rides a call it shares (owner_history rides full_history).
+{
+  const hypo = worstCaseMargin('owner_history', 0.20, 'GB'); // 20p price vs 24p standalone cost
+  ok('inverse: an item below its STANDALONE cost fails even when it shares a call', !!hypo && hypo.margin < 0);
+}
+// §6.3 the £0 items are a VALID asserted state (basis free), distinct from unknown.
+ok('free items (mot/mileage_detail/road_tax) are basis "free" £0, NOT "unknown"',
+   MENU_COSTS.mot.basis === 'free' && MENU_COSTS.mileage_detail.basis === 'free' && MENU_COSTS.road_tax.basis === 'free' &&
+   MENU_COSTS.mot.grossCost === 0);
+// IE basket overhead is a real, attributed cost (not folded into items).
+ok('IE market overhead is 18p account-rate (once/request); GB is £0', MARKET_OVERHEAD.IE.grossCost === 0.18 && MARKET_OVERHEAD.GB.grossCost === 0);
+// ie_history stays disabled (brief §6.4 — its blocker is the render layer, not the margin).
+ok('ie_history stays enabled:false regardless of its (passing) margin', menuMap.ie_history?.enabled === false);
 
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
