@@ -581,31 +581,18 @@ function MotSection({ result }) {
   const isIE = result.market === 'IE';
 
   if (isIE) {
-    const nct = result.nctHistory;
-    const tests = nct?.tests ?? nct?.nct_tests ?? nct ?? [];
-    const testArray = Array.isArray(tests) ? tests : [];
+    // NCT STATUS only (batch 38): due date + Valid/Expired from cartell/vehicleidentity. There is no
+    // NCT test-history product, so no history list is claimed.
+    const status = result.motStatus;      // 'Valid' | 'Expired' | null (derived from nct_due_date)
+    const due = result.nctExpiryDate;
     return (
       <div className="card">
-        <SectionTitle>NCT History</SectionTitle>
-        {testArray.length === 0
-          ? <EmptyState text="No NCT history on record" />
-          : <div className="history-list">
-              {testArray.map((test, i) => (
-                <div className="history-record" key={i}>
-                  <div className="history-row">
-                    <span className="history-date">{fmtDate(test.test_date || test.date) || '—'}</span>
-                    <span className={test.result === 'PASS' || test.test_result === 'PASS' ? 'badge-pass' : 'badge-fail'}>
-                      {test.result || test.test_result || '—'}
-                    </span>
-                  </div>
-                  {(test.mileage || test.odometer) && (
-                    <div className="history-mileage">
-                      {Number(test.mileage || test.odometer).toLocaleString('en-GB')} km
-                      {test.expiry_date && <span style={{marginLeft: 8, color: 'var(--text-dim)'}}>Expires {test.expiry_date}</span>}
-                    </div>
-                  )}
-                </div>
-              ))}
+        <SectionTitle>NCT Status</SectionTitle>
+        {!status && !due
+          ? <EmptyState text="No NCT status on record for this vehicle" />
+          : <div className="flag-list">
+              <FlagRow label="NCT Status" value={status || '—'} tone={status === 'Valid' ? 'green' : status === 'Expired' ? 'red' : undefined} />
+              {due && <DataRow label="NCT Due" value={fmtDate(due) || due} />}
             </div>
         }
       </div>

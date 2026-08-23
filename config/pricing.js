@@ -46,11 +46,14 @@ export const IE_MENU = [
   },
   {
     key: 'ie_nct',
-    label: 'NCT History',
-    description: 'NCT due date and test history',
+    // Honest name (batch 38): we serve STATUS only — cartell/vehicleidentity.nct_due_date gives the
+    // due date and a Valid/Expired verdict. There is no test-history product (cartell/ncthistory/v1
+    // 404s), so the label/description promise no history, past tests or records.
+    label: 'NCT Status',
+    description: 'NCT due date and Valid/Expired status',
     price: 0,
     priceEUR: 0,
-    preSelected: true,
+    preSelected: true,   // unchanged — the pre-selected/locked/£0 question is separate (batch 38 §4)
     locked: true,
     enabled: true,
   },

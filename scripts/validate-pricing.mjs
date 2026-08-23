@@ -69,6 +69,11 @@ eq('IE frozen: ie_history priceEUR €24.99 (not break-even 17.99)', menuMap.ie_
 eq('IE: ie_history £20.99 (the derived sterling twin)', menuMap.ie_history?.price, 20.99);
 eq('IE: ie_service_history moved to £4.99 (LIVE −1p from £5.00)', menuMap.ie_service_history?.price, 4.99);
 eq('IE frozen: ie_history still disabled', menuMap.ie_history?.enabled, false);
+
+// ie_nct HONESTY (batch 38): status only — no test-history promise, and the dead ncthistory call gone.
+eq('ie_nct label is "NCT Status" (not "NCT History")', menuMap.ie_nct?.label, 'NCT Status');
+ok('ie_nct label + description promise no history / records / past tests',
+   !/history|records|past\s*test/i.test(`${menuMap.ie_nct?.label ?? ''} ${menuMap.ie_nct?.description ?? ''}`));
 // The rule is IE_MENU-only. salvageAssessment is EXCLUDED (its EUR path is retired — SalvageIEDoor);
 // pin its £ explicitly so nobody later "completes" the rule by applying it there.
 eq('salvageAssessment.price pinned £8.99 (rule does NOT touch it)', PRICING.salvageAssessment.price, 8.99);
@@ -146,8 +151,19 @@ for (const [k, tok] of Object.entries(PDF_TRIGGER)) {
   ok(`parity: '${k}' renders in the PDF`, pdfSrc.includes(tok));
 }
 
-// ── 7. MILEAGE VERDICT — one path, PDF wraps, cache is vehicle-scoped (Defects 4/5/6) ──────────────
+// ── 6b. ie_nct honesty structural checks (batch 38) ───────────────────────────────────────────────
 const routeSrc   = readFileSync(new URL('../app/api/vehicle/route.js', import.meta.url), 'utf8');
+ok('the ie_nct needsNct gate is gone', !routeSrc.includes('needsNct'));
+// The ie_nct-serving cartell/ncthistory/v1 fetch is deleted. The ONLY ncthistory left is the dead
+// roi_history path (isHistory) — ROI_TIERS territory, owned by the separate ROI_TIERS removal. Pin it
+// at ≤1 so the ie_nct one cannot reappear and the roi one cannot multiply.
+ok('the ie_nct ncthistory fetch is gone (≤1 actual fetch left, the roi_history dead path)',
+   (routeSrc.match(/oneAutoFetch\(`cartell\/ncthistory/g) || []).length <= 1);
+ok('the main IE render says "NCT Status", not "NCT History"',
+   psSrc.includes('<SectionTitle>NCT Status</SectionTitle>') && !psSrc.includes('<SectionTitle>NCT History</SectionTitle>'));
+ok('the main IE PDF section says "NCT Status"', pdfSrc.includes("sectionTitle('NCT Status')"));
+
+// ── 7. MILEAGE VERDICT — one path, PDF wraps, cache is vehicle-scoped (Defects 4/5/6) ──────────────
 const mileageSrc  = readFileSync(new URL('../lib/mileageCheck.mjs', import.meta.url), 'utf8');
 
 // One verdict engine only — the human verdict string is produced in exactly one module.

@@ -744,7 +744,8 @@ const dvla = await safeJson(dvlaRes);
       // ── IE PAID PATH ─────────────────────────────────────────────────────────
       const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
       const needsValuation      = checks.includes('ie_valuation');
-      const needsNct            = checks.includes('ie_nct');
+      // ie_nct is STATUS-only (batch 38): served from cartell/vehicleidentity.nct_due_date below. The
+      // cartell/ncthistory/v1 call was deleted — it 404s (no such product) and served nothing.
       const needsServiceHistory = checks.includes('ie_service_history');
       const needsHistory        = checks.includes('ie_history');
 
@@ -799,15 +800,8 @@ const dvla = await safeJson(dvlaRes);
           )
         : Promise.resolve(null);
 
-      // Non-polling calls in parallel
-      const [nctHistoryRes, bregoRoiRes] = await Promise.all([
-        // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
-        // needsValuation
-        //   ? oneAutoFetch(`cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`)
-        //   : Promise.resolve(null),
-        needsNct
-          ? oneAutoFetch(`cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`)
-          : Promise.resolve(null),
+      // Non-polling calls in parallel. (cartell/ncthistory/v1 removed — batch 38: 404s, served nothing.)
+      const [bregoRoiRes] = await Promise.all([
         needsValuation
           ? oneAutoFetch(`brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`)
           : Promise.resolve(null),
@@ -817,7 +811,6 @@ const dvla = await safeJson(dvlaRes);
       const [svcOutcome, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
-      const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
       const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
@@ -835,7 +828,6 @@ const dvla = await safeJson(dvlaRes);
         tradeHigh:  bregoRoiData.trade_high_valuation     ?? null,
         currency:   bregoRoiData.currency_unit            ?? null,
       } : null;
-      const nctHistory   = nctRaw  ? extractApiResult(nctRaw)  : null;
       const serviceHistory = svcOutcome?.result ?? null;
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
@@ -861,7 +853,6 @@ const dvla = await safeJson(dvlaRes);
         monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
         // roiValuation,  // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         bregoRoi,
-        nctHistory,
         serviceHistory,
         serviceHistoryStatus: svcOutcome?.status ?? null,
         serviceHistoryRecords: normaliseServiceEvents(svcOutcome?.records ?? null),

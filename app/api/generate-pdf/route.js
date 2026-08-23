@@ -491,32 +491,11 @@ export function buildPdf(result, vrm, checks, checkDate) {
   // ── MOT / NCT History ─────────────────────────────────────────────────────────
   if (has('mot')) {
     if (isIE) {
-      const nct = result.nctHistory;
-      const tests = Array.isArray(nct) ? nct : (nct?.tests ?? nct?.nct_tests ?? []);
-      sectionTitle('NCT History');
-      if (tests.length > 0) {
-        for (const test of tests.slice(0, 15)) {
-          checkPage(8);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.5);
-          doc.setTextColor(20, 20, 20);
-          const testDate = dt(test.test_date || test.date);
-          doc.text(testDate || '-', MARGIN + 1, y);
-          const res = test.result || test.test_result || '-';
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(res === 'PASS' ? 0 : 170, res === 'PASS' ? 120 : 0, 0);
-          doc.text(res, MARGIN + 30, y);
-          y += 5;
-          doc.setDrawColor(215, 215, 215);
-          doc.setLineWidth(0.15);
-          doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-          y += 2;
-        }
-      } else {
-        checkPage(8);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-        doc.text('No NCT history on record', MARGIN, y); y += 8;
-      }
+      // NCT STATUS only (batch 38): due date + Valid/Expired from cartell/vehicleidentity. There is no
+      // NCT test-history product (cartell/ncthistory/v1 404s), so no history is claimed.
+      sectionTitle('NCT Status');
+      row('NCT Status', result.motStatus || '-', result.motStatus === 'Valid' ? 'good' : result.motStatus === 'Expired' ? 'bad' : undefined);
+      if (result.nctExpiryDate) row('NCT Due', dt(result.nctExpiryDate));
     } else {
       sectionTitle('MOT History');
       if (motHistory.length > 0) {
