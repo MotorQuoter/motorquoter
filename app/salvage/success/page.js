@@ -1339,6 +1339,11 @@ export default function SalvageSuccessPage() {
               ) : rerunCount >= 1 ? (
                 <div className="rerun-used">Re-run already used</div>
               ) : null}
+              {/* 24-hour retention notice (batch 39) — proposed wording, awaiting Vincent's approval. */}
+              <div className="rerun-note" style={{ fontSize: 12, color: 'var(--text-dim, #8a8a8a)', marginTop: 8, textAlign: 'center', lineHeight: 1.4 }}>
+                Your photos and this report are kept for <strong>24 hours</strong> — a re-run is free within that window.
+                After 24 hours the photos are cleared and a new assessment is a new purchase.
+              </div>
             </div>
 
             <TrustpilotReviewCollector heading="Was your salvage report useful?" />

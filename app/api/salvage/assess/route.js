@@ -2900,12 +2900,23 @@ export async function GET(request) {
     // Fetch images once; feed Haiku, Opus, and lamp detection from the same array.
     // Fails loudly if any image is missing — a partial set degrades the assessment invisibly.
     let images;
-    if (session.image_paths?.length) {
-      images = await fetchImagesFromStorage(supabase, session.image_paths);
-    } else if (session.images?.length) {
-      images = session.images; // legacy sessions stored base64 directly
-    } else {
-      return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
+    try {
+      if (session.image_paths?.length) {
+        images = await fetchImagesFromStorage(supabase, session.image_paths);
+      } else if (session.images?.length) {
+        images = session.images; // legacy sessions stored base64 directly
+      } else {
+        return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
+      }
+    } catch (imgErr) {
+      // Photos are retained for 24 hours (batch 39). A missing/partial set here means they were swept
+      // — fetchImagesFromStorage throws rather than assess a partial set. Reach the customer with an
+      // honest explanation, never a 500 and never a silent/partial assessment.
+      console.warn('[ASSESS] image fetch failed (expired/swept?):', imgErr.message);
+      return NextResponse.json(
+        { error: 'The photos for this assessment have expired — they are kept for 24 hours. Please start a new assessment.', expired: true },
+        { status: 410 }
+      );
     }
 
     // === Pure assessment pipeline (extracted for the replay harness — Cowork §7/§8). The route
