@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { rejectedKeys } from '@/lib/menuGate';
 import { hasVehicleGatedKey, notOfferableForVehicle } from '@/lib/offerability';
+import { getDvsaMotHistory } from '@/lib/dvsa';
 
 function getSupabase() {
   return createClient(
@@ -102,7 +103,15 @@ export async function POST(request) {
         });
         if (dvlaRes.ok) {
           const dvla = await dvlaRes.json();
-          const notOfferable = notOfferableForVehicle(checks, { make: dvla.make, yearOfManufacture: dvla.yearOfManufacture });
+          // mileage_detail is gated on genuine MOT readings (DVSA), not make/year — fetch the free MOT
+          // history too when it's in the basket, so its predicate sees the readings. £0, DVSA outage
+          // never blocks (motTests stays undefined → predicate is offerable → refund/timeline backstop).
+          let motTests;
+          if (checks.includes('mileage_detail')) {
+            const dvsa = await getDvsaMotHistory(cleanVrm).catch(() => null);
+            motTests = dvsa?.motTests ?? undefined;
+          }
+          const notOfferable = notOfferableForVehicle(checks, { make: dvla.make, yearOfManufacture: dvla.yearOfManufacture, motTests });
           if (notOfferable.length > 0) {
             console.warn(`[CHECKOUT] rejected not-offerable-for-vehicle: [${notOfferable.join(',')}] vrm=${cleanVrm} make=${dvla.make} year=${dvla.yearOfManufacture}`);
             return NextResponse.json({ error: `Not available for this vehicle: ${notOfferable.join(', ')}` }, { status: 400 });

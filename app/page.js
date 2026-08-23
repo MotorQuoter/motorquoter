@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { isRoiPlate } from '@/lib/roiPlate';
 import { serviceHistoryOfferable } from '@/config/serviceHistoryCoverage';
+import { genuineMotReadingCount } from '@/lib/offerability';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
@@ -196,6 +197,12 @@ export default function Home() {
   const keyOfferableForVehicle = (key) => {
     if (key === 'service_history' && result?.make) {
       return serviceHistoryOfferable({ make: result.make, yearOfManufacture: result.yearOfManufacture }).offerable;
+    }
+    // Finding 10: mileage_detail needs ≥2 genuine MOT readings — knowable from the free lookup already
+    // in hand. Grey it out before payment rather than sell a £0.99 empty timeline. Same predicate the
+    // checkout gate enforces server-side.
+    if (key === 'mileage_detail' && result) {
+      return genuineMotReadingCount(result.motHistory || []) >= 2;
     }
     return true;
   };
