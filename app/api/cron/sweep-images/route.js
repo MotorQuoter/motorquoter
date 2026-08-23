@@ -15,29 +15,24 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // ⚠️ ARM GATE. Deletion is IRREVERSIBLE, so it runs ONLY when explicitly enabled. Default (env unset)
-  // = DRY RUN: it counts exactly what a real run would delete and touches nothing. The cron is
-  // therefore INERT on deploy — it reports the backlog size daily but destroys nothing — until Vincent
-  // has (1) backed up fixtures/ off the machine, (2) created the `keep` column in salvage_sessions,
-  // (3) marked the fixture lots keep=true, and only THEN sets IMAGE_SWEEP_ENABLED=true. Even armed, the
-  // sweep aborts if the keep column is missing (see lib/imageRetention) and always skips keep=true.
-  const armed = process.env.IMAGE_SWEEP_ENABLED === 'true';
-
+  // Deletes on AGE ALONE — every assessment older than 24 hours, no exemptions (batch 41). The backlog
+  // purge (everything) was a one-off; this daily job keeps the 24-hour rule. Batched + idempotent, so a
+  // busy day never times out and a re-run finds nothing.
   try {
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-    const result = await sweepExpiredImages(supabase, { olderThanHours: 24, dryRun: !armed });
-    console.log(`[SWEEP IMAGES] armed=${armed} ${JSON.stringify(result)}`);
+    const result = await sweepExpiredImages(supabase, { olderThanHours: 24 });
+    console.log(`[SWEEP IMAGES] ${JSON.stringify(result)}`);
 
-    // Silence is a defect (rule 10): alert on an aborted sweep or any per-row error.
+    // Silence is a defect (rule 10): alert on a failed query or any per-row error.
     if (!result.ok || (result.errors?.length ?? 0) > 0) {
       await sendOpsAlert(
         'image-sweep-failed',
         '[MotorQuoter] Image sweep problem',
-        `armed=${armed}<br>${result.reason || ''}<br>candidates=${result.candidates} swept=${result.rowsSwept} ` +
+        `${result.reason || ''}<br>candidates=${result.candidates} swept=${result.rowsSwept} ` +
         `objects=${result.objectsRemoved}<br>errors: ${(result.errors || []).slice(0, 10).join('; ') || 'none'}`
       );
     }
-    return NextResponse.json({ armed, ...result });
+    return NextResponse.json(result);
   } catch (err) {
     console.error('[SWEEP IMAGES] threw:', err?.message || err);
     try {

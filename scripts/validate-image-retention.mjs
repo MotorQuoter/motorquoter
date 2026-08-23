@@ -1,7 +1,7 @@
-// Validator — 24-hour image retention sweep (batch 39). £0: pure sweep logic against an in-memory
-// fake client + structural checks. This is DESTRUCTIVE production infra, so the guards are the point:
-// dry-run deletes nothing, a missing keep column ABORTS, keep=true is never touched, and storage is
-// removed BEFORE the row (row-first would orphan the bytes).
+// Validator — 24-hour image retention sweep (batch 39, corrected by 40 + 41). £0: sweep logic against
+// an in-memory fake client + structural checks. DESTRUCTIVE production infra, so the guards are the
+// point: delete on AGE ALONE (no keep/exemption), storage BEFORE the row (row-first orphans bytes),
+// batched + resumable + idempotent (a re-run finds nothing), and a dry run that touches nothing.
 //
 // Run: node scripts/validate-image-retention.mjs
 
@@ -20,104 +20,110 @@ function assert(label, actual, expected) {
 function ok(label, cond) { assert(label, !!cond, true); }
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
-// Fake supabase. Rows are expired keep=false candidates already (the sweep's query is simulated by
-// `rows`); `keepColumnMissing` makes the select error, to prove the abort. Tracks the call ORDER.
-function makeFake({ rows = [], objectsById = {}, keepColumnMissing = false } = {}) {
+// Live fake: a mutable store of rows + per-id objects. select pages the store; delete removes a row;
+// storage.remove is a no-op. Tracks call ORDER so we can prove storage-before-row.
+function makeFake(initialRows, objectsById = {}) {
+  const store = [...initialRows];              // [{ id, created_at }]
   const calls = [];
+  function selectBuilder(head) {
+    let filtered = () => [...store];
+    const b = {
+      _count: head,
+      lt(_c, cutoff) { const prev = filtered; filtered = () => prev().filter(r => r.created_at < cutoff); return b; },
+      order() { return b; },
+      limit(n) { const rows = filtered().slice(0, n); return Promise.resolve({ data: rows, error: null }); },
+      // head/count path: thenable
+      then(res) { res({ count: filtered().length, data: null, error: null }); },
+    };
+    return b;
+  }
   return {
-    calls,
-    from(table) {
-      const q = {
-        _op: null,
-        select() { this._op = 'select'; return this; },
-        lt() { return this; },
-        eq() { return this; },
-        limit() {
-          if (keepColumnMissing) return Promise.resolve({ data: null, error: { message: 'column "keep" does not exist' } });
-          return Promise.resolve({ data: rows, error: null });
-        },
-        delete() { this._op = 'delete'; return this; },
+    store, calls,
+    from() {
+      return {
+        select(_cols, opts) { return selectBuilder(opts?.head); },
+        delete() { return { eq(_c, id) { calls.push(`row-delete:${id}`); const i = store.findIndex(r => r.id === id); if (i >= 0) store.splice(i, 1); return Promise.resolve({ error: null }); } }; },
       };
-      // delete().eq().eq() resolves as a thenable — capture the id from the first eq.
-      const del = { _id: null, eq(_c, v) { if (this._id == null) this._id = v; return this; }, then(res) { calls.push(`row-delete:${this._id}`); res({ error: null }); } };
-      q.delete = () => del;
-      return q;
     },
-    storage: {
-      from() {
-        return {
-          list(id) { calls.push(`storage-list:${id}`); return Promise.resolve({ data: objectsById[id] || [], error: null }); },
-          remove(paths) { calls.push(`storage-remove:${paths.length}`); return Promise.resolve({ error: null }); },
-        };
-      },
-    },
+    storage: { from() { return {
+      list(id) { calls.push(`storage-list:${id}`); return Promise.resolve({ data: objectsById[id] || [], error: null }); },
+      remove(paths) { calls.push(`storage-remove:${paths.length}`); return Promise.resolve({ error: null }); },
+    }; } },
   };
 }
 
-// ── 1. Dry run — counts candidates, deletes NOTHING ───────────────────────────────────────────────
+const T = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString(); // h hours ago
+
+// ── 1. Dry run counts, deletes nothing ────────────────────────────────────────────────────────────
 console.log('\n1. Dry run reports the size and destroys nothing');
 {
-  const fake = makeFake({ rows: [{ id: 'a' }, { id: 'b' }] });
-  const r = await sweepExpiredImages(fake, { dryRun: true });
-  assert('candidates counted', r.candidates, 2);
-  assert('nothing swept in a dry run', r.rowsSwept, 0);
-  ok('no storage or row delete calls made', fake.calls.length === 0);
+  const fake = makeFake([{ id: 'a', created_at: T(48) }, { id: 'b', created_at: T(1) }]);
+  const r = await sweepExpiredImages(fake, { olderThanHours: 24, dryRun: true });
+  assert('counts only rows older than 24h', r.candidates, 1);
+  assert('nothing swept', r.rowsSwept, 0);
+  ok('no delete/storage calls', fake.calls.length === 0);
+  ok('store untouched', fake.store.length === 2);
 }
 
-// ── 2. Missing keep column → ABORT, delete nothing ────────────────────────────────────────────────
-console.log('\n2. Missing keep column aborts the whole sweep');
+// ── 2. Real 24h sweep: storage BEFORE row, only expired rows ──────────────────────────────────────
+console.log('\n2. 24h sweep — expired only, storage before row');
 {
-  const fake = makeFake({ rows: [{ id: 'a' }], keepColumnMissing: true });
-  const r = await sweepExpiredImages(fake, { dryRun: false });
-  assert('ok:false (aborted)', r.ok, false);
-  ok('reason names the abort', /aborting, nothing deleted/.test(r.reason || ''));
-  ok('no deletes attempted', fake.calls.length === 0);
+  const fake = makeFake(
+    [{ id: 'old', created_at: T(48) }, { id: 'fresh', created_at: T(2) }],
+    { old: [{ name: '0.jpg', metadata: { size: 1000 } }, { name: '1.jpg', metadata: { size: 500 } }] },
+  );
+  const r = await sweepExpiredImages(fake, { olderThanHours: 24 });
+  assert('one expired row swept', r.rowsSwept, 1);
+  assert('objects + bytes counted from real sizes', [r.objectsRemoved, r.freedBytes], [2, 1500]);
+  assert('order: list → remove → row-delete (storage first)', fake.calls, ['storage-list:old', 'storage-remove:2', 'row-delete:old']);
+  ok('the fresh (<24h) row is untouched', fake.store.length === 1 && fake.store[0].id === 'fresh');
 }
 
-// ── 3. Real run — storage removed BEFORE the row, per assessment ──────────────────────────────────
-console.log('\n3. Storage first, then the row (never orphan the bytes)');
+// ── 3. purgeAll ignores age — the full backlog ────────────────────────────────────────────────────
+console.log('\n3. purgeAll deletes everything regardless of age');
 {
-  const fake = makeFake({
-    rows: [{ id: 'lot1' }],
-    objectsById: { lot1: [{ name: '0.jpg', metadata: { size: 1000 } }, { name: '1.jpg', metadata: { size: 500 } }] },
-  });
-  const r = await sweepExpiredImages(fake, { dryRun: false });
-  assert('one row swept', r.rowsSwept, 1);
-  assert('both objects removed', r.objectsRemoved, 2);
-  assert('freed bytes summed from real object sizes', r.freedBytes, 1500);
-  assert('order: list → remove → row-delete (storage before row)', fake.calls, ['storage-list:lot1', 'storage-remove:2', 'row-delete:lot1']);
+  const fake = makeFake([{ id: 'a', created_at: T(1) }, { id: 'b', created_at: T(0.1) }, { id: 'c', created_at: T(100) }]);
+  const r = await sweepExpiredImages(fake, { purgeAll: true });
+  assert('every row purged regardless of age', r.rowsSwept, 3);
+  ok('store emptied', fake.store.length === 0);
 }
 
-// ── 4. An assessment with no stored objects still removes its row (legacy base64-only) ────────────
-console.log('\n4. Legacy row with no storage objects still purges');
+// ── 4. Batched + resumable + idempotent ───────────────────────────────────────────────────────────
+console.log('\n4. Paged through a big backlog, and a re-run finds nothing');
 {
-  const fake = makeFake({ rows: [{ id: 'legacy1' }], objectsById: { legacy1: [] } });
-  const r = await sweepExpiredImages(fake, { dryRun: false });
-  assert('row swept, zero objects', [r.rowsSwept, r.objectsRemoved], [1, 0]);
-  // list runs, remove is skipped (nothing to remove), row deleted.
-  assert('list then row-delete, no empty remove call', fake.calls, ['storage-list:legacy1', 'row-delete:legacy1']);
+  const many = Array.from({ length: 250 }, (_, i) => ({ id: `x${i}`, created_at: T(48) }));
+  const fake = makeFake(many);
+  const r = await sweepExpiredImages(fake, { olderThanHours: 24, pageSize: 100 });
+  assert('all 250 swept across pages', r.rowsSwept, 250);
+  ok('store emptied', fake.store.length === 0);
+  const again = await sweepExpiredImages(fake, { olderThanHours: 24, pageSize: 100 });
+  assert('a second run finds nothing (idempotent)', again.rowsSwept, 0);
 }
 
-// ── 5. STRUCTURAL — the safety guards live in the code, not just the test ─────────────────────────
+// ── 5. STRUCTURAL — age alone, no keep, correct wiring ────────────────────────────────────────────
 console.log('\n5. Code-level guards');
 {
   const lib = read('lib/imageRetention.mjs');
-  ok('the row query selects keep (forces the column to exist → abort if missing)', /\.select\('id, keep/.test(lib));
-  ok('the row query filters keep=false', /\.eq\('keep', false\)/.test(lib));
-  ok('the row delete also guards keep=false', (lib.match(/\.eq\('keep', false\)/g) || []).length >= 2);
+  ok('NO keep column/filter in the code — deletes on age alone', !lib.includes("'keep'") && !/\bkeep\s*[:=]/.test(lib) && !/keep\s+boolean/i.test(lib));
   ok('storage objects are LISTED, not guessed', lib.includes('.from(BUCKET).list(') && !/\d+\.jpg`/.test(lib));
+  ok('the row delete keys on id only (no exemption filter)', /\.delete\(\)\.eq\('id', id\)/.test(lib));
 
   const cron = read('app/api/cron/sweep-images/route.js');
   ok('cron requires CRON_SECRET bearer auth', cron.includes("`Bearer ${secret}`") && cron.includes('401'));
-  ok('cron is DRY-RUN unless IMAGE_SWEEP_ENABLED=true (inert on deploy)', cron.includes("process.env.IMAGE_SWEEP_ENABLED === 'true'") && cron.includes('dryRun: !armed'));
-  ok('cron never 500s (returns 200 even on throw)', !cron.includes('status: 500'));
+  ok('cron has NO arm-flag / dry-run gate (deletes 24h for real)', !cron.includes('IMAGE_SWEEP_ENABLED') && cron.includes('olderThanHours: 24'));
+  ok('cron never 500s', !cron.includes('status: 500'));
   ok('cron alerts on failure via opsAlert', cron.includes("sendOpsAlert('image-sweep-failed'"));
 
   const vercel = JSON.parse(read('vercel.json'));
   ok('vercel.json schedules the sweep cron', vercel.crons.some(c => c.path === '/api/cron/sweep-images'));
   ok('the model canary cron is still scheduled', vercel.crons.some(c => c.path === '/api/health/models'));
 
-  ok('schema.sql adds the keep column + the ALTER for the live table', read('supabase/schema.sql').includes('keep              boolean') && read('supabase/schema.sql').includes('ADD COLUMN IF NOT EXISTS keep'));
+  ok('schema.sql has NO keep column', !/keep\s+boolean/i.test(read('supabase/schema.sql')));
+
+  const assess = read('app/api/salvage/assess/route.js');
+  ok('assess fails honestly on expired/swept photos (410, not a 500 or partial)', assess.includes('have expired') && assess.includes('expired: true'));
+  const succ = read('app/salvage/success/page.js');
+  ok('success page states the 24-hour rule with no override', succ.includes('24 hours') && !/unless|normally/i.test(succ.split('rerun-note')[1]?.slice(0, 300) || ''));
 }
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
