@@ -429,6 +429,11 @@ function RoadTaxSection({ result }) {
                 {rt.supplement.note}
               </div>
             )}
+            {rt.historic?.eligible && (
+              <div style={{fontSize: 12, color: 'var(--text)', lineHeight: 1.55, padding: '8px 12px', marginTop: 4, borderLeft: '3px solid var(--orange, #f05a1a)', background: 'rgba(240,90,26,0.06)'}}>
+                <strong>Historic vehicle (40+ years):</strong> {rt.historic.note}
+              </div>
+            )}
             <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
               {rt.note} Guide only — confirm the exact amount at gov.uk/vehicle-tax-rate-tables.
             </div>

@@ -435,6 +435,14 @@ export function buildPdf(result, vrm, checks, checkDate) {
     row('Annual Road Tax', rt.annual != null ? `£${rt.annual}/year` : 'See gov.uk/vehicle-tax-rate-tables', rt.annual != null ? 'good' : undefined);
     if (rt.basis) row('Basis', str(rt.basis)); // 9b: row() wraps now — never clip the basis mid-explanation
     if (result.taxStatus) row('Current Status', str(result.taxStatus), result.taxStatus === 'Taxed' ? 'good' : undefined);
+    // Historic (40-year) exemption — the qualifying-on-age fact ALONGSIDE the rate above (never
+    // instead of it: the £0 depends on the keeper having applied, which no data we hold can confirm).
+    if (rt.historic?.eligible) {
+      checkPage(12);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(170, 90, 0);
+      for (const line of doc.splitTextToSize(pdfText(`Historic vehicle (40+ years): ${rt.historic.note}`), CONTENT_W)) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 1;
+    }
     checkPage(10);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
     const rtText = pdfText(`${rt.supplement ? rt.supplement.note + ' ' : ''}${rt.note} Guide only - confirm the exact amount at gov.uk/vehicle-tax-rate-tables.`);
