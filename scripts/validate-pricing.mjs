@@ -18,7 +18,7 @@ import { notOfferableForVehicle, hasVehicleGatedKey } from '../lib/offerability.
 import { estimateRoadTax } from '../lib/roadTax.mjs';
 import { checkMileageTimeline } from '../lib/mileageCheck.mjs';
 import { nearest99, derivedIeGbpPrice, IE_MENU_GBP_EUR_RATE } from '../config/ieMenuPricing.mjs';
-import { MENU_COSTS, MARKET_OVERHEAD, COST_FLOOR_PCT, worstCaseMargin } from '../config/menuCosts.mjs';
+import { MENU_COSTS, MARKET_OVERHEAD, MIN_MARGIN, worstCaseMargin } from '../config/menuCosts.mjs';
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -236,10 +236,10 @@ for (const item of MENU.filter(i => i.enabled)) {
 for (const item of MENU.filter(i => i.enabled && i.price > 0)) {
   const mk = marketOf(item.key);
   const m = worstCaseMargin(item.key, item.price, mk);
-  ok(`margin: '${item.key}' worst-case £${item.price} alone = ${m ? (m.marginPct * 100).toFixed(1) : '??'}% ≥ ${(COST_FLOOR_PCT * 100)}% (cost £${m?.cost.toFixed(2)})`, !!m && m.marginPct >= COST_FLOOR_PCT);
+  ok(`margin: '${item.key}' worst-case £${item.price} alone = ${m ? (m.marginPct * 100).toFixed(1) : '??'}% ≥ ${(MIN_MARGIN * 100)}% (cost £${m?.cost.toFixed(2)})`, !!m && m.marginPct >= MIN_MARGIN);
   if (mk === 'IE' && item.priceEUR > 0) {
     const me = worstCaseMargin(item.key, item.priceEUR / IE_MENU_GBP_EUR_RATE, 'IE'); // MODELLED: GBP Stripe rate, no EUR charge has settled
-    ok(`margin: '${item.key}' EUR path €${item.priceEUR} (modelled) = ${me ? (me.marginPct * 100).toFixed(1) : '??'}% ≥ ${(COST_FLOOR_PCT * 100)}%`, !!me && me.marginPct >= COST_FLOOR_PCT);
+    ok(`margin: '${item.key}' EUR path €${item.priceEUR} (modelled) = ${me ? (me.marginPct * 100).toFixed(1) : '??'}% ≥ ${(MIN_MARGIN * 100)}%`, !!me && me.marginPct >= MIN_MARGIN);
   }
 }
 // §6 no second source of cost truth in config/pricing.js.

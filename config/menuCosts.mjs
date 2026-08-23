@@ -48,9 +48,12 @@ export const MARKET_OVERHEAD = {
 // ⚠️ GBP ONLY — no EUR charge has ever settled, so any EUR margin computed with this is MODELLED.
 export function stripeNet(price) { return price * 0.98441 - 0.2005; }
 
-// Minimum NET margin as a fraction of price. A FLOOR to catch LOSSES, not a target (the thinnest live
-// item, previous_adverts, sits at ~19%). 15% recommended — Vincent's to move.
-export const COST_FLOOR_PCT = 0.15;
+// Minimum NET margin as a fraction of price — the gate turns red below this. A FLOOR to catch LOSSES,
+// NOT a target. DECISION: Vincent, 23 Aug 2026 ("I'd accept 15%"). Set at 15% because the thinnest live
+// item (previous_adverts) sits at 18.6%, so 15% catches a genuine loss without red-gating a healthy
+// item; raising it would fail a working item and pressure a price rise purely to satisfy the validator.
+// ⚠️ A future item below 15% is a RED GATE, not a reason to lower the floor — fix the price or the item.
+export const MIN_MARGIN = 0.15;
 
 // Worst-case single-item margin: the item bought ALONE (sharedWith IGNORED — the loss was always in
 // single-item baskets) PLUS its market's basket overhead. Returns null for an unknown item so the
