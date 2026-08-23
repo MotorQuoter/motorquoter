@@ -1,6 +1,12 @@
 import { after } from 'next/server';
 import { oneAutoFetch, withOneAutoLog, flushOneAutoLog } from '@/lib/oneAuto.mjs';
 
+// ⚠️ RETIREMENT RISK (batch 39 §5.3): the two calls below use the `oneauto/` endpoint prefix —
+// the same family whose sibling `oneauto/servicehistory/` was silently retired (404) in May and hid
+// as a per-request failure for weeks. These render vehicle images and work today, but if images ever
+// stop appearing, suspect a One Auto path retirement here FIRST (probe with the keyless 403-vs-404
+// technique) rather than assuming a bug. Not changed — flagged so the next retirement is not silent.
+
 // Wrapper (commit 2): log this request's One Auto image calls (buffered, one post-response write).
 export async function POST(request) {
   const { result, calls } = await withOneAutoLog(() => handleImagePost(request));

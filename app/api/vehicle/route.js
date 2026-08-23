@@ -815,10 +815,6 @@ const dvla = await safeJson(dvlaRes);
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
       const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
 
-      // const roiValuation = pgData ? {   // Cartell Price Guide — commented out
-      //   retail: pgData.retail_valuation ?? null,
-      //   trade:  pgData.trade_valuation  ?? null,
-      // } : null;
       const bregoRoi = bregoRoiData ? {
         retailLow:  bregoRoiData.retail_low_valuation     ?? null,
         retailAvg:  bregoRoiData.retail_average_valuation ?? null,
@@ -851,7 +847,6 @@ const dvla = await safeJson(dvlaRes);
         nctExpiryDate:            nctDue,
         co2Emissions:             cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
         monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
-        // roiValuation,  // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         bregoRoi,
         serviceHistory,
         serviceHistoryStatus: svcOutcome?.status ?? null,
