@@ -183,8 +183,19 @@ CREATE TABLE IF NOT EXISTS salvage_sessions (
   -- Number of re-runs consumed (max 1). Starts at 0; incremented by /api/salvage/rerun.
   rerun_count       integer     NOT NULL DEFAULT 0,
 
+  -- Retention keep-flag (batch 39). The 24-hour image sweep NEVER deletes a keep=true row or its
+  -- storage objects, so ground-truth fixtures can outlive the window. Default false = eligible.
+  keep              boolean     NOT NULL DEFAULT false,
+
   created_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- The live salvage_sessions table predates the keep column — add it before arming the sweep:
+--   ALTER TABLE salvage_sessions ADD COLUMN IF NOT EXISTS keep boolean NOT NULL DEFAULT false;
+-- Then mark the fixture lots so the sweep skips them (the sweep ABORTS if this column is absent):
+--   UPDATE salvage_sessions SET keep = true
+--   WHERE vehicle_details->>'vrm' IN ('AK75RDX','DMZ4614','EA17HDN','FE68AOP','GY75CJU','KT73YAJ',
+--                                     'SA26KVT','SD75YGC','SF69YBB','URZ7545','YH23NVW');
 
 CREATE INDEX IF NOT EXISTS salvage_sessions_created_at_idx
   ON salvage_sessions (created_at DESC);
