@@ -183,13 +183,20 @@ CREATE TABLE IF NOT EXISTS salvage_sessions (
   -- Number of re-runs consumed (max 1). Starts at 0; incremented by /api/salvage/rerun.
   rerun_count       integer     NOT NULL DEFAULT 0,
 
+  -- Image retention (batch 42). Stamped when the 24-hour sweep removes this assessment's PHOTOS; the
+  -- ROW survives (the record of what was assessed and charged). NULL = photos still present. This is
+  -- the POSITIVE expiry fact the honest 410 hangs on — never a failed/empty fetch.
+  images_purged_at  timestamptz,
+
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
--- Image retention (batch 39/40/41): the /api/cron/sweep-images job deletes each assessment's storage
--- objects and row 24 hours after creation — on AGE ALONE, no keep-flag (ground truth is captured to
--- the local disk via scripts/capture-fixture.mjs, not pinned in this quota-limited DB). The one-time
--- backlog purge (everything currently held) was run once at launch of this feature.
+-- Image retention (batch 39-42): /api/cron/sweep-images removes each assessment's storage objects
+-- 24 hours after creation — on AGE ALONE (ground truth is captured to local disk via
+-- scripts/capture-fixture.mjs, not pinned in this quota-limited DB) — and stamps images_purged_at
+-- while KEEPING the row. The live table predates the column:
+--   ALTER TABLE salvage_sessions ADD COLUMN IF NOT EXISTS images_purged_at timestamptz;
+-- The one-time backlog purge (everything then held: 357 folders / ~1.08 GB / 406 rows) ran at launch.
 
 CREATE INDEX IF NOT EXISTS salvage_sessions_created_at_idx
   ON salvage_sessions (created_at DESC);

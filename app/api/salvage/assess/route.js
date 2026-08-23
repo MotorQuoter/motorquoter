@@ -2884,6 +2884,16 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
+    // Photos are kept 24 hours (batch 42); the ROW survives, so absence no longer signals expiry —
+    // images_purged_at does. Return the honest 410 on that POSITIVE fact, BEFORE any image fetch, so
+    // the customer never reaches fetchImagesFromStorage's partial-set throw for an expired assessment.
+    if (session.images_purged_at) {
+      return NextResponse.json(
+        { error: 'The photos for this assessment have expired — they are kept for 24 hours. Please start a new assessment.', expired: true },
+        { status: 410 }
+      );
+    }
+
     if (!promoToken) {
       const sessionUpdate = { status: 'processing' };
       if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;

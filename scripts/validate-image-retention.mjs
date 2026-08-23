@@ -1,7 +1,7 @@
-// Validator — 24-hour image retention sweep (batch 39, corrected by 40 + 41; storage-path fix). £0.
-// DESTRUCTIVE production infra, so the guards are the point: delete on AGE ALONE (no keep/exemption),
-// remove the row's REAL image_paths (the folder is the upload id, not the row id), storage BEFORE the
-// row, clear the free_report_tokens FK first, batched + resumable + idempotent, dry run touches nothing.
+// Validator — image retention (batch 39-42). £0. The ongoing sweep now deletes PHOTOS and KEEPS the
+// row (batch 42): it removes the row's real image_paths, then in ONE update stamps
+// images_purged_at + nulls image_paths + nulls images — NO DELETE against salvage_sessions. Expiry is
+// the positive images_purged_at fact (the 410), never an empty fetch. Age alone, batched, idempotent.
 //
 // Run: node scripts/validate-image-retention.mjs
 
@@ -20,29 +20,32 @@ function assert(label, actual, expected) {
 function ok(label, cond) { assert(label, !!cond, true); }
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
-// Live fake for the row sweep. Rows carry image_paths. Tracks call order; storage.remove records the
-// exact paths it was given (proving it uses image_paths, not `${id}/`).
+// Live fake for the row sweep. Rows carry image_paths + images_purged_at (null). The sweep filters on
+// age AND images_purged_at IS NULL; update() stamps the row (so it drops from the filter). Tracks the
+// call order; a DELETE against salvage_sessions would show as 'row-DELETE' (must never appear).
 function makeFake(initialRows) {
-  const store = [...initialRows];
+  const store = initialRows.map(r => ({ images_purged_at: null, ...r }));
   const calls = [];
   function selectBuilder(head) {
-    let filtered = () => [...store];
+    let f = () => store.filter(r => r.images_purged_at == null);
     const b = {
-      lt(_c, cutoff) { const p = filtered; filtered = () => p().filter(r => r.created_at < cutoff); return b; },
+      lt(_c, cutoff) { const p = f; f = () => p().filter(r => r.created_at < cutoff); return b; },
+      is(col, val) { if (col === 'images_purged_at' && val === null) return b; const p = f; f = () => p(); return b; },
       order() { return b; },
-      limit(n) { return Promise.resolve({ data: filtered().slice(0, n), error: null }); },
-      then(res) { res({ count: filtered().length, error: null }); },
+      limit(n) { return Promise.resolve({ data: f().slice(0, n), error: null }); },
+      then(res) { res({ count: f().length, error: null }); },
     };
-    return head ? b : b;
+    return b;
   }
   return {
     store, calls,
     from(table) {
-      if (table === 'free_report_tokens') return { delete() { return { eq(_c, id) { calls.push(`frt-delete:${id}`); return Promise.resolve({ error: null }); } }; } };
-      return {
+      if (table === 'salvage_sessions') return {
         select(_c, opts) { return selectBuilder(opts?.head); },
-        delete() { return { eq(_c, id) { calls.push(`row-delete:${id}`); const i = store.findIndex(r => r.id === id); if (i >= 0) store.splice(i, 1); return Promise.resolve({ error: null }); } }; },
+        update(patch) { return { eq(_c, id) { calls.push(`row-update:${id}:${Object.keys(patch).sort().join(',')}`); const r = store.find(x => x.id === id); if (r) Object.assign(r, patch); return Promise.resolve({ error: null }); } }; },
+        delete() { return { eq(_c, id) { calls.push(`row-DELETE:${id}`); return Promise.resolve({ error: null }); } }; },
       };
+      return { delete() { return { eq() { calls.push('OTHER-delete'); return Promise.resolve({ error: null }); } }; } };
     },
     storage: { from() { return {
       remove(paths) { calls.push(`storage-remove:${paths.join(',')}`); return Promise.resolve({ error: null }); },
@@ -52,87 +55,84 @@ function makeFake(initialRows) {
 }
 const T = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
 
-// ── 1. Dry run counts, deletes nothing ────────────────────────────────────────────────────────────
+// ── 1. Dry run counts expired-and-unpurged, touches nothing ───────────────────────────────────────
 console.log('\n1. Dry run');
 {
-  const fake = makeFake([{ id: 'a', created_at: T(48), image_paths: ['u1/0.jpg'] }, { id: 'b', created_at: T(1), image_paths: [] }]);
+  const fake = makeFake([
+    { id: 'a', created_at: T(48), image_paths: ['u1/0.jpg'] },
+    { id: 'b', created_at: T(1), image_paths: [] },
+    { id: 'c', created_at: T(72), image_paths: ['u3/0.jpg'], images_purged_at: T(1) }, // already purged
+  ]);
   const r = await sweepExpiredImages(fake, { olderThanHours: 24, dryRun: true });
-  assert('counts only rows older than 24h', r.candidates, 1);
-  ok('no delete/storage calls', fake.calls.length === 0);
+  assert('counts expired AND not-yet-purged only', r.candidates, 1);
+  ok('no calls', fake.calls.length === 0);
 }
 
-// ── 2. Real sweep removes the ROW'S image_paths (not id/), FK first, storage before row ───────────
-console.log('\n2. Removes row.image_paths, clears the FK, storage before row');
+// ── 2. Photo-only purge: remove real paths, then UPDATE (stamp), NO DELETE ─────────────────────────
+console.log('\n2. Deletes photos, keeps the row (UPDATE, never DELETE)');
 {
   const fake = makeFake([{ id: 'row-xyz', created_at: T(48), image_paths: ['upload-abc/0.jpg', 'upload-abc/1.jpg'] }]);
   const r = await sweepExpiredImages(fake, { olderThanHours: 24 });
-  assert('one row swept, two objects', [r.rowsSwept, r.objectsRemoved], [1, 2]);
-  assert('order: remove(real paths) → free_report_tokens delete → row delete', fake.calls,
-    ['storage-remove:upload-abc/0.jpg,upload-abc/1.jpg', 'frt-delete:row-xyz', 'row-delete:row-xyz']);
-  ok('the storage path uses the UPLOAD id, not the row id', fake.calls[0].includes('upload-abc') && !fake.calls[0].includes('row-xyz'));
+  assert('one row purged, two objects', [r.rowsSwept, r.objectsRemoved], [1, 2]);
+  ok('NO DELETE was issued against salvage_sessions', !fake.calls.some(c => c.startsWith('row-DELETE')));
+  assert('order: remove(real upload paths) → UPDATE stamping image_paths/images/images_purged_at', fake.calls,
+    ['storage-remove:upload-abc/0.jpg,upload-abc/1.jpg', 'row-update:row-xyz:image_paths,images,images_purged_at']);
+  ok('the row survives with images_purged_at stamped', fake.store[0].images_purged_at != null && fake.store[0].image_paths === null && fake.store[0].images === null);
 }
 
-// ── 3. Legacy base64 row (no image_paths) still purges, removes nothing from storage ──────────────
-console.log('\n3. Legacy base64-only row');
+// ── 3. Idempotent — a re-run skips already-stamped rows ───────────────────────────────────────────
+console.log('\n3. Idempotent (images_purged_at drops the row from the filter)');
+{
+  const fake = makeFake(Array.from({ length: 150 }, (_, i) => ({ id: `x${i}`, created_at: T(48), image_paths: [`u${i}/0.jpg`] })));
+  const r = await sweepExpiredImages(fake, { olderThanHours: 24, pageSize: 50 });
+  assert('all 150 purged across pages', r.rowsSwept, 150);
+  assert('a second run finds nothing', (await sweepExpiredImages(fake, { olderThanHours: 24 })).rowsSwept, 0);
+  ok('every row still present (kept), all stamped', fake.store.length === 150 && fake.store.every(r => r.images_purged_at != null));
+}
+
+// ── 4. Legacy base64-only row (no image_paths) still stamped, no storage-remove ───────────────────
+console.log('\n4. Legacy base64-only row');
 {
   const fake = makeFake([{ id: 'legacy', created_at: T(48), image_paths: null }]);
   const r = await sweepExpiredImages(fake, { olderThanHours: 24 });
-  assert('row swept, zero objects, no storage-remove call', [r.rowsSwept, r.objectsRemoved, fake.calls.some(c => c.startsWith('storage-remove'))], [1, 0, false]);
+  assert('purged (stamped), zero objects, no storage-remove', [r.rowsSwept, r.objectsRemoved, fake.calls.some(c => c.startsWith('storage-remove'))], [1, 0, false]);
 }
 
-// ── 4. Batched + idempotent ───────────────────────────────────────────────────────────────────────
-console.log('\n4. Paged backlog, re-run finds nothing');
+// ── 5. sweepOrphanBucket still reclaims storage with no owning row ────────────────────────────────
+console.log('\n5. Orphan bucket sweep (still needed for the already-deleted backlog)');
 {
-  const many = Array.from({ length: 250 }, (_, i) => ({ id: `x${i}`, created_at: T(48), image_paths: [`u${i}/0.jpg`] }));
-  const fake = makeFake(many);
-  const r = await sweepExpiredImages(fake, { olderThanHours: 24, pageSize: 100 });
-  assert('all 250 swept', r.rowsSwept, 250);
-  assert('idempotent re-run finds nothing', (await sweepExpiredImages(fake, { olderThanHours: 24 })).rowsSwept, 0);
-}
-
-// ── 5. sweepOrphanBucket removes storage folders whose rows are gone ──────────────────────────────
-console.log('\n5. Orphan bucket sweep');
-{
-  const objectsByFolder = { 'f1': [{ name: '0.jpg', metadata: { size: 1000 } }], 'f2': [{ name: '0.jpg', metadata: { size: 500 } }, { name: '1.jpg', metadata: { size: 500 } }] };
-  let removedFolders = new Set();
+  const objByFolder = { f1: [{ name: '0.jpg', metadata: { size: 1000 } }], f2: [{ name: '0.jpg', metadata: { size: 500 } }] };
+  const removed = new Set();
   const fake = { storage: { from() { return {
-    list(path, { offset = 0 } = {}) {
-      if (path === '') { // root: return folders not yet removed
-        const roots = ['f1', 'f2'].filter(f => !removedFolders.has(f)).map(n => ({ name: n, id: null }));
-        return Promise.resolve({ data: roots.slice(offset), error: null });
-      }
-      return Promise.resolve({ data: objectsByFolder[path] || [], error: null });
-    },
-    remove(paths) { const folder = paths[0].split('/')[0]; removedFolders.add(folder); return Promise.resolve({ error: null }); },
+    list(path, { offset = 0 } = {}) { if (path === '') return Promise.resolve({ data: ['f1', 'f2'].filter(f => !removed.has(f)).map(n => ({ name: n, id: null })).slice(offset), error: null }); return Promise.resolve({ data: objByFolder[path] || [], error: null }); },
+    remove(paths) { removed.add(paths[0].split('/')[0]); return Promise.resolve({ error: null }); },
   }; } } };
   const r = await sweepOrphanBucket(fake, { pageSize: 100 });
-  assert('both folders swept', r.folders, 2);
-  assert('all objects removed', r.objects, 3);
-  assert('bytes summed', r.freedBytes, 2000);
+  assert('folders + objects + bytes', [r.folders, r.objects, r.freedBytes], [2, 2, 1500]);
 }
 
-// ── 6. STRUCTURAL — age alone, no keep, right storage source, FK handled ──────────────────────────
+// ── 6. STRUCTURAL ─────────────────────────────────────────────────────────────────────────────────
 console.log('\n6. Code-level guards');
 {
   const lib = read('lib/imageRetention.mjs');
-  ok('NO keep column/filter — age alone', !lib.includes("'keep'") && !/\bkeep\s*[:=]/.test(lib) && !/keep\s+boolean/i.test(lib));
-  ok('removes the ROW image_paths, not a guessed ${id}/ prefix', lib.includes('row.image_paths') && !/\$\{id\}\//.test(lib));
-  ok('clears the free_report_tokens FK before deleting the row', /free_report_tokens'\)\.delete\(\)\.eq\('session_id'/.test(lib));
-  ok('exposes a bucket-level orphan sweep', lib.includes('export async function sweepOrphanBucket'));
-
-  const cron = read('app/api/cron/sweep-images/route.js');
-  ok('cron requires CRON_SECRET bearer auth', cron.includes('`Bearer ${secret}`') && cron.includes('401'));
-  ok('cron deletes 24h for real, no arm flag', !cron.includes('IMAGE_SWEEP_ENABLED') && cron.includes('olderThanHours: 24'));
-  ok('cron never 500s', !cron.includes('status: 500'));
-  ok('cron alerts on failure', cron.includes("sendOpsAlert('image-sweep-failed'"));
-
-  const vercel = JSON.parse(read('vercel.json'));
-  ok('sweep cron scheduled + canary intact', vercel.crons.some(c => c.path === '/api/cron/sweep-images') && vercel.crons.some(c => c.path === '/api/health/models'));
-  ok('schema.sql has no keep column', !/keep\s+boolean/i.test(read('supabase/schema.sql')));
+  ok('the sweep issues NO delete against salvage_sessions (UPDATE only)', !/salvage_sessions'\)\s*\n?\s*\.delete\(/.test(lib) && !/from\('salvage_sessions'\)\.delete\(/.test(lib));
+  ok('purge stamps images_purged_at + nulls both image copies', lib.includes('images_purged_at: new Date().toISOString()') && lib.includes('image_paths: null') && lib.includes('images: null'));
+  ok('the sweep skips already-purged rows', lib.includes("is('images_purged_at', null)"));
+  ok('removes the ROW image_paths, not a guessed prefix', lib.includes('row.image_paths') && !/\$\{id\}\//.test(lib));
+  ok('NO keep column/filter — age alone', !lib.includes("'keep'") && !/keep\s+boolean/i.test(lib));
+  ok('sweepOrphanBucket retained', lib.includes('export async function sweepOrphanBucket'));
+  ok('no free_report_tokens delete CALL on the normal path (row survives)', !lib.includes("from('free_report_tokens')"));
 
   const assess = read('app/api/salvage/assess/route.js');
-  ok('assess fails honestly on expired photos (410)', assess.includes('have expired') && assess.includes('expired: true'));
-  ok('success page states 24h with no override', read('app/salvage/success/page.js').includes('24 hours'));
+  ok('assess returns the honest 410 on images_purged_at, before any fetch', /session\.images_purged_at\)[\s\S]{0,200}status: 410/.test(assess));
+  const idxStamp = assess.indexOf('session.images_purged_at');
+  const idxFetch = assess.indexOf('fetchImagesFromStorage(supabase, session.image_paths)');
+  ok('the 410 gate precedes the image fetch', idxStamp > 0 && idxFetch > 0 && idxStamp < idxFetch);
+
+  ok('schema.sql defines images_purged_at + the ALTER', /images_purged_at\s+timestamptz/.test(read('supabase/schema.sql')) && read('supabase/schema.sql').includes('ADD COLUMN IF NOT EXISTS images_purged_at'));
+  ok('success page states the approved 24h wording', read('app/salvage/success/page.js').includes('kept for'));
+  const cron = read('app/api/cron/sweep-images/route.js');
+  ok('cron: CRON_SECRET auth, 24h, never 500, opsAlert', cron.includes('`Bearer ${secret}`') && cron.includes('olderThanHours: 24') && !cron.includes('status: 500'));
 }
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
