@@ -12,7 +12,16 @@ export const dynamic = 'force-dynamic';
 // It returns a TINY ack to the browser — the RAW substrate goes to the LOGS (standing rule 1: read the
 // raw response from `vercel logs`, never a rendered report). Delete this route once the JSON is read.
 
-const TEST_VRM = '231T1905'; // known-good ROI reg — tests the Irish Full Check (batch 48/49)
+const TEST_VRM = '231T1905'; // default ROI reg — tests the Irish Full Check (batch 48/49)
+
+// Irish registration shape: 2-digit (pre-2013) or 3-digit (2013+ year+half) · 1–2 letter county code ·
+// 1–6 digit serial. e.g. 231T1905, 182D19228, 08D12345. Validated BEFORE any paid call (batch 57) so a
+// typo costs £0, never a supplier call. Cleans spaces/hyphens first; GB plates (letter-led) fail `^\d`.
+const IE_VRM_RE = /^\d{2,3}[A-Z]{1,2}\d{1,6}$/;
+function cleanIeVrm(raw) {
+  const v = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return IE_VRM_RE.test(v) ? v : null;
+}
 
 // Walk the report and collect every object carrying a `flag`, with its sibling `message` — batch 49 §5.1:
 // `flag: true` means "issue" OR "not checked" (three states), so the discriminator is `message`, not
@@ -46,14 +55,21 @@ export async function GET(request) {
     return NextResponse.json({ error: 'probe disabled on production' }, { status: 403 });
   }
   if (request.nextUrl.searchParams.get('confirm') !== 'fire') {
-    return NextResponse.json({ error: 'add ?confirm=fire to fire ONE funded (~€9.84) MotorCheck IE full call on ' + TEST_VRM }, { status: 400 });
+    return NextResponse.json({ error: `add ?confirm=fire (and optionally ?vrm=) to fire ONE funded (~€9.84) MotorCheck IE full call — default ${TEST_VRM}` }, { status: 400 });
+  }
+  // Validate the VRM shape BEFORE spending money (batch 57): an invalid Irish plate is a plain 400 with
+  // NO supplier call, so a typo costs £0. Omitting ?vrm re-fires nothing new (default 231T1905).
+  const vrmParam = request.nextUrl.searchParams.get('vrm');
+  const vrm = vrmParam == null ? TEST_VRM : cleanIeVrm(vrmParam);
+  if (!vrm) {
+    return NextResponse.json({ error: `"${vrmParam}" is not a valid Irish registration (e.g. 231T1905, 182D19228) — no call made, no money spent` }, { status: 400 });
   }
   const tag = '[MOTORCHECK-IE-PROBE]';
   try {
     const token = await getMotorcheckIeToken();
-    console.log(`${tag} token acquired (len ${token?.length ?? 0})`);
+    console.log(`${tag} token acquired (len ${token?.length ?? 0}) — firing on ${vrm}`);
 
-    const created = await createProvenanceReport(token, { vrm: TEST_VRM, reportType: 'full' });
+    const created = await createProvenanceReport(token, { vrm, reportType: 'full' });
     console.log(`${tag} CREATE status=${created.status} ok=${created.ok}`);
     console.log(`${tag} CREATE RAW: ${JSON.stringify(created.json ?? created.text)}`);
 
@@ -65,7 +81,7 @@ export async function GET(request) {
     // Fetch the JSON, retrying 417 "still generating" for up to ~30s (batch 49 §5.3).
     let shown = null;
     for (let i = 0; i < 8; i++) {
-      shown = await showProvenanceReportJson(token, { vrm: TEST_VRM, reference });
+      shown = await showProvenanceReportJson(token, { vrm, reference });
       console.log(`${tag} SHOW-JSON attempt ${i} status=${shown.status} path=${shown.path ?? '-'} attempts=${JSON.stringify(shown.attempts)}`);
       if (shown.ok || !shown.generating) break;
       await new Promise(r => setTimeout(r, 4000));
