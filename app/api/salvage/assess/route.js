@@ -4982,14 +4982,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     {
       // Fix B — fogs follow the bumper. Bumper gone ⇒ both that-end fogs costed (seeded from the fog
       // price band, or flagged if no band). Bumper intact + one fog ⇒ "check the second" flag only.
-      // Bumper-gone = the authoritative flag stamped above, OR a costed bumper replace in the ledger.
-      const bumperGoneOf = (pid, offFlag) => offFlag === true ||
-        gatedParts.some(p => p.panelId === pid && /replace/i.test(p.action || ''));
+      // "Gone" = v2.0's AUTHORITATIVE bumper-off signal (aperture exposed OR ledger-severe), NOT any
+      // costed bumper `replace`. The pre-v2.0 module OR'd in a costed-replace fallback; the batch-65
+      // fixture survey showed that over-firing on 4 of 11 lots (a cosmetic replace is not "gone" and
+      // must not seed fogs). v2.0 has the authoritative flag, so trust it alone.
       const fogSeed = PANEL_PRICE_TABLE[PANEL.FOG_LAMP]?.[bandKey] ?? null;
       const fogRule = applyFogBumperRule({
         costedParts: gatedParts,
-        frontBumperGone: bumperGoneOf(PANEL.FRONT_BUMPER, assessment._frontBumperOff),
-        rearBumperGone:  bumperGoneOf(PANEL.REAR_BUMPER,  assessment._rearBumperOff),
+        frontBumperGone: assessment._frontBumperOff === true,
+        rearBumperGone:  assessment._rearBumperOff === true,
         fogSeed,
       });
       if (fogRule.costedToAdd.length) {
