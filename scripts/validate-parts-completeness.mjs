@@ -113,6 +113,7 @@ test('Fix B: bumper GONE + ZERO fogs + band seed → costs BOTH fogs (run-1 unde
   const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, fogSeed: { oem: 95, used: 80 } });
   assert.equal(r.costedToAdd.length, 2);                       // both fogs seeded from zero
   assert.ok(r.costedToAdd.every(f => f.panelId === PANEL.FOG_LAMP && f.used === 80 && f._fogPaired));
+  assert.ok(r.costedToAdd.every(f => (f.oem ?? null) === null), 'seeded fog carries NO invented OEM price (batch 66 green bar)');
   assert.equal(r.flagsToAdd.length, 0);                       // no "check second" on the gone branch
   assert.equal(sumUsed([...costed, ...r.costedToAdd]), before + 160);  // parts_sum += 2×£80
 });
