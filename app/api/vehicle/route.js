@@ -133,15 +133,15 @@ async function executeServiceHistoryRefund(stripe, paymentIntentId, refund) {
 // replayed from cache, but the refund verdict is computed live for every invocation, against the
 // retrieved session's own payment_intent (mode-matched), and idempotent via executeServiceHistoryRefund.
 // `outcome` is the discriminated result from fetchServiceHistory (or, on a cache hit, the outcome
-// reconstructed from the stored payload). REFUND ON 'empty' ONLY — a provider error or an
-// unanswered poll is not an empty result, and must never silently refund: the customer keeps their
-// report with service history marked unavailable, and the failure is logged with its status code.
-// No paidSession / payment_intent → no attempt → all-false → render falls to plain "not found".
+// reconstructed from the stored payload). REFUND ON 'empty', 'error' AND 'pending' (batch 51, Vincent
+// 24 Aug) — a genuine empty result, a provider error, or an unanswered poll all leave the customer
+// without the product they paid for, so all three refund (the gate lives in shouldRefundServiceHistory).
+// 'ok' never refunds. No paidSession / payment_intent → no attempt → all-false → render falls to "not found".
 async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId, outcome, needsServiceHistory) {
   const out = { serviceHistoryRefunded: false, serviceHistoryRefund: null, serviceHistoryRefundFailed: false };
-  const svcEmpty = needsServiceHistory && shouldRefundServiceHistory(outcome);
+  const svcRefundable = needsServiceHistory && shouldRefundServiceHistory(outcome);
   const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
-  if (!svcEmpty || !refundTarget) return out;
+  if (!svcRefundable || !refundTarget) return out;
   const refund = await deriveServiceHistoryRefund(stripe, stripeSessionId, paidSession);
   const result = await executeServiceHistoryRefund(stripe, refundTarget, refund);
   if (result.ok) {
@@ -149,6 +149,14 @@ async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId
     out.serviceHistoryRefund = { ...refund, refundId: result.refundId };
   } else {
     out.serviceHistoryRefundFailed = true;
+    // TASK 3: the one case that needs a human the same day — the provider failed AND the auto-refund
+    // could not execute, so the customer is out of pocket with no automatic recovery. Its own alert key
+    // (throttled inside sendOpsAlert); a non-empty outcome means this was a provider failure, not an empty.
+    await sendOpsAlert(
+      'service_history_refund_failed',
+      'MotorQuoter — service history refund FAILED (needs manual refund)',
+      `An auto-refund for a failed/pending service-history call could NOT be executed.<br>Outcome: ${outcome?.status ?? 'n/a'}<br>Refund: ${refund?.currency === 'eur' ? '€' : '£'}${typeof refund?.amount === 'number' ? (refund.amount / 100).toFixed(2) : '?'}<br>Session: ${String(stripeSessionId).slice(0, 14)}…<br><br>Refund this payment intent manually today.`
+    );
   }
   return out;
 }
@@ -270,7 +278,10 @@ async function fetchServiceHistory(url, options, pollOptions) {
     await sendOpsAlert(
       'service_history_failure',
       'MotorQuoter — service history call failed',
-      `Service history provider call failed.<br>Endpoint: ${url.split('?')[0]}<br>HTTP status: ${outcome.httpStatus ?? 'n/a'}<br>Detail: ${String(outcome.detail ?? '').slice(0, 300)}<br><br>The customer was NOT auto-refunded — the report renders with service history marked unavailable.`
+      // batch 51: a provider failure now auto-refunds (shouldRefundServiceHistory widened to error/pending).
+      // This alert fires at error-detection time, BEFORE the refund executes, so it states the POLICY, not
+      // the outcome — a refund that FAILS to execute raises its own same-day alert from evaluateServiceHistoryRefund.
+      `Service history provider call failed.<br>Endpoint: ${url.split('?')[0]}<br>HTTP status: ${outcome.httpStatus ?? 'n/a'}<br>Detail: ${String(outcome.detail ?? '').slice(0, 300)}<br><br>The customer is being auto-refunded for this item. If the refund itself fails, a separate "service history refund FAILED" alert follows and needs a human the same day.`
     );
     return outcome;
   };
@@ -282,10 +293,18 @@ async function fetchServiceHistory(url, options, pollOptions) {
     return fail(classifyServiceHistory({ httpStatus: 0, detail: err.message }), `fetch threw — ${err.message} (${url})`);
   }
 
-  // fetchWithPolling exhausts its attempts on a sustained 202 and returns null. That is the
-  // provider still working, NOT an empty result — distinct log line, no refund, no alert storm.
+  // fetchWithPolling exhausts its attempts on a sustained 202 and returns null. That is the provider
+  // still working, NOT an empty result — distinct log line, kept.
+  // batch 51: `pending` now REFUNDS (nothing delivers the data later), so it can no longer be silent —
+  // a sustained 202 outage would refund every sale with nothing in the inbox. Its own throttled alert
+  // key, separate from `service_history_failure` so one outage type cannot suppress the other's alert.
   if (!res) {
     console.error(`[SVC HISTORY] pending after ${Date.now() - startedAt}ms — 202 polling exhausted, provider did not answer inside the polling window (${url})`);
+    await sendOpsAlert(
+      'service_history_pending',
+      'MotorQuoter — service history poll unanswered (pending)',
+      `Service history poll exhausted on a sustained 202 — the provider did not answer inside the polling window.<br>Endpoint: ${url.split('?')[0]}<br><br>The customer is being auto-refunded for this item (a pending result is treated as a failure — nothing delivers the data later). A sustained run of this alert is a provider outage refunding every service-history sale.`
+    );
     return classifyServiceHistory({ exhausted: true });
   }
 

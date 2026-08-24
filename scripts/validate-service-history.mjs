@@ -54,22 +54,29 @@ assert('error keeps its status code for the log/alert', classifyServiceHistory({
 assert('ok carries the records through', classifyServiceHistory({ httpStatus: 200, result: { service_records: [EVENT] } }).records, [EVENT]);
 
 // ── 3. THE MONEY GATE ─────────────────────────────────────────────────────────────────────────
-console.log('\n3. Refund fires on empty and on nothing else');
+// POLICY (batch 51, Vincent 24 Aug): refund on 'empty', 'error' AND 'pending' — every state where the
+// customer is left without the product. 'ok' (records delivered) is the ONLY state that never refunds.
+// This reverses the 19-Aug 'empty'-only rule and makes service_history consistent with the rest of the
+// paid menu (refundRegistry refunds a provider failure). Getting 'ok' wrong would refund a delivered sale.
+console.log('\n3. Refund fires on empty / error / pending — every non-delivered state');
 assert('empty → REFUND', shouldRefundServiceHistory({ status: 'empty', records: [] }), true);
-assert('ok → no refund', shouldRefundServiceHistory({ status: 'ok', records: [EVENT] }), false);
-assert('pending → no refund', shouldRefundServiceHistory({ status: 'pending' }), false);
-assert('error → no refund', shouldRefundServiceHistory({ status: 'error', httpStatus: 404 }), false);
+assert('pending → REFUND (nothing delivers the data later — flipped from no-refund, batch 51)', shouldRefundServiceHistory({ status: 'pending' }), true);
+assert('error → REFUND (provider failure — flipped from no-refund, batch 51)', shouldRefundServiceHistory({ status: 'error', httpStatus: 404 }), true);
+assert('ok → NO refund (a car with records is a delivered product — the polarity guard)', shouldRefundServiceHistory({ status: 'ok', records: [EVENT] }), false);
 assert('null outcome → no refund', shouldRefundServiceHistory(null), false);
 assert('undefined outcome → no refund', shouldRefundServiceHistory(undefined), false);
-// The exact live defect, end to end: the retired path answered 404 on every call.
+// A provider error (e.g. a 404) now REFUNDS. The retired-path mass-404 that made refunding dangerous
+// was removed 19 Aug (endpoint corrected to ezyvin/servicehistoryfromvrm), so a 404 today is a genuine
+// provider failure, not "every call" — the exact case this policy is meant to refund.
 assert(
-  'THE LIVE DEFECT: 404 from the retired path no longer refunds',
+  'a 404 provider error now REFUNDS (endpoint fixed 19 Aug, so this is a genuine failure)',
   shouldRefundServiceHistory(classifyServiceHistory({ httpStatus: 404, detail: 'Requested API is not available' })),
-  false,
+  true,
 );
-// The second live defect: a good 200 whose events sit under a key the refund check didn't read.
+// The polarity guard that must never flip: a good 200 whose events are recognised is 'ok' → NO refund,
+// even when the events sit under an alternate key the extractor reads (service_events).
 assert(
-  'THE SECOND DEFECT: a full 200 under service_events no longer refunds',
+  'a full 200 under service_events is delivered → NO refund (polarity guard)',
   shouldRefundServiceHistory(classifyServiceHistory({ httpStatus: 200, result: { service_events: [EVENT, EVENT] } })),
   false,
 );
@@ -80,6 +87,7 @@ assert(
 // cases where we know up front we cannot supply the product — the customer gets their money back.
 console.log('\n3b. Skipped calls still refund');
 assert('GB uncovered make → refund', shouldRefundServiceHistory(serviceHistoryNotAttempted('make_not_covered')), true);
+assert('pre-2012 coverage floor → refund', shouldRefundServiceHistory(serviceHistoryNotAttempted('pre_2012')), true);
 assert('IE no VIN → refund', shouldRefundServiceHistory(serviceHistoryNotAttempted('no_vin')), true);
 assert('skipped call carries its reason', serviceHistoryNotAttempted('make_not_covered').notAttempted, 'make_not_covered');
 assert('skipped call is cacheable (a stable fact about the vehicle)', isUncacheableServiceHistory(serviceHistoryNotAttempted('no_vin')), false);
@@ -98,12 +106,15 @@ assert('fresh row replays its stored status',
   cachedServiceHistoryOutcome({ serviceHistoryStatus: 'empty', serviceHistory: { service_events: [] } }).status, 'empty');
 assert('fresh ok row replays as ok',
   cachedServiceHistoryOutcome({ serviceHistoryStatus: 'ok', serviceHistory: { service_events: [EVENT] } }).status, 'ok');
-// Pre-fix rows are the 404s that caused the original refunds. Replaying them as 'empty' would
-// refund a repeat buyer for a provider fault all over again.
+// Pre-fix rows (the pre-19-Aug 404s) reconstruct as 'error'. Under batch 51 an 'error' REFUNDS, so as
+// a PURE function a replayed legacy row now refunds — which is safe ONLY because such a row can never be
+// served: getCachedResult filters `.gte('created_at', now − CACHE_TTL_HOURS(48))` and the last pre-fix
+// row is >5 days old on 24 Aug (TASK 5b). The classification is asserted here; the operational guard is
+// the 48h TTL at the route level, not this pure function.
 assert('legacy row with null serviceHistory → error, NOT empty',
   cachedServiceHistoryOutcome({ serviceHistory: null }).status, 'error');
-assert('legacy row therefore does not refund',
-  shouldRefundServiceHistory(cachedServiceHistoryOutcome({ serviceHistory: null })), false);
+assert('a reconstructed legacy error now refunds as a pure fn (unreachable in prod: 48h TTL, TASK 5b)',
+  shouldRefundServiceHistory(cachedServiceHistoryOutcome({ serviceHistory: null })), true);
 assert('legacy row with a genuinely empty array → empty (refundable)',
   cachedServiceHistoryOutcome({ serviceHistory: { service_records: [] } }).status, 'empty');
 assert('legacy row with records → ok',

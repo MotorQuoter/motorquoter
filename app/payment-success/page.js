@@ -783,8 +783,9 @@ function ServiceHistorySection({ result }) {
   // markup would render as blank rows.
   const records = result.serviceHistoryRecords ?? null;
   // 'error' = the provider failed or answered in a shape we don't recognise; 'pending' = it never
-  // answered inside the polling window. Neither is "no records" and neither is refunded, so the
-  // report must say so rather than claim a clean empty result.
+  // answered inside the polling window. Neither is "no records" — but both now REFUND (batch 51), so
+  // the message must COMPOSE with the refund state below, never send an already-refunded customer to
+  // support to ask for a refund (that lie is the 2-July defect in reverse).
   const unavailable = result.serviceHistoryStatus === 'error' || result.serviceHistoryStatus === 'pending';
   // We never asked the provider — the make is off the 44-manufacturer list, the vehicle predates
   // the MY-2012 coverage floor, or there was no VIN. Saying "no records found" there would claim a
@@ -834,7 +835,13 @@ function ServiceHistorySection({ result }) {
             ))}
           </div>
         : unavailable
-          ? <EmptyState text="Service history could not be checked — the records provider did not respond. This is not a result for your vehicle: it means the check did not complete. Please contact support and we'll re-run it or refund this item." />
+          ? <EmptyState text={
+              refunded
+                ? `Service history could not be checked — the records provider did not respond. This is not a result for your vehicle: the check did not complete, and ${refundLabel} has been refunded to your card automatically.`
+                : refundFailed
+                  ? `Service history could not be checked — the records provider did not respond. This is not a result for your vehicle. We tried to refund this item automatically but it did not go through — please contact support and it will be refunded manually.`
+                  : `Service history could not be checked — the records provider did not respond. This is not a result for your vehicle: it means the check did not complete. Please contact support and we'll re-run it or refund this item.`
+            } />
           : notAsked
             ? <EmptyState text={`${notAsked}${refunded ? ` — ${refundLabel} refunded to your card automatically` : ''}`} />
             : refunded

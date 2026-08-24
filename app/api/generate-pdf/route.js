@@ -604,9 +604,19 @@ export function buildPdf(result, vrm, checks, checkDate) {
     } else {
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
       if (serviceHistoryUnavailable) {
+        // batch 51: error/pending now refund, so this must match the screen — compose with the refund
+        // state, never send an already-refunded customer to support to ask for a refund.
         doc.text('Service history could not be checked - the records provider did not respond.', MARGIN, y); y += 5;
-        doc.text('This is not a result for your vehicle: the check did not complete. Contact support', MARGIN, y); y += 5;
-        doc.text('and we will re-run it or refund this item.', MARGIN, y); y += 8;
+        if (serviceHistoryRefunded) {
+          doc.text('This is not a result for your vehicle: the check did not complete, and', MARGIN, y); y += 5;
+          doc.text(`${serviceHistoryRefundLabel} has been refunded to your card automatically.`, MARGIN, y); y += 8;
+        } else if (serviceHistoryRefundFailed) {
+          doc.text('This is not a result for your vehicle. We tried to refund this item automatically', MARGIN, y); y += 5;
+          doc.text('but it did not go through - contact support for a manual refund.', MARGIN, y); y += 8;
+        } else {
+          doc.text('This is not a result for your vehicle: the check did not complete. Contact support', MARGIN, y); y += 5;
+          doc.text('and we will re-run it or refund this item.', MARGIN, y); y += 8;
+        }
       } else if (serviceHistoryNotAsked) {
         doc.text(`${serviceHistoryNotAsked}${serviceHistoryRefunded ? ` - ${serviceHistoryRefundLabel} refunded automatically` : ''}`, MARGIN, y); y += 8;
       } else if (serviceHistoryRefunded) {
