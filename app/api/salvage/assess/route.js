@@ -32,6 +32,7 @@ import { normaliseLot } from '@/lib/normaliseLot';
 import { runRescueGate } from '@/lib/apertureRescue.mjs';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
+import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
@@ -3883,6 +3884,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const frontBumperOff = (lampObs?.apertureExposed === true)     || frontBumperSevere;
       const rearBumperOff  = (lampObs?.rearApertureExposed === true) || rearBumperSevere;
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (model=${lampObs?.apertureExposed === true} ledger=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (model=${lampObs?.rearApertureExposed === true} ledger=${rearBumperSevere})`);
+      // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
+      // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
+      assessment._frontBumperOff = frontBumperOff;
+      assessment._rearBumperOff  = rearBumperOff;
       // (a) collect aperture-suspect panels (guards + bumperOffHere unchanged), tagging aperture zone.
       const _apertureSuspects = [];
       for (const cp of coreObs.costedParts) {
@@ -4968,6 +4973,38 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         throw new AssessmentOverloadedError(reason);   // route envelope resets status + refunds + 503
       } else if (_exhaustedCalls.size > 0) {
         console.log(`[529 OK] degraded-within-tolerance lostViews=${_pvExhaustedCount}`);
+      }
+    }
+
+    // ── Parts-completeness (batch 61 rewrite, lib/partsCompleteness) — LAST mutation of gatedParts
+    // before parts_sum, and after the _flaggedParts snapshot so buildBuyerFlags sees the survivors.
+    // Fix B FIRST (adds fog rows + fog flags) so Fix A's survivor check already sees any fog flag.
+    {
+      // Fix B — fogs follow the bumper. Bumper gone ⇒ both that-end fogs costed (seeded from the fog
+      // price band, or flagged if no band). Bumper intact + one fog ⇒ "check the second" flag only.
+      // Bumper-gone = the authoritative flag stamped above, OR a costed bumper replace in the ledger.
+      const bumperGoneOf = (pid, offFlag) => offFlag === true ||
+        gatedParts.some(p => p.panelId === pid && /replace/i.test(p.action || ''));
+      const fogSeed = PANEL_PRICE_TABLE[PANEL.FOG_LAMP]?.[bandKey] ?? null;
+      const fogRule = applyFogBumperRule({
+        costedParts: gatedParts,
+        frontBumperGone: bumperGoneOf(PANEL.FRONT_BUMPER, assessment._frontBumperOff),
+        rearBumperGone:  bumperGoneOf(PANEL.REAR_BUMPER,  assessment._rearBumperOff),
+        fogSeed,
+      });
+      if (fogRule.costedToAdd.length) {
+        gatedParts.push(...fogRule.costedToAdd);
+        console.log(`[FOG RULE] +${fogRule.costedToAdd.length} fog row(s) costed (bumper gone)`);
+      }
+      if (fogRule.flagsToAdd.length) assessment._flaggedParts.push(...fogRule.flagsToAdd);
+
+      // Fix A — completeness net. Any component NAMED in the (model-authored) Visible Damage Summary
+      // that is neither costed nor in the SURVIVING buyer flags becomes an inspection flag. FLAG-ONLY —
+      // never a cost, so parts_sum is untouched. Survivors via buildBuyerFlags (post-suppression view).
+      const extraFlags = completenessFlagsFor(assessment, gatedParts, buildBuyerFlags);
+      if (extraFlags.length) {
+        assessment._flaggedParts.push(...extraFlags);
+        console.log(`[COMPLETENESS NET] +${extraFlags.length} flag(s) for VDS-named-but-uncosted components`);
       }
     }
 
