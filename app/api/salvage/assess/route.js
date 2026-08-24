@@ -2762,6 +2762,14 @@ export async function GET(request) {
       if (stripeSession.payment_status !== 'paid') {
         return NextResponse.json({ error: 'Payment not confirmed' }, { status: 402 });
       }
+      // Bind the paid session to THIS salvage session (C§2). Without this, a paid session for salvage A
+      // could drive an assessment of salvage B — the promo branch above already binds promoToken, and
+      // the vehicle product binds the paid VRM (vehicle/route.js). checkout writes metadata.salvage_id
+      // (checkout:145); require it to match, so paymentIntentId/chargeAmount below (and the auto-refund
+      // path that reads chargeAmount) are the RIGHT payment for this lot.
+      if (stripeSession.metadata?.salvage_id !== salvageId) {
+        return NextResponse.json({ error: 'Payment does not match this assessment' }, { status: 403 });
+      }
       paymentIntentId = stripeSession.payment_intent || null;
       chargeAmount    = stripeSession.amount_total   || null;
     }
@@ -2876,6 +2884,16 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
+    // Photos are kept 24 hours (batch 42); the ROW survives, so absence no longer signals expiry —
+    // images_purged_at does. Return the honest 410 on that POSITIVE fact, BEFORE any image fetch, so
+    // the customer never reaches fetchImagesFromStorage's partial-set throw for an expired assessment.
+    if (session.images_purged_at) {
+      return NextResponse.json(
+        { error: 'The photos for this assessment have expired — they are kept for 24 hours. Please start a new assessment.', expired: true },
+        { status: 410 }
+      );
+    }
+
     if (!promoToken) {
       const sessionUpdate = { status: 'processing' };
       if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
@@ -2892,12 +2910,23 @@ export async function GET(request) {
     // Fetch images once; feed Haiku, Opus, and lamp detection from the same array.
     // Fails loudly if any image is missing — a partial set degrades the assessment invisibly.
     let images;
-    if (session.image_paths?.length) {
-      images = await fetchImagesFromStorage(supabase, session.image_paths);
-    } else if (session.images?.length) {
-      images = session.images; // legacy sessions stored base64 directly
-    } else {
-      return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
+    try {
+      if (session.image_paths?.length) {
+        images = await fetchImagesFromStorage(supabase, session.image_paths);
+      } else if (session.images?.length) {
+        images = session.images; // legacy sessions stored base64 directly
+      } else {
+        return NextResponse.json({ error: 'No images found for this session' }, { status: 400 });
+      }
+    } catch (imgErr) {
+      // Photos are retained for 24 hours (batch 39). A missing/partial set here means they were swept
+      // — fetchImagesFromStorage throws rather than assess a partial set. Reach the customer with an
+      // honest explanation, never a 500 and never a silent/partial assessment.
+      console.warn('[ASSESS] image fetch failed (expired/swept?):', imgErr.message);
+      return NextResponse.json(
+        { error: 'The photos for this assessment have expired — they are kept for 24 hours. Please start a new assessment.', expired: true },
+        { status: 410 }
+      );
     }
 
     // === Pure assessment pipeline (extracted for the replay harness — Cowork §7/§8). The route
@@ -3149,7 +3178,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           const result = raw?.result ?? raw;
           return (result && !result.error) ? result : null;
         }),
-        withOneAutoCache('BREGO_GB', cleanVrmB, async () => {
+        // Finding 7: current_mileage varies the valuation → it must be in the cache key.
+        withOneAutoCache('BREGO_GB', cleanVrmB, { current_mileage: brMileage }, async () => {
           const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs });
           const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
           const result = raw?.result ?? raw;
@@ -3158,17 +3188,28 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // SalvageGuide Bid Predictor — labelled market cross-check. Data-layer only; salvage_category
         // is a DATA param (never enters the model's context — category-blindness is unaffected).
         // Fail-safe: any error / missing category / no numbers → null → the block is simply omitted.
-        withOneAutoCache('SALVAGEGUIDE', cleanVrmB, async () => {
+        // Finding 7: salvage_category / current_mileage / primary_damage_desc ALL vary the prediction,
+        // so all three are in the cache key — a re-listed VRM at a new category no longer serves the
+        // stale one. Computed once here for both the key and the request.
+        (() => {
           const sgCat = catLetter(enrichedVd.category)?.toUpperCase();
-          if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
-          const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
-          if (Number.isFinite(Number(brMileage))) p.set('current_mileage', String(Math.round(brMileage)));
-          if (enrichedVd.primaryDamage) p.set('primary_damage_desc', enrichedVd.primaryDamage);
-          const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          const result = raw?.result ?? raw;
-          return (result && !result.error) ? result : null;
-        }),
+          const sgMileage = Number.isFinite(Number(brMileage)) ? String(Math.round(brMileage)) : undefined;
+          const sgDamage = enrichedVd.primaryDamage || undefined;
+          return withOneAutoCache(
+            'SALVAGEGUIDE', cleanVrmB,
+            { salvage_category: sgCat, current_mileage: sgMileage, primary_damage_desc: sgDamage },
+            async () => {
+              if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
+              const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
+              if (sgMileage) p.set('current_mileage', sgMileage);
+              if (sgDamage) p.set('primary_damage_desc', sgDamage);
+              const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
+              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
+              const result = raw?.result ?? raw;
+              return (result && !result.error) ? result : null;
+            }
+          );
+        })(),
       ]);
 
       if (shResult) {

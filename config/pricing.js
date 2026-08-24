@@ -46,11 +46,14 @@ export const IE_MENU = [
   },
   {
     key: 'ie_nct',
-    label: 'NCT History',
-    description: 'NCT due date and test history',
+    // Honest name (batch 38): we serve STATUS only — cartell/vehicleidentity.nct_due_date gives the
+    // due date and a Valid/Expired verdict. There is no test-history product (cartell/ncthistory/v1
+    // 404s), so the label/description promise no history, past tests or records.
+    label: 'NCT Status',
+    description: 'NCT due date and Valid/Expired status',
     price: 0,
     priceEUR: 0,
-    preSelected: true,
+    preSelected: true,   // unchanged — the pre-selected/locked/£0 question is separate (batch 38 §4)
     locked: true,
     enabled: true,
   },
@@ -58,7 +61,8 @@ export const IE_MENU = [
     key: 'ie_service_history',
     label: 'Service History',
     description: 'OE digital service records where available',
-    price: 5.00,
+    // IE sterling-price rule (config/ieMenuPricing.mjs): €5.99 ÷ 1.17 = £5.12 → nearest .99 = £4.99.
+    price: 4.99,       // ⚠️ LIVE −1p (was £5.00) — the default GBP charging path for an IE customer.
     priceEUR: 5.99,
     preSelected: false,
     locked: false,
@@ -68,8 +72,12 @@ export const IE_MENU = [
     key: 'ie_history',
     label: 'Full History Check',
     description: 'Cartell — write-off, finance, mileage, stolen, tax, NCT detail',
-    price: 15.00,
-    priceEUR: 17.99,
+    // IE sterling-price rule (config/ieMenuPricing.mjs): €24.99 ÷ 1.17 = £21.36 → nearest .99 = £20.99.
+    // priceEUR €24.99 is the 16 Aug decision; £20.99 is its sterling twin under the rule (Vincent, 22
+    // Aug — batch 32). Still enabled:false, so no live exposure. ROI_TIERS deletion rides the ROI menu
+    // work, not here.
+    price: 20.99,      // derived; do NOT edit in isolation — change priceEUR and re-derive via the rule
+    priceEUR: 24.99,
     preSelected: false,
     locked: false,
     enabled: false,
@@ -112,7 +120,6 @@ export const PRICING = {
       label: 'Full History Check',
       description: 'Write-off & Cat S/N, outstanding finance, stolen marker, high-risk markers (ex-fleet/ex-rental & recorded interests), plate changes and previous searches — one Experian AutoCheck.',
       price: 6.99,
-      cost: 2.40,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -122,7 +129,6 @@ export const PRICING = {
       label: 'Salvage History Check',
       description: 'See if this vehicle has been previously sold at a salvage auction — lot date, damage description, mileage, and photos from prior listings',
       price: 1.49,
-      cost: 0.50,
       preSelected: false,
       locked: false,
       enabled: true,
@@ -193,7 +199,6 @@ export const PRICING = {
       label: 'Road Tax Cost',
       description: 'Annual road tax (VED) for this vehicle, worked out from its DVLA record — registration date, CO2, fuel type and engine size.',
       price: 0.99,
-      cost: 0,
       preSelected: false,
       locked: false,
       enabled: true,

@@ -17,6 +17,8 @@ import { serviceHistoryOfferable } from '../config/serviceHistoryCoverage.mjs';
 import { notOfferableForVehicle, hasVehicleGatedKey } from '../lib/offerability.mjs';
 import { estimateRoadTax } from '../lib/roadTax.mjs';
 import { checkMileageTimeline } from '../lib/mileageCheck.mjs';
+import { nearest99, derivedIeGbpPrice, IE_MENU_GBP_EUR_RATE } from '../config/ieMenuPricing.mjs';
+import { MENU_COSTS, MARKET_OVERHEAD, MIN_MARGIN, worstCaseMargin } from '../config/menuCosts.mjs';
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -55,9 +57,32 @@ eq('price: service_history £4.99 (no £3.49)', menuMap.service_history?.price, 
 ok('price: no menu item is still £3.49', !MENU.some(i => i.price === 3.49));
 eq('price: market_demand £0.99', menuMap.market_demand?.price, 0.99);
 eq('price: previous_adverts £0.99', menuMap.previous_adverts?.price, 0.99);
-// IE frozen — supplier decision pending.
-eq('IE frozen: ie_service_history £5.00', menuMap.ie_service_history?.price, 5.00);
+// IE sterling-price rule (batch 32): an IE row's `price` is its `priceEUR` ÷ GBP_EUR_RATE, rounded to
+// the nearest .99, HELD AS A LITERAL. This round-trip is the gate — a euro reprice that forgets the
+// sterling twin turns it red (the exact blind spot behind the £15.00/€24.99 split). Held numbers vs
+// derived numbers, one currency to the other, from config/ieMenuPricing.mjs.
+for (const row of IE_MENU) {
+  if (!row.priceEUR) continue; // zero-priced rows (ie_nct) are out of scope — skip, don't assert 0===0
+  eq(`IE rule: ${row.key} £${row.price} === nearest99(€${row.priceEUR} ÷ ${IE_MENU_GBP_EUR_RATE})`,
+     row.price, derivedIeGbpPrice(row.priceEUR));
+}
+eq('IE frozen: ie_history priceEUR €24.99 (not break-even 17.99)', menuMap.ie_history?.priceEUR, 24.99);
+eq('IE: ie_history £20.99 (the derived sterling twin)', menuMap.ie_history?.price, 20.99);
+eq('IE: ie_service_history moved to £4.99 (LIVE −1p from £5.00)', menuMap.ie_service_history?.price, 4.99);
 eq('IE frozen: ie_history still disabled', menuMap.ie_history?.enabled, false);
+
+// ie_nct HONESTY (batch 38): status only — no test-history promise, and the dead ncthistory call gone.
+eq('ie_nct label is "NCT Status" (not "NCT History")', menuMap.ie_nct?.label, 'NCT Status');
+ok('ie_nct label + description promise no history / records / past tests',
+   !/history|records|past\s*test/i.test(`${menuMap.ie_nct?.label ?? ''} ${menuMap.ie_nct?.description ?? ''}`));
+// The rule is IE_MENU-only. salvageAssessment is EXCLUDED (its EUR path is retired — SalvageIEDoor);
+// pin its £ explicitly so nobody later "completes" the rule by applying it there.
+eq('salvageAssessment.price pinned £8.99 (rule does NOT touch it)', PRICING.salvageAssessment.price, 8.99);
+// nearest99 itself — the tie rule and the guards the round-trip leans on.
+eq('nearest99: €5.99÷1.17 → £4.99', derivedIeGbpPrice(5.99), 4.99);
+eq('nearest99: €24.99÷1.17 → £20.99', derivedIeGbpPrice(24.99), 20.99);
+eq('nearest99: exact tie 1.49 rounds UP to 1.99', nearest99(1.49), 1.99);
+eq('nearest99: 0 / absent → 0 (skipped by callers)', nearest99(0), 0);
 
 // ── 3a. COVERAGE gate (make + year; VIN stays server-side) ────────────────────────
 ok('coverage: FORD 2015 offerable', serviceHistoryOfferable({ make: 'FORD', yearOfManufacture: 2015 }).offerable === true);
@@ -127,8 +152,19 @@ for (const [k, tok] of Object.entries(PDF_TRIGGER)) {
   ok(`parity: '${k}' renders in the PDF`, pdfSrc.includes(tok));
 }
 
-// ── 7. MILEAGE VERDICT — one path, PDF wraps, cache is vehicle-scoped (Defects 4/5/6) ──────────────
+// ── 6b. ie_nct honesty structural checks (batch 38) ───────────────────────────────────────────────
 const routeSrc   = readFileSync(new URL('../app/api/vehicle/route.js', import.meta.url), 'utf8');
+ok('the ie_nct needsNct gate is gone', !routeSrc.includes('needsNct'));
+// The ie_nct-serving cartell/ncthistory/v1 fetch is deleted. The ONLY ncthistory left is the dead
+// roi_history path (isHistory) — ROI_TIERS territory, owned by the separate ROI_TIERS removal. Pin it
+// at ≤1 so the ie_nct one cannot reappear and the roi one cannot multiply.
+ok('the ie_nct ncthistory fetch is gone (≤1 actual fetch left, the roi_history dead path)',
+   (routeSrc.match(/oneAutoFetch\(`cartell\/ncthistory/g) || []).length <= 1);
+ok('the main IE render says "NCT Status", not "NCT History"',
+   psSrc.includes('<SectionTitle>NCT Status</SectionTitle>') && !psSrc.includes('<SectionTitle>NCT History</SectionTitle>'));
+ok('the main IE PDF section says "NCT Status"', pdfSrc.includes("sectionTitle('NCT Status')"));
+
+// ── 7. MILEAGE VERDICT — one path, PDF wraps, cache is vehicle-scoped (Defects 4/5/6) ──────────────
 const mileageSrc  = readFileSync(new URL('../lib/mileageCheck.mjs', import.meta.url), 'utf8');
 
 // One verdict engine only — the human verdict string is produced in exactly one module.
@@ -179,6 +215,49 @@ ok('ceiling: an above query never reads as clocking', !/clock/i.test(checkMileag
 const tolDeclarers = [routeSrc, pageSrc, psSrc, pdfSrc].filter((s) => /toleranceMiles\s*[=?]|ROLLBACK_TOLERANCE|ENTERED_VS_MOT|IMPLIED_USAGE/.test(s)).length;
 ok('guard: mileage thresholds are declared only in mileageCheck (no surface copy)', tolDeclarers === 0);
 ok('guard: mileageCheck exports named entered (1000) + rollback (150) + usage (3000) thresholds', mileageSrc.includes('export const ENTERED_VS_MOT_TOLERANCE_MILES = 1000') && mileageSrc.includes('export const MOT_ROLLBACK_TOLERANCE_MILES = 150') && mileageSrc.includes('export const ENTERED_IMPLIED_USAGE_QUERY_PER_MONTH = 3000'));
+
+// ── 8. THE MARGIN GATE (branch E, batch 43) — assert MONEY, not just literals ─────────────────────
+// The gate existed because five items lost money bought singly, yet had no cost/margin assertion at
+// all — ie_history sat at £15.00 / £14.40 cost (17p) through 105 green checks. Now every enabled item
+// clears its gross cost + a floor, worst case (bought ALONE, + its market overhead).
+const KNOWN_BASES = new Set(['account-rate', 'free', 'invoiced']);
+const marketOf = (key) => IE_MENU.some(i => i.key === key) ? 'IE' : 'GB';
+
+// §1.1 absence ≠ zero: every menu item must have a cost entry.
+for (const item of MENU) {
+  ok(`cost: '${item.key}' has a grossCost entry (absence is a failure, never £0)`, !!MENU_COSTS[item.key]);
+}
+// §4 unknown blocks enabled; a known basis permits.
+for (const item of MENU.filter(i => i.enabled)) {
+  const c = MENU_COSTS[item.key];
+  ok(`cost: enabled '${item.key}' has a KNOWN basis (unknown must block enabled:true)`, !!c && c.basis !== 'unknown' && KNOWN_BASES.has(c.basis));
+}
+// §2/§3/§5 worst-case single-item margin ≥ floor, GBP and (modelled) EUR, market overhead included.
+for (const item of MENU.filter(i => i.enabled && i.price > 0)) {
+  const mk = marketOf(item.key);
+  const m = worstCaseMargin(item.key, item.price, mk);
+  ok(`margin: '${item.key}' worst-case £${item.price} alone = ${m ? (m.marginPct * 100).toFixed(1) : '??'}% ≥ ${(MIN_MARGIN * 100)}% (cost £${m?.cost.toFixed(2)})`, !!m && m.marginPct >= MIN_MARGIN);
+  if (mk === 'IE' && item.priceEUR > 0) {
+    const me = worstCaseMargin(item.key, item.priceEUR / IE_MENU_GBP_EUR_RATE, 'IE'); // MODELLED: GBP Stripe rate, no EUR charge has settled
+    ok(`margin: '${item.key}' EUR path €${item.priceEUR} (modelled) = ${me ? (me.marginPct * 100).toFixed(1) : '??'}% ≥ ${(MIN_MARGIN * 100)}%`, !!me && me.marginPct >= MIN_MARGIN);
+  }
+}
+// §6 no second source of cost truth in config/pricing.js.
+ok('config/pricing.js carries NO cost field (menuCosts is the single source)', !/^\s*cost:\s*[\d.]/m.test(readFileSync(new URL('../config/pricing.js', import.meta.url), 'utf8')));
+// Inverse regression (brief §6.2): sharedWith is IGNORED — an item priced below its STANDALONE cost
+// FAILS the floor even though it rides a call it shares (owner_history rides full_history).
+{
+  const hypo = worstCaseMargin('owner_history', 0.20, 'GB'); // 20p price vs 24p standalone cost
+  ok('inverse: an item below its STANDALONE cost fails even when it shares a call', !!hypo && hypo.margin < 0);
+}
+// §6.3 the £0 items are a VALID asserted state (basis free), distinct from unknown.
+ok('free items (mot/mileage_detail/road_tax) are basis "free" £0, NOT "unknown"',
+   MENU_COSTS.mot.basis === 'free' && MENU_COSTS.mileage_detail.basis === 'free' && MENU_COSTS.road_tax.basis === 'free' &&
+   MENU_COSTS.mot.grossCost === 0);
+// IE basket overhead is a real, attributed cost (not folded into items).
+ok('IE market overhead is 18p account-rate (once/request); GB is £0', MARKET_OVERHEAD.IE.grossCost === 0.18 && MARKET_OVERHEAD.GB.grossCost === 0);
+// ie_history stays disabled (brief §6.4 — its blocker is the render layer, not the margin).
+ok('ie_history stays enabled:false regardless of its (passing) margin', menuMap.ie_history?.enabled === false);
 
 console.log(`\nvalidate-pricing: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

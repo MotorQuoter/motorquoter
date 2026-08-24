@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normaliseEmail, emailDomain, isValidEmail, signLink, clientIp } from '@/lib/freeReport.mjs';
+import { sendTransactionalEmail } from '@/lib/email.mjs';
 import {
   FREE_REPORT_IP_LIMIT_PER_DAY, FREE_REPORT_GLOBAL_LIMIT_PER_DAY, FREE_REPORT_LINK_TTL_HOURS,
   FREE_REPORT_REQUEST_PRUNE_DAYS, FREE_REPORT_STRINGS, DISPOSABLE_DOMAINS,
@@ -16,24 +17,16 @@ function baseUrl() {
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
 }
 
-// Verification email via Brevo transactional API (plain fetch — no SDK, smaller surface).
+// Verification email — the shared transactional sender (lib/email.mjs), one Brevo caller for the app.
 async function sendVerificationEmail(to, verifyUrl) {
-  const key = process.env.BREVO_API_KEY;
-  if (!key) throw new Error('BREVO_API_KEY missing');
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: { 'api-key': key, 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({
-      sender: { name: 'MotorQuoter', email: 'noreply@motorquoter.app' },
-      to: [{ email: to }],
-      subject: FREE_REPORT_STRINGS.emailSubject,
-      htmlContent:
-        `<p>${FREE_REPORT_STRINGS.emailBody}</p>` +
-        `<p><a href="${verifyUrl}" style="display:inline-block;padding:12px 20px;background:#f05a1a;color:#fff;` +
-        `text-decoration:none;border-radius:8px;font-weight:600">Confirm your email</a></p>`,
-    }),
+  await sendTransactionalEmail({
+    to,
+    subject: FREE_REPORT_STRINGS.emailSubject,
+    htmlContent:
+      `<p>${FREE_REPORT_STRINGS.emailBody}</p>` +
+      `<p><a href="${verifyUrl}" style="display:inline-block;padding:12px 20px;background:#f05a1a;color:#fff;` +
+      `text-decoration:none;border-radius:8px;font-weight:600">Confirm your email</a></p>`,
   });
-  if (!res.ok) throw new Error(`Brevo ${res.status}: ${await res.text()}`);
 }
 
 // Neutral success — identical for new, repeat, and per-IP-limited addresses (enumeration-safe, no oracle).

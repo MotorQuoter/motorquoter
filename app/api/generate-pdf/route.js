@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { experianVerdict } from '@/lib/experianHistory';
 import { formatOdometer } from '@/lib/odometerDisplay';
+import { motStatusPresentation } from '@/lib/motTone';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -9,7 +10,10 @@ const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const LABEL_W = 64;
 
-function buildPdf(result, vrm, checks, checkDate) {
+// Exported so the report can be built server-side (BUILD_StoredReports §4b — the purchase email
+// attaches this exact PDF). Pure function of its arguments: no request, no I/O. Callers must NOT
+// self-POST /api/generate-pdf to obtain a PDF server-side; import and call this directly.
+export function buildPdf(result, vrm, checks, checkDate) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
@@ -21,6 +25,27 @@ function buildPdf(result, vrm, checks, checkDate) {
   // ONLY for reading detail fields, and only ever under `!v.missing`.
   const acRaw = isIE ? result.hpi : result.autocheck;
   const ac  = acRaw || {};
+  // C§5 — when a block is missing because the PROVIDER FAILED (error/empty), say so honestly instead
+  // of "…not available for this vehicle" (a false statement about the car). Only overrides the
+  // missing-text; a genuine qty:0 clean result is untouched.
+  const providerFailed = (block) => {
+    const o = result?._checkOutcomes?.[block];
+    return o === 'error' || o === 'empty';
+  };
+  const PDF_PROVIDER_FAILED = 'Check could not be completed - provider did not respond; contact support to re-run or refund.';
+  const PDF_BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', ie_valuation: 'ie_valuation' };
+  const verdictValue = (v, block) => {
+    if (!(v.missing && providerFailed(block))) return v.value;
+    const r = result?._refunds?.[PDF_BLOCK_TO_ITEM[block]];
+    if (r?.refunded) {
+      const amt = r.refund && typeof r.refund.amount === 'number'
+        ? ` (${r.refund.currency === 'eur' ? '€' : '£'}${(r.refund.amount / 100).toFixed(2)})`
+        : '';
+      return `Could not be completed - refunded${amt}.`;
+    }
+    return PDF_PROVIDER_FAILED;
+  };
+  const acBlock = isIE ? 'hpi' : 'autocheck'; // the outcome key for the six Experian/HPI blocks
   const val = result.valuation || {};
   const motHistory = result.motHistory || [];
   const cazAdv = result.cazanaAdverts || {};
@@ -73,7 +98,9 @@ function buildPdf(result, vrm, checks, checkDate) {
   // Make a string safe for the base PDF font: drop emoji / symbols it renders as artefacts (the "þ"
   // where the screen shows ⚠️), and downgrade smart punctuation to ASCII. Use for any model/verdict
   // text before splitTextToSize — never clip a verdict, always wrap it.
-  const pdfText = (s) => String(s == null ? '' : s).replace(/[^\x00-\x7F£]/g, (c) => ({ '—': '-', '–': '-', '’': "'", '‘': "'", '“': '"', '”': '"', '…': '...' }[c] ?? '')).replace(/\s+/g, ' ').trim();
+  // Keep ASCII + the two currency symbols the report legitimately prints (£, €); downgrade smart
+  // punctuation and the middle dot to ASCII; drop anything else the base font renders as an artefact.
+  const pdfText = (s) => String(s == null ? '' : s).replace(/[^\x00-\x7F£€]/g, (c) => ({ '—': '-', '–': '-', '·': '-', '’': "'", '‘': "'", '“': '"', '”': '"', '…': '...' }[c] ?? '')).replace(/\s+/g, ' ').trim();
 
   function checkPage(needed = 10) {
     if (y + needed > PAGE_H - MARGIN) { doc.addPage(); y = MARGIN; }
@@ -100,7 +127,12 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   function row(label, value, tone) {
-    checkPage(9);
+    // Finding 9a/9c: sanitise glyphs and WRAP the value into its column (198mm − 76mm ≈ 122mm) so no
+    // caller can run off the page. Replaces the old single unbounded doc.text — the mileage-anomaly
+    // note (~158mm) lost its tail, and the road-tax basis was clip()'d mid-explanation. Give every
+    // caller a wrapping value column; never clip a value again.
+    const valueLines = doc.splitTextToSize(pdfText(str(value)) || '-', CONTENT_W - LABEL_W);
+    checkPage(4 + valueLines.length * 5);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(110, 110, 110);
@@ -110,8 +142,8 @@ function buildPdf(result, vrm, checks, checkDate) {
     if (tone === 'bad')       doc.setTextColor(170, 0, 0);
     else if (tone === 'good') doc.setTextColor(0, 120, 0);
     else                      doc.setTextColor(20, 20, 20);
-    doc.text(str(value), MARGIN + LABEL_W, y);
-    y += 5;
+    doc.text(valueLines, MARGIN + LABEL_W, y);
+    y += valueLines.length * 5;
     doc.setDrawColor(215, 215, 215);
     doc.setLineWidth(0.15);
     doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
@@ -155,17 +187,45 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (result.fuelType)                 row('Fuel Type',     result.fuelType);
   if (result.co2Emissions)             row('CO2 Emissions', `${result.co2Emissions} g/km`);
   if (result.taxStatus)                row('Tax Status',    result.taxStatus,  result.taxStatus !== 'Taxed' ? 'bad' : undefined);
-  if (result.motStatus)                row(isIE ? 'NCT Status' : 'MOT Status', result.motStatus, result.motStatus !== 'Valid' ? 'bad' : undefined);
+  // MOT/NCT status. A 40-year-old GB vehicle with no current MOT is age-eligible for exemption, not
+  // neglected — motStatusPresentation renders it NEUTRAL (never red, never a green all-clear) and
+  // forces the row to appear even when motStatus is absent (a hidden row is its own rule-10 failure).
+  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: isIE ? 'IE' : 'GB' });
+  if (result.motStatus || motPres.exempt) {
+    // Non-exempt unchanged: Valid was already neutral here (only non-Valid was red). exempt → neutral too.
+    const motTone = motPres.tone === 'alert' ? 'bad' : undefined;
+    row(isIE ? 'NCT Status' : 'MOT Status', motPres.label, motTone);
+  }
   if (result.monthOfFirstRegistration) row('First Registered', fmtFirstReg(result.monthOfFirstRegistration));
   if (result.dateOfLastV5CIssued)      row('Last V5C Issued', dt(result.dateOfLastV5CIssued));
   if (result.nctExpiryDate)            row('NCT Expiry',    dt(result.nctExpiryDate));
+  // Exemption wording — both facts, no verdict (batch 47 §2). Neutral grey, not the road-tax orange.
+  if (motPres.exempt) {
+    checkPage(12);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    for (const line of doc.splitTextToSize(pdfText(motPres.note), CONTENT_W)) { doc.text(line, MARGIN, y); y += 3.8; }
+    y += 2;
+  }
+
+  // ── Outstanding Safety Recall ─────────────────────────────────────────────────
+  // Finding 8: a live safety warning was screen-only (no hasOutstandingRecall anywhere in the PDF).
+  // Free, DVSA-derived; shown whenever present, gated on the data (a warning, not a paid section).
+  if (result.hasOutstandingRecall === true) {
+    sectionTitle('Safety Recall');
+    row('Outstanding Recall', '[!] This vehicle has an outstanding safety recall - check with the manufacturer before driving.', 'bad');
+  }
 
   // ── Valuation ────────────────────────────────────────────────────────────────
-  if (has('valuation') && val.retail_low_valuation != null) {
+  // Finding 8: gate on the PURCHASE (has), never on data presence — the old `&& retail_low != null`
+  // dropped the WHOLE section (losing the trade + private bands the screen still showed) whenever
+  // retail-low was null. Handle absent bands INSIDE the section, honestly (C§5/§6 wording).
+  if (has('valuation')) {
     sectionTitle('Valuation');
-    row('Retail Value', `${money(val.retail_low_valuation)} - ${money(val.retail_high_valuation)}`);
-    row('Trade Value',  `${money(val.trade_low_valuation)} - ${money(val.trade_high_valuation)}`);
+    const anyBand = val.retail_low_valuation != null || val.trade_low_valuation != null || val.private_low_valuation != null;
+    if (val.retail_low_valuation != null)  row('Retail Value', `${money(val.retail_low_valuation)} - ${money(val.retail_high_valuation)}`);
+    if (val.trade_low_valuation != null)   row('Trade Value',  `${money(val.trade_low_valuation)} - ${money(val.trade_high_valuation)}`);
     if (val.private_low_valuation != null) row('Private Sale', `${money(val.private_low_valuation)} - ${money(val.private_high_valuation)}`);
+    if (!anyBand) row('Valuation', verdictValue({ missing: true, value: 'Valuation data not available for this vehicle' }, 'valuation'));
   }
 
   // ── ROI Tier Sections ─────────────────────────────────────────────────────────
@@ -253,8 +313,15 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── IE Brego Valuation (checks path) ─────────────────────────────────────────
-  if (isIE && has('ie_valuation') && result.bregoRoi) {
+  // batch 48 §8: gate on the PURCHASE, not on bregoRoi presence — a provider failure must say so (and
+  // show the refund) instead of the whole section disappearing after the customer paid.
+  if (isIE && has('ie_valuation')) {
     const brego = result.bregoRoi;
+    const hasBands = brego && (brego.retailHigh != null || brego.tradeLow != null);
+    if (!hasBands) {
+      sectionTitle('Valuation');
+      row('Valuation', verdictValue({ missing: true, value: 'Valuation data not available for this vehicle' }, 'ie_valuation'));
+    } else {
     const fmtEur = v => v != null ? `€${Number(v).toLocaleString('en-IE')}` : '-';
     sectionTitle('Valuation');
     checkPage(12);
@@ -280,6 +347,7 @@ function buildPdf(result, vrm, checks, checkDate) {
       y += 5;
       doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
       doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
+    }
     }
   }
 
@@ -368,7 +436,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('writeoff') || hasFullHistory) {
     sectionTitle('Write-off / Cat S·N Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'writeoff');
-    row('Write-off Status', v.value, v.tone);
+    row('Write-off Status', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const writeOffItem = ac.condition_data_items?.[0];
       if (writeOffItem?.total_loss_date) row('Total Loss Date', dt(writeOffItem.total_loss_date));
@@ -379,7 +447,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('finance') || hasFullHistory) {
     sectionTitle('Finance Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'finance');
-    row('Outstanding Finance', v.value, v.tone);
+    row('Outstanding Finance', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       for (const f of (ac.finance_data_items || [])) {
         if (f.finance_company) row('Finance Company', f.finance_company);
@@ -392,7 +460,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (has('stolen') || hasFullHistory) {
     sectionTitle('Stolen Check', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'stolen');
-    row(isIE ? 'Stolen Register' : 'Police Database', v.value, v.tone);
+    row(isIE ? 'Stolen Register' : 'Police Database', verdictValue(v, acBlock), v.tone);
     if (!v.missing && isIE) {
       checkPage(10);
       doc.setFont('helvetica', 'normal');
@@ -409,14 +477,14 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('High-Risk Markers', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'high_risk');
-    row('High-Risk Markers', v.value, v.tone);
+    row('High-Risk Markers', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.high_risk_data_items) ? ac.high_risk_data_items : [];
       for (const it of items) {
         const type = it?.high_risk_type || it?.type || it?.description || it?.marker || 'Marker recorded';
-        row('Marker', clip(str(type), 60));
+        row('Marker', str(type));
         const party = it?.registered_to || it?.company || it?.organisation || it?.interested_party || null;
-        if (party) row('Recorded By', clip(str(party), 60));
+        if (party) row('Recorded By', str(party));
       }
       checkPage(8);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
@@ -430,7 +498,7 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('Plate Changes', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'plate');
-    row('Registration Changes', v.value, v.tone);
+    row('Registration Changes', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.cherished_data_items) ? ac.cherished_data_items : [];
       for (const it of items) {
@@ -446,13 +514,13 @@ function buildPdf(result, vrm, checks, checkDate) {
   if (hasFullHistory) {
     sectionTitle('Previous Searches', 'Data provided by Experian');
     const v = experianVerdict(acRaw, 'searches');
-    row('Recent Checks', v.value, v.tone);
+    row('Recent Checks', verdictValue(v, acBlock), v.tone);
     if (!v.missing) {
       const items = Array.isArray(ac.previous_search_items) ? ac.previous_search_items : [];
       for (const it of items.slice(0, 12)) {
         const who  = it?.business_type_searching || null;
         const date = it?.date_of_search || null;
-        if (who || date) row(who ? clip(str(who), 40) : 'Search', date ? dt(date) : '-');
+        if (who || date) row(who ? str(who) : 'Search', date ? dt(date) : '-');
       }
       checkPage(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
       const psNote = doc.splitTextToSize('How many trade searches have been recorded against this vehicle recently. A high number close together can indicate a vehicle being shopped around. Includes checks run through MotorQuoter.', CONTENT_W);
@@ -466,8 +534,16 @@ function buildPdf(result, vrm, checks, checkDate) {
     const rt = result.roadTax;
     sectionTitle('Road Tax');
     row('Annual Road Tax', rt.annual != null ? `£${rt.annual}/year` : 'See gov.uk/vehicle-tax-rate-tables', rt.annual != null ? 'good' : undefined);
-    if (rt.basis) row('Basis', clip(str(rt.basis), 60));
+    if (rt.basis) row('Basis', str(rt.basis)); // 9b: row() wraps now — never clip the basis mid-explanation
     if (result.taxStatus) row('Current Status', str(result.taxStatus), result.taxStatus === 'Taxed' ? 'good' : undefined);
+    // Historic (40-year) exemption — the qualifying-on-age fact ALONGSIDE the rate above (never
+    // instead of it: the £0 depends on the keeper having applied, which no data we hold can confirm).
+    if (rt.historic?.eligible) {
+      checkPage(12);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(170, 90, 0);
+      for (const line of doc.splitTextToSize(pdfText(`Historic vehicle (40+ years): ${rt.historic.note}`), CONTENT_W)) { doc.text(line, MARGIN, y); y += 3.8; }
+      y += 1;
+    }
     checkPage(10);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
     const rtText = pdfText(`${rt.supplement ? rt.supplement.note + ' ' : ''}${rt.note} Guide only - confirm the exact amount at gov.uk/vehicle-tax-rate-tables.`);
@@ -477,12 +553,17 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Salvage History ───────────────────────────────────────────────────────────
-  if (result.salvageHistory != null && !isIE) {
+  // Finding 8: gate on the PURCHASE (has), never on data presence — a paid-but-empty salvage check
+  // used to VANISH, and an unpaid-but-present one used to print. A null result is a provider failure,
+  // not a clean "no records", so it must NOT render the green [OK] (that is finding 1 again).
+  if (has('salvagehistory') && !isIE) {
     const sh = result.salvageHistory;
     const found = sh?.salvage_auction_record_found === true;
     const shRecords = sh?.salvage_auction_records || [];
     sectionTitle('Salvage History Check');
-    if (!sh || !found) {
+    if (sh == null) {
+      row('Salvage History', verdictValue({ missing: true, value: 'Salvage history data not available for this vehicle' }, 'salvagehistory'));
+    } else if (!found) {
       checkPage(8);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(0, 120, 0);
       doc.text('[OK] No previous salvage auction records found', MARGIN, y); y += 8;
@@ -519,32 +600,11 @@ function buildPdf(result, vrm, checks, checkDate) {
   // ── MOT / NCT History ─────────────────────────────────────────────────────────
   if (has('mot')) {
     if (isIE) {
-      const nct = result.nctHistory;
-      const tests = Array.isArray(nct) ? nct : (nct?.tests ?? nct?.nct_tests ?? []);
-      sectionTitle('NCT History');
-      if (tests.length > 0) {
-        for (const test of tests.slice(0, 15)) {
-          checkPage(8);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.5);
-          doc.setTextColor(20, 20, 20);
-          const testDate = dt(test.test_date || test.date);
-          doc.text(testDate || '-', MARGIN + 1, y);
-          const res = test.result || test.test_result || '-';
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(res === 'PASS' ? 0 : 170, res === 'PASS' ? 120 : 0, 0);
-          doc.text(res, MARGIN + 30, y);
-          y += 5;
-          doc.setDrawColor(215, 215, 215);
-          doc.setLineWidth(0.15);
-          doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-          y += 2;
-        }
-      } else {
-        checkPage(8);
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 100, 100);
-        doc.text('No NCT history on record', MARGIN, y); y += 8;
-      }
+      // NCT STATUS only (batch 38): due date + Valid/Expired from cartell/vehicleidentity. There is no
+      // NCT test-history product (cartell/ncthistory/v1 404s), so no history is claimed.
+      sectionTitle('NCT Status');
+      row('NCT Status', result.motStatus || '-', result.motStatus === 'Valid' ? 'good' : result.motStatus === 'Expired' ? 'bad' : undefined);
+      if (result.nctExpiryDate) row('NCT Due', dt(result.nctExpiryDate));
     } else {
       sectionTitle('MOT History');
       if (motHistory.length > 0) {
@@ -588,8 +648,8 @@ function buildPdf(result, vrm, checks, checkDate) {
           doc.text(str(test.expiryDate || '-'), MARGIN + 90, y);
           y += 5;
           if (kmSubline) { checkPage(5); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120); doc.text(kmSubline, MARGIN + 4, y); y += 4; doc.setFontSize(8.5); doc.setTextColor(20, 20, 20); }
-          for (const f of fails) { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(170, 0, 0); doc.text(`[${f.type}] ${clip(f.text, 86)}`, MARGIN + 4, y); y += 4; }
-          for (const a of advs)  { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(140, 90, 0); doc.text(`[A] ${clip(a.text, 90)}`, MARGIN + 4, y); y += 4; }
+          for (const f of fails) { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(170, 0, 0); doc.text(`[${f.type}] ${clip(pdfText(f.text), 86)}`, MARGIN + 4, y); y += 4; }
+          for (const a of advs)  { checkPage(5); doc.setFontSize(7.5); doc.setTextColor(140, 90, 0); doc.text(`[A] ${clip(pdfText(a.text), 90)}`, MARGIN + 4, y); y += 4; }
           doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
           doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
         }
@@ -601,7 +661,9 @@ function buildPdf(result, vrm, checks, checkDate) {
   }
 
   // ── Service History ───────────────────────────────────────────────────────────
-  if (has('service_history')) {
+  // Finding 8: an IE basket buys `ie_service_history` (€5.99) — gating on `service_history` alone gave
+  // it NO PDF section at all. Both keys drive the same section.
+  if (has('service_history') || has('ie_service_history')) {
     const svcCoverageLabel = { full: 'Full Coverage', limited: 'Limited Coverage', workshop: 'Workshop Remarks Only' }[svcCoverage] || '';
     sectionTitle(`Service History${svcCoverageLabel ? ` - ${svcCoverageLabel}` : ''}`);
     if (svcRecords?.length > 0) {
@@ -610,9 +672,9 @@ function buildPdf(result, vrm, checks, checkDate) {
         doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
         doc.text(dt(rec.date) || '-', MARGIN, y);
         if (rec.mileage != null) { doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100); doc.text(`${num(rec.mileage)} ${rec.mileageUnit || 'mi'}`, MARGIN + 28, y); }
-        if (rec.serviceType)     { doc.setFont('helvetica', 'normal'); doc.setTextColor(40, 40, 40); doc.text(clip(rec.serviceType, 50), MARGIN + 58, y); }
+        if (rec.serviceType)     { doc.setFont('helvetica', 'normal'); doc.setTextColor(40, 40, 40); doc.text(clip(pdfText(rec.serviceType), 50), MARGIN + 58, y); }
         y += 5;
-        if (rec.dealer) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120); doc.text(clip(rec.dealer, 60), MARGIN, y); y += 4; }
+        if (rec.dealer) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120); doc.text(clip(pdfText(rec.dealer), 60), MARGIN, y); y += 4; }
         doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
         doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;
       }
@@ -712,7 +774,7 @@ function buildPdf(result, vrm, checks, checkDate) {
         doc.setFont('helvetica', 'normal');
         doc.text(ad.mileage_observed != null ? `${num(ad.mileage_observed)} mi` : '-', MARGIN + 62, y);
         doc.setTextColor(100, 100, 100);
-        doc.text(clip(ad.seller_name || ad.dealer_type || '-', 35), MARGIN + 95, y);
+        doc.text(clip(pdfText(ad.seller_name || ad.dealer_type || '-'), 35), MARGIN + 95, y);
         y += 5;
         doc.setDrawColor(215, 215, 215); doc.setLineWidth(0.15);
         doc.line(MARGIN, y, PAGE_W - MARGIN, y); y += 2;

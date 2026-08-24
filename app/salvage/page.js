@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
 import { formatOdometer } from '@/lib/odometerDisplay';
+import { isRoiPlate } from '@/lib/roiPlate';
 
 const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const MAX_PHOTOS = 40;          // shared ceiling: individual-photo path and zip path both cap here
@@ -41,7 +42,7 @@ export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
   const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '', bodyStyle: '' });
-  const [market, setMarket] = useState('GB');
+  const market = 'GB';   // Salvage is UK-only — no market state, no toggle (server rejects IE too).
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -52,6 +53,9 @@ export default function SalvagePage() {
   const [motWarning, setMotWarning] = useState('');
   const [isRerun, setIsRerun] = useState(false);
   const [rerunSalvageId, setRerunSalvageId] = useState('');
+  // The ownership credential carried from the success page — rerun-submit now requires it (auth gap C§1).
+  const [rerunSessionId, setRerunSessionId] = useState('');
+  const [rerunPromoToken, setRerunPromoToken] = useState('');
   const [freeReportToken, setFreeReportToken] = useState(''); // Commit 3: single-use free-report credential from the verify redirect
   const [auctionSource, setAuctionSource] = useState('copart');
   const [copartMileage, setCopartMileage] = useState('');
@@ -71,19 +75,13 @@ export default function SalvagePage() {
   const [zipDragging, setZipDragging] = useState(false);
   const [vrnAutoFilled, setVrnAutoFilled] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(false);
-  // Payment currency — INDEPENDENT of market. GBP default; EUR is opt-in and shown ONLY on IE
-  // lots. Fresh page load / new assessment resets to 'gbp' (useState default); switching market
-  // away from IE also reasserts 'gbp' (see the GB button handler). No sticky EUR across sessions.
-  const [payCurrency, setPayCurrency] = useState('gbp');
 
+  // Salvage is UK-only: always GBP. The EUR currency path + IE priceEUR are retired here (the config
+  // entries stay, removed with the ROI menu work). These stay as GB constants so the render/POST below
+  // are unchanged for a UK customer.
   const price = PRICING.salvageAssessment.price;
-  const priceEUR = PRICING.salvageAssessment.priceEUR;
-  // EUR fires only when the lot is IE AND EUR is explicitly chosen — so a GB/NI lot always
-  // displays and charges GBP regardless of any stale toggle state.
-  const useEUR = market === 'IE' && payCurrency === 'eur';
-  const displaySymbol = useEUR ? '€' : '£';
-  const displayAmount = useEUR ? priceEUR : price;
-  const payCurrencyValue = useEUR ? 'eur' : 'gbp'; // exactly what the checkout POST sends
+  const displaySymbol = '£';
+  const displayAmount = price;
 
   // Auto-proceed: if submit was attempted while zip was still extracting, fire it
   // the moment extraction finishes. Clears on error so a retry is needed.
@@ -106,6 +104,8 @@ export default function SalvagePage() {
     if (rerunId) {
       setIsRerun(true);
       setRerunSalvageId(rerunId);
+      setRerunSessionId(params.get('session_id') || '');
+      setRerunPromoToken(params.get('promo_token') || '');
       if (rerunVrm) {
         setDetails(p => ({ ...p, vrm: rerunVrm.toUpperCase() }));
         handleVrmLookup(rerunVrm.toUpperCase());
@@ -164,6 +164,14 @@ export default function SalvagePage() {
 
   const handleVrmLookup = async (vrm) => {
     if (!vrm || vrm.length < 2) return;
+    // MotorQuoter Salvage is UK-only. Refuse an Irish registration up front — before the DVLA lookup —
+    // with an honest reason. Fail OPEN: isRoiPlate matches only a real Irish plate (shape + county
+    // code), so a UK dateless plate (123 ABC) does NOT match and proceeds to the normal lookup.
+    if (isRoiPlate(vrm.trim().replace(/\s/g, '').toUpperCase())) {
+      setDvlaStatus('not_found');
+      setDvlaError("MotorQuoter Salvage covers UK vehicles only. This looks like an Irish registration. Our salvage valuation, history check and bid predictor run on UK data — we'd rather refuse than sell you a report we can't stand behind.");
+      return;
+    }
     setDvlaStatus('loading');
     setDvlaError('');
     setMotWarning('');
@@ -452,7 +460,11 @@ export default function SalvagePage() {
         const res = await fetch('/api/salvage/rerun-submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ salvage_id: rerunSalvageId, vehicleDetails, imagePaths, market }),
+          body: JSON.stringify({
+            salvage_id: rerunSalvageId, vehicleDetails, imagePaths, market,
+            // Ownership credential (C§1) — carried from the success page; rerun-submit rejects without it.
+            ...(rerunPromoToken ? { promo_token: rerunPromoToken } : { session_id: rerunSessionId }),
+          }),
         });
         if (!res.ok) {
           const ct = res.headers.get('content-type') || '';
@@ -470,7 +482,7 @@ export default function SalvagePage() {
         const res = await fetch('/api/salvage/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vehicleDetails, imagePaths, market, currency: payCurrencyValue }),
+          body: JSON.stringify({ vehicleDetails, imagePaths, market }),
         });
         if (!res.ok) {
           const ct = res.headers.get('content-type') || '';
@@ -550,10 +562,6 @@ export default function SalvagePage() {
         .select-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .select-input option { background: var(--bg2); color: var(--text); }
 
-        .market-toggle { display: flex; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 4px; gap: 4px; }
-        .market-btn { flex: 1; padding: 11px 16px; background: none; border: 1.5px solid transparent; border-radius: 7px; cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.06em; color: var(--text-dim); transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 7px; }
-        .market-btn:hover { color: var(--text); background: var(--bg3); }
-        .market-btn.active { background: var(--orange-dim); border-color: var(--border); color: var(--orange); }
 
         .btn-pay { width: 100%; padding: 18px; background: var(--orange); border: none; border-radius: 10px; color: white; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .btn-pay:hover:not(:disabled) { background: var(--orange-light); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(240,90,26,0.45); }
@@ -735,7 +743,7 @@ export default function SalvagePage() {
               {dvlaStatus === 'found' && dvlaData && (
                 <div>
                   <div style={{ fontSize: 12, color: '#4ade80', padding: '4px 0' }}>
-                    {dvlaData.market === 'IE' ? '🇮🇪 ROI Register' : '✓ Verified'} — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
+                    ✓ Verified — {[dvlaData.make, dvlaData.model, dvlaData.yearOfManufacture].filter(Boolean).join(' ')} · {dvlaData.fuelType} · {dvlaData.colour}
                   </div>
                   {dvlaData.motHistory?.length > 0 && (
                     <div style={{ marginTop: 4, paddingLeft: 2 }}>
@@ -829,33 +837,7 @@ export default function SalvagePage() {
             </div>
           </div>
 
-          {/* Market */}
-          <div>
-            <div className="field-label">Repair Market</div>
-            <div className="market-toggle">
-              <button className={`market-btn ${market === 'GB' ? 'active' : ''}`} onClick={() => { setMarket('GB'); setPayCurrency('gbp'); }}>
-                🇬🇧 GB
-              </button>
-              <button className={`market-btn ${market === 'IE' ? 'active' : ''}`} onClick={() => setMarket('IE')}>
-                🇮🇪 IE
-              </button>
-            </div>
-          </div>
-
-          {/* Pay currency — ROI/IE lots only. GBP is the default; EUR is opt-in. */}
-          {market === 'IE' && (
-            <div>
-              <div className="field-label">Pay in</div>
-              <div className="market-toggle">
-                <button className={`market-btn ${payCurrency === 'gbp' ? 'active' : ''}`} onClick={() => setPayCurrency('gbp')}>
-                  £ GBP
-                </button>
-                <button className={`market-btn ${payCurrency === 'eur' ? 'active' : ''}`} onClick={() => setPayCurrency('eur')}>
-                  € EUR
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Market/currency toggles removed — Salvage is UK-only (GBP). */}
 
           {/* What's included */}
           <div className="feature-list">

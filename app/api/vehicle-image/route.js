@@ -1,7 +1,20 @@
-const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
+import { after } from 'next/server';
+import { oneAutoFetch, withOneAutoLog, flushOneAutoLog } from '@/lib/oneAuto.mjs';
 
+// ⚠️ RETIREMENT RISK (batch 39 §5.3): the two calls below use the `oneauto/` endpoint prefix —
+// the same family whose sibling `oneauto/servicehistory/` was silently retired (404) in May and hid
+// as a per-request failure for weeks. These render vehicle images and work today, but if images ever
+// stop appearing, suspect a One Auto path retirement here FIRST (probe with the keyless 403-vs-404
+// technique) rather than assuming a bug. Not changed — flagged so the next retirement is not silent.
+
+// Wrapper (commit 2): log this request's One Auto image calls (buffered, one post-response write).
 export async function POST(request) {
+  const { result, calls } = await withOneAutoLog(() => handleImagePost(request));
+  if (calls.length) after(() => flushOneAutoLog(calls, null));
+  return result;
+}
+
+async function handleImagePost(request) {
   try {
     const { vrm, colour } = await request.json();
     if (!vrm) return Response.json({ imageUrl: null });
@@ -9,9 +22,8 @@ export async function POST(request) {
     const cleanVrm = vrm.replace(/\s+/g, '').toUpperCase();
 
     // Step 1: resolve image_id from VRM
-    const searchRes = await fetch(
-      `${ONE_AUTO_BASE}/oneauto/imagesearchfromvrm/?vehicle_registration_mark=${cleanVrm}`,
-      { headers: oneAutoHeaders() }
+    const searchRes = await oneAutoFetch(
+      `oneauto/imagesearchfromvrm/?vehicle_registration_mark=${cleanVrm}`
     );
     if (!searchRes.ok) return Response.json({ imageUrl: null });
 
@@ -35,9 +47,8 @@ export async function POST(request) {
     const params = new URLSearchParams({ image_id: String(imageId), image_background: 'Transparent' });
     if (colour) params.set('generic_colour_desc', colour);
 
-    const imgRes = await fetch(
-      `${ONE_AUTO_BASE}/oneauto/imagefromid/?${params}`,
-      { headers: oneAutoHeaders() }
+    const imgRes = await oneAutoFetch(
+      `oneauto/imagefromid/?${params}`
     );
     if (!imgRes.ok) return Response.json({ imageUrl: null });
 

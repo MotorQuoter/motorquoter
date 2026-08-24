@@ -219,7 +219,12 @@ export default function SalvageSuccessPage() {
         }
         throw new Error(body.error || 'Re-run failed');
       }
-      router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${vehicleDetails?.vrm || ''}`);
+      // Carry the ownership credential to the re-run form — rerun-submit now requires it (C§1). Uses
+      // the same credential this handler just proved to /api/salvage/rerun.
+      const cred = promoTokenRef.current
+        ? `&promo_token=${encodeURIComponent(promoTokenRef.current)}`
+        : `&session_id=${encodeURIComponent(sessionIdRef.current || '')}`;
+      router.push(`/salvage?rerun=${salvageIdRef.current}&vrm=${encodeURIComponent(vehicleDetails?.vrm || '')}${cred}`);
     } catch(e) {
       setErrorMsg(e.message);
       setStatus('error');
@@ -1334,6 +1339,13 @@ export default function SalvageSuccessPage() {
               ) : rerunCount >= 1 ? (
                 <div className="rerun-used">Re-run already used</div>
               ) : null}
+              {/* 24-hour retention notice — Vincent approved this wording as written (batch 42). Accurate:
+                  the row survives as our record, but the customer is 410'd after 24h (assess gates on
+                  images_purged_at), so nothing customer-facing outlives the window. */}
+              <div className="rerun-note" style={{ fontSize: 12, color: 'var(--text-dim, #8a8a8a)', marginTop: 8, textAlign: 'center', lineHeight: 1.4 }}>
+                Your photos and this report are kept for <strong>24 hours</strong> — a re-run is free within that window.
+                After 24 hours the photos are cleared and a new assessment is a new purchase.
+              </div>
             </div>
 
             <TrustpilotReviewCollector heading="Was your salvage report useful?" />

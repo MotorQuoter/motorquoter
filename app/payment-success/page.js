@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 import { formatOdometer } from '@/lib/odometerDisplay';
+import { motStatusPresentation } from '@/lib/motTone';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 function fmtFirstReg(str) {
@@ -71,10 +72,38 @@ function EmptyState({ text }) {
   return <div className="history-empty">{text}</div>;
 }
 
+// C§5 — a paid check that FAILED at the provider must NOT read as "…not available for this vehicle"
+// (a false statement about the car). Given the per-block outcome the route carries in _checkOutcomes,
+// a block absent because the provider FAILED (error/empty) reads as "could not be completed" and is
+// refundable; a block the provider answered but does not hold keeps the honest "not available".
+function checkFailed(result, block) {
+  const o = result?._checkOutcomes?.[block];
+  return o === 'error' || o === 'empty';
+}
+const PROVIDER_FAILED_TEXT =
+  "This check could not be completed — the provider did not respond. This is not a result for your vehicle; the check did not complete. Please contact support and we'll re-run it or refund this item.";
+// A failed block maps to its refundable menu item, so the render can confirm the refund (C§6).
+const BLOCK_TO_ITEM = { autocheck: 'full_history', valuation: 'valuation', salvagehistory: 'salvagehistory', market_demand: 'market_demand', previous_adverts: 'previous_adverts', ie_valuation: 'ie_valuation' };
+function emptyText(result, block, absentText) {
+  if (!checkFailed(result, block)) return absentText;
+  const r = result?._refunds?.[BLOCK_TO_ITEM[block]];
+  if (r?.refunded) {
+    const amt = r.refund && typeof r.refund.amount === 'number'
+      ? ` (${r.refund.currency === 'eur' ? '€' : '£'}${(r.refund.amount / 100).toFixed(2)})`
+      : '';
+    return `This check could not be completed — the provider did not respond, so it was not a result for your vehicle. We've refunded this item${amt}.`;
+  }
+  return PROVIDER_FAILED_TEXT;
+}
+
 // ── Vehicle Identity ──────────────────────────────────────────────────────────
 
 function IdentitySection({ result }) {
   const isIE = result.market === 'IE';
+  // Age-eligible GB classic with no current MOT → neutral, with the exemption wording; never amber
+  // (neglect) and never green (a pass that never happened). IE/NCT is untouched (UK MOT law only).
+  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: isIE ? 'IE' : 'GB' });
+  const motColor = motPres.tone === 'ok' ? '#4ade80' : motPres.tone === 'alert' ? '#f5c842' : 'var(--text-dim)';
   return (
     <div className="card">
       <SectionTitle>Vehicle Identity</SectionTitle>
@@ -88,7 +117,7 @@ function IdentitySection({ result }) {
         {result.co2Emissions    && <div className="info-cell"><div className="info-key">CO₂</div><div className="info-val">{result.co2Emissions} g/km</div></div>}
         {result.monthOfFirstRegistration && <div className="info-cell"><div className="info-key">First Reg</div><div className="info-val">{fmtFirstReg(result.monthOfFirstRegistration)}</div></div>}
         {result.taxStatus       && <div className="info-cell"><div className="info-key">Tax</div><div className="info-val" style={{color: result.taxStatus === 'Taxed' ? '#4ade80' : '#f87171'}}>{result.taxStatus}</div></div>}
-        {result.motStatus       && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: result.motStatus === 'Valid' ? '#4ade80' : '#f5c842'}}>{result.motStatus}</div></div>}
+        {(result.motStatus || motPres.exempt) && <div className="info-cell"><div className="info-key">{isIE ? 'NCT' : 'MOT'}</div><div className="info-val" style={{color: motColor}}>{motPres.label}</div></div>}
         {result.nctExpiryDate   && <div className="info-cell"><div className="info-key">NCT Expiry</div><div className="info-val">{fmtDate(result.nctExpiryDate) || result.nctExpiryDate}</div></div>}
         {result.dateOfLastV5CIssued && <div className="info-cell"><div className="info-key">Last V5C</div><div className="info-val">{fmtDate(result.dateOfLastV5CIssued)}</div></div>}
         {!isIE && result.valuationMileage != null && (() => {
@@ -128,6 +157,11 @@ function IdentitySection({ result }) {
           );
         })()}
       </div>
+      {motPres.exempt && (
+        <div style={{ margin: '4px 0 0', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, border: '1.5px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.03)', color: 'var(--text-dim)' }}>
+          {motPres.note}
+        </div>
+      )}
     </div>
   );
 }
@@ -139,7 +173,7 @@ function ValuationSection({ result }) {
   if (!val) return (
     <div className="card">
       <SectionTitle>Valuation</SectionTitle>
-      <EmptyState text="Valuation data not available for this vehicle" />
+      <EmptyState text={emptyText(result, 'valuation', 'Valuation data not available for this vehicle')} />
     </div>
   );
   return (
@@ -185,7 +219,7 @@ function WriteoffSection({ result }) {
     <div className="card">
       <SectionTitle>Write-off / Cat S·N Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Write-off data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Write-off data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Write-off Status"
@@ -213,7 +247,7 @@ function FinanceSection({ result }) {
     <div className="card">
       <SectionTitle>Finance Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Finance data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Finance data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Outstanding Finance"
@@ -245,7 +279,7 @@ function StolenSection({ result }) {
     <div className="card">
       <SectionTitle>Stolen Check</SectionTitle>
       {ac == null
-        ? <EmptyState text="Stolen data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Stolen data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label={isIE ? 'Stolen Register Check' : 'Police Stolen Database'}
@@ -280,7 +314,7 @@ function HighRiskSection({ result }) {
     <div className="card">
       <SectionTitle>High-Risk Markers</SectionTitle>
       {ac == null
-        ? <EmptyState text="High-risk data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'High-risk data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="High-Risk Markers"
@@ -321,7 +355,7 @@ function PlateChangesSection({ result }) {
     <div className="card">
       <SectionTitle>Plate Changes</SectionTitle>
       {ac == null
-        ? <EmptyState text="Plate-change data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Plate-change data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Registration Changes"
@@ -357,7 +391,7 @@ function PreviousSearchesSection({ result }) {
     <div className="card">
       <SectionTitle>Previous Searches</SectionTitle>
       {ac == null
-        ? <EmptyState text="Search-history data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'autocheck', 'Search-history data not available for this vehicle')} />
         : <div className="flag-list">
             <FlagRow
               label="Recent Checks"
@@ -404,6 +438,11 @@ function RoadTaxSection({ result }) {
                 {rt.supplement.note}
               </div>
             )}
+            {rt.historic?.eligible && (
+              <div style={{fontSize: 12, color: 'var(--text)', lineHeight: 1.55, padding: '8px 12px', marginTop: 4, borderLeft: '3px solid var(--orange, #f05a1a)', background: 'rgba(240,90,26,0.06)'}}>
+                <strong>Historic vehicle (40+ years):</strong> {rt.historic.note}
+              </div>
+            )}
             <div style={{fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55, padding: '8px 12px', marginTop: 2}}>
               {rt.note} Guide only — confirm the exact amount at gov.uk/vehicle-tax-rate-tables.
             </div>
@@ -424,7 +463,7 @@ function SalvageHistorySection({ result }) {
     <div className="card">
       <SectionTitle>Salvage History Check</SectionTitle>
       {sh == null
-        ? <EmptyState text="Salvage history data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'salvagehistory', 'Salvage history data not available for this vehicle')} />
         : !found
           ? <div className="flag-list">
               <FlagRow label="Salvage Auction History" value="✓ No previous salvage auction records found" tone="green" />
@@ -511,7 +550,7 @@ function MarketDemandSection({ result }) {
     <div className="card">
       <SectionTitle>Market Demand</SectionTitle>
       {!cazDem
-        ? <EmptyState text="Market demand data not available for this vehicle" />
+        ? <EmptyState text={emptyText(result, 'market_demand', 'Market demand data not available for this vehicle')} />
         : <div className="info-grid">
             {demandScore != null && <div className="info-cell"><div className="info-key">Demand Score</div><div className="info-val">{demandScore} / 100</div></div>}
             {daysToSell != null && <div className="info-cell"><div className="info-key">Avg Days to Sell</div><div className="info-val">{daysToSell}</div></div>}
@@ -556,31 +595,18 @@ function MotSection({ result }) {
   const isIE = result.market === 'IE';
 
   if (isIE) {
-    const nct = result.nctHistory;
-    const tests = nct?.tests ?? nct?.nct_tests ?? nct ?? [];
-    const testArray = Array.isArray(tests) ? tests : [];
+    // NCT STATUS only (batch 38): due date + Valid/Expired from cartell/vehicleidentity. There is no
+    // NCT test-history product, so no history list is claimed.
+    const status = result.motStatus;      // 'Valid' | 'Expired' | null (derived from nct_due_date)
+    const due = result.nctExpiryDate;
     return (
       <div className="card">
-        <SectionTitle>NCT History</SectionTitle>
-        {testArray.length === 0
-          ? <EmptyState text="No NCT history on record" />
-          : <div className="history-list">
-              {testArray.map((test, i) => (
-                <div className="history-record" key={i}>
-                  <div className="history-row">
-                    <span className="history-date">{fmtDate(test.test_date || test.date) || '—'}</span>
-                    <span className={test.result === 'PASS' || test.test_result === 'PASS' ? 'badge-pass' : 'badge-fail'}>
-                      {test.result || test.test_result || '—'}
-                    </span>
-                  </div>
-                  {(test.mileage || test.odometer) && (
-                    <div className="history-mileage">
-                      {Number(test.mileage || test.odometer).toLocaleString('en-GB')} km
-                      {test.expiry_date && <span style={{marginLeft: 8, color: 'var(--text-dim)'}}>Expires {test.expiry_date}</span>}
-                    </div>
-                  )}
-                </div>
-              ))}
+        <SectionTitle>NCT Status</SectionTitle>
+        {!status && !due
+          ? <EmptyState text="No NCT status on record for this vehicle" />
+          : <div className="flag-list">
+              <FlagRow label="NCT Status" value={status || '—'} tone={status === 'Valid' ? 'green' : status === 'Expired' ? 'red' : undefined} />
+              {due && <DataRow label="NCT Due" value={fmtDate(due) || due} />}
             </div>
         }
       </div>
@@ -844,9 +870,21 @@ function RoiValuationSection({ result }) {
 
 function BregoRoiValuationSection({ result }) {
   const v = result.bregoRoi;
-  if (!v) return null;
+  // batch 48 §8: a paid ie_valuation whose provider FAILED used to vanish (null → no section, no refund
+  // shown). Now, if it was purchased but has no bands, say so honestly — "could not be completed" +
+  // refund note on a provider failure, the plain "not available" on a genuine ok-with-no-bands.
+  const purchased = result.checks?.includes('ie_valuation');
+  const hasBands = v && (v.retailHigh != null || v.tradeLow != null);
+  if (!hasBands) {
+    if (!purchased) return null;
+    return (
+      <div className="card">
+        <SectionTitle>Valuation</SectionTitle>
+        <EmptyState text={emptyText(result, 'ie_valuation', 'Valuation data not available for this vehicle')} />
+      </div>
+    );
+  }
   const { retailLow, retailAvg, retailHigh, tradeLow, tradeAvg, tradeHigh } = v;
-  if (retailHigh == null && tradeLow == null) return null;
   const fmtEur = n => n != null ? `€${Number(n).toLocaleString('en-IE')}` : '—';
   const rows = [
     { label: 'High',    retail: retailHigh, trade: tradeHigh },
@@ -1340,6 +1378,17 @@ function PaymentSuccessContent() {
               </div>
             </div>
 
+            {result._stored && result._storedAt && (
+              <div style={{
+                margin: '0 20px 8px', padding: '8px 12px', borderRadius: 8,
+                background: 'var(--card-2, rgba(255,255,255,0.04))', border: '1px solid var(--border, rgba(255,255,255,0.08))',
+                fontSize: 12, color: 'var(--text-dim)', textAlign: 'center',
+              }}>
+                Report as at {new Date(result._storedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.
+                {' '}This is the report you purchased — for current data, run a new report.
+              </div>
+            )}
+
             <RecallWarning result={result} />
 
             {vehicleImage && (
@@ -1386,7 +1435,9 @@ function PaymentSuccessContent() {
                 {checks.includes('owner_history')     && <OwnerHistorySection    result={result} />}
                 {(checks.includes('service_history') || checks.includes('ie_service_history')) && <ServiceHistorySection result={result} />}
                 {checks.includes('import_cost') && result.importCost && <ImportCostSection result={result} />}
-                {result.market === 'IE' && checks.includes('ie_valuation') && result.bregoRoi && <BregoRoiValuationSection result={result} />}
+                {/* No `&& result.bregoRoi` — the section must render on a provider failure too, to say so
+                    honestly and show the refund (batch 48 §8). The section handles the no-bands case. */}
+                {result.market === 'IE' && checks.includes('ie_valuation') && <BregoRoiValuationSection result={result} />}
               </>
             )}
 

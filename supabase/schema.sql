@@ -79,6 +79,50 @@ ALTER TABLE used_sessions ENABLE ROW LEVEL SECURITY;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 2b. paid_reports  (BUILD_StoredReports, 21 Aug)
+--     A paid report must survive the tab closing. Keyed on the purchase, it stores the EXACT payload
+--     the customer was served so a re-open is a DB read and nothing else — no supplier calls, no
+--     free re-fetch. Short-lived (crash recovery only, STORED_REPORT_TTL_MINUTES = 10); the durable
+--     copy reaches the customer by email at purchase.
+--     ⚠️ MUST be created in Supabase before the feature works — schema.sql is not auto-applied.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS paid_reports (
+  session_id  text        PRIMARY KEY,   -- Stripe cs_... OR the promo/free UUID token
+  vrm         text        NOT NULL,
+  checks      text        NOT NULL,      -- comma-joined, as delivered
+  market      text        NOT NULL DEFAULT 'GB',
+  payload     jsonb       NOT NULL,      -- the EXACT response the customer was served
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS paid_reports_created_at_idx ON paid_reports (created_at);
+ALTER TABLE paid_reports ENABLE ROW LEVEL SECURITY;
+-- Retention: the app sweeps expired rows opportunistically on each write (see
+-- lib/paidReports.sweepExpiredStoredReports — a row past the 10-minute TTL is unreadable), so no cron
+-- is required. Manual belt-and-braces if writes ever stall (a row can only be served for 10 min):
+--   DELETE FROM paid_reports WHERE created_at < now() - INTERVAL '10 minutes';
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 2c. redeemed_sessions  (DDL was missing from the repo — flagged 19 Aug, added here)
+--     The FREE / promo path's single-use token record. Columns transcribed from the live usage in
+--     app/api/stripe/verify/route.js (token, used, checks, vrm, market, roi_tier) — VERIFY against the
+--     live table before applying; it was created manually and may carry columns not read here.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS redeemed_sessions (
+  token       text        PRIMARY KEY,
+  used        boolean     NOT NULL DEFAULT false,
+  checks      text,
+  vrm         text,
+  market      text        DEFAULT 'GB',
+  roi_tier    text,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE redeemed_sessions ENABLE ROW LEVEL SECURITY;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 3. salvage_sessions
 --    Persists the full lifecycle of a salvage damage assessment:
 --    image upload → Stripe payment → Claude assessment → optional re-run.
@@ -139,8 +183,20 @@ CREATE TABLE IF NOT EXISTS salvage_sessions (
   -- Number of re-runs consumed (max 1). Starts at 0; incremented by /api/salvage/rerun.
   rerun_count       integer     NOT NULL DEFAULT 0,
 
+  -- Image retention (batch 42). Stamped when the 24-hour sweep removes this assessment's PHOTOS; the
+  -- ROW survives (the record of what was assessed and charged). NULL = photos still present. This is
+  -- the POSITIVE expiry fact the honest 410 hangs on — never a failed/empty fetch.
+  images_purged_at  timestamptz,
+
   created_at        timestamptz NOT NULL DEFAULT now()
 );
+
+-- Image retention (batch 39-42): /api/cron/sweep-images removes each assessment's storage objects
+-- 24 hours after creation — on AGE ALONE (ground truth is captured to local disk via
+-- scripts/capture-fixture.mjs, not pinned in this quota-limited DB) — and stamps images_purged_at
+-- while KEEPING the row. The live table predates the column:
+--   ALTER TABLE salvage_sessions ADD COLUMN IF NOT EXISTS images_purged_at timestamptz;
+-- The one-time backlog purge (everything then held: 357 folders / ~1.08 GB / 406 rows) ran at launch.
 
 CREATE INDEX IF NOT EXISTS salvage_sessions_created_at_idx
   ON salvage_sessions (created_at DESC);
@@ -174,6 +230,31 @@ CREATE INDEX IF NOT EXISTS oneauto_cache_expires_at_idx
   ON oneauto_cache (expires_at);
 
 ALTER TABLE oneauto_cache ENABLE ROW LEVEL SECURITY;
+-- No permissive policies — service role bypasses RLS; all other roles blocked.
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. oneauto_call_log  (feat/oneauto-fetch commit 2, 23 Aug)
+--    One row PER REQUEST (buffered, not per call): every One Auto call the request made, with its
+--    latency and ok flag. Records COUNTS, never COSTS — the rate lives in One Auto's invoice, which
+--    only Vincent can pull. This is the spend-log FOUNDATION under §7 part 2 and the E costing model;
+--    a count × a list price is still a list price.
+--    ⚠️ MUST be created in Supabase before the log writes land — schema.sql is not auto-applied. The
+--    write is wrapped and non-fatal, so a missing table degrades to no logging (the report is unaffected).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS oneauto_call_log (
+  id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id  text,                    -- the paid Stripe/promo session, when the request had one
+  vrm         text,                    -- the vehicle the calls were for (first non-null in the batch)
+  call_count  integer     NOT NULL,
+  -- [{ endpoint, vrm, ok, ms, ts }] — endpoint is the path (no query), ms is per-call latency.
+  calls       jsonb       NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS oneauto_call_log_created_at_idx ON oneauto_call_log (created_at DESC);
+ALTER TABLE oneauto_call_log ENABLE ROW LEVEL SECURITY;
 -- No permissive policies — service role bypasses RLS; all other roles blocked.
 
 

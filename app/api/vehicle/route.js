@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { getDvsaMotHistory } from '@/lib/dvsa';
@@ -11,6 +11,12 @@ import { estimateRoadTax } from '@/lib/roadTax';
 import { SERVICE_HISTORY_COVERAGE } from '@/config/serviceHistoryCoverage';
 import { needsAutocheck as autocheckNeeded } from '@/lib/menuGate';
 import { sendOpsAlert } from '@/lib/opsAlert';
+import { readStoredReport, writeStoredReport } from '@/lib/paidReports';
+import { dispatchReportEmail } from '@/lib/email.mjs';
+import { mileageCacheKeyPart } from '@/lib/valuationCacheKey.mjs';
+import { classifyApiResult, isProviderFailure, extractApiResult } from '@/lib/apiOutcome.mjs';
+import { refundableItems, REFUND_REGISTRY } from '@/lib/refundRegistry.mjs';
+import { ONE_AUTO_BASE, oneAutoHeaders, oneAutoFetch, withOneAutoLog, flushOneAutoLog } from '@/lib/oneAuto.mjs';
 import {
   classifyServiceHistory,
   normaliseServiceEvents,
@@ -150,16 +156,72 @@ async function evaluateServiceHistoryRefund(stripe, paidSession, stripeSessionId
   return out;
 }
 
-const ONE_AUTO_BASE = process.env.ONE_AUTO_BASE_URL || 'https://api.oneautoapi.com';
-const CARTELL_BASE = process.env.ONEAUTO_SANDBOX === 'true' ? 'https://sandbox.oneautoapi.com' : ONE_AUTO_BASE;
+// ── Generalised auto-refund (C§6) — any provider-backed paid item whose call FAILED refunds its own
+// charge. Same charge-derived + idempotent discipline as the service-history path, generalised via
+// REFUND_REGISTRY rather than special-cased a second time. service_history keeps its own evaluator
+// (different trigger: empty-records, not provider-failure; and its live refunds are by-amount).
+async function deriveItemRefund(stripe, stripeSessionId, paidSession, reg) {
+  const currency = (paidSession?.currency || 'gbp').toLowerCase();
+  try {
+    const li = await stripe.checkout.sessions.listLineItems(stripeSessionId, { limit: 100 });
+    const match = li.data.find(l => reg.line.test(l.description || ''));
+    if (match && match.amount_total > 0) return { amount: match.amount_total, currency: (match.currency || currency).toLowerCase() };
+  } catch (e) {
+    console.warn('[REFUND] line-item read failed:', e.message);
+  }
+  const isIE = (paidSession?.metadata?.market || 'GB') === 'IE';
+  const eur = currency === 'eur';
+  const cfgKey = (isIE && reg.cfgIE) ? reg.cfgIE : reg.cfg;
+  const cfg = (isIE ? IE_MENU : PRICING.menu).find(i => i.key === cfgKey);
+  const price = eur ? (cfg?.priceEUR ?? cfg?.price) : cfg?.price;
+  return { amount: Math.round((price ?? 0) * 100), currency };
+}
+
+// Idempotent per ITEM via refund metadata — two failed items sharing a price (market_demand /
+// previous_adverts at £0.99) must each refund, which a by-amount check cannot tell apart.
+async function executeItemRefund(stripe, paymentIntentId, refund, item) {
+  try {
+    const existing = await stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+    const dup = existing.data.find(r => r.metadata?.item === item);
+    if (dup) {
+      console.log(`[REFUND] idempotent ${dup.id} ${item} (already refunded) — ${refund.currency} ${refund.amount}`);
+      return { ok: true, refundId: dup.id };
+    }
+    const r = await stripe.refunds.create({ payment_intent: paymentIntentId, amount: refund.amount, metadata: { item } });
+    console.log(`[REFUND] executed ${r.id} ${item} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId})`);
+    return { ok: true, refundId: r.id };
+  } catch (err) {
+    console.error(`[REFUND] FAILED ${item} — ${refund.currency} ${refund.amount} (paymentIntent ${paymentIntentId}): ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Evaluate + issue auto-refunds for every paid item whose provider call FAILED (state 2). Polarity is
+// decided by the pure refundableItems() — a clean qty:0 is a delivered product and never reaches here.
+// Returns { item: { refunded:true, refund } | { refundFailed:true } }. No payment_intent → no refunds.
+async function evaluatePaidRefunds(stripe, paidSession, stripeSessionId, checks, checkOutcomes) {
+  const items = refundableItems(checks, checkOutcomes);
+  const out = {};
+  if (!items.length) return out;
+  const refundTarget = typeof paidSession?.payment_intent === 'string' ? paidSession.payment_intent : paidSession?.payment_intent?.id ?? null;
+  if (!refundTarget) return out;
+  for (const item of items) {
+    const refund = await deriveItemRefund(stripe, stripeSessionId, paidSession, REFUND_REGISTRY[item]);
+    if (!refund.amount) continue;
+    const result = await executeItemRefund(stripe, refundTarget, refund, item);
+    out[item] = result.ok ? { refunded: true, refund: { ...refund, refundId: result.refundId } } : { refundFailed: true };
+  }
+  return out;
+}
+
+// ONE_AUTO_BASE / oneAutoHeaders / oneAutoFetch now live in lib/oneAuto.mjs (imported above) — one
+// definition each, one choke point. CARTELL_BASE moved there too (it was dead — see that file).
 const CACHE_TTL_HOURS = 48;
 
-function extractApiResult(data) {
-  if (!data || data.error) return null;
-  const result = data.result ?? data;
-  if (result?.error) return null;
-  return result;
-}
+// extractApiResult / classifyApiResult now live in lib/apiOutcome.mjs (C§5) — imported at the top.
+// The inline version here collapsed "provider errored" and "genuinely empty" into one null; the
+// classifier separates them so the render can be honest and the refund registry (C§6) fires on a
+// provider failure only.
 
 // Depth-first scan for the first scalar whose key matches rx. One Auto's
 // vehicleandmodeldetailsfromvrm nests fields (VIN, co2_gkm, emission_class, fuel) under
@@ -193,7 +255,10 @@ const SERVICE_HISTORY_POLL = { maxAttempts: 30, intervalMs: 2000 };
 
 async function fetchWithPolling(url, options, { maxAttempts = 5, intervalMs = 1500 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(url, options);
+    // Both callers (ezyvin service history, cartell/vehiclehistorycheck) are One Auto; `url` is the
+    // absolute One Auto URL and `options` already carries oneAutoHeaders — oneAutoFetch passes both
+    // through unchanged, so this is byte-identical while still flowing through the one choke point.
+    const res = await oneAutoFetch(url, options);
     if (res.status !== 202) return res;
     await new Promise(r => setTimeout(r, intervalMs));
   }
@@ -318,7 +383,23 @@ async function storeCachedResult(supabase, cleanVrm, cacheKey, payload) {
   }
 }
 
-const oneAutoHeaders = () => ({ 'x-api-key': process.env.ONE_AUTO_API_KEY });
+// Persist the EXACT served payload under the purchase (so a re-open is a pure DB read), then email
+// the PDF to the customer post-response (BUILD_StoredReports §2.2 / §4b). The write is awaited — a
+// re-open within the window must find the row. The email runs in after() so the customer's page load
+// never waits on Brevo; both are internally guarded and never fail the response. Called at EVERY paid
+// return site, cached or fresh — a first view served from reg_lookup_cache must still be stored under
+// THIS session, or that customer's re-open would fall through to the replay-bind 403.
+async function persistAndEmailReport(supabase, paidSession, { sessionId, vrm, checks, market, served }) {
+  await writeStoredReport(supabase, { sessionId, vrm, checks, market, payload: served });
+  const email = paidSession?.customer_details?.email || null;
+  if (!email) {
+    console.warn(`[REPORT EMAIL] no customer_details.email on session=${String(sessionId).slice(0, 14)}… — not sent`);
+    return;
+  }
+  after(async () => {
+    await dispatchReportEmail({ to: email, vrm, result: served, checks: served?.checks || checks, market });
+  });
+}
 
 const FREE_RATE_LIMIT = 10;
 const FREE_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -337,7 +418,18 @@ function checkFreeRateLimit(request) {
   return true;
 }
 
+// Thin wrapper (C§7 / feat/oneauto-fetch commit 2): run the handler inside a request-scoped One Auto
+// call log, then flush ONE buffered row post-response via after() — no customer latency, one write.
 export async function GET(request) {
+  const { result, calls } = await withOneAutoLog(() => handleVehicleGet(request));
+  if (calls.length) {
+    const sessionId = (() => { try { return new URL(request.url).searchParams.get('session_id'); } catch { return null; } })();
+    after(() => flushOneAutoLog(calls, sessionId));
+  }
+  return result;
+}
+
+async function handleVehicleGet(request) {
   const { searchParams } = new URL(request.url);
   const vrm = searchParams.get('vrm');
   const mileage = searchParams.get('mileage') || '';
@@ -482,6 +574,29 @@ const dvla = await safeJson(dvlaRes);
     console.warn(`[VEHICLE AUTH] VRM mismatch — paid=${paidVrm || '∅'} requested=${cleanVrm}`);
     return NextResponse.json({ error: 'Payment does not match this vehicle' }, { status: 403 });
   }
+  // ── Stored-report re-open (BUILD_StoredReports) ──────────────────────────────────────────────
+  // The purchase is genuine (paid + VRM-matched). If it was already served, re-open it as a PURE DB
+  // READ — no supplier calls, no reg_lookup_cache read, no replay bind — and return BEFORE the bind
+  // below (whose job is first-view replay protection, and which would otherwise 403 a legitimate
+  // returning customer with the very "already used" message this branch exists to remove). A missing
+  // paid_reports table degrades to a normal first view (see lib/paidReports.mjs), never to a false
+  // "payment could not be verified".
+  {
+    const stored = await readStoredReport(supabase, stripeSessionId, cleanVrm);
+    if (stored.action === 'serve') {
+      console.log(`[STORED REPORT] re-open served session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm} (zero supplier calls)`);
+      return NextResponse.json(stored.payload);
+    }
+    if (stored.action === 'expired') {
+      console.log(`[STORED REPORT] expired session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm}`);
+      return NextResponse.json(
+        { error: 'This report has expired. Please check your emailed copy, or buy a fresh report for current data.',
+          storedReportExpired: true, storedAt: stored.storedAt },
+        { status: 410 }
+      );
+    }
+  }
+
   // Checks / tier subset — every requested check (GB) or the roiTier (IE) must be covered by what
   // the session actually paid for. A requested item absent from the paid metadata → reject.
   if (market === 'IE' && roiTierParam) {
@@ -529,21 +644,26 @@ const dvla = await safeJson(dvlaRes);
   if (market === 'IE' && roiTierParam) {
     const isPro = ['roi_pro', 'roi_history'].includes(roiTierParam);
     const isHistory = roiTierParam === 'roi_history';
-    const roiCacheKey = `roi:${roiTierParam}`;
+    // Finding 2: every ROI tier includes a valuation (bregoRoi / cartell priceguide) computed at the
+    // entered mileage, and the ROI hit path returns the cached payload VERBATIM with no recompute — so
+    // the mileage MUST be in the key here, always, or a different-mileage buyer gets the wrong figure.
+    const roiCacheKey = `roi:${roiTierParam}_mi:${mileageCacheKeyPart(mileage)}`;
 
     const roiCached = await getCachedResult(supabase, cleanVrm, roiCacheKey);
     if (roiCached) {
-      return NextResponse.json({ ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at });
+      const served = { ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served });
+      return NextResponse.json(served);
     }
 
     const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
 
     const [cartellRes, demandRes, priceGuideRes, hpiRes, nctRes] = await Promise.all([
-      fetch(`${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: oneAutoHeaders() }),
-      fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`, { headers: oneAutoHeaders() }),
-      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
-      isHistory ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() }) : Promise.resolve(null),
+      oneAutoFetch(`cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`),
+      oneAutoFetch(`percayso/marketdemandfromvrm/?vrm=${cleanVrm}`),
+      oneAutoFetch(`cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage}&mileage_unit=km`),
+      isHistory ? oneAutoFetch(`cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
+      isHistory ? oneAutoFetch(`cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`) : Promise.resolve(null),
     ]);
 
     const cartellData = await safeJson(cartellRes);
@@ -592,16 +712,22 @@ const dvla = await safeJson(dvlaRes);
 
     await storeCachedResult(supabase, cleanVrm, roiCacheKey, roiPayload);
     logEvent('report_viewed', { vrm: cleanVrm, tier: roiTierParam, market: 'IE' });
+    await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served: roiPayload });
     return NextResponse.json(roiPayload);
   }
 
   const sortedKey = [...checks].sort().join(',');
-  // Import-cost results depend on user inputs (provenance / purchase price / NOx) that aren't checks,
-  // so fold them into the cache key — otherwise a different purchase price would serve a stale VAT.
+  // Mileage-key the entry only when a valuation (GB `valuation` / IE `ie_valuation`) was bought — the
+  // one field that is priced at the entered mileage. Everything else is mileage-independent and keeps
+  // its shared entry (the mileage VERDICT is recomputed per-request on a hit at :588-612, unaffected).
+  const valuationInKey = checks.includes('valuation') || checks.includes('ie_valuation');
+  // Import-cost results ALSO depend on user inputs (provenance / purchase price / NOx) that aren't
+  // checks, so fold them into the key too — otherwise a different purchase price would serve a stale
+  // VAT. (Merge batch 52: main's mileage cache-scope kept whole; the import signature re-applied on top.)
   const importSig = checks.includes('import_cost')
     ? `_imp:${(searchParams.get('provenance') || 'GB').toUpperCase()}:${(searchParams.get('purchase_price') || searchParams.get('price') || '')}:${(searchParams.get('nox') || '')}`
     : '';
-  const cacheKey = `checks:${sortedKey}_${market}${importSig}`;
+  const cacheKey = `checks:${sortedKey}_${market}${valuationInKey ? `_mi:${mileageCacheKeyPart(mileage)}` : ''}${importSig}`;
 
   const cached = await getCachedResult(supabase, cleanVrm, cacheKey);
   if (cached) {
@@ -630,7 +756,9 @@ const dvla = await safeJson(dvlaRes);
     const needsServiceHistory = checks.includes('ie_service_history') || checks.includes('service_history');
     const refundState = await evaluateServiceHistoryRefund(
       new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, cachedServiceHistoryOutcome(clean), needsServiceHistory);
-    return NextResponse.json({ ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at });
+    const servedCached = { ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at };
+    await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market, served: servedCached });
+    return NextResponse.json(servedCached);
   }
 
   try {
@@ -638,14 +766,14 @@ const dvla = await safeJson(dvlaRes);
       // ── IE PAID PATH ─────────────────────────────────────────────────────────
       const roiMileage = parseInt((searchParams.get('mileage') || '0').replace(/,/g, ''), 10);
       const needsValuation      = checks.includes('ie_valuation');
-      const needsNct            = checks.includes('ie_nct');
+      // ie_nct is STATUS-only (batch 38): served from cartell/vehicleidentity.nct_due_date below. The
+      // cartell/ncthistory/v1 call was deleted — it 404s (no such product) and served nothing.
       const needsServiceHistory = checks.includes('ie_service_history');
       const needsHistory        = checks.includes('ie_history');
 
       // Cartell identity — always fetched; provides base vehicle data and VIN
-      const cartellRes = await fetch(
-        `${ONE_AUTO_BASE}/cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`,
-        { headers: oneAutoHeaders() }
+      const cartellRes = await oneAutoFetch(
+        `cartell/vehicleidentity?vehicle_registration_mark=${cleanVrm}`
       );
       const cartellData = await safeJson(cartellRes);
       const cartell = cartellData?.success === true ? cartellData.result : null;
@@ -694,17 +822,10 @@ const dvla = await safeJson(dvlaRes);
           )
         : Promise.resolve(null);
 
-      // Non-polling calls in parallel
-      const [nctHistoryRes, bregoRoiRes] = await Promise.all([
-        // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
-        // needsValuation
-        //   ? fetch(`${ONE_AUTO_BASE}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}&current_mileage=${roiMileage || 50000}&mileage_unit=km`, { headers: oneAutoHeaders() })
-        //   : Promise.resolve(null),
-        needsNct
-          ? fetch(`${ONE_AUTO_BASE}/cartell/ncthistory/v1?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
-          : Promise.resolve(null),
+      // Non-polling calls in parallel. (cartell/ncthistory/v1 removed — batch 38: 404s, served nothing.)
+      const [bregoRoiRes] = await Promise.all([
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`brego/ireland/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_kms=${roiMileage || 50000}`)
           : Promise.resolve(null),
       ]);
 
@@ -712,15 +833,14 @@ const dvla = await safeJson(dvlaRes);
       const [svcOutcome, historyRes] = await Promise.all([svcHistoryPromise, historyPromise]);
 
       // Parse
-      const nctRaw    = nctHistoryRes  ? await safeJson(nctHistoryRes)  : null;
       const histRaw   = historyRes     ? await safeJson(historyRes)     : null;
       const bregoRoiRaw  = bregoRoiRes  ? await safeJson(bregoRoiRes)   : null;
-      const bregoRoiData = bregoRoiRaw  ? extractApiResult(bregoRoiRaw) : null;
+      // C§5 (batch 48 §8): classify the ie_valuation provider call so a FAILURE reads as "could not be
+      // completed" + refunds, while a genuine ok-with-no-bands stays a delivered answer. Same predicate
+      // as GB. .result is what extractApiResult returned before — the bands parse below is unchanged.
+      const bregoOutcome = needsValuation ? classifyApiResult(bregoRoiRaw) : null;
+      const bregoRoiData = bregoOutcome?.result ?? null;
 
-      // const roiValuation = pgData ? {   // Cartell Price Guide — commented out
-      //   retail: pgData.retail_valuation ?? null,
-      //   trade:  pgData.trade_valuation  ?? null,
-      // } : null;
       const bregoRoi = bregoRoiData ? {
         retailLow:  bregoRoiData.retail_low_valuation     ?? null,
         retailAvg:  bregoRoiData.retail_average_valuation ?? null,
@@ -730,13 +850,36 @@ const dvla = await safeJson(dvlaRes);
         tradeHigh:  bregoRoiData.trade_high_valuation     ?? null,
         currency:   bregoRoiData.currency_unit            ?? null,
       } : null;
-      const nctHistory   = nctRaw  ? extractApiResult(nctRaw)  : null;
       const serviceHistory = svcOutcome?.result ?? null;
       const ieHistory    = histRaw ? extractApiResult(histRaw) : null;
 
       // Refund evaluated live (shared path), gated on a real re_ id, idempotent. NOT cached.
+      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
       const refundState = await evaluateServiceHistoryRefund(
-        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
+        stripeClient, paidSession, stripeSessionId, svcOutcome, needsServiceHistory);
+
+      // C§5/§6 for the IE branch (batch 48 §8) — the GB honesty+refund path never ran here, so
+      // ie_valuation took the money and vanished on a provider failure. Now: per-block outcome, and an
+      // auto-refund for any paid IE item whose call FAILED (refundableItems is pure polarity — a clean
+      // ok result never reaches it). service_history keeps its own evaluator above (empty-records trigger).
+      const checkOutcomes = {};
+      if (bregoOutcome) checkOutcomes.ie_valuation = bregoOutcome.reason ?? 'ok';
+      const paidRefunds = await evaluatePaidRefunds(
+        stripeClient, paidSession, stripeSessionId, checks, checkOutcomes);
+      const anyProviderFailed = Object.values(checkOutcomes).some(isProviderFailure);
+      if (anyProviderFailed) {
+        const failedBlocks = Object.entries(checkOutcomes).filter(([, r]) => isProviderFailure(r)).map(([b, r]) => `${b}:${r}`);
+        const refunded = Object.entries(paidRefunds).filter(([, v]) => v.refunded).map(([k]) => k);
+        const failedRefund = Object.entries(paidRefunds).filter(([, v]) => v.refundFailed).map(([k]) => k);
+        await sendOpsAlert(
+          'oneauto-paid-call-failed',
+          `[MotorQuoter] Paid provider call failed - ${cleanVrm}`,
+          `A paid provider call failed on a live purchase.<br>VRM: ${cleanVrm}<br>Market: IE<br>` +
+          `Failed: ${failedBlocks.join(', ')}<br>Auto-refunded: ${refunded.length ? refunded.join(', ') : 'none'}<br>` +
+          `Refund FAILED (needs manual): ${failedRefund.length ? failedRefund.join(', ') : 'none'}<br>` +
+          `Session: ${stripeSessionId.slice(0, 14)}…`
+        );
+      }
 
       const cc     = cartell.engine_capacity_cc ?? null;
       const nctDue = cartell.nct_due_date ?? null;
@@ -754,9 +897,7 @@ const dvla = await safeJson(dvlaRes);
         nctExpiryDate:            nctDue,
         co2Emissions:             cartell.co2_gkm != null ? String(cartell.co2_gkm) : null,
         monthOfFirstRegistration: cartell.first_registration_ireland_date ?? cartell.first_registration_date ?? null,
-        // roiValuation,  // Cartell Price Guide — commented out; Brego is sole ROI valuation provider
         bregoRoi,
-        nctHistory,
         serviceHistory,
         serviceHistoryStatus: svcOutcome?.status ?? null,
         serviceHistoryRecords: normaliseServiceEvents(svcOutcome?.records ?? null),
@@ -764,15 +905,21 @@ const dvla = await safeJson(dvlaRes);
         ieHistory,
         market: 'IE',
         checks,
+        _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
+        _refunds: paidRefunds,           // C§6 — per-item auto-refund state (empty on the happy path)
       };
 
       // Never cache a provider failure: a 48h TTL on an error would replay "unavailable" to every
-      // later buyer of this reg and hide the recovery. Empty and ok results cache as before.
-      if (!isUncacheableServiceHistory(svcOutcome)) {
+      // later buyer of this reg AND auto-refund them for a call they never made. Covers service history
+      // (isUncacheableServiceHistory) and now any C§5 block failure (anyProviderFailed) — same guard as GB.
+      // Empty and ok results cache as before.
+      if (!isUncacheableServiceHistory(svcOutcome) && !anyProviderFailed) {
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'IE' });
-      return NextResponse.json({ ...payload, ...refundState });
+      const served = { ...payload, ...refundState };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market: 'IE', served });
+      return NextResponse.json(served);
 
     } else {
       // ── GB PAID PATH ──────────────────────────────────────────────────────────
@@ -862,27 +1009,27 @@ const dvla = await safeJson(dvlaRes);
 
       const [autocheckRes, bregoRes, cazAdvRes, cazDemRes, dvsaData, salvageHistoryRes, ownerDetailsRes] = await Promise.all([
         needsAutocheck
-          ? fetch(`${ONE_AUTO_BASE}/experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`experian/autocheck/v3?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         needsValuation
-          ? fetch(`${ONE_AUTO_BASE}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${bregoMileage}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}&current_mileage=${bregoMileage}`)
           : Promise.resolve(null),
         needsPreviousAdverts
-          ? fetch(`${ONE_AUTO_BASE}/percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`percayso/previousadvertsfromvrm/?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         needsMarketDemand
-          ? fetch(`${ONE_AUTO_BASE}/percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`percayso/marketdemandfromvrm/?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         ((needsMot || needsMileageDetail || needsImportCost) && !needsDvsaFirst) ? getDvsaMotHistory(cleanVrm) : Promise.resolve(earlyDvsaData),
         needsSalvageHistory
-          ? fetch(`${ONE_AUTO_BASE}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
         // TASK-6 — stop the keeper double-buy. AutoCheck already returns keeper_data_items /
         // cherished_data_items, so when the basket also triggers AutoCheck (full_history) we serve
         // keeper + plate data from that payload and skip this 20p (24p true) UKVD call. owner_history
         // bought standalone still fetches UKVD, so the call is correct when it is the only source.
         (needsOwnerHistory && !needsAutocheck)
-          ? fetch(`${ONE_AUTO_BASE}/ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`, { headers: oneAutoHeaders() })
+          ? oneAutoFetch(`ukvehicledata/vehicleandmodeldetailsfromvrm?vehicle_registration_mark=${cleanVrm}`)
           : Promise.resolve(null),
       ]);
 
@@ -1050,6 +1197,56 @@ const dvla = await safeJson(dvlaRes);
         }
       }
 
+      // Per-block provider outcomes (C§5): 'ok' | 'error' | 'empty', recorded only for REQUESTED paid
+      // blocks. The render reads these to say "this check could not be completed" on a provider FAILURE
+      // instead of the untrue "…not available for this vehicle", and the refund registry (C§6) refunds
+      // a paid item whose provider call failed. AutoCheck's one outcome covers all six Experian blocks.
+      const autocheckOutcome = needsAutocheck       ? classifyApiResult(autocheck)        : null;
+      const valuationOutcome = needsValuation       ? classifyApiResult(valuation)         : null;
+      const salvageOutcome   = needsSalvageHistory  ? classifyApiResult(salvageHistoryRaw) : null;
+      const demandOutcome    = needsMarketDemand    ? classifyApiResult(cazanaDemand)      : null;
+      const advertsOutcome   = needsPreviousAdverts ? classifyApiResult(cazanaAdverts)     : null;
+      const checkOutcomes = {};
+      if (autocheckOutcome) checkOutcomes.autocheck        = autocheckOutcome.reason ?? 'ok';
+      if (valuationOutcome) checkOutcomes.valuation        = valuationOutcome.reason ?? 'ok';
+      if (salvageOutcome)   checkOutcomes.salvagehistory   = salvageOutcome.reason   ?? 'ok';
+      if (demandOutcome)    checkOutcomes.market_demand    = demandOutcome.reason     ?? 'ok';
+      if (advertsOutcome)   checkOutcomes.previous_adverts = advertsOutcome.reason    ?? 'ok';
+
+      // C§6 — auto-refund any paid item whose provider call FAILED (state 2). Live + idempotent per
+      // item; a clean qty:0 never reaches it (pure polarity in refundableItems). {} on the happy path.
+      const paidRefunds = await evaluatePaidRefunds(
+        new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, checks, checkOutcomes);
+      const anyProviderFailed = Object.values(checkOutcomes).some(isProviderFailure);
+
+      // C§7 — the signal. Auto top-up removed the "balance ran out" cue, so a failing paid path is now
+      // silent. Fire a throttled ops alert whenever a paid provider call errors on a live purchase,
+      // carrying the VRM, the failed blocks and whether each was auto-refunded. isProviderFailure is
+      // the sibling predicate to isInfraFailure — supplier failures, not Claude infra. Awaited
+      // (throttled + 2s-boxed), never throws.
+      //
+      // ⚠️ READ THIS IF YOU ARE THE FIRST TO SEE THIS ALERT (batch 35 §2): classifyApiResult maps a
+      // bare EMPTY BODY to reason 'empty' → refundable, on the (unverified) inference that a healthy
+      // "no record held" answer is a populated object, never an empty body. A STEADY TRICKLE of this
+      // alert on ONE provider, with customers reporting they DID receive their report, is the
+      // signature that that provider answers a legitimate "no record" with an empty body — in which
+      // case we are refunding delivered sales for that block, and its classification needs the
+      // observed shape. It errs toward the customer, so it is not urgent, but that is the one place a
+      // real response could contradict the design.
+      if (anyProviderFailed) {
+        const failedBlocks = Object.entries(checkOutcomes).filter(([, r]) => isProviderFailure(r)).map(([b, r]) => `${b}:${r}`);
+        const refunded = Object.entries(paidRefunds).filter(([, v]) => v.refunded).map(([k]) => k);
+        const failedRefund = Object.entries(paidRefunds).filter(([, v]) => v.refundFailed).map(([k]) => k);
+        await sendOpsAlert(
+          'oneauto-paid-call-failed',
+          `[MotorQuoter] Paid provider call failed - ${cleanVrm}`,
+          `A paid provider call failed on a live purchase.<br>VRM: ${cleanVrm}<br>Market: GB<br>` +
+          `Failed: ${failedBlocks.join(', ')}<br>Auto-refunded: ${refunded.length ? refunded.join(', ') : 'none'}<br>` +
+          `Refund FAILED (needs manual): ${failedRefund.length ? failedRefund.join(', ') : 'none'}<br>` +
+          `Session: ${stripeSessionId.slice(0, 14)}…`
+        );
+      }
+
       const payload = {
         make: dvla.make,
         model: dvsaData?.model || null,
@@ -1094,6 +1291,8 @@ const dvla = await safeJson(dvlaRes);
         importCost,
         market: 'GB',
         checks,
+        _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
+        _refunds: paidRefunds,           // C§6 — per-item auto-refund state (empty on the happy path)
         valuationMileage: needsValuation ? bregoMileage : null,
         valuationMileageSource: needsValuation ? bregoMileageSource : null,
         valuationMileageDate: (needsValuation && bregoMileageSource === 'dvsa_mot') ? (latestMot?.completedDate || null) : null,
@@ -1101,16 +1300,23 @@ const dvla = await safeJson(dvlaRes);
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
-      // VIN-no-display compliance net — strip any echoed full VIN before it is cached or returned.
+      // VIN-no-display compliance net — strip any echoed full VIN before it is cached or returned
+      // (the import estimator merged into this GB path fetches a VIN via UK Vehicle Data).
       scrubVin(payload);
-      // See isUncacheableServiceHistory — a provider failure must not be frozen into the 48h cache.
-      if (!isUncacheableServiceHistory(svcOutcome)) {
+      // A provider failure must not be frozen into the 48h cache — else another customer buying the
+      // same reg is served the errored payload AND auto-refunded for a call THEY never made (which
+      // might have succeeded fresh). Covers service history (isUncacheableServiceHistory) and now any
+      // C§5 block failure (anyProviderFailed). (Merge batch 52: main's guard kept whole, scrubVin on top.)
+      if (!isUncacheableServiceHistory(svcOutcome) && !anyProviderFailed) {
         await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       }
       logEvent('report_viewed', { vrm: cleanVrm, tier: checks.join(','), market: 'GB' });
       // Response carries the request-scoped mileage verdict/detail (entered figure applied), NOT the
-      // MOT-only versions just cached.
-      return NextResponse.json({ ...payload, mileageVerdict: mkVerdict(mileageTimeline), mileageDetail: mkDetail(mileageTimeline), ...refundState });
+      // MOT-only versions just cached. This SERVED object — not the cached one — is what is stored, so
+      // a re-open shows the customer the exact verdict they bought (§2.2).
+      const served = { ...payload, mileageVerdict: mkVerdict(mileageTimeline), mileageDetail: mkDetail(mileageTimeline), ...refundState };
+      await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market: 'GB', served });
+      return NextResponse.json(served);
     }
 
   } catch (err) {

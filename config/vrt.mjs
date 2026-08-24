@@ -1,3 +1,4 @@
+import { IE_MENU_GBP_EUR_RATE } from './ieMenuPricing.mjs'; // single FX-pin source (batch 52 reconciliation)
 // ─────────────────────────────────────────────────────────────────────────────
 // VRT / import-cost reference tables — single source of truth (Category A cars).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +40,12 @@ export const VRT_TABLES_RETRIEVED = '2026-07-30';
 // the buyer's price and Revenue's is usually higher (the page says so) — biasing the FX on top just
 // makes the euro value wrong, which is the defect this fixes. A monthly drift check (Cowork-owned,
 // first fire 1 Sep) reviews it; NOTHING repins automatically — a repin is Vincent's product decision.
-export const GBP_EUR_RATE = 1.17;          // pinned — Alpha Vantage GBP/EUR 1.16719, 16:19 UTC
+// FX pin RECONCILED (batch 52, 24 Aug) — the rate now lives in ONE place, config/ieMenuPricing.mjs
+// (IE_MENU_GBP_EUR_RATE), the survivor the IE menu prices already derive from. vrt.mjs re-exports it
+// under its own name so the import estimator's consumers (vehicle/route.js, import-estimate, importCost)
+// are unchanged, but there is a single source now (standing rule 5). Both pins were 1.17 → no figure
+// moves. A repin happens once, in ieMenuPricing.mjs, and turns the gate red there.
+export const GBP_EUR_RATE = IE_MENU_GBP_EUR_RATE;
 export const GBP_EUR_RETRIEVED = '2026-08-21';
 export const GBP_EUR_SOURCE = 'Alpha Vantage realtime GBP/EUR 1.16719 @ 16:19 UTC 2026-08-21';
 

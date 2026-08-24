@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { PRICING, IE_MENU } from '@/config/pricing';
 import { isRoiPlate } from '@/lib/roiPlate';
 import { serviceHistoryOfferable } from '@/config/serviceHistoryCoverage';
+import { genuineMotReadingCount } from '@/lib/offerability';
+import { motStatusPresentation } from '@/lib/motTone';
 
 const enabledItems = PRICING.menu.filter(i => i.enabled);
 const defaultSelected = enabledItems.filter(i => i.preSelected).map(i => i.key);
@@ -129,26 +131,10 @@ export default function Home() {
     setError(null);
 
     const cleanVrm = vrm.trim().replace(/\s/g, '').toUpperCase();
-    const checksStr = ieSelectedKeys.join(',');
 
-    // Free promo: skip Stripe entirely
-    if (appliedPromo?.discount_type === 'free') {
-      try {
-        const res = await fetch('/api/promo/redeem', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vrm: cleanVrm, checks: ieSelectedKeys, mileage: mileage || '', market: 'IE', promo_code: appliedPromo.code }),
-        });
-        const data = await res.json();
-        if (data.error) { setError(data.error); setCheckoutLoading(false); }
-        else { window.location.href = `/payment-success?vrm=${cleanVrm}&checks=${checksStr}&market=IE&mileage=${mileage || ''}&session_id=${data.token}&free=true`; }
-      } catch {
-        setError('Could not redeem promo code. Please try again.');
-        setCheckoutLoading(false);
-      }
-      return;
-    }
-
+    // No free-promo branch here: free codes are salvage-only and are rejected at handleApplyPromo, so
+    // a vehicle report never redeems a free token or reaches the /api/vehicle 401. Percent/fixed codes
+    // flow through Stripe below via promoCode.
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
@@ -185,7 +171,13 @@ export default function Home() {
     try {
       const res = await fetch(`/api/promo/validate?code=${encodeURIComponent(code)}`);
       const data = await res.json();
-      if (data.valid) {
+      if (data.valid && data.discount_type === 'free') {
+        // Free promo codes are salvage-only — there is no free promo for the vehicle product (and
+        // never was). Reject it at the entry point rather than accept it and dead-end at a 401: the
+        // free redemption path here fed /api/vehicle a redeemed_sessions UUID, which it cannot verify.
+        // See BUILD_AuthAndFailureHonesty head-of-C. Percent/fixed codes are unaffected.
+        setPromoError('This promo code isn’t valid for vehicle reports.');
+      } else if (data.valid) {
         setAppliedPromo({ code, discount_type: data.discount_type, discount_value: data.discount_value });
       } else {
         setPromoError(data.error || 'Invalid promo code');
@@ -206,6 +198,12 @@ export default function Home() {
   const keyOfferableForVehicle = (key) => {
     if (key === 'service_history' && result?.make) {
       return serviceHistoryOfferable({ make: result.make, yearOfManufacture: result.yearOfManufacture }).offerable;
+    }
+    // Finding 10: mileage_detail needs ≥2 genuine MOT readings — knowable from the free lookup already
+    // in hand. Grey it out before payment rather than sell a £0.99 empty timeline. Same predicate the
+    // checkout gate enforces server-side.
+    if (key === 'mileage_detail' && result) {
+      return genuineMotReadingCount(result.motHistory || []) >= 2;
     }
     return true;
   };
@@ -280,9 +278,10 @@ export default function Home() {
       discountAmount = parseFloat((baseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
     } else if (appliedPromo.discount_type === 'fixed') {
       discountAmount = Math.min(Number(appliedPromo.discount_value), baseTotal);
-    } else if (appliedPromo.discount_type === 'free') {
-      discountAmount = baseTotal;
     }
+    // No 'free' branch: free codes are salvage-only and rejected at handleApplyPromo, so appliedPromo
+    // here is only ever percent/fixed. (A free code would otherwise have zeroed the total → a £0
+    // Stripe checkout.)
   }
   const total = Math.max(0, parseFloat((baseTotal - discountAmount).toFixed(2)));
 
@@ -301,9 +300,8 @@ export default function Home() {
       ieDiscountAmount = parseFloat((ieBaseTotal * (appliedPromo.discount_value / 100)).toFixed(2));
     } else if (appliedPromo.discount_type === 'fixed') {
       ieDiscountAmount = Math.min(Number(appliedPromo.discount_value), ieBaseTotal);
-    } else if (appliedPromo.discount_type === 'free') {
-      ieDiscountAmount = ieBaseTotal;
     }
+    // No 'free' branch — see the GB total above.
   }
   const ieTotal = Math.max(0, parseFloat((ieBaseTotal - ieDiscountAmount).toFixed(2)));
 
@@ -315,27 +313,8 @@ export default function Home() {
 
     const cleanVrm = vrm.trim().replace(/\s/g, '').toUpperCase();
 
-    // Free promo: skip Stripe entirely
-    if (appliedPromo?.discount_type === 'free') {
-      try {
-        const res = await fetch('/api/promo/redeem', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vrm: cleanVrm, checks: selectedKeys, mileage: mileage || '', market: effectiveMarket || 'GB', promo_code: appliedPromo.code }),
-        });
-        const data = await res.json();
-        if (data.error) { setError(data.error); setCheckoutLoading(false); }
-        else {
-          const checksStr = selectedKeys.join(',');
-          window.location.href = `/payment-success?vrm=${cleanVrm}&checks=${checksStr}&mileage=${mileage || ''}&market=${effectiveMarket || 'GB'}&session_id=${data.token}&free=true`;
-        }
-      } catch {
-        setError('Could not redeem promo code. Please try again.');
-        setCheckoutLoading(false);
-      }
-      return;
-    }
-
+    // No free-promo branch here (see the IE handler): free codes are salvage-only, rejected at
+    // handleApplyPromo, so a vehicle report never redeems a free token or reaches the /api/vehicle 401.
     try {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
@@ -796,10 +775,25 @@ export default function Home() {
                   {result.engineSize && <div className="result-row"><span className="result-key">Engine</span><span className="result-val">{result.engineSize}</span></div>}
                   {result.fuelType   && <div className="result-row"><span className="result-key">Fuel</span><span className="result-val">{result.fuelType}</span></div>}
                   {result.taxStatus  && <div className="result-row"><span className="result-key">Tax</span><span className={`result-val ${result.taxStatus === 'Taxed' ? 'good' : 'bad'}`}>{result.taxStatus}</span></div>}
-                  {result.motStatus  && <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${result.motStatus === 'Valid' ? 'good' : 'warn'}`}>{result.motStatus}</span></div>}
+                  {(() => {
+                    // Age-eligible GB classic with no current MOT → neutral (no class), never red/amber
+                    // as neglect and never green as a pass; row still shows even if motStatus is absent.
+                    const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: 'GB' });
+                    if (!result.motStatus && !motPres.exempt) return null;
+                    const cls = motPres.tone === 'ok' ? 'good' : motPres.tone === 'alert' ? 'warn' : '';
+                    return <div className="result-row"><span className="result-key">MOT</span><span className={`result-val ${cls}`.trim()}>{motPres.label}</span></div>;
+                  })()}
                   {result.motExpiryDate && <div className="result-row"><span className="result-key">MOT Expiry</span><span className="result-val">{result.motExpiryDate}</span></div>}
                   {result.motMileage && <div className="result-row"><span className="result-key">Last MOT Mileage</span><span className="result-val">{Number(result.motMileage).toLocaleString('en-GB')} miles</span></div>}
                 </div>
+                {(() => {
+                  const motPres = motStatusPresentation({ motStatus: result.motStatus, yearOfManufacture: result.yearOfManufacture, firstRegistration: result.monthOfFirstRegistration, market: 'GB' });
+                  return motPres.exempt ? (
+                    <div style={{ margin: '2px 16px 14px', padding: '10px 12px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.5, fontWeight: 500, border: '1.5px solid var(--border, rgba(255,255,255,0.14))', background: 'rgba(255,255,255,0.03)', color: 'var(--text-dim)' }}>
+                      {motPres.note}
+                    </div>
+                  ) : null;
+                })()}
                 <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-dim)', padding: '0 20px 12px', letterSpacing: '0.02em' }}>
                   Official <span style={{ fontWeight: 700, color: 'var(--text)' }}>DVLA &amp; DVSA</span> data
                 </div>
