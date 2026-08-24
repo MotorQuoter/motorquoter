@@ -25,13 +25,20 @@ function collectFlags(node, path = '$', out = []) {
   return out;
 }
 
+// Finance is NOT top-level (batch 56 correction). It lives in two places, split BY JURISDICTION:
+//   data.issues.finance = { ie:{flag,message}, uk:{flag,message}, rechecked, lastChecked }
+//   data.report.finance = the full section ({ financeOutstanding, items:[…] })
+// The docs' "split vs flat" question has a third answer: split by jurisdiction (ie/uk), not by
+// provider system. Report both locations so the shape check cannot say "absent" when it is present.
 function describeFinance(report) {
-  const f = report?.finance;
-  if (f == null) return 'absent';
-  if (typeof f !== 'object') return `scalar:${typeof f}`;
-  const keys = Object.keys(f);
-  const split = keys.includes('ie') || keys.includes('uk');
-  return `${split ? 'SPLIT' : 'FLAT'} — keys: ${keys.join(', ')}`;
+  const iss = report?.issues?.finance;
+  const rep = report?.report?.finance;
+  if (iss == null && rep == null) return 'absent';
+  const jur = (iss && typeof iss === 'object') ? Object.keys(iss).filter(k => k === 'ie' || k === 'uk') : [];
+  const parts = [];
+  if (iss != null) parts.push(jur.length ? `issues.finance SPLIT BY JURISDICTION (${jur.join(', ')})` : 'issues.finance present');
+  if (rep != null) parts.push(`report.finance section (${typeof rep === 'object' ? Object.keys(rep).join('/') : typeof rep})`);
+  return parts.join(' + ');
 }
 
 export async function GET(request) {
