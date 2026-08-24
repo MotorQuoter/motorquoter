@@ -97,13 +97,23 @@ export const NOX_TIERS = [
 ];
 
 // Caps applied when NOx is not satisfactorily documented (Revenue).
-export const NOX_CAP = { diesel: 4850, other: 600 };
+// Revenue's DEFAULT NOx charge when satisfactory evidence of NOx emissions cannot be provided —
+// €4,850 (diesel) / €600 (other). Source: revenue.ie/en/vrt/calculating-vrt/calculating-nox-charge.aspx,
+// "maximum charges when satisfactory evidence of NOx emissions cannot be provided" (read 24 Aug 2026).
+// ⚠️ RENAMED from NOX_CAP (batch 53 gap 2): Revenue document this as a no-evidence DEFAULT, NOT as a
+// ceiling on a computed charge. The estimator currently ALSO clamps its Euro-standard estimate to this
+// value (importCost.mjs) — that ceiling behaviour is UNVERIFIED against Revenue and may UNDERSTATE tax
+// on a high-NOx diesel (a 400 mg/km diesel computes to ~€8,800 from the tiers, clamped to €4,850). The
+// behaviour change is gated on the Revenue-calculator TASK-0 (batch 53 gap 2) — do not remove the clamp
+// on this brief's say-so. If a genuine computed ceiling turns out to exist, give it its own constant.
+export const NOX_NO_EVIDENCE_CHARGE = { diesel: 4850, other: 600 };
 
 // ── Euro-standard NOx estimate (mg/km) ───────────────────────────────────────
 // EU type-approval NOx limits by Euro standard and fuel. Used when the actual NOx
 // (V5C box V.3) is not supplied. These are the regulatory LIMITS, not real-world
-// figures (real diesels often exceed them) — the estimate is capped at NOX_CAP and
-// always labelled as an estimate. Euro 1/2 predate a standalone NOx limit (combined
+// figures (real diesels often exceed them) — the estimate is currently clamped to
+// NOX_NO_EVIDENCE_CHARGE (⚠️ unverified ceiling, batch 53 gap 2) and always labelled
+// as an estimate. Euro 1/2 predate a standalone NOx limit (combined
 // HC+NOx) → conservative approximations, lowest confidence.
 export const EURO_NOX_ESTIMATE = {
   diesel: { 6: 80, 5: 180, 4: 250, 3: 500, 2: 700, 1: 900 },

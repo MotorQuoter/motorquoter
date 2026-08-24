@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { REGISTRATION_CLOCK } from '@/config/importClock';
 
 const fmtEur = n => (n != null && Number.isFinite(Number(n))) ? `€${Math.round(Number(n)).toLocaleString('en-IE')}` : '—';
 const fxDate = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return iso || ''; const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${+m[3]} ${M[+m[2] - 1]} ${m[1]}`; };
@@ -235,6 +236,14 @@ export default function ImportPage() {
             {result.fx && (
               <p className="floor-note" style={{ opacity: 0.7 }}>Converted at £1 = €{Number(result.fx.rate).toFixed(2)} ({fxDate(result.fx.date)}). You pay in £; Irish charges are in €.</p>
             )}
+
+            {/* Registration clock (batch 53 gap 4) — content, not a computed late charge. */}
+            <div style={{ marginTop: 12, padding: '11px 13px', borderRadius: 9, border: '1.5px solid rgba(240,90,26,0.35)', background: 'rgba(240,90,26,0.06)' }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⏱ {REGISTRATION_CLOCK.heading}</div>
+              {REGISTRATION_CLOCK.lines.map((l, i) => (
+                <div key={i} style={{ fontSize: 12.5, lineHeight: 1.5, opacity: 0.9 }}>• {l}</div>
+              ))}
+            </div>
 
             <button className="cta cta-pay" onClick={payForExact} disabled={paying}>
               {paying ? 'Starting checkout…' : '▸ Get the exact figure — €9.99'}

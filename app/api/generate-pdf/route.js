@@ -3,6 +3,7 @@ import { PRICING, IE_MENU } from '@/config/pricing';
 import { experianVerdict } from '@/lib/experianHistory';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { motStatusPresentation } from '@/lib/motTone';
+import { REGISTRATION_CLOCK } from '@/config/importClock';
 
 const MARGIN = 12;
 const PAGE_W = 210;
@@ -363,6 +364,9 @@ export function buildPdf(result, vrm, checks, checkDate) {
     // Shared: evidence + disclaimer note lines (identical for single and dual).
     const noteLines = (basis) => {
       const lines = [];
+      // Registration clock (batch 53 gap 4) — content, not a computed late charge (no per-day formula).
+      lines.push(`${REGISTRATION_CLOCK.heading}:`);
+      for (const l of REGISTRATION_CLOCK.lines) lines.push(`- ${l}`);
       if (ic.fx) {
         const m = String(ic.fx.date).match(/^(\d{4})-(\d{2})-(\d{2})/);
         const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

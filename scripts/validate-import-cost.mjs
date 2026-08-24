@@ -9,7 +9,7 @@ import {
   classifyNewMeansOfTransport, importScopeRefusal,
   noxLevyRaw, co2Band, parseEuroClass, normaliseFuel,
 } from '../lib/importCost.mjs';
-import { CO2_BANDS, VRT_MINIMUM, NOX_CAP, GBP_EUR_RATE, GBP_EUR_RETRIEVED, MI_TO_KM } from '../config/vrt.mjs';
+import { CO2_BANDS, VRT_MINIMUM, NOX_NO_EVIDENCE_CHARGE, GBP_EUR_RATE, GBP_EUR_RETRIEVED, MI_TO_KM } from '../config/vrt.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -140,13 +140,13 @@ test('petrol EV: NOx €0, lowest band, EV relief note', () => {
 test('old diesel NOx estimate is capped at €4,850', () => {
   const r = estimateImportCost({ omsp: 10000, co2: 200, euroClass: 'Euro 3', fuel: 'Diesel', provenance: 'GB' });
   // Euro 3 diesel = 500 mg/km → raw 200+600+ (420×25=10500)=11300 → capped
-  assert.equal(r.vrt.noxLevy, NOX_CAP.diesel);
+  assert.equal(r.vrt.noxLevy, NOX_NO_EVIDENCE_CHARGE.diesel);
   assert.ok(r.vrt.noxBasis.includes('capped'));
 });
 
 test('undocumented NOx falls back to the statutory cap', () => {
   const r = estimateImportCost({ omsp: 15000, co2: 130, fuel: 'Diesel', provenance: 'GB' }); // no euro, no override
-  assert.equal(r.vrt.noxLevy, NOX_CAP.diesel);
+  assert.equal(r.vrt.noxLevy, NOX_NO_EVIDENCE_CHARGE.diesel);
   assert.match(r.vrt.noxBasis, /undocumented/);
 });
 

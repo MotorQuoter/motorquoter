@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { motStatusPresentation } from '@/lib/motTone';
+import { REGISTRATION_CLOCK } from '@/config/importClock';
 import { PRICING, IE_MENU } from '@/config/pricing';
 
 function fmtFirstReg(str) {
@@ -977,6 +978,13 @@ function ImportCostSection({ result }) {
 
   const disclaimers = (basis) => (
     <>
+      {/* Registration clock (batch 53 gap 4) — content, not a computed late charge. */}
+      <div style={{ marginTop: 12, padding: '11px 13px', borderRadius: 9, border: '1.5px solid rgba(240,90,26,0.35)', background: 'rgba(240,90,26,0.06)' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: 'var(--text)' }}>⏱ {REGISTRATION_CLOCK.heading}</div>
+        {REGISTRATION_CLOCK.lines.map((l, i) => (
+          <div key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-dim)' }}>• {l}</div>
+        ))}
+      </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, padding: '10px 0 0', borderTop: '1px solid var(--border-dim)', marginTop: 8 }}>Moving your residence to Ireland, or a disabled driver/passenger? VRT reliefs may reduce or remove this — see <a href="https://www.revenue.ie/en/vrt/reliefs-and-exemptions/index.aspx" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--orange)' }}>Revenue’s reliefs page</a>.</div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>{basis?.disclaimer}</div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.5, padding: '6px 0 2px' }}>MotorQuoter accepts no liability for purchase or bidding decisions made in reliance on this estimate.</div>
