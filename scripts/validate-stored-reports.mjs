@@ -142,7 +142,9 @@ console.log('\n8. Source ordering in app/api/vehicle/route.js (structural — pr
   assertTrue('unpaid is rejected BEFORE the stored-report decision (unpaid never served)', iPaid < iDecide);
   assertTrue('stored-report decision runs BEFORE the replay bind (a re-open is not 403d)', iDecide < iBind);
   assertTrue('stored-report decision runs BEFORE the supplier fetch (zero supplier calls on re-open)', iDecide < iFetch);
-  assertTrue('serve returns the stored payload directly', src.includes('return NextResponse.json(stored.payload)'));
+  // Batch 68: the re-open still serves the stored payload directly — now through the VIN-no-display
+  // net (scrubVin), so an echoed full VIN cannot survive a cached re-open either.
+  assertTrue('serve returns the stored payload directly (VIN-scrubbed)', src.includes('return NextResponse.json(scrubVin(stored.payload))'));
   assertTrue('expiry is honest, not the false payment-failed message', src.includes('This report has expired'));
   assertTrue('every paid return persists the served artefact', (src.match(/persistAndEmailReport\(/g) || []).length >= 6); // helper def + 5 call sites
   assertTrue('the email is dispatched post-response via after()', src.includes('after(async () =>'));

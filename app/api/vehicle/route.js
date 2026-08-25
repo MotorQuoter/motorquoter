@@ -474,7 +474,7 @@ async function handleVehicleGet(request) {
       // Recompute the mileage verdict from the CACHED MOT substrate + THIS request's entered mileage —
       // never trust the verdict stored on the row (it was computed for a different request).
       const freshVerdict = buildMileageVerdict(cached.payload?.motHistory, freeMileageOpts);
-      return NextResponse.json({ ...cached.payload, mileageVerdict: freshVerdict, _cached: true, _cachedAt: cached.created_at });
+      return NextResponse.json(scrubVin({ ...cached.payload, mileageVerdict: freshVerdict, _cached: true, _cachedAt: cached.created_at }));
     }
 
     try {
@@ -528,6 +528,7 @@ const dvla = await safeJson(dvlaRes);
         tier: 'free',
       };
 
+      scrubVin(payload);   // VIN-no-display net (free path is DVLA-only, but belt-and-braces on every path)
       await storeCachedResult(supabase, cleanVrm, cacheKey, payload);
       logEvent('lookup_submitted', { vrm: cleanVrm, tier: 'free', market: 'GB' });
       // Response carries the request-scoped verdict (entered mileage applied) — NOT the base verdict
@@ -588,7 +589,7 @@ const dvla = await safeJson(dvlaRes);
     const stored = await readStoredReport(supabase, stripeSessionId, cleanVrm);
     if (stored.action === 'serve') {
       console.log(`[STORED REPORT] re-open served session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm} (zero supplier calls)`);
-      return NextResponse.json(stored.payload);
+      return NextResponse.json(scrubVin(stored.payload));   // VIN-no-display net on the re-open path
     }
     if (stored.action === 'expired') {
       console.log(`[STORED REPORT] expired session=${stripeSessionId.slice(0, 14)}… vrm=${cleanVrm}`);
@@ -655,6 +656,7 @@ const dvla = await safeJson(dvlaRes);
     const roiCached = await getCachedResult(supabase, cleanVrm, roiCacheKey);
     if (roiCached) {
       const served = { ...roiCached.payload, _cached: true, _cachedAt: roiCached.created_at };
+      scrubVin(served);   // VIN-no-display net on the cache-hit path (pre-fix rows may carry a VIN)
       await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served });
       return NextResponse.json(served);
     }
@@ -713,6 +715,8 @@ const dvla = await safeJson(dvlaRes);
       roiTier:    roiTierParam,
     };
 
+    // VIN-no-display net — strip any echoed VIN (Cartell HPI) before cache, persist and return.
+    scrubVin(roiPayload);
     await storeCachedResult(supabase, cleanVrm, roiCacheKey, roiPayload);
     logEvent('report_viewed', { vrm: cleanVrm, tier: roiTierParam, market: 'IE' });
     await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks: [roiTierParam], market: 'IE', served: roiPayload });
@@ -754,6 +758,7 @@ const dvla = await safeJson(dvlaRes);
     const refundState = await evaluateServiceHistoryRefund(
       new Stripe(process.env.STRIPE_SECRET_KEY), paidSession, stripeSessionId, cachedServiceHistoryOutcome(clean), needsServiceHistory);
     const servedCached = { ...clean, ...refundState, _cached: true, _cachedAt: cached.created_at };
+    scrubVin(servedCached);   // VIN-no-display net on the cache-hit path (pre-fix rows may carry a VIN)
     await persistAndEmailReport(supabase, paidSession, { sessionId: stripeSessionId, vrm: cleanVrm, checks, market, served: servedCached });
     return NextResponse.json(servedCached);
   }
@@ -905,6 +910,10 @@ const dvla = await safeJson(dvlaRes);
         _checkOutcomes: checkOutcomes,   // C§5 — per-block 'ok'|'error'|'empty' for honest render + refund
         _refunds: paidRefunds,           // C§6 — per-item auto-refund state (empty on the happy path)
       };
+
+      // VIN-no-display compliance net — mirror of the GB path. Strip any echoed full VIN (Cartell
+      // HPI on the IE path) before cache, persist or return. Background-use-only; never client-visible.
+      scrubVin(payload);
 
       // Never cache a provider failure: a 48h TTL on an error would replay "unavailable" to every
       // later buyer of this reg AND auto-refund them for a call they never made. Covers service history
@@ -1185,6 +1194,11 @@ const dvla = await safeJson(dvlaRes);
         dvsaLastMileageDate: latestMot?.completedDate || null,
       };
 
+      // VIN-no-display compliance net — strip any echoed full VIN before it is cached, persisted or
+      // returned. AutoCheck / HPI can echo a VIN; the full VIN is background-use-only (DVLA/Mark
+      // display condition, VDG terms 7.3) and must never reach the client payload, HTML or PDF.
+      // Belt-and-braces: harmless if none is present. Mirrors feat/import-revive (batch 52).
+      scrubVin(payload);
       // A provider failure must not be frozen into the 48h cache — else another customer buying the
       // same reg is served the errored payload AND auto-refunded for a call THEY never made (which
       // might have succeeded fresh). Covers service history (isUncacheableServiceHistory) and now any
