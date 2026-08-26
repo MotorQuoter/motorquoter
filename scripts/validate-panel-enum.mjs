@@ -7,16 +7,22 @@ import {
   BASE_PANEL_IDS, EV_PANEL_IDS, COST_PANEL_IDS,
   PANEL_DISPLAY,
 } from '../lib/panelEnum.mjs';
+// batch 76 — PANEL_PRICE_TABLE integrity + derivePriceBand boundaries were folded in here from the
+// retired scripts/test-price-band.mjs, so they run on every merge (test-price-band sat OUTSIDE the
+// gate and went stale through two authorised changes). These live with the enum because "every COST
+// panel has a price row" is a cross-module invariant between panelEnum and priceBand.
+import { derivePriceBand, BAND_KEYS, PANEL_PRICE_TABLE, PRICE_BAND_KEYS } from '../lib/priceBand.mjs';
 
 let pass = 0;
 let fail = 0;
 
 function assert(label, actual, expected) {
-  const ok = actual === expected;
-  console.log(`  ${ok ? 'PASS' : 'FAIL'} — ${label}`);
-  if (!ok) console.log(`         expected: ${JSON.stringify(expected)}\n         actual:   ${JSON.stringify(actual)}`);
-  ok ? pass++ : fail++;
+  const isOk = actual === expected;
+  console.log(`  ${isOk ? 'PASS' : 'FAIL'} — ${label}`);
+  if (!isOk) console.log(`         expected: ${JSON.stringify(expected)}\n         actual:   ${JSON.stringify(actual)}`);
+  isOk ? pass++ : fail++;
 }
+function ok(label, cond) { assert(label, !!cond, true); }
 
 // ── 1. Count checks ───────────────────────────────────────────────────────────────────────
 console.log('\n── 1. Count checks ──');
@@ -115,6 +121,66 @@ assert('PANEL_DISPLAY[REAR_QUARTER] = "Rear quarter panel"', PANEL_DISPLAY[PANEL
 assert('PANEL_DISPLAY[HEADLAMP] = "Headlamp"',          PANEL_DISPLAY[PANEL.HEADLAMP],           'Headlamp');
 assert('PANEL_DISPLAY[OTHER] = "Other"',                PANEL_DISPLAY[PANEL.OTHER],              'Other');
 assert('PANEL_DISPLAY[EV_BATTERY_ZONE] = "EV battery zone"', PANEL_DISPLAY[PANEL.EV_BATTERY_ZONE], 'EV battery zone');
+
+// ── 8. PANEL_PRICE_TABLE integrity (folded in from test-price-band.mjs, batch 76) ─────────────
+// The documented COST panels intentionally WITHOUT a price row — both keep their own code-owned
+// logic (per the priceBand header). Any OTHER unpriced COST panel is a real gap and fails.
+console.log('\n── 6. PANEL_PRICE_TABLE integrity ──');
+const PRICE_EXCLUDED_COST = new Set([PANEL.GRILLE, PANEL.HEADLAMP]);
+// The priced entries that are deliberately NOT PANEL_CLASS.COST panels (SRS airbag kit tiers).
+const PRICED_NON_COST = new Set(['SRS_AIRBAG_T1', 'SRS_AIRBAG_T2', 'SRS_AIRBAG_T3']);
+const pricedIds = Object.keys(PANEL_PRICE_TABLE);
+
+// (a) every COST panel has a price row, except the two documented exclusions — this is the check
+//     that "may find something": a new COST panel added without a price row fails here.
+{
+  const unpriced = COST_PANEL_IDS.filter(id => !(id in PANEL_PRICE_TABLE) && !PRICE_EXCLUDED_COST.has(id));
+  ok(`every COST panel has a price row (except documented GRILLE/HEADLAMP)${unpriced.length ? ' — MISSING: ' + unpriced.join(', ') : ''}`, unpriced.length === 0);
+}
+// (b) the only priced-but-not-COST entries are the known SRS airbag tiers — an unexpected non-COST
+//     priced key (e.g. a typo'd panel id) fails here.
+{
+  const unexpectedNonCost = pricedIds.filter(id => !COST_PANEL_IDS.includes(id) && !PRICED_NON_COST.has(id));
+  ok(`only the known SRS airbag tiers are priced-but-not-COST${unexpectedNonCost.length ? ' — UNEXPECTED: ' + unexpectedNonCost.join(', ') : ''}`, unexpectedNonCost.length === 0);
+}
+// (c) DERIVED count — never hardcoded. table size === (COST panels − exclusions) + SRS tiers.
+{
+  const derived = (COST_PANEL_IDS.length - PRICE_EXCLUDED_COST.size) + PRICED_NON_COST.size;
+  assert('price-table size equals the DERIVED count (COST − exclusions + SRS tiers)', pricedIds.length, derived);
+}
+// (d) every panel has all seven bands; (e) no S/H exceeds its OEM; (f) all figures £5-rounded.
+{
+  let bad7 = 0, badOem = 0, badRound = 0;
+  for (const id of pricedIds) {
+    const bandMap = PANEL_PRICE_TABLE[id];
+    if (Object.keys(bandMap).length !== PRICE_BAND_KEYS.length) bad7++;
+    for (const bk of PRICE_BAND_KEYS) {
+      const e = bandMap[bk];
+      if (!e || typeof e.oem !== 'number' || typeof e.used !== 'number') { bad7++; continue; }
+      if (e.used > e.oem) badOem++;
+      if (e.oem % 5 !== 0 || e.used % 5 !== 0) badRound++;
+    }
+  }
+  ok('every price panel has all seven bands (numeric oem/used)', bad7 === 0);
+  ok('no S/H (used) figure exceeds its OEM', badOem === 0);
+  ok('all price figures are £5-rounded', badRound === 0);
+}
+
+// ── 9. derivePriceBand boundaries (folded in from test-price-band.mjs, batch 76) ──────────────
+console.log('\n── 7. derivePriceBand boundaries ──');
+{
+  const { ECONOMY, MID_RANGE, EXECUTIVE, UPPER_EXEC, PRESTIGE, LUXURY, SUPER_LUX } = BAND_KEYS;
+  const cases = [
+    [2500, ECONOMY], [7500, MID_RANGE], [12500, EXECUTIVE], [17500, UPPER_EXEC], [22500, PRESTIGE], [32500, LUXURY], [50000, SUPER_LUX],
+    [5000, ECONOMY], [5001, MID_RANGE], [10000, MID_RANGE], [10001, EXECUTIVE], [15000, EXECUTIVE], [15001, UPPER_EXEC],
+    [20000, UPPER_EXEC], [20001, PRESTIGE], [25000, PRESTIGE], [25001, LUXURY], [40000, LUXURY], [40001, SUPER_LUX],
+    [null, null], [undefined, null], ['', null], ['abc', null], [NaN, null], [-1, null], [-0, ECONOMY], [0, ECONOMY],
+    ['8000', MID_RANGE], ['5000', ECONOMY], ['40001', SUPER_LUX],
+  ];
+  let bandBad = 0;
+  for (const [input, expected] of cases) if (derivePriceBand(input) !== expected) { bandBad++; console.log(`  FAIL — derivePriceBand(${JSON.stringify(input)}) expected ${JSON.stringify(expected)}, got ${JSON.stringify(derivePriceBand(input))}`); }
+  ok(`derivePriceBand: all ${cases.length} boundary/midpoint/fallback cases correct`, bandBad === 0);
+}
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
