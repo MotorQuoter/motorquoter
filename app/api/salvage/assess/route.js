@@ -415,6 +415,14 @@ function buildCategorySlot(enrichedVd) {
 const PROVENANCE_WARRANTY_AGE_YEARS = 3;
 const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
 
+// batch 71 FIX 2 — category-vs-damage proportionality threshold. If the recorded category implies
+// STRUCTURAL damage (Cat S or Cat B) but the costed visible damage is at or below this figure, the
+// visible damage does not account for the write-off and the certification must NOT read "story holds
+// together" (assessmentEngine.js:253). PROPOSED default £500: roughly the ceiling of pure trim/cosmetic
+// work (a bumper refinish plus a trim clip or moulding) — a genuine structural repair sits far above it.
+// Vincent to tune from trade experience; deliberately a single named constant so it is one edit.
+const PROVENANCE_STRUCTURAL_MIN_COSTED = 500;
+
 // Structural floor (NOT a meaning-test): a model provenance reason may quote into the buyer-facing
 // slot only if it is sentence-shaped — ≥20 trimmed chars AND ≥4 whitespace-delimited words. This
 // rejects fragments ("concern", "salvage", "Q suffix") that pass a bare non-empty check. What
@@ -442,7 +450,7 @@ function qcProvenanceConcern(enrichedVd, vendorSuffix) {
   return null;
 }
 
-function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags, costedDamageSum = null) {
   const currentYear = new Date().getFullYear();
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
   const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
@@ -527,6 +535,28 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     });
   }
 
+  // batch 71 FIX 2 — category-vs-damage proportionality. The three concern paths are clean and the
+  // prose check ran; but if the recorded category implies STRUCTURAL damage (Cat S or Cat B) and the
+  // costed visible damage is trim/cosmetic (<= threshold), the visible damage does not account for the
+  // write-off — the certification must NOT read "story holds together". This enforces line 253 of the
+  // engine prompt in code, where it has never been enforced by anything (it lived only in model prose).
+  const _catStructural = ['s', 'b'].includes(catLetter(enrichedVd.category || ''));
+  if (_catStructural && costedDamageSum != null && costedDamageSum <= PROVENANCE_STRUCTURAL_MIN_COSTED) {
+    const _descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
+    const _catLabel = catLetter(enrichedVd.category) === 'b' ? 'Cat B' : 'Cat S';
+    return buildSlot({
+      id: 'provenance-contradiction', label: '"Why is it here?" — category not explained by visible damage',
+      kind: 'confirmation', verdict: 'discrepancy',
+      detail: `${_descriptor} — the visible damage does not fully explain this write-off: costed visible damage (£${Number(costedDamageSum).toLocaleString('en-GB')}) is trim/cosmetic and does not account for a ${_catLabel} structural write-off. Structural or other components not visible in these photos should be inspected before bidding.`,
+      confidence: 'corroborated', source: 'code',
+      flag: {
+        severity: 'red',
+        whatsapp: 'The visible damage does not fully explain this write-off — structural or other components not visible in these photos should be inspected before bidding.',
+        tier: 1,
+      },
+    });
+  }
+
   return buildSlot({
     id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
     kind: 'confirmation', verdict: 'confirmed',
@@ -535,7 +565,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   });
 }
 
-function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags) {
+function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags, costedDamageSum = null) {
   const vendorSuffix = resolveVendorSuffix(coreObs);
   return buildGroup({
     id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
@@ -543,7 +573,7 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFla
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
-      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags),
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags, costedDamageSum),
     ],
   });
 }
@@ -2593,6 +2623,24 @@ function parseExitBandStep(text) {
   if (!text) return null;
   const first = text.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z-]/g, '');
   return EXIT_BAND_STEPS.includes(first) ? first : null;
+}
+
+// ── Cat A / Cat B hard stop (code backstop — batch 71 FIX 1) ──────────────────────────────────
+// Safety/compliance gate, not a quality tweak. Category A (scrap — must be crushed, no V5C reissued)
+// and Category B (break — shell crushed, licensed dismantlers only, bolt-on parts only) can never
+// return to the road as a repairable vehicle. assessmentEngine.js §241/243 instructs the MODEL to
+// refuse a repair estimate and whole-vehicle exit valuation — but that is the model choosing to obey
+// a prompt, and computeExitFromBand below treats an unknown band (INCLUDING A/B) as Cat S, so absent
+// this gate the engine WOULD price one. This reads the recorded category only (enrichedVd.category),
+// post-perception, and enforces the refusal regardless of what the model produced.
+const CAT_AB_STOP = {
+  a: 'Category A — scrap only. This vehicle must be crushed entirely and cannot legally return to the road; no V5C is reissued. It is not a repair or resale prospect, so no repair estimate or exit valuation is produced.',
+  b: 'Category B — break/dismantle only. The bodyshell must be crushed and only bolt-on parts may be reused; it may be sold solely to licensed dismantlers. It is not a repairable vehicle, so no repair estimate or whole-vehicle exit valuation is produced.',
+};
+// Returns 'a' | 'b' | null from the recorded category. Null category never fires (catLetter → null).
+function catABHardStopLetter(categoryStr) {
+  const c = catLetter(categoryStr || '');
+  return (c === 'a' || c === 'b') ? c : null;
 }
 
 function computeExitFromBand(tradeLow, categoryStr, bandText) {
@@ -5009,6 +5057,28 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
+    // ── FIX 3 (batch 71): bumper-off / bumper-uncosted contradiction ─────────────────────────────
+    // A bumper read as displaced/removed (_frontBumperOff/_rearBumperOff) drives real spend — it seeds
+    // both that-end fog lamps and strips the adjacent wing/quarter. If that SAME bumper is not itself
+    // costed (unconfirmed on the photos), the engine was certain enough to spend on the consequence and
+    // too uncertain to cost the cause — a contradictory state (EN23NJX). Flag-only, never a cost, so
+    // parts_sum is untouched. On a genuine bumper-off lot the bumper IS costed, so this stays silent.
+    for (const [off, panelId, end] of [
+      [assessment._frontBumperOff, PANEL.FRONT_BUMPER, 'front'],
+      [assessment._rearBumperOff,  PANEL.REAR_BUMPER,  'rear'],
+    ]) {
+      if (off !== true) continue;
+      const bumperCosted = gatedParts.some(p => p.panelId === panelId);
+      if (!bumperCosted) {
+        assessment._flaggedParts.push({
+          panelId, partName: `${end} bumper`, zone: end, weight: 'high',
+          reason: `Contradiction to resolve on inspection: the ${end} bumper was read as displaced or removed (this drove the ${end} fog-lamp and aperture rules) but the ${end} bumper itself was not costed — it could not be photographically confirmed. Confirm whether the ${end} bumper is genuinely off before relying on the ${end}-end damage read.`,
+          _bumperOffContradiction: true,
+        });
+        console.log(`[BUMPER CONTRADICTION] ${end} bumper off=true but uncosted — flagged`);
+      }
+    }
+
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
     // real repair line (action + finalised figure). Floored/flagged panels live in the
     // Inspection Flags surface, never here (one panel, one surface). No model-authored
@@ -5229,9 +5299,28 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
+    // ── FIX 1 (batch 71): Cat A/B hard stop — refuse repair estimate + whole-vehicle exit valuation ──
+    // Post-perception, code-owned, reads the recorded category only. On Cat A/B: null the whole-vehicle
+    // money outputs (exit value, margin ladder, SalvageGuide cross-check, investment block are all
+    // guarded below on !_catAB) and state the legal position in the buyer-facing fields. The itemised
+    // visible-damage ledger is left intact — it is a damage record, not a repair plan.
+    const _catAB = catABHardStopLetter(enrichedVd.category);
+    if (_catAB) {
+      const _stop = CAT_AB_STOP[_catAB];
+      assessment._catABHardStop = _catAB.toUpperCase();
+      assessment['Realistic Exit Value'] = _stop;
+      assessment['Exit Band Position']   = '';
+      assessment['Recommended Action']   = _stop;
+      const _rfAB = (assessment['Red Flags'] || '').trim();
+      assessment['Red Flags'] = _rfAB ? `- ${_stop}\n${_rfAB}` : `- ${_stop}`;
+      assessment._exitValue       = null;
+      assessment._marginScenarios = null;
+      console.log(`[CAT A/B HARD STOP] category="${enrichedVd.category}" → repair estimate + whole-vehicle exit valuation refused`);
+    }
+
     // Code-owned exit value: trade-low × band percentage keyed by category + model's 5-step position
     let exitValue = null;
-    if (bregoData?.trade_low_valuation) {
+    if (!_catAB && bregoData?.trade_low_valuation) {
       const { exit, band, step, pct } = computeExitFromBand(
         bregoData.trade_low_valuation,
         enrichedVd.category || '',
@@ -5252,7 +5341,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';
 
     const feeStackFn = FEE_STACKS[auctionSource];
-    if (feeStackFn && parts_sum > 0 && exitValue != null) {
+    if (!_catAB && feeStackFn && parts_sum > 0 && exitValue != null) {
       const marginScenarios = buildHammerLadder(exitValue).map(hammer => {
         const fees = feeStackFn(hammer);
         const hammerVat = lotIsVatQualifying ? Math.round(hammer * 0.20 * 100) / 100 : 0;
@@ -5269,7 +5358,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Maps the predicted-bid range + a secondary retail ref, and computes the divergence flag vs
     // the engine's break-even hammer. Attached only when a usable bid range came back; otherwise the
     // block is silently omitted downstream and the assessment renders exactly as before.
-    if (enrichedVd.salvageGuide) {
+    if (!_catAB && enrichedVd.salvageGuide) {
       const sg = enrichedVd.salvageGuide;
       const sgNum = v => Number.isFinite(Number(v)) ? Math.round(Number(v)) : null;
       const bidLow  = sgNum(sg.salvage_auction_predicted_bid_low_gbp);
@@ -5294,7 +5383,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Never mutates _exitValue / parts_sum / _marginScenarios / "Realistic Exit Value".
     // Packages as-is-clean (undamaged retail), after-repair value (_exitValue), part-out,
     // as-is-salvage, and three named bid ceilings. Omitted (null) if nothing meaningful.
-    try {
+    // batch 71 FIX 1: skipped entirely on a Cat A/B hard stop — no whole-vehicle investment framing.
+    if (!_catAB) try {
       const ib = buildInvestmentBlock({
         retailLow:     bregoData?.retail_low_valuation,
         retailAverage: bregoData?.retail_average_valuation,
@@ -5382,7 +5472,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // proseFlags: Call-2 prose-faithfulness conclusions; null fields = Call 2 unavailable.
     const proseFlags = coreObs.proseFlags ?? { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null };
     assessment._slots = assembleCoreSlots([
-      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags),
+      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags, parts_sum),
       buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags),
       buildPhysicalGroup(coreObs),
     ]);

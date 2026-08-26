@@ -118,6 +118,16 @@ test('Fix B: bumper GONE + ZERO fogs + band seed → costs BOTH fogs (run-1 unde
   assert.equal(sumUsed([...costed, ...r.costedToAdd]), before + 160);  // parts_sum += 2×£80
 });
 
+test('Fix B (batch 71 FIX 4): a SEEDED fog is named for its end, not bare "Fog lamp"', () => {
+  // A rear-seeded fog must be distinguishable from a front one in the report — the zone was always
+  // carried; only the display name dropped it. Seed from zero on each end and check the name + zone.
+  const front = applyFogBumperRule({ costedParts: [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }], frontBumperGone: true, fogSeed: { oem: 95, used: 80 } });
+  const rear  = applyFogBumperRule({ costedParts: [{ panelId: PANEL.REAR_BUMPER,  name: 'Rear bumper',  action: 'replace', used: 300 }], rearBumperGone:  true, fogSeed: { oem: 95, used: 80 } });
+  assert.ok(front.costedToAdd.every(f => f.name === 'Front fog lamp' && f.zone === 'front'), 'seeded front fogs are "Front fog lamp"');
+  assert.ok(rear.costedToAdd.every(f => f.name === 'Rear fog lamp'  && f.zone === 'rear'),  'seeded rear fogs are "Rear fog lamp"');
+  assert.ok(![...front.costedToAdd, ...rear.costedToAdd].some(f => f.name === 'Fog lamp'), 'no seeded fog keeps the bare end-less name');
+});
+
 test('Fix B: bumper GONE + ZERO fogs + NO band → flag (never silently absent, no cost)', () => {
   const costed = [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }];
   const before = sumUsed(costed);
