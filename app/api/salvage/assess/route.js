@@ -415,14 +415,6 @@ function buildCategorySlot(enrichedVd) {
 const PROVENANCE_WARRANTY_AGE_YEARS = 3;
 const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
 
-// batch 71 FIX 2 — category-vs-damage proportionality threshold. If the recorded category implies
-// STRUCTURAL damage (Cat S or Cat B) but the costed visible damage is at or below this figure, the
-// visible damage does not account for the write-off and the certification must NOT read "story holds
-// together" (assessmentEngine.js:253). PROPOSED default £500: roughly the ceiling of pure trim/cosmetic
-// work (a bumper refinish plus a trim clip or moulding) — a genuine structural repair sits far above it.
-// Vincent to tune from trade experience; deliberately a single named constant so it is one edit.
-const PROVENANCE_STRUCTURAL_MIN_COSTED = 500;
-
 // Structural floor (NOT a meaning-test): a model provenance reason may quote into the buyer-facing
 // slot only if it is sentence-shaped — ≥20 trimmed chars AND ≥4 whitespace-delimited words. This
 // rejects fragments ("concern", "salvage", "Q suffix") that pass a bare non-empty check. What
@@ -450,7 +442,7 @@ function qcProvenanceConcern(enrichedVd, vendorSuffix) {
   return null;
 }
 
-function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags, costedDamageSum = null) {
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
   const currentYear = new Date().getFullYear();
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
   const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
@@ -535,28 +527,6 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     });
   }
 
-  // batch 71 FIX 2 — category-vs-damage proportionality. The three concern paths are clean and the
-  // prose check ran; but if the recorded category implies STRUCTURAL damage (Cat S or Cat B) and the
-  // costed visible damage is trim/cosmetic (<= threshold), the visible damage does not account for the
-  // write-off — the certification must NOT read "story holds together". This enforces line 253 of the
-  // engine prompt in code, where it has never been enforced by anything (it lived only in model prose).
-  const _catStructural = ['s', 'b'].includes(catLetter(enrichedVd.category || ''));
-  if (_catStructural && costedDamageSum != null && costedDamageSum <= PROVENANCE_STRUCTURAL_MIN_COSTED) {
-    const _descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
-    const _catLabel = catLetter(enrichedVd.category) === 'b' ? 'Cat B' : 'Cat S';
-    return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — category not explained by visible damage',
-      kind: 'confirmation', verdict: 'discrepancy',
-      detail: `${_descriptor} — the visible damage does not fully explain this write-off: costed visible damage (£${Number(costedDamageSum).toLocaleString('en-GB')}) is trim/cosmetic and does not account for a ${_catLabel} structural write-off. Structural or other components not visible in these photos should be inspected before bidding.`,
-      confidence: 'corroborated', source: 'code',
-      flag: {
-        severity: 'red',
-        whatsapp: 'The visible damage does not fully explain this write-off — structural or other components not visible in these photos should be inspected before bidding.',
-        tier: 1,
-      },
-    });
-  }
-
   return buildSlot({
     id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
     kind: 'confirmation', verdict: 'confirmed',
@@ -565,7 +535,7 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   });
 }
 
-function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags, costedDamageSum = null) {
+function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags) {
   const vendorSuffix = resolveVendorSuffix(coreObs);
   return buildGroup({
     id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
@@ -573,7 +543,7 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFla
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
-      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags, costedDamageSum),
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags),
     ],
   });
 }
@@ -5472,7 +5442,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // proseFlags: Call-2 prose-faithfulness conclusions; null fields = Call 2 unavailable.
     const proseFlags = coreObs.proseFlags ?? { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null };
     assessment._slots = assembleCoreSlots([
-      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags, parts_sum),
+      buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags),
       buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags),
       buildPhysicalGroup(coreObs),
     ]);
