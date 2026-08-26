@@ -269,7 +269,7 @@ export default function SalvageSuccessPage() {
       });
       if (!res.ok) throw new Error('PDF generation failed');
       const buf = await res.arrayBuffer();
-      const blob = new Blob([buf], { type: 'application/octet-stream' });
+      const blob = new Blob([buf], { type: 'application/pdf' });
       const link = document.createElement('a');
       const now = new Date();
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -279,8 +279,10 @@ export default function SalvageSuccessPage() {
         .replace(/\s+/g, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'Salvage';
       link.href = URL.createObjectURL(blob);
       link.download = `${ref}Assessment${datePart}.pdf`;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(link.href);
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     } catch (e) {
       alert('PDF download failed: ' + e.message);
     } finally {

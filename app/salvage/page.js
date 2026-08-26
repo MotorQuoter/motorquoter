@@ -551,14 +551,14 @@ export default function SalvagePage() {
         .row-fields { display: flex; gap: 10px; }
         .row-fields > div { flex: 1; }
 
-        .text-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 15px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+        .text-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 16px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
         .text-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .text-input::placeholder { color: rgba(154,143,135,0.45); }
-        .textarea-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 14px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; resize: vertical; min-height: 90px; line-height: 1.5; }
+        .textarea-input { width: 100%; background: var(--bg2); border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 16px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; resize: vertical; min-height: 90px; line-height: 1.5; }
         .textarea-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .textarea-input::placeholder { color: rgba(154,143,135,0.45); }
 
-        .select-input { width: 100%; background: var(--bg2); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%239a8f87' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 40px 13px 16px; font-family: 'Barlow', sans-serif; font-size: 15px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; appearance: none; cursor: pointer; }
+        .select-input { width: 100%; background: var(--bg2); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%239a8f87' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; border: 1.5px solid var(--border-dim); border-radius: 10px; padding: 13px 40px 13px 16px; font-family: 'Barlow', sans-serif; font-size: 16px; color: var(--text); outline: none; transition: border-color 0.2s, box-shadow 0.2s; appearance: none; cursor: pointer; }
         .select-input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-dim); }
         .select-input option { background: var(--bg2); color: var(--text); }
 

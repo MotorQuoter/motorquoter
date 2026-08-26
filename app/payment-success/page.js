@@ -1054,13 +1054,13 @@ function PaymentSuccessContent() {
       if (!response.ok) throw new Error('PDF generation failed');
 
       const arrayBuffer = await response.arrayBuffer();
-      const blob = new Blob([arrayBuffer], { type: 'application/octet-stream' });
+      const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href = url; a.download = filename;
       document.body.appendChild(a); a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       console.error('PDF download failed:', err);
     } finally {
