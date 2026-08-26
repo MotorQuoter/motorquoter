@@ -702,6 +702,18 @@ export default function SalvageSuccessPage() {
                     <div className="field-val">{vehicleDetails.runCondition}</div>
                   </div>
                 )}
+                {assessment._copartDamageLabel && (
+                  // §7 (batch 73): Copart's damage LABEL, shown to the buyer as a plain fact. It never
+                  // reached the assessment (withheld from both model calls, 3b) — printed here beside the
+                  // photo-based read, with no agreement/disagreement scoring. The buyer draws the conclusion.
+                  <div className="field-row">
+                    <div className="field-key">Auction Damage Label</div>
+                    <div className="field-val" style={{ fontSize: 13 }}>
+                      <div>{assessment._copartDamageLabel.line1}</div>
+                      <div style={{ color: 'var(--text-dim)', marginTop: 4, fontStyle: 'italic' }}>{assessment._copartDamageLabel.line2}</div>
+                    </div>
+                  </div>
+                )}
                 {(assessment['Visible Damage Summary'] || assessment._vdsParts?.length > 0) && (() => {
                   // Asset ID line: code-assembled from Brego vehicle_desc + dash-read sticker.
                   // Standfirst (1-2 sentences) is model-authored synthesis.

@@ -560,6 +560,12 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
   sectionTitle('Damage Assessment');
+  // §7 (batch 73): Copart's damage LABEL, shown to the buyer as a plain fact. It never reached the
+  // assessment (withheld from both model calls, 3b) — printed beside the photo-based read with no
+  // agreement/disagreement scoring. Parity with the salvage success page.
+  if (assessment._copartDamageLabel) {
+    fieldBlock('Auction Damage Label', `${assessment._copartDamageLabel.line1}\n${assessment._copartDamageLabel.line2}`);
+  }
   // VDS — code-assembled Asset ID line + model standfirst + code-assembled per-panel blocks.
   // (_vdsParts, Step 4c). parseVdsParts().preamble extracts the model standfirst and
   // strips any stray PART: text; the per-panel section is fully code-owned.

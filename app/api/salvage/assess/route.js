@@ -3282,7 +3282,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       enrichedVd.year && `Year: ${enrichedVd.year}`,
       enrichedVd.bodyStyle && `Body Style (from listing): ${enrichedVd.bodyStyle}`,
       enrichedVd.lotNumber && `Copart Lot Number: ${enrichedVd.lotNumber}`,
-      enrichedVd.damageDescription && `Seller/Copart Damage Description: ${enrichedVd.damageDescription}`,
+      // batch 73 (3b): the Copart DAMAGE LABEL FAMILY (damageDescription / primary / secondary /
+      // additional) is deliberately WITHHELD from the perception context. These fields are a member of
+      // auction staff's classification of the damage, not an observation — and run 1 vs run 4 (EN23NJX)
+      // proved the model treats the label as evidence and fabricates damage to match it. The engine must
+      // report what it SEES. enrichedVd is untouched, so frontStruck/rearStruck below still force
+      // recordImpactObservation (nulling the fields at source would un-force the tool — NOT the fix).
+      // The label is shown to the BUYER code-side, after both model calls (see §7 injection below).
       enrichedVd.dvlaVerified && `DVLA Verified: Yes — vehicle identity confirmed against DVLA database`,
       enrichedVd.colour && `DVLA Colour: ${enrichedVd.colour}`,
       enrichedVd.fuelType && `DVLA Fuel Type: ${enrichedVd.fuelType}`,
@@ -3321,9 +3327,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       enrichedVd.runCondition && `Run Condition: ${enrichedVd.runCondition}`,
       enrichedVd.keys && `Keys: ${enrichedVd.keys}`,
       enrichedVd.transmission && `Transmission: ${enrichedVd.transmission}`,
-      enrichedVd.primaryDamage && `Primary Damage: ${enrichedVd.primaryDamage}`,
-      enrichedVd.secondaryDamage && `Secondary Damage: ${enrichedVd.secondaryDamage}`,
-      enrichedVd.additionalDamage && `Additional Damage: ${enrichedVd.additionalDamage}`,
+      // batch 73 (3b): primaryDamage / secondaryDamage / additionalDamage WITHHELD from perception —
+      // see the damage-label-family note above. Withheld as a FAMILY: on another lot the staff guess
+      // lands in a different field, so removing only the populated one would not hold.
       enrichedVd.v5Status && `V5 Status: ${enrichedVd.v5Status}`,
       (() => {
         const sh = enrichedVd.salvageHistory;
@@ -5447,6 +5453,24 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       buildPhysicalGroup(coreObs),
     ]);
     console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
+
+    // ── §7 (batch 73): show Copart's damage LABEL to the BUYER — code-side, AFTER both model calls ──
+    // The label family is withheld from perception (3b) because it is auction staff's classification,
+    // not an observation. But a bidder may still want to see what Copart recorded. It is injected HERE,
+    // downstream of Call 1 (perception) AND Call 2 (extraction), so it can never re-enter a prompt — it
+    // is a render-time fact only, like category (route.js:390/:445). The two statements are printed
+    // plainly with NO agreement/disagreement scoring; the buyer draws the conclusion. This is the whole
+    // product on a lot where the label and the photos disagree (EN23NJX: "Rear End" vs a moulding).
+    const _labelParts = [enrichedVd.primaryDamage, enrichedVd.secondaryDamage, enrichedVd.additionalDamage]
+      .map(s => (s || '').trim()).filter(Boolean);
+    if (_labelParts.length) {
+      const _label = _labelParts.join('; ');
+      assessment._copartDamageLabel = {
+        label: _label,
+        line1: `Copart record this lot as: ${_label}.`,
+        line2: 'This assessment is from the photographs only.',
+      };
+    }
 
     // ── Provenance concern: code-owned Red Flags line (deterministic surfacing) ──
     // The two-tier non-insurer concern (C/Q suffix on Cat U primary / Cat S secondary) renders in
