@@ -68,6 +68,7 @@ COST panels — carry a repair price when damaged:
   SIDE_GLASS        side glass / door glass (any door window)
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
+  WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
   BOOT_LID          boot lid / tailgate / trunk lid / hatchback rear door
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)

@@ -16,6 +16,7 @@ import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
+import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
   CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
@@ -913,7 +914,7 @@ async function runDashClusterRead(images, onExhaust, vehicleDesc) {
 
 Apply this three-step decision in order:
 1. Is a cluster/instrument panel visible in any photo? If no → return cluster "no-photo".
-2. Is the cluster present but unlit or dark (engine not running, display off, photo too dark to judge)? If yes → return cluster "no-photo". A dark cluster tells you nothing and must NOT be read as clean.
+2. Is the cluster present but unlit or dark (engine not running, display off, photo too dark to judge)? If yes → return cluster "unlit". A dark cluster tells you nothing about warning state and must NOT be read as clean — but note it WAS photographed.
 3. Cluster is visible AND lit/powered. Are any warning telltale icons lit? If yes → return cluster "warning". If no → return cluster "clean".
 
 TELLTALES — a CLOSED list; emit ONLY these exact tokens in the "telltales" array:
@@ -928,7 +929,7 @@ TELLTALES — a CLOSED list; emit ONLY these exact tokens in the "telltales" arr
   BATTERY_12V         — 12V charging-system lamp (the ordinary battery symbol) — this is NOT an EV/HV signal; use it so you never misread the 12V symbol as an EV warning
   TPMS                — tyre pressure warning
   OTHER_TELLTALE      — any lit amber/red warning not in this list, OR a warning lit but unreadable
-Rules: cluster "warning" MUST have at least one telltale token; cluster "clean" MUST have an empty telltales array. Only lit AMBER or RED telltales count. A normal EV "READY" / "ready to drive" indicator is NOT a warning (it is a healthy state) — do not emit any token for it. Informational text messages (e.g. a park-assist sensor message) → OTHER_TELLTALE. Empty array when cluster is no-photo or clean.
+Rules: cluster "warning" MUST have at least one telltale token; cluster "clean" MUST have an empty telltales array. Only lit AMBER or RED telltales count. A normal EV "READY" / "ready to drive" indicator is NOT a warning (it is a healthy state) — do not emit any token for it. Informational text messages (e.g. a park-assist sensor message) → OTHER_TELLTALE. Empty array when cluster is no-photo, unlit or clean.
 
 HV MARKINGS — one boolean:
 Set hvMarkings true ONLY on unambiguous high-voltage evidence anywhere in the photos: thick ORANGE HV cabling / conduit / connectors in the engine bay or underbody, or an HV / "HIGH VOLTAGE" warning label or sticker. Ordinary orange objects (trim, reflectors, wiring that is not clearly HV conduit) do NOT count. When in doubt, false.
@@ -946,7 +947,7 @@ Look for a long white PRINTED Copart lot-number sticker on the windscreen — us
 - Sticker present AND suffix letter clearly legible → sticker: that single letter (one of: X, P, C, Q; use "OTHER" for any other letter)
 ${mismatchBlock}
 Return a raw JSON object only — no markdown, no explanation, no surrounding text:
-{ "cluster": "no-photo" | "clean" | "warning", "telltales": ["<zero or more enum tokens; empty unless cluster is warning>"], "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear", "hvMarkings": true | false }`;
+{ "cluster": "no-photo" | "unlit" | "clean" | "warning", "telltales": ["<zero or more enum tokens; empty unless cluster is warning>"], "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear", "hvMarkings": true | false }`;
 
   const FLOOR = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false };
   try {
@@ -978,7 +979,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return FLOOR; }
     const parsed = JSON.parse(match[0]);
-    const cluster = ['no-photo', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
+    const cluster = ['no-photo', 'unlit', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
     const airbag  = ['no-photo', 'not-lit', 'warning-lit'].includes(parsed.airbag) ? parsed.airbag : 'no-photo';
     // Telltale array — validate every element against the closed enum; drop unknowns (breadcrumb),
     // never pass them through. Only meaningful on cluster==='warning'; empty otherwise.
@@ -1719,6 +1720,7 @@ COST panels — carry a repair price when damaged:
   SIDE_GLASS        side glass / door glass (any door window — glass pane struck in isolation; if the whole sliding door skin is struck use SLIDING_DOOR_GLAZED instead)
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
+  WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
   BOOT_LID          boot lid / trunk lid / hatchback rear door (car only — for van rear closures use BARN_DOOR_L/R or TAILGATE_GLAZED; do not route van barn doors or van tailgates here)
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
@@ -3140,8 +3142,31 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           .map(n => parseInt(n, 10))
           .filter(n => n >= 1 && n <= 999999);
         const uniq = [...new Set(nums)];
-        const parsed = uniq.length === 1 ? uniq[0] : NaN;
-        if (!isNaN(parsed)) photoOdometer = parsed;
+        // batch 75 §2b — CROSS-CHECK, don't discard. A cluster shot routinely shows odometer AND trip
+        // AND range; the old `uniq.length === 1 ? uniq[0] : NaN` threw a legible reading away whenever a
+        // second number appeared, silently falling back to the listing. Per assessmentEngine.js:24 the
+        // photo is the CROSS-CHECK, not the valuation basis — so confirm or diverge, never silently drop:
+        //   • exactly one number                     → use it (unchanged)
+        //   • several, exactly ONE ≈ listing (±tol)   → that IS the odometer, the rest were trip/range
+        //   • several, none (or >1) ≈ listing         → real divergence → §24 flag; photoOdometer stays null
+        //   • none                                    → fall back to listing (unchanged)
+        const listedForCheck = (() => {
+          const r = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
+          if (r == null) return NaN;
+          const m = String(r).replace(/,/g, '').match(/\d+/);
+          return m ? parseInt(m[0], 10) : NaN;
+        })();
+        const odoDecision = resolvePhotoOdometerReading(uniq, listedForCheck);
+        if (odoDecision.value !== null) {
+          photoOdometer = odoDecision.value;
+          if (uniq.length > 1) console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — one ≈ listing ${listedForCheck} → confirmed ${photoOdometer}`);
+        } else if (odoDecision.diverged) {
+          // Divergence — do NOT set photoOdometer (valuation anchors on the listing); raise the §24
+          // divergence flag rather than silently discard the reading.
+          enrichedVd.photoMileageFlag = `Dash photo appears to show ${uniq.map(n => n.toLocaleString()).join(' / ')} miles; listing shows ${listedForCheck.toLocaleString()} miles — photo legibility is limited, verify before bidding.`;
+          console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — none/ambiguous ≈ listing ${listedForCheck} → divergence flagged, photoOdometer null`);
+        }
+        // else: no numbers, or multi-number with no listing to check → photoOdometer stays null.
       }
       // exhausted or non-2xx: photoOdometer stays null, downstream hierarchy takes over
     } catch { /* Haiku threw — photoOdometer stays null */ }
@@ -3618,6 +3643,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               required: ['zone', 'eventType', 'heightBand'],
             },
           },
+          namedAsIntact: {
+            type: 'array',
+            description: 'Panels the assessment text EXPLICITLY describes as undamaged / intact / undisturbed / sound / clean. Transcribe ONLY panels the prose affirmatively calls sound — e.g. "the bonnet, grille and both headlamps read undamaged". Do NOT include a panel merely because it is unmentioned: silence is not intactness. Emit only the fixed tokens below. Empty array when the prose makes no affirmative soundness statement (the common case).',
+            items: {
+              type: 'string',
+              enum: ['DOOR_MIRROR', 'FOG_LAMP', 'HEADLAMP', 'FRONT_WING', 'REAR_QUARTER', 'FRONT_DOOR', 'REAR_DOOR', 'SILL', 'BONNET', 'GRILLE'],
+            },
+          },
         },
         required: ['provenanceConcernFlagged', 'salvageSelfReferenceConfirmed', 'perZone'],
       },
@@ -3634,7 +3667,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         tool_choice: { type: 'tool', name: 'recordCoreObservations' },
         messages: [{
           role: 'user',
-          content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\n\n${rawText}`,
+          content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\nFor namedAsIntact: list ONLY panels the text affirmatively describes as undamaged/intact/undisturbed/sound/clean, using the fixed tokens. Do NOT list a panel just because it is unmentioned — silence is not intactness. Empty array if the prose makes no soundness statement.\n\n${rawText}`,
         }],
       }),
     }));
@@ -3670,8 +3703,12 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           salvageSelfReferenceConfirmed: typeof inp.salvageSelfReferenceConfirmed === 'boolean' ? inp.salvageSelfReferenceConfirmed : null,
         },
         perZone: Array.isArray(inp.perZone) ? inp.perZone : [],
+        // batch 75 §1 — panels the prose EXPLICITLY calls sound; the completeness net (Fix A) excludes
+        // these so it stops telling the buyer to inspect parts the engine just described as undamaged.
+        // Absent/empty (older payload / parse failure) → [] → the net behaves EXACTLY as before.
+        namedAsIntact: Array.isArray(inp.namedAsIntact) ? inp.namedAsIntact.filter(s => typeof s === 'string') : [],
       };
-      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length}`);
+      console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} namedAsIntact=${coreObs.namedAsIntact.length}`);
     } else {
       console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
@@ -3685,6 +3722,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         corners: [],
         proseFlags: { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null },
         perZone:     [],
+        namedAsIntact: [],
         costedParts: [],
         flaggedParts: [],
       };
@@ -4959,11 +4997,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     console.log(`[BODY/STICKER] bodyStyle="${assessment._bodyStyle}" stickerSuffix=${assessment._stickerSuffix} bodyStyleMismatch=${coreObs.bodyStyleMismatch} retryFired=${_stickerRetry.fired}`);
 
     // Assemble code-owned dashboard line (replaces model VDS cluster assertion).
+    // batch 75 §2a: distinguish "no cluster photograph at all" from "cluster photographed but unlit".
+    // The read declining a dark cluster is CORRECT (you cannot read telltales off it) — but "not
+    // visible" reads as a missed photo. "Unlit because the car is a non-runner" is true and useful.
     const _dashLine = dashRead.cluster === 'warning'
       ? `Dashboard read: warning light(s) shown — ${dashRead.telltales.map(t => TELLTALE_LABELS[t] || t).join(', ')}`
       : dashRead.cluster === 'clean'
       ? 'Dashboard read: cluster lit, no warning lights shown.'
-      : 'Dashboard not visible in the listing photos.';
+      : dashRead.cluster === 'unlit'
+      ? 'The instrument cluster is photographed but unlit — the vehicle is a non-runner, so warning-lamp and airbag state cannot be read from it.'
+      : 'No dashboard photograph in the listing.';
     assessment._dashLine = _dashLine;
 
     // Assemble code-owned Airbags line from _airbagState (overwrites any model-authored field).
@@ -4982,7 +5025,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       ? 'Airbag warning light shown on the cluster — airbag system fault or deployment likely; confirm on inspection.'
       : dashRead.airbag === 'not-lit'
       ? 'No airbag warning light shown on the cluster; no deployed bags visible in the cabin shots. Confirm on inspection.'
-      : 'Dashboard not visible — airbag state could not be confirmed from photos. Confirm on inspection.';
+      : dashRead.cluster === 'unlit'
+      ? 'The instrument cluster is photographed but unlit (non-runner) — airbag warning state cannot be read from it. Confirm on inspection.'
+      : 'No dashboard photograph in the listing — airbag state could not be confirmed. Confirm on inspection.';
 
     // 529 abort decision — fires before report assembly.
     // ABORT if any single-instance call exhausted (Call-1/Call-2/lamp-detect/dash-read),
@@ -5026,7 +5071,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // Fix A — completeness net. Any component NAMED in the (model-authored) Visible Damage Summary
       // that is neither costed nor in the SURVIVING buyer flags becomes an inspection flag. FLAG-ONLY —
       // never a cost, so parts_sum is untouched. Survivors via buildBuyerFlags (post-suppression view).
-      const extraFlags = completenessFlagsFor(assessment, gatedParts, buildBuyerFlags);
+      const extraFlags = completenessFlagsFor(assessment, gatedParts, buildBuyerFlags, coreObs.namedAsIntact);
       if (extraFlags.length) {
         assessment._flaggedParts.push(...extraFlags);
         console.log(`[COMPLETENESS NET] +${extraFlags.length} flag(s) for VDS-named-but-uncosted components`);

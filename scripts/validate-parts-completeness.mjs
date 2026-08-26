@@ -64,6 +64,36 @@ test('Fix A: component not named → not flagged', () => {
   assert.ok(flags.find(f => f.panelId === PANEL.REAR_QUARTER));
 });
 
+// ── batch 75 §1 — namedAsIntact polarity (the completeness net stops crying wolf) ─────────────
+const VDS_INTACT = 'The front bumper, grille, bonnet and both headlamps read undamaged and undisturbed.';
+
+test('§1: a component named as INTACT and uncosted → NO flag', () => {
+  const flags = reconcileNamedComponents(VDS_INTACT, new Set(), new Set(), '', '', ['BONNET', 'GRILLE', 'HEADLAMP']);
+  for (const pid of [PANEL.BONNET, PANEL.GRILLE, PANEL.HEADLAMP]) {
+    assert.equal(flags.find(f => f.panelId === pid), undefined, `${pid} named intact → must not flag`);
+  }
+});
+
+test('§1: a component named as DAMAGED and uncosted → flag STILL fires (safety function survives)', () => {
+  // Bonnet is CREASED (damaged) and NOT in namedAsIntact; grille IS named intact. Only the grille is excluded.
+  const flags = reconcileNamedComponents('The bonnet is creased; the grille reads undamaged.', new Set(), new Set(), '', '', ['GRILLE']);
+  assert.ok(flags.find(f => f.panelId === PANEL.BONNET), 'damaged uncosted bonnet must still flag');
+  assert.equal(flags.find(f => f.panelId === PANEL.GRILLE), undefined, 'intact grille must not flag');
+});
+
+test('§1: a component NOT mentioned at all → behaviour unchanged (no flag)', () => {
+  const flags = reconcileNamedComponents('Front bumper damage only.', new Set(), new Set(), '', '', ['BONNET']);
+  assert.equal(flags.find(f => f.panelId === PANEL.BONNET), undefined, 'unmentioned bonnet is not named → no flag regardless of namedAsIntact');
+});
+
+test('§1: namedAsIntact absent/empty → IDENTICAL to pre-batch-75 (fail toward flagging)', () => {
+  const withoutArg = reconcileNamedComponents(VDS_INTACT, new Set(), new Set());          // old 5-arg call
+  const withEmpty  = reconcileNamedComponents(VDS_INTACT, new Set(), new Set(), '', '', []);
+  // Both must still flag the named-but-uncosted parts (silence/empty is NOT intactness).
+  assert.ok(withoutArg.find(f => f.panelId === PANEL.BONNET), 'no namedAsIntact arg → bonnet still flags (old behaviour)');
+  assert.deepEqual(withEmpty.map(f => f.panelId).sort(), withoutArg.map(f => f.panelId).sort(), 'empty array == absent arg');
+});
+
 // ── Fix B ──────────────────────────────────────────────────────────────────
 const fog = (zone) => ({ panelId: PANEL.FOG_LAMP, name: 'Fog lamp', action: 'replace', oem: null, used: 80, zone });
 

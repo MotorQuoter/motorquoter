@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { checkMileageTimeline, toMiles } from '../lib/mileageCheck.mjs';
+import { checkMileageTimeline, toMiles, resolvePhotoOdometerReading } from '../lib/mileageCheck.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (vrm) => JSON.parse(readFileSync(join(HERE, 'fixtures', 'mot', `${vrm}.dvsa.json`), 'utf8'));
@@ -227,4 +227,31 @@ test('boundary-normalised rows are NOT double-converted', () => {
   assert.equal(km.miles, KM(104471));               // 64,915 — used odometerMiles, did NOT re-multiply
   assert.notEqual(km.miles, KM(KM(104471)));        // the double-conversion figure (40,338) must NOT appear
   assert.equal(r.status, 'consistent');
+});
+
+// ── batch 75 §2b — photo-odometer CROSS-CHECK (confirm or diverge, never silently discard) ──────
+test('§2b: exactly one number → used as-is', () => {
+  assert.deepEqual(resolvePhotoOdometerReading([29869], 29869), { value: 29869, diverged: false });
+});
+test('§2b: several numbers, exactly ONE matches the listing → confirmed (rest were trip/range)', () => {
+  // 29869 odometer + 312 trip + 208 range; listing 29,869 → the odometer is confirmed.
+  assert.deepEqual(resolvePhotoOdometerReading([29869, 312, 208], 29869), { value: 29869, diverged: false });
+});
+test('§2b: match within tolerance (±500) still confirms', () => {
+  assert.deepEqual(resolvePhotoOdometerReading([29900, 312], 29869), { value: 29900, diverged: false });
+});
+test('§2b: several numbers, NONE matches the listing → divergence, not a silent discard', () => {
+  const r = resolvePhotoOdometerReading([88000, 312], 29869);
+  assert.equal(r.value, null);
+  assert.equal(r.diverged, true);
+});
+test('§2b: multiple numbers but NO listing to check against → fall back (no divergence)', () => {
+  assert.deepEqual(resolvePhotoOdometerReading([29869, 312], NaN), { value: null, diverged: false });
+});
+test('§2b: no numbers → fall back to listing (unchanged)', () => {
+  assert.deepEqual(resolvePhotoOdometerReading([], 29869), { value: null, diverged: false });
+});
+test('§2b: the OLD behaviour is fixed — a two-number cluster read is no longer discarded', () => {
+  // Pre-batch-75 (`uniq.length===1 ? uniq[0] : NaN`) returned null here; now it confirms 29,869.
+  assert.equal(resolvePhotoOdometerReading([29869, 312], 29869).value, 29869);
 });
