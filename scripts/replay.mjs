@@ -14,10 +14,11 @@
 //     provider re-charge) — required for A2 prose / A3 severity, which are Vision-judged.
 //   - --vision-fixture would replay frozen per-view verdicts at zero cost; those aren't persisted on
 //     historical rows, so it needs a capture add-on (flagged, not yet built).
-import { readFileSync, readdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { diffAssessments, renderDiffTable } from './lib/assessmentDiff.mjs';
+import { installCassette } from './lib/modelCassette.mjs';
 // NOTE: runAssessment / oneautoCache are imported DYNAMICALLY inside main(), AFTER env is set —
 // PER_VIEW_PROMPT reads REPLAY_A3_OFF at module-load, so --a3-off must be in process.env first.
 
@@ -53,13 +54,11 @@ function makeFixtureProvider(paid) {
 async function main() {
   const vrm = (process.argv[2] || '').toUpperCase();
   const mode = process.argv.includes('--vision-fixture') ? 'vision-fixture' : 'vision-live';
+  // batch 83: --capture runs live vision AND freezes every model response into the lot's cassette, so a
+  // later --vision-fixture run replays the full assess path deterministically at £0.
+  const capture = process.argv.includes('--capture');
   const a3off = process.argv.includes('--a3-off');   // A3 SEVERE-DISCIPLINE clause removed (A/B off-arm)
-  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture] [--a3-off] [--dump <path>]'); process.exit(2); }
-  if (mode === 'vision-fixture') {
-    console.error('--vision-fixture needs frozen per-view verdicts, which historical rows do not store.\n' +
-      'Capture add-on pending (freeze runPerViewAssess outputs). Use --vision-live for now.');
-    process.exit(3);
-  }
+  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture|--capture] [--a3-off] [--dump <path>]'); process.exit(2); }
 
   loadEnv();
   // Set the A3 toggle BEFORE importing the route module — PER_VIEW_PROMPT reads REPLAY_A3_OFF at
@@ -87,14 +86,38 @@ async function main() {
   // Install the fixture provider (One Auto seam) — after this, NO paid One Auto call can fire.
   __setOneAutoReplayProvider(makeFixtureProvider(fixture.paidFixtures || {}));
 
+  // batch 83 model cassette — freeze/replay every Anthropic vision call (fetch interception; no engine
+  // change). --capture: live vision + record. --vision-fixture: serve from the cassette, £0, deterministic.
+  const cassettePath = resolve(dir, 'model-cassette.json');
+  let cassette = null;
+  if (mode === 'vision-fixture') {
+    if (!existsSync(cassettePath)) {
+      console.error(`--vision-fixture needs a cassette. Capture it once:\n  node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs ${vrm} --capture`);
+      process.exit(3);
+    }
+    cassette = installCassette({ mode: 'replay', cassettePath });
+    console.log(`[CASSETTE] replaying model calls from ${vrm}/model-cassette.json — £0, deterministic`);
+  } else if (capture) {
+    cassette = installCassette({ mode: 'capture', cassettePath });
+    console.log(`[CASSETTE] capturing model calls → ${vrm}/model-cassette.json (LIVE VISION — paid)`);
+  }
+
   const vd = fixture.vehicleDetails || {};
   const t0 = Date.now();
-  const { assessment } = await runAssessment({
-    images,
-    vd,
-    market: fixture.market || 'GB',
-    roiTier: vd.roiTier || 'roi_free',
-  });
+  let assessment;
+  try {
+    ({ assessment } = await runAssessment({
+      images,
+      vd,
+      market: fixture.market || 'GB',
+      roiTier: vd.roiTier || 'roi_free',
+    }));
+  } finally {
+    if (cassette) {
+      const s = cassette.uninstall();
+      console.log(`[CASSETTE] ${mode === 'vision-fixture' ? 'served' : 'captured'} ${s.served || s.captured} call(s), missed ${s.missed}, passthrough ${s.passthrough}`);
+    }
+  }
   console.log(`runAssessment completed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   // Optional: dump the freshly-computed assessment (for run-to-run variance checks / A/B diffs).
