@@ -1654,6 +1654,11 @@ const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the 
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess on the WhatsApp inspection before bidding';
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
 const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
+// Ruling 2 (batch 81): a SINGLE unsupported MINOR view. Weaker evidence than a disagree — one weak
+// signal, below the 2-vote cosmetic threshold — so the wording says so and is honest about the split.
+// Surfaced, never priced (the buyer prices it via the batch-82 add-line). Distinct from the disagree,
+// cosmetic and uncorroborated reasons so the buyer can tell how strong the signal is.
+const AMALG_REASON_SINGLE_MINOR = 'one photo suggested light damage here; the other views of this area did not — a single weak signal, not confirmed and not dismissed; carries no cost. If it matters to you, confirm on the WhatsApp inspection and add your own figure.';
 const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
 const ZONE_FLOOR_REASON = 'damage recorded in a zone not supported by the listing damage description or overall impact pattern — verify on the WhatsApp inspection before bidding';
 // Byte-for-byte copy of the gate's inline RQ rider (parts.mjs :282) — appended to
@@ -2117,8 +2122,15 @@ function amalgamate(groups, viewPanelSets) {
         console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} → cosmetic flag`);
         flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_COSMETIC, _amalgCosmetic: true });
       } else {
-        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → cleared (no flag, no cost)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
+        // Ruling 2 (Vincent, batch 81): a single unsupported MINOR view is a DISAGREEMENT — the engine
+        // must not resolve it silently. It surfaces as a LOW-weight, NO-COST inspection flag. The 2-vote
+        // cosmetic-COST threshold is unchanged; what changes is that falling below it stops meaning
+        // silence. _perViewClear stays so the gate strips any model cost line (no money enters
+        // parts_sum); _amalgSingleMinor marks both the entry and the flag so the §2 invariant guarantees
+        // the flag reaches the buyer even if a downstream splice removes it. The buyer prices it (batch 82).
+        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → low-weight flag, no cost (Ruling 2)`);
+        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true, _amalgSingleMinor: true });
+        flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_SINGLE_MINOR, _amalgSingleMinor: true });
       }
     } else if (damaged > 0 && clean === 0) {
       // Silence-as-clean implicit corroboration (REAR_PANEL only). Count views that imaged a
@@ -4264,6 +4276,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
           bonnetTwin._perViewClear   = true;
           bonnetTwin._bonnetDisplaced = true;
+          delete bonnetTwin._amalgDisagree;   // batch 81 §2: the skin-read genuinely CLEARED this disagree — drop the marker so the invariant does not re-add a disagree flag
           coreObs.flaggedParts.push({
             panelId: PANEL.BONNET, partName: PANEL_DISPLAY[PANEL.BONNET], zone: bonnetTwin.zone, weight: 'low',
             reason: 'Bonnet sits proud / shut line disturbed — hood skin intact; refits with the structural repair, no separate panel cost.',
@@ -4962,6 +4975,34 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._suppressActive = _struckZoneSet.size === 1 && !_struckZoneSet.has('roof');
     console.log(`[FLAG SUPPRESS] struckZones=[${assessment._struckZones.join(', ')}] suppressActive=${assessment._suppressActive} (perZone=${(coreObs.perZone || []).length} frontStruck=${frontStruck} rearStruck=${rearStruck})`);
 
+    // ── §2 LEDGER/FLAG INVARIANT (batch 81) ────────────────────────────────────────────────────────
+    // Every panel amalgamate DECIDED ABOUT — a disagree floor OR a single-unsupported-MINOR (Ruling 2) —
+    // must reach the buyer as exactly one inspection flag. Silent clearance is the defect, at either
+    // threshold (DL72FVX: WHEEL_ARCH_MOULDING was disagree-floored, its flag pushed by amalgamate, then
+    // removed by a downstream splice with NO log line — costed nothing, warned nothing, the one item
+    // physically confirmed as damaged vanished without trace). Finding the splice is the §9 seam's job;
+    // THIS is what stops the next one — a code-owned backstop that re-establishes the flag from the
+    // authoritative marker on coreObs.costedParts, regardless of which splice removed it. Runs after all
+    // amalgamate/flank/gate mutations and just before the _flaggedParts snapshot. Additive only: never
+    // removes a flag, never a cost, never touches parts_sum. Markers are kept accurate upstream — sticky
+    // rescue and the bonnet skin-read both delete _amalgDisagree when they genuinely resolve a disagree,
+    // so a rescued/re-cleared panel is not re-flagged here.
+    {
+      let _reAdded = 0;
+      for (const cp of coreObs.costedParts) {
+        const isDisagree = cp._amalgDisagree === true && cp.independentlyVisible === false && !cp._perViewClear;
+        const isSingleMinor = cp._amalgSingleMinor === true;
+        if (!isDisagree && !isSingleMinor) continue;
+        if (coreObs.flaggedParts.some(f => f.panelId === cp.panelId)) continue;   // a flag for this panel already survives
+        coreObs.flaggedParts.push(isDisagree
+          ? { panelId: cp.panelId, partName: cp.partName ?? PANEL_DISPLAY[cp.panelId] ?? cp.panelId, zone: cp.zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true, _invariantReAdded: true }
+          : { panelId: cp.panelId, partName: cp.partName ?? PANEL_DISPLAY[cp.panelId] ?? cp.panelId, zone: cp.zone, weight: 'low', reason: AMALG_REASON_SINGLE_MINOR, _amalgSingleMinor: true, _invariantReAdded: true });
+        _reAdded++;
+        console.error(`[LEDGER/FLAG INVARIANT] ${cp.panelId} was ${isDisagree ? 'disagree-floored' : 'single-MINOR'} but had NO surviving flag — a downstream splice removed it silently; flag RE-ESTABLISHED. Investigate the remover (§9 seam).`);
+      }
+      if (_reAdded === 0) console.log('[LEDGER/FLAG INVARIANT] all disagree / single-MINOR panels retained their flag — no re-add needed');
+    }
+
     assessment._flaggedParts = [...coreObs.flaggedParts].sort((a, b) =>
       ({'high': 0, 'medium': 1, 'low': 2}[a.weight] ?? 1) -
       ({'high': 0, 'medium': 1, 'low': 2}[b.weight] ?? 1)
@@ -5103,10 +5144,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // fixture survey showed that over-firing on 4 of 11 lots (a cosmetic replace is not "gone" and
       // must not seed fogs). v2.0 has the authoritative flag, so trust it alone.
       const fogSeed = PANEL_PRICE_TABLE[PANEL.FOG_LAMP]?.[bandKey] ?? null;
+      // §3 (batch 81): the seeded fog is a CHILD of the bumper — cost it only when the bumper is a
+      // CONFIRMED cost (iv:true), not when it merely survived as a disagree or fired _rearBumperOff from
+      // an aperture read. An unconfirmed parent yields a fog FLAG, not a cost (applyFogBumperRule).
+      const _bumperConfirmed = (pid) => coreObs.costedParts.some(cp => cp.panelId === pid && cp.independentlyVisible === true);
       const fogRule = applyFogBumperRule({
         costedParts: gatedParts,
         frontBumperGone: assessment._frontBumperOff === true,
         rearBumperGone:  assessment._rearBumperOff === true,
+        frontBumperConfirmed: _bumperConfirmed(PANEL.FRONT_BUMPER),
+        rearBumperConfirmed:  _bumperConfirmed(PANEL.REAR_BUMPER),
         fogSeed,
       });
       if (fogRule.costedToAdd.length) {
@@ -5125,25 +5172,69 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // ── FIX 3 (batch 71): bumper-off / bumper-uncosted contradiction ─────────────────────────────
-    // A bumper read as displaced/removed (_frontBumperOff/_rearBumperOff) drives real spend — it seeds
-    // both that-end fog lamps and strips the adjacent wing/quarter. If that SAME bumper is not itself
-    // costed (unconfirmed on the photos), the engine was certain enough to spend on the consequence and
-    // too uncertain to cost the cause — a contradictory state (EN23NJX). Flag-only, never a cost, so
-    // parts_sum is untouched. On a genuine bumper-off lot the bumper IS costed, so this stays silent.
+    // ── FIX 3 (batch 71 → batch 81 §5): bumper-off / bumper-UNCONFIRMED — a CONTROL, not narration ──
+    // A bumper read as displaced (_frontBumperOff/_rearBumperOff) drives consequential spend (seeded
+    // fogs). If that bumper is NOT CONFIRMED (iv:true) — merely disagreed under §1, or "off" via an
+    // aperture read — the engine would spend on the consequence while too uncertain to cost the cause.
+    // §5 (Vincent): a flag that only WATCHES money leave is not a control — where the contradiction
+    // identifies unsupported spend it must SUPPRESS it. §3 already gates the fog SEED on parent
+    // confirmation (computed BEFORE the spend), so nothing is normally seeded here; this is the
+    // enforcement backstop that STRIPS any bumper-off-derived fog cost that reached the ledger without a
+    // confirmed parent, then raises ONE buyer flag if §3 did not already surface it. Confirmation is read
+    // from the VERDICT (iv:true), not mere presence in gatedParts — which a §1 disagree row now satisfies.
     for (const [off, panelId, end] of [
       [assessment._frontBumperOff, PANEL.FRONT_BUMPER, 'front'],
       [assessment._rearBumperOff,  PANEL.REAR_BUMPER,  'rear'],
     ]) {
       if (off !== true) continue;
-      const bumperCosted = gatedParts.some(p => p.panelId === panelId);
-      if (!bumperCosted) {
+      const bumperConfirmed = coreObs.costedParts.some(cp => cp.panelId === panelId && cp.independentlyVisible === true);
+      if (bumperConfirmed) continue;   // parent confirmed → the consequential spend is supported → no contradiction
+      const endRe = new RegExp(end, 'i');
+      let stripped = 0, strippedVal = 0;
+      for (let i = gatedParts.length - 1; i >= 0; i--) {
+        const gp = gatedParts[i];
+        if (gp.panelId === PANEL.FOG_LAMP && gp._fogPaired && endRe.test(`${gp.zone || ''} ${gp.name || ''}`)) {
+          strippedVal += gp.used ?? gp.oem ?? 0; gatedParts.splice(i, 1); stripped++;
+        }
+      }
+      if (stripped) console.error(`[BUMPER CONTROL] ${end} bumper off but UNCONFIRMED — stripped ${stripped} unsupported seeded fog cost(s) (£${strippedVal}) from the repair total`);
+      const alreadyFlagged = assessment._flaggedParts.some(f => (f._fogUnconfirmedParent || f._bumperOffContradiction) && (f.zone === end || endRe.test(f.partName || '')));
+      if (!alreadyFlagged) {
         assessment._flaggedParts.push({
           panelId, partName: `${end} bumper`, zone: end, weight: 'high',
-          reason: `Contradiction to resolve on inspection: the ${end} bumper was read as displaced or removed (this drove the ${end} fog-lamp and aperture rules) but the ${end} bumper itself was not costed — it could not be photographically confirmed. Confirm whether the ${end} bumper is genuinely off before relying on the ${end}-end damage read.`,
+          reason: `The ${end} bumper was read as displaced but could not be confirmed on the photos, so nothing that depends on it being off has been costed. Confirm whether the ${end} bumper is genuinely off on the WhatsApp inspection before relying on the ${end}-end damage read.`,
           _bumperOffContradiction: true,
         });
-        console.log(`[BUMPER CONTRADICTION] ${end} bumper off=true but uncosted — flagged`);
+        console.log(`[BUMPER CONTROL] ${end} bumper off but unconfirmed → flagged (no unsupported spend remains)`);
+      }
+    }
+
+    // ── §4 LABOUR RECONCILIATION (batch 81, Vincent) ───────────────────────────────────────────────
+    // Labour/paint is summed into parts_sum unconditionally and is filtered out of the displayed part
+    // list — so before this it could ship (DL72FVX) £520 to fit and paint ZERO surviving panels. Labour
+    // is now scaled to the VALUE of the parts that actually survived, relative to what the model
+    // originally costed (reconcileParts output, pre-gate). NON-NEGOTIABLE FLOOR: zero surviving costed
+    // parts ⟹ zero labour. Partial case — the recommended shape (Vincent to confirm): PROPORTIONAL TO
+    // SURVIVING PART VALUE, because a bigger part carries more fit/paint labour than a smaller one, so
+    // value is a better proxy than count. Ratio capped at 1 (labour never grows). One sentence: labour
+    // tracks the value of the parts it is actually fitting. Runs AFTER fog seeding (surviving includes a
+    // confirmed seeded fog) and BEFORE parts_sum. Touches labour rows only; never a part, never a flag.
+    {
+      const isLabour = (nm) => /labour|paint|prep/i.test(nm || '');
+      const labourRows = gatedParts.filter(p => isLabour(p.name));
+      if (labourRows.length) {
+        const val = (p) => p.used ?? p.oem ?? 0;
+        const survivingPartValue = gatedParts.filter(p => !isLabour(p.name)).reduce((a, p) => a + val(p), 0);
+        const preGatePartValue   = (reconciledParts || []).filter(p => !isLabour(p.name)).reduce((a, p) => a + val(p), 0);
+        const ratio = survivingPartValue <= 0 ? 0 : (preGatePartValue > 0 ? Math.min(1, survivingPartValue / preGatePartValue) : 1);
+        for (const lr of labourRows) {
+          const before = val(lr);
+          const scaled = Math.round(before * ratio);
+          if (lr.used != null) lr.used = scaled; else lr.oem = scaled;
+          lr._labourReconciled = true;
+          if (scaled !== before) console.log(`[LABOUR RECONCILE] "${lr.name}" £${before} → £${scaled} (surviving part value £${survivingPartValue} / pre-gate £${preGatePartValue}, ratio ${ratio.toFixed(3)})`);
+        }
+        if (survivingPartValue <= 0) console.error('[LABOUR RECONCILE] zero surviving costed parts → labour zeroed (it was fitting nothing)');
       }
     }
 
