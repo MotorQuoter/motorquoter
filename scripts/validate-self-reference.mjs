@@ -53,6 +53,26 @@ ok('prose-override date guard removed from buildSalvageCountSlot (no overrideDat
 ok('every self-ref path logs (id-hit / id-miss / future-date-guard)',
    /id-hit/.test(fnSrc[0]) && /id-miss/.test(fnSrc[0]) && /future-date-guard/.test(fnSrc[0]));
 
+// ── (A2) PROSE-OVERRIDE GUARD (batch 80 §1 + addendum) — extract the shipped decision predicate ─────
+// The prose override in buildSalvageCountSlot refuses ONLY when BOTH ids are present and they differ.
+// Batch-80 addendum regression: a present record id with a NULL lot number must NOT refuse (nothing was
+// compared) — that is the non-Copart / IAA rescue path. Extract the real `idsPresentAndDiffer` predicate.
+console.log('\n(A2) PROSE-OVERRIDE GUARD — refuse only when both ids present and differ');
+const predSrc = src.match(/const idsPresentAndDiffer =[\s\S]*?;/);
+ok('idsPresentAndDiffer predicate present and guards lotNo != null', !!predSrc && /lotNo != null/.test(predSrc[0]));
+if (predSrc) {
+  const idsPresentAndDiffer = new Function('candId', 'lotNo', `${predSrc[0]}\nreturn idsPresentAndDiffer;`);
+  // override is PERMITTED exactly when the predicate is false (see the if/else-if/else in buildSalvageCountSlot).
+  const permitted = (candId, lotNo) => !idsPresentAndDiffer(candId, lotNo);
+  ok('both ids present and differ → REFUSED',                 !permitted(40000001, 57562265));
+  ok('no record id (absent id) → permitted',                   permitted(null, 57562265));
+  ok('REGRESSION: record id present, lot number null → permitted (non-Copart rescue)', permitted(57562265, null));
+  ok('both null → permitted',                                  permitted(null, null));
+  ok('present ids that are equal → not-refused (upstream would have matched)', permitted(57562265, 57562265));
+}
+ok('three distinct prose-override log lines (REFUSED + two PERMITTED wordings)',
+   /OVERRIDE REFUSED\]/.test(src) && /Permitted — no record id/.test(src) && /Permitted — no lot number/.test(src));
+
 // ── (B) BEHAVIOURAL — synthetic, portable ────────────────────────────────────────────────────────
 console.log('\n(B) BEHAVIOURAL — synthetic cases');
 const SALE_MS = Date.parse('2026-08-31T00:00:00Z');

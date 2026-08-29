@@ -617,10 +617,21 @@ function buildSalvageCountSlot(enrichedVd, proseFlags) {
     const candidate = (sh.salvage_auction_records || [])[0];
     const candId = candidate?.salvage_auction_record_id;
     const lotNo  = enrichedVd.lotNumber;
-    if (candId != null) {
-      console.error(`[SALVAGE SELF-REF OVERRIDE REFUSED] Prose claims self-reference but the record carries id ${candId} which does not match lot ${lotNo ?? 'null'} — a present, non-matching id is evidence of a distinct auction event; prose cannot overrule a fact. Genuine prior retained.`);
+    // Refuse ONLY when BOTH ids are present and they differ — two values cannot "differ" when one is
+    // absent. Inside this branch (selfMatchCount===0) two PRESENT ids necessarily differ (tagSelfReference
+    // would have matched them), so the substantive guard is `lotNo != null`: `vd.lotNumber` is optional
+    // (parsed from the Copart paste; absent on IAA / paste-less lots), and without a lot number on our
+    // side NOTHING was compared — a present record id is then absence-of-evidence, not evidence of a
+    // distinct sale. Refusing there would close exactly the non-Copart rescue path §1 exists to preserve.
+    const idsPresentAndDiffer = candId != null && lotNo != null && String(candId).trim() !== String(lotNo).trim();
+    if (idsPresentAndDiffer) {
+      console.error(`[SALVAGE SELF-REF OVERRIDE REFUSED] Prose claims self-reference but record id ${candId} differs from lot ${lotNo} — a present, non-matching id is evidence of a distinct auction event; prose cannot overrule a fact. Genuine prior retained.`);
+    } else if (candId == null) {
+      console.error('[SALVAGE SELF-REF OVERRIDE] Permitted — no record id to check (absent id); prose confirmed a self-reference the lot-number test could not make. effectiveExcl 1 → 0. Review tagSelfReference() for this lot.');
+      excl = 0;
+      proseOverrideApplied = true;
     } else {
-      console.error('[SALVAGE SELF-REF OVERRIDE] No record id to check (absent id) — prose confirmed a self-reference the lot-number test could not make; effectiveExcl forced from 1 to 0. Review tagSelfReference() for this lot.');
+      console.error(`[SALVAGE SELF-REF OVERRIDE] Permitted — no lot number on our side to compare against record id ${candId}; prose is the best signal available (non-Copart / paste-less lot). effectiveExcl 1 → 0. NB if this line fires often, lot numbers are not being parsed on some source — worth knowing.`);
       excl = 0;
       proseOverrideApplied = true;
     }
