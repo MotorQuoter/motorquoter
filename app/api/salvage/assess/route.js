@@ -607,9 +607,23 @@ function buildSalvageCountSlot(enrichedVd, proseFlags) {
     // everywhere). The lot-number id test is primary; a self-reference it could not make — e.g. a
     // non-Copart lot in a different numbering — can still be rescued by the model's prose confirmation.
     // Invariant: excl===1 && selfMatchCount===0 ⟹ records.length===1, so records[0] is the single candidate.
-    console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed a self-reference the lot-number test could not make — effectiveExcl forced from 1 to 0. Review tagSelfReference() for this lot.');
-    excl = 0;
-    proseOverrideApplied = true;
+    //
+    // §1 TIGHTENING (Vincent, 29 Aug): prose may overrule ONLY when there is NO id to check. A present
+    // salvage_auction_record_id is a fact — and in this branch (selfMatchCount===0) it necessarily did
+    // NOT match vd.lotNumber, so it is positive evidence of a DIFFERENT auction event. Prose does not
+    // get to overrule that. An ABSENT id is absence of evidence — the only case where the model's read
+    // adds anything, and the only path by which this design could ever HIDE a genuine prior (the
+    // direction Vincent has consistently ruled against).
+    const candidate = (sh.salvage_auction_records || [])[0];
+    const candId = candidate?.salvage_auction_record_id;
+    const lotNo  = enrichedVd.lotNumber;
+    if (candId != null) {
+      console.error(`[SALVAGE SELF-REF OVERRIDE REFUSED] Prose claims self-reference but the record carries id ${candId} which does not match lot ${lotNo ?? 'null'} — a present, non-matching id is evidence of a distinct auction event; prose cannot overrule a fact. Genuine prior retained.`);
+    } else {
+      console.error('[SALVAGE SELF-REF OVERRIDE] No record id to check (absent id) — prose confirmed a self-reference the lot-number test could not make; effectiveExcl forced from 1 to 0. Review tagSelfReference() for this lot.');
+      excl = 0;
+      proseOverrideApplied = true;
+    }
   }
   if (excl >= 2 && proseCorroboratesSelf) {
     console.error('[SALVAGE SELF-REF MISMATCH] Prose claims self-reference but code found 2+ records excluding self. Code wins upward — override not applied. Investigate.');
@@ -3336,15 +3350,23 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         if (!sh) return null;
         const found = sh.salvage_auction_record_found === true;
         const records = sh.salvage_auction_records || [];
-        if (!found) return 'Previous Salvage Auction History: No previous salvage auction history found.';
+        // §2b (Vincent, 29 Aug): NEUTRAL heading. The old "Previous Salvage Auction History" pre-judged
+        // every record as a PRIOR event — false on a lot whose only register record is its own current
+        // entry (DL72FVX), and the model wrote about a prior because the heading told it there was one.
+        // We do NOT replace it with the opposite assertion either: the code establishes the record
+        // carries this lot's number, it does not PROVE the record is this listing's own entry (rests on
+        // the untested one-lot-one-record assumption). So the heading names ONLY what the register
+        // returned and takes no position; the buyer-facing count still does (buildSalvageCountSlot).
+        if (!found) return 'Salvage auction register: no records returned for this vehicle.';
+        // §2a (Ruling 1, 28 Aug): Primary/Secondary Damage descriptors are withheld from perception —
+        // they are Copart staff free-text (the damage-label family, batch 73) and re-enter the model's
+        // eyes through this door. Lot date and mileage stay. The buyer keeps the label code-side (§7).
         const lines = records.map((rec, i) => [
           `Record ${i + 1}:`,
           rec.salvage_auction_lot_date && `  Lot Date: ${rec.salvage_auction_lot_date}`,
           rec.mileage != null          && `  Mileage at Sale: ${Number(rec.mileage).toLocaleString()} miles`,
-          rec.primary_damage_desc      && `  Primary Damage: ${rec.primary_damage_desc}`,
-          rec.secondary_damage_desc    && `  Secondary Damage: ${rec.secondary_damage_desc}`,
         ].filter(Boolean).join('\n')).join('\n');
-        return `Previous Salvage Auction History (${records.length} record${records.length !== 1 ? 's' : ''} found):\n${lines}`;
+        return `Salvage auction register records for this vehicle (${records.length} found):\n${lines}`;
       })(),
       (() => {
         if (!bregoData) return 'Live market valuation data: UNAVAILABLE — proceed with assessment but flag exit value as low confidence.';
@@ -3393,6 +3415,27 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         text: `Please assess this vehicle for auction bidding purposes.\n\nVehicle Details:\n${contextLines}\n\nAnalyse all provided photos and give a complete assessment using the required output format. After the Margin Calculation field, include a "WhatsApp Inspection Checklist:" section with at minimum 5 specific items tailored to this vehicle's damage profile, selected and expanded from the standard checklist items in your knowledge base. When describing wheel or tyre damage in the Visible Damage Summary, if the affected corner cannot be confidently identified from the photos, hedge the description (e.g. "one or both front tyres" or "front tyre — corner uncertain") rather than asserting a specific corner with false confidence.`,
       },
     ];
+
+    // ── §4 (batch 80) DEV SEAM — dump the assembled Call-1 prompt. £0, vision-free, dev-only ────────
+    // When MQ_DUMP_CALL1_PROMPT is set, write the fully-assembled Call-1 user text (Vehicle Details
+    // incl. the salvage-history block) to a file and log a one-liner. This is the only way to OBSERVE —
+    // not reconstruct — that §2a/§2b landed in the bytes the model receives (closes batch 77 §1), and
+    // it hands over the byte-exact salvage-history block batch 78 could not reach at £0. It dumps the
+    // string that is ABOUT to be sent — nothing goes to any API here — and never fires in production
+    // (no env var). MQ_DUMP_CALL1_PROMPT=1 → default filename; any other value → that path.
+    if (process.env.MQ_DUMP_CALL1_PROMPT) {
+      try {
+        const _dumpText = userContent.find(b => b.type === 'text')?.text ?? '';
+        const _dumpPath = process.env.MQ_DUMP_CALL1_PROMPT === '1'
+          ? `call1-prompt-${enrichedVd.vrm || 'lot'}.txt`
+          : process.env.MQ_DUMP_CALL1_PROMPT;
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(_dumpPath, _dumpText, 'utf8');
+        console.log(`[CALL1 DUMP] assembled Call-1 prompt (${_dumpText.length} chars, ${imageBlocks.length} images) → ${_dumpPath}`);
+      } catch (e) {
+        console.warn(`[CALL1 DUMP] failed: ${e.message}`);
+      }
+    }
 
     const LAMP_OBS_TOOL = {
       name: 'recordImpactObservation',
@@ -4601,22 +4644,29 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       return n;
     };
 
-    // IN-PLAY gate — independent of airbag deployment evidence (verbatim from the recovered gate).
-    const _srsInteriorVision = coreObs.costedParts.some(cp =>
-      cp.panelId === PANEL.OTHER && cp.zone === 'interior' && cp.independentlyVisible === true);
-    const _srsCabinImpact = frontStruck
-      || /front|cabin|interior|air\s?bag|roll[\s-]?over/i.test(`${enrichedVd.primaryDamage || ''} ${enrichedVd.secondaryDamage || ''}`);
-    const _srsGateOpen = _srsInteriorVision || _srsCabinImpact;
-
     // DEPLOYMENT — CODE-owned from the per-view AIRBAG enum (authoritative), corroborated by paste.
     const _airbagVotes    = pvResult.pvVotesMap?.AIRBAG ?? null;
     const _airbagEnumFlag = coreObs.flaggedParts.some(f => f.panelId === PANEL.AIRBAG);
     const _deploymentByEnum = (_airbagVotes?.damaged > 0) || _airbagEnumFlag;
     const _srsPaste = analyseAirbagPaste(enrichedVd.rawCopartPaste);
     const srsT = srsTierFromSignals(_deploymentByEnum, _srsPaste);
+
+    // IN-PLAY gate — §3 THIRD-DOOR FIX (Vincent, 29 Aug). Previously this gate opened on
+    // `frontStruck || /front|cabin|.../.test(enrichedVd.primaryDamage/secondaryDamage)` — i.e. on the
+    // COPART DAMAGE LABEL, a staff guess withheld from perception (batch 73). Its "Front End" on
+    // DL72FVX opened the gate and produced an airbag-unconfirmed HIGH defer flag on an UNDEPLOYED BEV.
+    // The label must not author the SRS gate code-side either. The gate now opens ONLY on genuine,
+    // independent evidence: a per-view interior OTHER hit the model actually saw, OR confirmed airbag
+    // deployment (enum/paste, via srsT.deploymentConfirmed). This preserves every real cost path
+    // (deployment ⟹ gate open ⟹ tier costed) and the perception-based defer (interior vision, no
+    // deployment), and drops ONLY the label-driven phantom. frontStruck/rearStruck are UNTOUCHED at
+    // source — they still force recordImpactObservation (run 4) — they are simply no longer read here.
+    const _srsInteriorVision = coreObs.costedParts.some(cp =>
+      cp.panelId === PANEL.OTHER && cp.zone === 'interior' && cp.independentlyVisible === true);
+    const _srsGateOpen = _srsInteriorVision || srsT.deploymentConfirmed;
     let srsInjected = false;
     let srsDeferred = false;
-    console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} cabinImpact=${_srsCabinImpact}) enumDeployed=${_deploymentByEnum} (votes=${_airbagVotes?.damaged ?? 0} amalgFlag=${_airbagEnumFlag}) paste={deployed:${_srsPaste.deployed},intact:${_srsPaste.intact},curtainSide:${_srsPaste.curtainSide},bothFront:${_srsPaste.bothFront}} → deploymentConfirmed=${srsT.deploymentConfirmed} tier=${srsT.tier ? 'T' + srsT.tier : 'none'} confident=${srsT.confident} countResolved=${srsT.countResolved} branch=${srsT.branch}`);
+    console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} deploymentConfirmed=${srsT.deploymentConfirmed}; label no longer opens the gate) enumDeployed=${_deploymentByEnum} (votes=${_airbagVotes?.damaged ?? 0} amalgFlag=${_airbagEnumFlag}) paste={deployed:${_srsPaste.deployed},intact:${_srsPaste.intact},curtainSide:${_srsPaste.curtainSide},bothFront:${_srsPaste.bothFront}} → tier=${srsT.tier ? 'T' + srsT.tier : 'none'} confident=${srsT.confident} countResolved=${srsT.countResolved} branch=${srsT.branch}`);
 
     if (_srsGateOpen && srsT.deploymentConfirmed) {
       // Deployment CERTAIN (enum and/or paste). Cost the tier — T1 is a confident FLOOR, never £0.
@@ -4663,7 +4713,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       suppressAirbagFlags();
       coreObs.flaggedParts.push({
         panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high',
-        reason: 'Front/cabin impact with airbag status unconfirmed in the listing — confirm whether the SRS airbags deployed on inspection before bidding.',
+        reason: 'Interior/cabin disturbance visible in the photos but airbag deployment not confirmed — confirm whether the SRS airbags deployed on inspection before bidding.',
         _srsDeferred: true,
       });
       srsDeferred = true;

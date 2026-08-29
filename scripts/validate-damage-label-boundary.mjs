@@ -32,8 +32,19 @@ ok('no "Seller/Copart Damage Description: ${enrichedVd.damageDescription}" conte
 console.log('\n(2) tool-forcing is preserved (nulling the fields at source is NOT the fix)');
 ok('frontStruck still reads enrichedVd.primaryDamage', /const frontStruck\s*=\s*\/front\/i\.test\(enrichedVd\.primaryDamage/.test(route));
 ok('rearStruck still reads enrichedVd.primaryDamage',  /const rearStruck\s*=\s*\/rear\/i\.test\(enrichedVd\.primaryDamage/.test(route));
-// Salvage-history records (prior auctions = events, KEPT) still carry their own damage descriptors.
-ok('salvage-history primary_damage_desc line is retained (it is an event, not the label)', route.includes('rec.primary_damage_desc'));
+// §2a (batch 80): the salvage-history record's OWN damage descriptors are now ALSO withheld from
+// perception. On a self-reference lot the register record IS the current lot, so its "event" damage is
+// the same Copart staff label re-entering (DL72FVX). Lot date + mileage stay; the buyer keeps the label
+// code-side (§7). This supersedes the batch-73 "record damage is an event, keep it" rule.
+ok('salvage-history no longer emits "Primary Damage: ${rec.primary_damage_desc}"',     !route.includes('Primary Damage: ${rec.primary_damage_desc}'));
+ok('salvage-history no longer emits "Secondary Damage: ${rec.secondary_damage_desc}"', !route.includes('Secondary Damage: ${rec.secondary_damage_desc}'));
+ok('salvage-history still emits Lot Date + Mileage at Sale', route.includes('Lot Date: ${rec.salvage_auction_lot_date}') && route.includes('Mileage at Sale:'));
+// §2b (batch 80): the salvage-history heading is NEUTRAL — it does not pre-judge the register record as
+// a PRIOR event (the DL72FVX falsehood), nor assert it is the lot's own entry (unproven). It names only
+// what the register returned. NB the source comment references the old wording in prose, so assert the
+// old TEMPLATE (with its `(${records.length}` interpolation), not the bare phrase.
+ok('no pre-judging "Previous Salvage Auction History (${records.length}" heading template', !route.includes('Previous Salvage Auction History (${records.length}'));
+ok('neutral "Salvage auction register records for this vehicle" heading present', route.includes('Salvage auction register records for this vehicle'));
 
 // ── ❌ ABSENT FROM THE CALL-2 EXTRACTION INPUT ────────────────────────────────────────────────────
 console.log('\n(3) the damage-label family is absent from the Call-2 input');
