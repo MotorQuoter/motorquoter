@@ -2162,8 +2162,16 @@ function amalgamate(groups, viewPanelSets) {
       console.log(`[AMALG] ${panelId} ${clean}/${resolving} clean → clear`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
     } else {
-      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → floor`);
-      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null });
+      // DISAGREE — some views saw damage, some saw it clean. Batch 81 §1 (Vincent): the engine must
+      // never silently resolve a disagreement — it surfaces it and the buyer rules. The panel STAYS in
+      // the ledger costed at its reconciled/table price AND carries this inspection flag; the visibility
+      // gate no longer strips it (lib/parts.mjs). iv stays false (it was not independently confirmed),
+      // so the _amalgDisagree marker — now on the COSTED entry, mirroring the flag — is how the gate and
+      // the §2 ledger/flag invariant recognise a disagree panel distinctly from a per-view CLEAR (which
+      // still strips). This is the over-count-safe direction: a costed-but-flagged phantom is challengeable;
+      // a silent deletion corrupts the total, the profit window and the bid ceiling with no trace.
+      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → COST + flag (batch 81 §1; gate no longer strips)`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgDisagree: true });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
     // C2 stamp: attach the member frames to whichever costed entry this group produced.
@@ -4347,8 +4355,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           continue;
         }
 
-        // Locate the bare disagree-floor costed twin: iv:false carrying NONE of the other
-        // floor/clear markers (the disagree branch at :1674 pushes exactly this shape).
+        // Locate the disagree-floor costed twin: iv:false carrying the _amalgDisagree marker and NONE
+        // of the other floor/clear markers (the disagree branch pushes exactly this shape — batch 81 §1
+        // added _amalgDisagree to the costed entry; the exclusions below are unchanged and still isolate
+        // it from per-view-clear / missing / uncorroborated / not-visible / rad / bumper-off twins).
         const twin = coreObs.costedParts.find(cp =>
           cp.panelId === panelId &&
           cp.independentlyVisible === false &&
@@ -4363,6 +4373,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // not ALSO surface in Inspection Flags (_flaggedParts is built downstream at FLAG SUPPRESS).
         twin.independentlyVisible = true;
         twin._stickyRescued = true;
+        delete twin._amalgDisagree;   // batch 81 §1: rescued = CONFIRMED, no longer a disagree (so the gate/§2 invariant do not treat it as costed-but-flagged)
         const fi = coreObs.flaggedParts.indexOf(flag);
         if (fi !== -1) coreObs.flaggedParts.splice(fi, 1);
         console.log(`[AMALG][STICKY] ${flag.partName} damaged=${votes.damaged}/${votes.resolving} ratio=${ratio.toFixed(3)} zone=${flag.zone} struck → cost (was disagree-floor)`);
