@@ -5245,7 +5245,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const isLabour = (nm) => /labour|paint|prep/i.test(nm || '');
       const labourRows = gatedParts.filter(p => isLabour(p.name));
       if (labourRows.length) {
-        const shape = process.env.LABOUR_SHAPE || 'value';
+        const shape = process.env.LABOUR_SHAPE || 'severity';   // Vincent's ruling (amendment 2): labour tracks the EXTENT of damage. severity locked; NO action multiplier (the repair×1.5 was an invented constant). Env override kept for evaluation only; prod never sets it.
         const sevByPanel = new Map();
         for (const cp of coreObs.costedParts) if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
         const severityOf = (p) => sevByPanel.get(p.panelId) || 'MODERATE';
