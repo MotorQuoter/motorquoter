@@ -2,6 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 🛑 REPO IDENTITY GUARD — CHECK THIS BEFORE ANYTHING ELSE
+
+**The live repo is `C:\Users\vincy\motorquoter-real`.** Stale copies of this project exist elsewhere on the
+machine and have already cost a session: on 28 Aug 2026 a Cowork session was connected to
+`C:\Users\vincy\Documents\motorquoter` — a **May checkout on branch `master`** — and reported that batch 73
+(`f2bb4c5`) "did not hold", when the commit simply was not in that tree.
+
+**Run this before trusting anything you read here:**
+
+```bash
+git rev-parse --abbrev-ref HEAD   # expect: main
+git log --oneline -1              # expect: a recent "(batch NN)" commit
+ls _cc/from_cowork.md             # must exist — the relay channel lives here
+```
+
+🔴 **If the branch is `master`, or `_cc/` is missing, YOU ARE IN THE WRONG TREE. Stop and say so.**
+Do not conclude that a commit is absent, that a fix "did not hold", or that work was never done, until
+this check passes. **Absent from the wrong tree is not absent.**
+
+---
+
+
 ## Project Overview
 
 MotorQuoter is a Next.js 15 full-stack application that provides UK vehicle valuations and intelligence reports via registration number lookup. Users can access three tiers of information: free (DVLA only), standard (+ valuation & AutoCheck), and pro (+ full MOT history). The application integrates with Stripe for payments, Supabase for caching, and multiple vehicle data APIs.
@@ -136,3 +160,75 @@ Free lookups don't require payment; Standard/Pro redirect to Stripe. In payment-
 - Two £ signs slipping through in WhatsApp checklist items
 - Vehicle Details section ordering inconsistent (Highlights/Additional Info labels appearing)
 - GBP 8,120.50 estimated retail value formatting in Vehicle Details
+
+---
+
+# WORKING RULES — added 24 Aug 2026
+
+## 1. Do not stop to ask whether you may continue
+
+**Work a batch through to completion and report once at the end.**
+
+**Stop only for these four:**
+
+1. **Spending money** — any live supplier call, any paid API, any vision run. Quote the cost and wait.
+2. **Merging to `main`.**
+3. **A product, pricing or commercial decision** — anything that changes what is sold, what it costs,
+   or what a customer is told.
+4. **Something the brief did not anticipate** — flag it, do not fold it in. *(Flagging the
+   `service_history` provider-failure gap rather than silently widening scope was exactly right.)*
+
+**Everything else: just do it.** Reading, grepping, branching, building, running validators, pushing a
+branch, writing a report. Do not ask. Do not park mid-task for confirmation.
+
+⚠️ **If a brief says "stand down" or "stop" where none of the four applies, treat it as habit and
+carry on.** Say in the report that you did.
+
+## 2. The relay channel
+
+`_cc/from_cowork.md` is the only channel read. A brief is not delivered until it is appended there as
+a numbered batch. Report into `_cc/handoff.md`.
+
+## 3. Evidence
+
+Every claim carries `file:line`, a command and its output, or a quoted payload.
+✅ VERIFIED = *I opened it* · ⚠️ REPORTED = *someone says so* · 🔶 INFERRED = **check it first**.
+**The key list is not the payload. The label is not the delivered value.**
+
+## 4. Testing
+
+⛔ **There is no local testing.** Validation happens on a **Vercel preview deploy** or production,
+never localhost. Supplier keys are Vercel-only and are deliberately absent from `.env.local` — do not
+"fix" that. A live supplier call cannot be fired from the local repo.
+
+⚠️ **Testing costs real money.** `validate-aperture-rescue` makes live vision calls and is not part of
+the merge gate.
+
+## 5. Before re-running work, check whether it is already done
+
+Finished-but-unmerged and finished-but-uncommitted are both real states here and have cost weeks.
+**Check the disk and the branch list before rebuilding anything.**
+
+## 6. ⚠️ The Project Overview above is STALE
+
+*"three tiers … free / standard / pro"* — **tier bundles are dead.** The GB product is an
+**à-la-carte menu** (`config/pricing.js`); Ireland is moving to a **bundle**. Read `config/pricing.js`
+at HEAD, never this file, for what is sold and at what price.
+
+## WORKING RULE — never `cd` before `git`
+
+**Use `git -C <path> <cmd>`, or rely on the cwd you are already in. NEVER `cd <path> && git <cmd>`.**
+
+Claude Code treats `cd`-then-`git` as a distinct risk — a git hook in the target directory can execute
+arbitrary code — so it prompts for approval EVERY time, no matter what is in `permissions.allow`.
+`Bash(cd *)` and `Bash(git *)` being allowed does not suppress it, because the warning is about the
+combination, not either command.
+
+`git -C` does not change directory, so the heuristic never fires.
+
+    NO:   cd /repo && git status
+    YES:  git -C /repo status
+    BEST: git status            (you are already in the repo)
+
+Same for any other tool with a directory-scoped flag. If a command genuinely needs a different cwd,
+prefer a subshell for the non-git part and keep git out of it.
