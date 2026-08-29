@@ -3921,6 +3921,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     coreObs.costedParts  = pvResult.costedParts;
     coreObs.flaggedParts = pvResult.flaggedParts;
     assessment._pvVotes  = pvResult.pvVotesMap ?? null;
+
+    // ── §9 FLAG-TRACE SEAM (batch 81) — dev-only, env-flagged, £0, never fires in prod ─────────────
+    // Batch 79/81 could not name the line that removes a disagree panel's flag downstream (DL72FVX's
+    // WHEEL_ARCH_MOULDING vanished silently). The §2 invariant re-establishes it regardless, but this
+    // seam names WHERE it goes: when MQ_TRACE_FLAGS is set, it logs the disagree / single-MINOR flag
+    // panelIds present at each stage, so ONE instrumented run bisects the removal to a code region. The
+    // markers are on the amalgamate flags, so the trace follows the exact class the invariant guards.
+    const _traceFlags = (stage) => {
+      if (!process.env.MQ_TRACE_FLAGS) return;
+      const ids = (coreObs.flaggedParts || [])
+        .filter(f => f._amalgDisagree || f._amalgSingleMinor)
+        .map(f => `${f.panelId}${f._amalgSingleMinor ? '(minor)' : ''}`);
+      console.log(`[FLAG TRACE][${stage}] disagree/single-minor flags present: [${ids.join(', ')}]`);
+    };
+    _traceFlags('post-amalgamate');
     if (pvResult.pvVotesCollision) {
       assessment._pvVotesCollision = true;
       console.warn('[AMALG] key collision in pvVotes — duplicate canonical part name; see _pvVotesCollision marker');
@@ -4392,6 +4407,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         console.log(`[AMALG][STICKY] ${flag.partName} damaged=${votes.damaged}/${votes.resolving} ratio=${ratio.toFixed(3)} zone=${flag.zone} struck → cost (was disagree-floor)`);
       }
     }
+    _traceFlags('post-sticky-and-flank-reads');
     // ── End in-zone sticky cost rescue ─────────────────────────────────────────
 
     // ── Zone-consistency floor (cross-zone fabrication gate) ───────────────────
@@ -4554,6 +4570,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // (same £0-in-total, band-shown-as-allowance treatment as the reconcileParts lamp allowances).
     const { gatedParts, gateAllowanceParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
     if (gateAllowanceParts?.length) allowanceParts.push(...gateAllowanceParts);
+    _traceFlags('post-gate');
 
     // Tier-1 orphan clamp disclosure — reconcileParts marks assumed-LED orphan rows; the disclosure
     // follows the assumption, so emit the assumed-LED inspection flag here wherever such a row survives
@@ -4975,6 +4992,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._suppressActive = _struckZoneSet.size === 1 && !_struckZoneSet.has('roof');
     console.log(`[FLAG SUPPRESS] struckZones=[${assessment._struckZones.join(', ')}] suppressActive=${assessment._suppressActive} (perZone=${(coreObs.perZone || []).length} frontStruck=${frontStruck} rearStruck=${rearStruck})`);
 
+    _traceFlags('pre-invariant');
     // ── §2 LEDGER/FLAG INVARIANT (batch 81) ────────────────────────────────────────────────────────
     // Every panel amalgamate DECIDED ABOUT — a disagree floor OR a single-unsupported-MINOR (Ruling 2) —
     // must reach the buyer as exactly one inspection flag. Silent clearance is the defect, at either
