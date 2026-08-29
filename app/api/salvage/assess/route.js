@@ -204,62 +204,48 @@ function catLetter(s) {
   return null;
 }
 
-// Generalised to N records (brief decision #3 — "the Juke" had 2 records, 1 was self, and the
-// single-record-only check missed it). Same self-match predicate (mileage ±50 / category /
-// damage-text) now runs across every record; isSelfReferenceFirstWriteOff is preserved for the
-// existing web/PDF render branch — true when the WHOLE history is self-matches (the single-record
-// case is just N=1 of that), so "first write-off" still means "no PRIOR history exists".
-// selfMatchCount/recordsExcludingSelf are new: they feed the salvage-count-excl-self CORE slot.
-// Maximum days between today and a salvage record date for the record to be considered a
-// potential self-reference (the current lot's own first write-off). Used by tagSelfReference()
-// and the prose-override date guard in buildSalvageCountSlot — both must use this constant
-// so the windows cannot drift independently.
-const SELF_REF_DATE_WINDOW_DAYS = 14;
-
+// Self-reference by LOT NUMBER (Vincent's ruling, 29 Aug 2026). Every salvage record carries the
+// Copart lot number in salvage_auction_record_id (the documented "Salvage record id", integer); the
+// engine already holds the same number as vd.lotNumber. They are equal ⟺ the record IS this listing's
+// own auction event — a self-reference, not a prior. This is the ONLY self-match test. The retired
+// 14-day-window + mileage(±100) + category predicate could not separate self from a genuine prior:
+// across the fixture set the record sits 0–81 days BEFORE the listing's own sale date with no pattern,
+// so no date window (and no mileage/category proxy) can do the job — only the lot number can.
+// Generalised to N records; isSelfReferenceFirstWriteOff stays true when the WHOLE history is
+// self-matches (N=1 is just a case of that), so "first write-off" still means "no PRIOR history".
+// selfMatchCount / recordsExcludingSelf feed the salvage-count-excl-self CORE slot.
+//
+// NB salvage_auction_reference is NOT in SalvageGuide's published spec (carguide/salvagecheck/v2) —
+// present in every observed record but undocumented and withdrawable, so it is read as corroboration
+// only, never as the sole basis of a match. salvage_auction_record_id IS documented and is the key.
 function tagSelfReference(shResult, vd) {
   if (!shResult) return;
   const records = shResult.salvage_auction_records || [];
-  let currentMileage = null;
-  if (vd.copartListedMileage != null) {
-    currentMileage = Number(vd.copartListedMileage);
-  } else if (vd.odometer != null) {
-    const n = parseInt(String(vd.odometer).replace(/[^0-9]/g, ''), 10);
-    if (!isNaN(n)) currentMileage = n;
-  }
-  const curCat = catLetter(vd.category);
-  const today = new Date();
+  const lotNumber = vd.lotNumber != null ? String(vd.lotNumber).trim() : null;
+  const saleMs = vd.saleDate?.ms ?? null; // the listing's own auction sale date — future-date guard
   const selfFlags = records.map((rec) => {
-    // Date is the required primary gate — a record excludes ONLY IF within SELF_REF_DATE_WINDOW_DAYS AND mileage+category match.
-    // Any record older than that window is ALWAYS a genuine prior regardless of mileage proximity.
-    let daysDelta = null;
-    if (rec.salvage_auction_lot_date) {
-      const recDate = new Date(rec.salvage_auction_lot_date);
-      if (!isNaN(recDate.getTime())) {
-        daysDelta = Math.abs((today - recDate) / (1000 * 60 * 60 * 24));
-      } else {
-        console.warn(`[SELF-REF] Unparseable lot date "${rec.salvage_auction_lot_date}" — record counted as genuine prior`);
-      }
-    } else {
-      console.warn('[SELF-REF] No lot date on salvage record — record counted as genuine prior');
+    // PRIMARY + ONLY test — lot-number identity.
+    const recId = rec.salvage_auction_record_id != null ? String(rec.salvage_auction_record_id).trim() : null;
+    if (lotNumber != null && recId != null && recId === lotNumber) {
+      console.log(`[SELF-REF] id-hit: record ${recId} === lot ${lotNumber} → self-reference (excluded from prior count)`);
+      return true;
     }
-    if (daysDelta === null || daysDelta > SELF_REF_DATE_WINDOW_DAYS) return false; // date gate: required AND condition
-
-    const mileageMatch = currentMileage != null && rec.mileage != null
-      ? Math.abs(rec.mileage - currentMileage) <= 100
-      : null; // mileage unavailable → cannot confirm self-reference → genuine prior
-    const recCat = catLetter(rec.salvage_auction_lot_desc);
-    const categoryMatch = recCat != null && curCat != null && recCat === curCat;
-
-    // Damage text is corroboration only — logged but does NOT gate the decision
-    if (mileageMatch === true && categoryMatch) {
-      const damageTextCorroborates = vd.primaryDamage != null && rec.primary_damage_desc != null
-        && rec.primary_damage_desc.toLowerCase().trim() === vd.primaryDamage.toLowerCase().trim();
-      if (!damageTextCorroborates) {
-        console.log(`[SELF-REF] Date+mileage+category match; damage text differs — still self-reference. Listing: "${vd.primaryDamage}" / Record: "${rec.primary_damage_desc}"`);
+    // Future-date guard (ruling 4): a record dated AFTER the listing's own sale date can never be a
+    // prior — a prior event is necessarily earlier. Belt-and-braces behind the id test; fires only
+    // when the sale date is known and the record date is strictly later.
+    if (saleMs != null && rec.salvage_auction_lot_date) {
+      const recMs = new Date(rec.salvage_auction_lot_date).getTime();
+      if (!isNaN(recMs) && recMs > saleMs) {
+        console.log(`[SELF-REF] future-date-guard: record ${rec.salvage_auction_lot_date} is after the listing sale ${new Date(saleMs).toISOString()} → cannot be a prior (excluded)`);
+        return true;
       }
     }
-
-    return mileageMatch === true && categoryMatch; // date already gated above
+    // No id match and not future-dated: we cannot prove self-reference without the key and we do not
+    // guess. The record STANDS AS A GENUINE PRIOR — the recoverable over-count direction (a wrongly
+    // shown prior is recoverable; a hidden one is not). The retired date+mileage fallback is NOT
+    // reinstated in any reduced form.
+    console.log(`[SELF-REF] id-miss: record ${recId ?? 'null'} != lot ${lotNumber ?? 'null'} → genuine prior retained`);
+    return false;
   });
   const selfMatchCount = selfFlags.filter(Boolean).length;
   shResult.selfMatchCount = selfMatchCount;
@@ -617,24 +603,13 @@ function buildSalvageCountSlot(enrichedVd, proseFlags) {
   // Guard: selfMatchCount===0 means code found no self-match; prose may have caught what code missed.
   // When selfMatchCount>=1 code already handled the self-reference — the remaining excl is a genuine prior.
   if (excl === 1 && !sh.isSelfReferenceFirstWriteOff && proseCorroboratesSelf && (sh.selfMatchCount ?? 0) === 0) {
-    // Date guard: only fires when the candidate record is within SELF_REF_DATE_WINDOW_DAYS.
-    // A record outside that window is a genuine prior by date alone — prose cannot override a hard date fact.
+    // Second line of defence, freed of its date guard (Vincent, 29 Aug — the 14-day window is retired
+    // everywhere). The lot-number id test is primary; a self-reference it could not make — e.g. a
+    // non-Copart lot in a different numbering — can still be rescued by the model's prose confirmation.
     // Invariant: excl===1 && selfMatchCount===0 ⟹ records.length===1, so records[0] is the single candidate.
-    const candidate = (sh.salvage_auction_records || [])[0];
-    let overrideDateOk = false;
-    if (candidate?.salvage_auction_lot_date) {
-      const recDate = new Date(candidate.salvage_auction_lot_date);
-      if (!isNaN(recDate.getTime())) {
-        overrideDateOk = Math.abs((Date.now() - recDate.getTime()) / (1000 * 60 * 60 * 24)) <= SELF_REF_DATE_WINDOW_DAYS;
-      }
-    }
-    if (overrideDateOk) {
-      console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed self-reference that code missed (within 14-day window) — effectiveExcl forced from 1 to 0. Review tagSelfReference() criteria for this lot.');
-      excl = 0;
-      proseOverrideApplied = true;
-    } else {
-      console.error('[SALVAGE SELF-REF OVERRIDE REJECTED] Record date outside 14-day window — date guard blocked the prose override; genuine prior retained.');
-    }
+    console.error('[SALVAGE SELF-REF OVERRIDE] Prose confirmed a self-reference the lot-number test could not make — effectiveExcl forced from 1 to 0. Review tagSelfReference() for this lot.');
+    excl = 0;
+    proseOverrideApplied = true;
   }
   if (excl >= 2 && proseCorroboratesSelf) {
     console.error('[SALVAGE SELF-REF MISMATCH] Prose claims self-reference but code found 2+ records excluding self. Code wins upward — override not applied. Investigate.');
