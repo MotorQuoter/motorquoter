@@ -24,7 +24,7 @@ import {
 } from '@/lib/coreSlots';
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
-  applyVisibilityGate, finalizeLampInstrumentation,
+  applyVisibilityGate, finalizeLampInstrumentation, computeLabourRatio,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON, BUMPER_OFF_MOUNTING_REASON, BUMPER_OFF_SYMMETRIC_REASON, BUMPER_OFF_UNCOSTABLE_REASON,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -2129,7 +2129,7 @@ function amalgamate(groups, viewPanelSets) {
         // parts_sum); _amalgSingleMinor marks both the entry and the flag so the §2 invariant guarantees
         // the flag reaches the buyer even if a downstream splice removes it. The buyer prices it (batch 82).
         console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → low-weight flag, no cost (Ruling 2)`);
-        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true, _amalgSingleMinor: true });
+        costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true, _amalgSingleMinor: true, _ledgerSeverity: 'MINOR' });
         flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_SINGLE_MINOR, _amalgSingleMinor: true });
       }
     } else if (damaged > 0 && clean === 0) {
@@ -2182,8 +2182,13 @@ function amalgamate(groups, viewPanelSets) {
       // the §2 ledger/flag invariant recognise a disagree panel distinctly from a per-view CLEAR (which
       // still strips). This is the over-count-safe direction: a costed-but-flagged phantom is challengeable;
       // a silent deletion corrupts the total, the profit window and the bid ceiling with no trace.
-      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → COST + flag (batch 81 §1; gate no longer strips)`);
-      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgDisagree: true });
+      // Extent grade for the labour shape (batch 81 amendment 2): a disagree survivor carries the
+      // severity of its DAMAGED views (the extent the buyer is inspecting for), so severity-weighted
+      // labour can weight it. SEVERE if any damaged view was SEVERE, else MODERATE if any MODERATE, else
+      // MINOR. Independent of the cost figure — extent, not value.
+      const _disagreeSev = damagedSevs.includes('SEVERE') ? 'SEVERE' : (hasModerate ? 'MODERATE' : 'MINOR');
+      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → COST + flag (batch 81 §1; gate no longer strips) sev=${_disagreeSev}`);
+      costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgDisagree: true, _ledgerSeverity: _disagreeSev });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
     // C2 stamp: attach the member frames to whichever costed entry this group produced.
@@ -5227,32 +5232,37 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // ── §4 LABOUR RECONCILIATION (batch 81, Vincent) ───────────────────────────────────────────────
-    // Labour/paint is summed into parts_sum unconditionally and is filtered out of the displayed part
-    // list — so before this it could ship (DL72FVX) £520 to fit and paint ZERO surviving panels. Labour
-    // is now scaled to the VALUE of the parts that actually survived, relative to what the model
-    // originally costed (reconcileParts output, pre-gate). NON-NEGOTIABLE FLOOR: zero surviving costed
-    // parts ⟹ zero labour. Partial case — the recommended shape (Vincent to confirm): PROPORTIONAL TO
-    // SURVIVING PART VALUE, because a bigger part carries more fit/paint labour than a smaller one, so
-    // value is a better proxy than count. Ratio capped at 1 (labour never grows). One sentence: labour
-    // tracks the value of the parts it is actually fitting. Runs AFTER fog seeding (surviving includes a
-    // confirmed seeded fog) and BEFORE parts_sum. Touches labour rows only; never a part, never a flag.
+    // ── §4 LABOUR RECONCILIATION (batch 81, Vincent amendment 2) ───────────────────────────────────
+    // Labour/paint is summed into parts_sum unconditionally and filtered out of the displayed list — so
+    // before this it could ship (DL72FVX) labour to fit and paint ZERO surviving panels. Labour now
+    // follows what SURVIVES. NON-NEGOTIABLE FLOOR: zero surviving costed parts ⟹ zero labour. The partial
+    // shape is chosen by lib/parts.computeLabourRatio; Vincent's ruling (amendment 2): labour tracks the
+    // EXTENT of damage, not value. LABOUR_SHAPE selects the shape for the evaluation sweep (default the
+    // value baseline until Vincent picks). severityOf maps each part to its per-view verdict grade
+    // (_ledgerSeverity, now stamped on confirmed AND disagree AND single-minor entries). Runs AFTER fog
+    // seeding and BEFORE parts_sum. Touches labour rows only; never a part, never a flag.
     {
       const isLabour = (nm) => /labour|paint|prep/i.test(nm || '');
       const labourRows = gatedParts.filter(p => isLabour(p.name));
       if (labourRows.length) {
+        const shape = process.env.LABOUR_SHAPE || 'value';
+        const sevByPanel = new Map();
+        for (const cp of coreObs.costedParts) if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
+        const severityOf = (p) => sevByPanel.get(p.panelId) || 'MODERATE';
+        const ratio = computeLabourRatio({
+          survivingParts: gatedParts.filter(p => !isLabour(p.name)),
+          preGateParts:   (reconciledParts || []).filter(p => !isLabour(p.name)),
+          severityOf, shape,
+        });
         const val = (p) => p.used ?? p.oem ?? 0;
-        const survivingPartValue = gatedParts.filter(p => !isLabour(p.name)).reduce((a, p) => a + val(p), 0);
-        const preGatePartValue   = (reconciledParts || []).filter(p => !isLabour(p.name)).reduce((a, p) => a + val(p), 0);
-        const ratio = survivingPartValue <= 0 ? 0 : (preGatePartValue > 0 ? Math.min(1, survivingPartValue / preGatePartValue) : 1);
         for (const lr of labourRows) {
           const before = val(lr);
           const scaled = Math.round(before * ratio);
           if (lr.used != null) lr.used = scaled; else lr.oem = scaled;
           lr._labourReconciled = true;
-          if (scaled !== before) console.log(`[LABOUR RECONCILE] "${lr.name}" £${before} → £${scaled} (surviving part value £${survivingPartValue} / pre-gate £${preGatePartValue}, ratio ${ratio.toFixed(3)})`);
+          if (scaled !== before) console.log(`[LABOUR RECONCILE][${shape}] "${lr.name}" £${before} → £${scaled} (ratio ${ratio.toFixed(3)})`);
         }
-        if (survivingPartValue <= 0) console.error('[LABOUR RECONCILE] zero surviving costed parts → labour zeroed (it was fitting nothing)');
+        if (ratio === 0) console.error('[LABOUR RECONCILE] zero surviving costed parts → labour zeroed (it was fitting nothing)');
       }
     }
 
