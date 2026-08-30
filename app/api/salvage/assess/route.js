@@ -1660,7 +1660,6 @@ const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagg
 // cosmetic and uncorroborated reasons so the buyer can tell how strong the signal is.
 const AMALG_REASON_SINGLE_MINOR = 'one photo suggested light damage here; the other views of this area did not — a single weak signal, not confirmed and not dismissed; carries no cost. If it matters to you, confirm on the WhatsApp inspection and add your own figure.';
 const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
-const ZONE_FLOOR_REASON = 'damage recorded in a zone not supported by the listing damage description or overall impact pattern — verify on the WhatsApp inspection before bidding';
 // Byte-for-byte copy of the gate's inline RQ rider (parts.mjs :282) — appended to
 // BUMPER_OFF_SEAM_REASON for rear-quarter so the no-model-row push matches the gate's
 // with-model-row flag reason exactly. Leading space is intentional (concatenation join).
@@ -4414,65 +4413,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     }
     _traceFlags('post-sticky-and-flank-reads');
     // ── End in-zone sticky cost rescue ─────────────────────────────────────────
-
-    // ── Zone-consistency floor (cross-zone fabrication gate) ───────────────────
-    // A COST-class panel whose zone is NOT supported by the LISTING damage fields is
-    // floored to a medium-weight inspection flag. One-way: cost→flag only — never
-    // promotes, clears, or touches flags/allowance rows.
-    //
-    // Struck set is derived HERE, LOCALLY, and DECORRELATED from perZone. perZone is the
-    // CALL1→CALL2 pass that also fabricates the cross-zone damage (NC73FKV + SF69YBB both
-    // carry perZone-sourced 'rear' on a front strike), so a perZone-inclusive set is inert
-    // by construction. Instead read all three listing damage fields (post-boilerplate-filter
-    // enrichedVd values — additionalDamage has no other code consumer, carries "Rear EndSide"
-    // on SF69). NOT the :2768 frontStruck/rearStruck (those feed lamp/SRS/sticky — out of scope).
-    //
-    // Front↔rear only: these are the two zones the listing reliably expresses. flank-damaged-side
-    // / roof / underside / interior panels are NOT adjudicated here (interior/AIRBAG is impact/
-    // run-condition-gated elsewhere; the others have no decorrelated listing signal) — they pass.
-    // WHEEL/TYRE exempt: their cost is owned by the WHEEL_INJECT/TYRE_INJECT mechanism.
-    // Runs AFTER sticky rescue (final zone assignments; a floored panel cannot be re-promoted —
-    // sticky already ran and only touches _amalgDisagree) and BEFORE reconcileParts.
-    assessment._zoneFloored = [];
-    {
-      const GATEABLE_ZONES = new Set(['front', 'rear']);
-      const ZONE_FLOOR_EXEMPT_PANELS = new Set([PANEL.WHEEL, PANEL.TYRE]);
-      const _gateBlob = [enrichedVd.primaryDamage, enrichedVd.secondaryDamage, enrichedVd.additionalDamage]
-        .filter(Boolean).join(' ');
-      const gateStruck = new Set();
-      if (/front/i.test(_gateBlob)) gateStruck.add('front');
-      if (/rear/i.test(_gateBlob))  gateStruck.add('rear');
-      if (gateStruck.size === 0) {
-        console.log('[ZONE FLOOR] disabled — no listing zone evidence');
-      } else {
-        for (const cp of coreObs.costedParts) {
-          if (cp.independentlyVisible !== true) continue;
-          if (ZONE_FLOOR_EXEMPT_PANELS.has(cp.panelId)) continue;
-          if (!GATEABLE_ZONES.has(cp.zone)) continue;            // only front/rear zones adjudicated
-          const rawClass = PANEL_BEHAVIOUR[cp.panelId];
-          const effClass = rawClass === PANEL_CLASS.EV_CONDITIONAL ? EV_PANEL_RESOLVED_CLASS[cp.panelId] : rawClass;
-          if (effClass !== PANEL_CLASS.COST) continue;
-          if (gateStruck.has(cp.zone)) continue;                 // zone struck per listing → legitimate, keep
-          // zone (front/rear) absent from the listing-derived struck set → fabrication-suspect → floor.
-          // iv=false in place: gate strips the model row from the total, G-inject guard skips a _gOwned
-          // entry (:3553-style). Push the specific flag here so the gate's generic strip reason dedups
-          // out (parts.mjs :280 keys on partName). Additive only — no cost path.
-          cp.independentlyVisible = false;
-          cp._zoneFloored = true;
-          coreObs.flaggedParts.push({
-            panelId:  cp.panelId,
-            partName: PANEL_DISPLAY[cp.panelId],
-            zone:     cp.zone,
-            weight:   'medium',
-            reason:   ZONE_FLOOR_REASON,
-            _zoneFloored: true,
-          });
-          assessment._zoneFloored.push(cp.panelId);
-          console.log(`[ZONE FLOOR] panel=${cp.panelId} zone=${cp.zone} struckZones=[${[...gateStruck].join(',')}] → floored`);
-        }
-      }
-    }
-    // ── End zone-consistency floor ─────────────────────────────────────────────
 
     // ── Attribution probe (commit 2) — universal per-panel claim challenge ──────
     // Option B: fire over the surviving costed set (iv:true) right here, after every upstream floor
