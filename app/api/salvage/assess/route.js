@@ -402,16 +402,6 @@ function buildCategorySlot(enrichedVd) {
 // Copart is the most ordinary thing in the auction. The constants and their derived flags are gone;
 // Path B (non-insurer C/Q vendor suffix) carries provenance instead.)
 
-// Structural floor (NOT a meaning-test): a model provenance reason may quote into the buyer-facing
-// slot only if it is sentence-shaped — ≥20 trimmed chars AND ≥4 whitespace-delimited words. This
-// rejects fragments ("concern", "salvage", "Q suffix") that pass a bare non-empty check. What
-// COUNTS as a real provenance concern stays the Call-2 schema's job; this only refuses to render a
-// non-sentence as a reason. Deliberately crude — no keyword lists, no semantic judgement.
-function isSubstantiveReason(s) {
-  const t = (s || '').trim();
-  return t.length >= 20 && t.split(/\s+/).filter(Boolean).length >= 4;
-}
-
 // Code-owned provenance concern — two-tier, deterministic from category + resolved vendor suffix.
 // Returns 'catU' | 'catS' | null. Requires a non-insurer suffix (C or Q) either way.
 //   TIER 1 'catU' (primary): positively-recorded Cat U ("U …", e.g. "U - Used Unrecorded") — never
@@ -429,45 +419,36 @@ function qcProvenanceConcern(enrichedVd, vendorSuffix) {
   return null;
 }
 
-function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, proseFlags) {
-  // BATCH 88 — PROVENANCE COLLAPSE. Every car in this auction is a write-off; telling the buyer "the
-  // salvage story holds together" is not information (it fails the £8.99 test). The one question with
-  // signal is WHO ENTERED the car, and the windscreen vendor suffix is the SOLE admissible witness (§A):
-  //   • non-insurer (C/Q) on Cat U/S  → SPEAK (qcProvenanceConcern) — nobody underwrote/assessed it.
-  //   • everything else (insurer X/P, or unmapped/unreadable/absent) → SILENCE (return null below).
-  // The old confirmed / cannot-confirm / age-mileage-arithmetic paths are gone (batch 87 killed the
-  // arithmetic; D1 banned the descriptor; the :448 age/mileage/category guard was a live hole — Path B
-  // needs none of the three). proseFlagged is KEPT (batch 88 §4): its three concern limbs are a SINGLE
-  // Call-2 boolean and cannot be split, so it is NOT deleted here — Vincent rules on it separately.
-  const proseReason  = (proseFlags?.provenanceConcernReason || '').trim();
-  const proseFlagged = proseFlags?.provenanceConcernFlagged === true && isSubstantiveReason(proseReason);
-
-  const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
-
-  // Code path B (two-tier): non-insurer (C/Q) entry on Cat U (primary) or Cat S (secondary).
-  // (Code path A — the age+mileage+minimal-damage "too clean" heuristic — was DELETED in batch 87 §6:
-  // descriptor-derived and inadmissible under D1, and the corpus showed it pointing the wrong way.)
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix) {
+  // BATCH 88 — PROVENANCE COLLAPSE + proseFlagged DELETED (batch 88 follow-up, Vincent's word). Every
+  // car here is a write-off, so "the salvage story holds together" is not information. The ONE question
+  // with signal is WHO ENTERED the car, and the windscreen vendor suffix is the sole admissible witness
+  // (§A): non-insurer (C/Q) on Cat U/S → SPEAK (qcProvenanceConcern); everything else → SILENCE (return
+  // null → caller omits via .filter(Boolean)). proseFlagged is gone — limb 1 (suffix) is dead under §A;
+  // limb 2 (Copart re-entry) is owned by tagSelfReference + buildSalvageCountSlot (prose-independent,
+  // fires on DL72FVX); limb 3 (damage-doesn't-explain-writeoff) reasons from the D1-banned descriptor.
+  // NB the Call-2 provenanceConcern* fields are still EXTRACTED but now UNREAD: removing them from the
+  // Call-2 schema would change the request body and break the £0 cassette hash, so it is a separate
+  // re-capture step (batch 88 note), NOT folded in here.
+  // Path B is the whole check now: qcProvenanceConcern already requires a non-insurer suffix, so any
+  // hit is a red-severity concern by construction.
   const provConcern = qcProvenanceConcern(enrichedVd, vendorSuffix); // 'catU' | 'catS' | null
 
-  // Conservative union: discrepancy if EITHER surviving path fires (Path B, or a substantive prose flag)
-  if (provConcern || proseFlagged) {
+  if (provConcern) {
     const descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
     const signals = [];
     if (provConcern === 'catU') signals.push('non-insurer entry with no insurance salvage category recorded (Cat U — history unvouched)');
     if (provConcern === 'catS') signals.push('non-insurer entry on a Cat S structural write-off (historic category — possible unrepaired re-entry)');
-    if (proseFlagged)         signals.push(proseReason);
     const whatsappParts = [];
     if (provConcern === 'catU') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on an uncategorised Cat U — establish why it is in salvage');
     if (provConcern === 'catS') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on a Cat S write-off — possible re-entered unrepaired lot');
-    if (proseFlagged)         whatsappParts.push(`provenance concern raised — ${proseReason}`);
     return buildSlot({
       id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
       kind: 'confirmation', verdict: 'discrepancy',
       detail: `${descriptor} — ${signals.join('; ')}`,
-      confidence: proseFlagged ? 'corroborated' : 'inferred',
-      source: proseFlagged ? 'code+model' : 'code',
+      confidence: 'inferred', source: 'code',
       flag: {
-        severity: (nonInsurerSuffix || proseFlagged) ? 'red' : 'caution',
+        severity: 'red',
         whatsapp: `${whatsappParts.join('; ')}. Ask the handler directly why this vehicle was written off and press for an explanation before bidding`,
         tier: 1,
       },
@@ -492,7 +473,7 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFla
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
-      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, proseFlags),
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix),
     ].filter(Boolean),
   });
 }
