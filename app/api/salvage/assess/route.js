@@ -3256,21 +3256,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // SalvageGuide Bid Predictor — labelled market cross-check. Data-layer only; salvage_category
         // is a DATA param (never enters the model's context — category-blindness is unaffected).
         // Fail-safe: any error / missing category / no numbers → null → the block is simply omitted.
-        // Finding 7: salvage_category / current_mileage / primary_damage_desc ALL vary the prediction,
-        // so all three are in the cache key — a re-listed VRM at a new category no longer serves the
-        // stale one. Computed once here for both the key and the request.
+        // D1 (batch 87 §2): primary_damage_desc REMOVED — the Copart damage descriptor is inadmissible
+        // (wrong in both directions across the corpus; on SF69YBB the string sent was literally "Unknown").
+        // salvage_category / current_mileage remain and still vary the prediction, so both stay in the
+        // cache key. Dropping the desc param CHANGES the key → existing SALVAGEGUIDE cache entries are
+        // invalidated, which is correct: they were computed on inadmissible input.
         (() => {
           const sgCat = catLetter(enrichedVd.category)?.toUpperCase();
           const sgMileage = Number.isFinite(Number(brMileage)) ? String(Math.round(brMileage)) : undefined;
-          const sgDamage = enrichedVd.primaryDamage || undefined;
           return withOneAutoCache(
             'SALVAGEGUIDE', cleanVrmB,
-            { salvage_category: sgCat, current_mileage: sgMileage, primary_damage_desc: sgDamage },
+            { salvage_category: sgCat, current_mileage: sgMileage },
             async () => {
               if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
               const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
               if (sgMileage) p.set('current_mileage', sgMileage);
-              if (sgDamage) p.set('primary_damage_desc', sgDamage);
               const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
               const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
               const result = raw?.result ?? raw;
