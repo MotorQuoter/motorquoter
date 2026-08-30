@@ -429,39 +429,18 @@ function qcProvenanceConcern(enrichedVd, vendorSuffix) {
   return null;
 }
 
-function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags) {
-  const currentYear = new Date().getFullYear();
-  const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
-  const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
-  const cat = (enrichedVd.category || '').trim();
-
-  // Reason-gated: a bare boolean may not drive a buyer-facing assertion. The proseFlagged
-  // contributor fires ONLY when the model both set the flag AND named a SUBSTANTIVE (sentence-
-  // shaped) reason — see isSubstantiveReason. flag===true with an empty/absent/fragment reason →
-  // suppressed (treated as no model concern); Path B (qcProvenanceConcern) still renders
-  // on its own merits, unchanged.
+function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, proseFlags) {
+  // BATCH 88 — PROVENANCE COLLAPSE. Every car in this auction is a write-off; telling the buyer "the
+  // salvage story holds together" is not information (it fails the £8.99 test). The one question with
+  // signal is WHO ENTERED the car, and the windscreen vendor suffix is the SOLE admissible witness (§A):
+  //   • non-insurer (C/Q) on Cat U/S  → SPEAK (qcProvenanceConcern) — nobody underwrote/assessed it.
+  //   • everything else (insurer X/P, or unmapped/unreadable/absent) → SILENCE (return null below).
+  // The old confirmed / cannot-confirm / age-mileage-arithmetic paths are gone (batch 87 killed the
+  // arithmetic; D1 banned the descriptor; the :448 age/mileage/category guard was a live hole — Path B
+  // needs none of the three). proseFlagged is KEPT (batch 88 §4): its three concern limbs are a SINGLE
+  // Call-2 boolean and cannot be split, so it is NOT deleted here — Vincent rules on it separately.
   const proseReason  = (proseFlags?.provenanceConcernReason || '').trim();
   const proseFlagged = proseFlags?.provenanceConcernFlagged === true && isSubstantiveReason(proseReason);
-  const proseNull    = proseFlags?.provenanceConcernFlagged === null; // Call 2 unavailable
-
-  if (ageYears == null || brMileage == null || !cat) {
-    // Code arithmetic impossible — surface prose concern if present
-    if (proseFlagged) {
-      return buildSlot({
-        id: 'provenance-contradiction', label: '"Why is it here?" — provenance concern flagged',
-        kind: 'confirmation', verdict: 'discrepancy',
-        detail: `Provenance concern: ${proseReason} (insufficient listing data for code arithmetic)`,
-        confidence: 'inferred', source: 'code+model',
-        flag: { severity: 'red', whatsapp: `Provenance concern raised: ${proseReason}. Ask the handler directly why this vehicle is in salvage before bidding`, tier: 1 },
-      });
-    }
-    return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — cannot confirm',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: 'Not enough listing data (age / mileage / category) to test whether the salvage story holds together',
-      confidence: 'hidden', source: 'code',
-    });
-  }
 
   const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
 
@@ -495,36 +474,26 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     });
   }
 
-  // All three clean — check prose faithfulness availability
-  if (proseNull) {
-    // Call 2 failed: code found nothing but prose check unavailable — cannot confirm clear
-    return buildSlot({
-      id: 'provenance-contradiction', label: '"Why is it here?" — cannot confirm',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: 'Provenance code arithmetic found no concern, but prose faithfulness check was unavailable (Call 2 failed) — treat with caution',
-      confidence: 'hidden', source: 'code',
-      flag: { severity: 'caution', whatsapp: 'Provenance check partially unavailable for this lot — verify the vendor entry channel and ask the handler why the vehicle is in salvage', tier: 2 },
-    });
-  }
-
-  return buildSlot({
-    id: 'provenance-contradiction', label: '"Why is it here?" — story holds together',
-    kind: 'confirmation', verdict: 'confirmed',
-    detail: `Age, mileage, entry channel and damage description are consistent with a genuine ${cat} write-off — no provenance contradiction detected`,
-    confidence: 'corroborated', source: 'code+model',
-  });
+  // SILENCE — insurer-entered (X/P), or the suffix is unmapped/unreadable/absent (the vendor-suffix
+  // slot already owns the "cannot read who entered" checklist item — single-owner, batch 88 §B), or a
+  // clean read. Every car here is a write-off, so "the story holds together" is not information it
+  // could not work out itself. Return null → the caller omits the slot via .filter(Boolean).
+  return null;
 }
 
 function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags) {
   const vendorSuffix = resolveVendorSuffix(coreObs);
   return buildGroup({
     id: CORE_GROUPS.IDENTITY.id, label: CORE_GROUPS.IDENTITY.label,
+    // .filter(Boolean): buildProvenanceContradictionSlot returns null on the silent case (batch 88);
+    // the other three builders never return null (verified — else deriveAllClear/deriveFlags would
+    // already crash on slot.flag), so the filter only ever drops the omitted provenance slot.
     slots: [
       buildBodyStyleSlot(enrichedVd, coreObs),
       buildCategorySlot(enrichedVd),
       buildVendorSuffixSlot(vendorSuffix),
-      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, brAgeYears, proseFlags),
-    ],
+      buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, proseFlags),
+    ].filter(Boolean),
   });
 }
 
