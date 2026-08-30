@@ -3444,14 +3444,17 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       },
     };
 
+    // frontStruck / rearStruck are STILL descriptor-derived and STILL inadmissible under D1 — but they
+    // are retained here ONLY for the two non-lamp consumers the batch-89 ruling explicitly left in place:
+    // the sticky-rescue struck-zone seed (:4281-4282) and the _struckZones flag-suppression set
+    // (:4878-4879). Vincent rules on those two in a later batch; do not wire them into the lamp path.
     const frontStruck    = /front/i.test(enrichedVd.primaryDamage || '') || /front/i.test(enrichedVd.secondaryDamage || '');
     const rearStruck     = /rear/i.test(enrichedVd.primaryDamage  || '') || /rear/i.test(enrichedVd.secondaryDamage  || '');
-    const hasImpactZone  = frontStruck || rearStruck; // derived from listing descriptors only — no prose
 
-    // Call 1 tools: LAMP_OBS_TOOL always offered (item 14 — trigger input-integrity).
-    // Force guard (iter===0 && hasImpactZone): fires on front OR rear impact lots from listing data.
-    // Non-impact lots (fire/flood/theft/mechanical): hasImpactZone=false — tool offered but not
-    // forced; model will not call it; lampObs stays null correctly.
+    // Call 1 tools: LAMP_OBS_TOOL always offered AND forced on iter 0 for EVERY lot (batch 89 — the
+    // headlamp check runs on every car; the descriptor-derived hasImpactZone force-gate is deleted).
+    // A costed lamp line still requires apertureExposed===true downstream (computeLampResult:2392), so a
+    // non-impact lot with an intact bumper produces a tier-1 £0 observation, not a phantom cost.
     const claudeTools = [LAMP_OBS_TOOL];
     const messages = [{ role: 'user', content: userContent }];
     let lampObs = null;
@@ -3459,10 +3462,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     let coreObs = null;
     let rawText = '';
 
-    // Fire lamp detection in parallel with the Claude assess call — joins after
-    const lampDetectionPromise = frontStruck
-      ? runLampDetection(images, () => _exhaustedCalls.add('lamp-detect'))
-      : Promise.resolve(null);
+    // Fire lamp detection on EVERY lot, in parallel with the Claude assess call (batch 89 — Vincent:
+    // run the headlamp check on every car). The old frontStruck gate was descriptor-derived (D1) and
+    // is deleted with no replacement — deleting it removes an owner, it does not add a rule. A costed
+    // lamp line still requires apertureExposed===true (computeLampResult:2392), so a non-impact lot with
+    // an intact bumper reads tier-1 £0; the phantom risk §1 accepts is a lamp costed only where the model
+    // asserts an exposed aperture.
+    const lampDetectionPromise = runLampDetection(images, () => _exhaustedCalls.add('lamp-detect'));
     // Fire dash cluster read on ALL lots (not gated on isBev or frontStruck) — joins in post-call region
     const dashReadPromise = runDashClusterRead(images, () => _exhaustedCalls.add('dash-read'), enrichedVd.bregoValuation?.vehicle_desc || null);
 
@@ -3528,12 +3534,12 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Tool-use loop — keep calling with tools while the model keeps recording observations,
     // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
     // generalised so either/both forced tools can fire in one round or across several).
-    // iter=0 on impact lots (hasImpactZone): forced=true so the model MUST call
+    // iter=0 on EVERY lot (batch 89): forced=true so the model MUST call
     // recordImpactObservation (tool_choice:{type:'any'}). iter>=1: forced=false — continuation
     // rounds have tool_result context and must be free to end_turn into prose naturally.
     const MAX_TOOL_ROUNDS = 4;
     for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
-      const { res: apiRes, data: apiData, exhausted: call1Exhausted } = await callClaude(true, iter === 0 && hasImpactZone);
+      const { res: apiRes, data: apiData, exhausted: call1Exhausted } = await callClaude(true, iter === 0);
       if (call1Exhausted) break; // _exhaustedCalls.add('call1') already done inside callClaude
       if (!apiRes) throw new Error(`Claude API network error (call1 iter=${iter})`);
       console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
@@ -3563,7 +3569,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               _sideDefaulted: _side.defaulted, _sideRejected: _side.rejected,
               _spanDefaulted: _span.defaulted, _spanRejected: _span.rejected,
             };
-            lampObsSource = (iter === 0 && hasImpactZone) ? 'listing-forced' : 'voluntary-iter0';
+            lampObsSource = (iter === 0) ? 'listing-forced' : 'voluntary-iter0'; // batch 89: tool forced on iter 0 for every lot
             if (_side.defaulted) console.log(`[IMPACT OBS][DEFAULT] struckSide ${_side.rejected != null ? `invalid "${_side.rejected}"` : 'absent'} → central (neutral default — C2, inert for rear)`);
             if (_span.defaulted) console.log(`[IMPACT OBS][DEFAULT] damageSpan ${_span.rejected != null ? `invalid "${_span.rejected}"` : 'absent'} → full_width (over-warn ruling 08Jul)`);
             console.log(`[IMPACT OBS] recordImpactObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} damageSpan=${lampObs.damageSpan}`);
@@ -3728,19 +3734,17 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Join lamp detection (ran in parallel with Claude calls)
     const lampDetectionRaw = await lampDetectionPromise;
     const detectedCorner   = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
-    if (frontStruck) {
-      console.log('[LAMP DETECT]', detectedCorner
-        ? `struck corner: verdict=${detectedCorner.verdict} lamp_type=${detectedCorner.lamp_type} evidence="${(detectedCorner.evidence || '').slice(0, 80)}"`
-        : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
-    }
+    console.log('[LAMP DETECT]', detectedCorner   // batch 89: lamp detection runs on every lot now
+      ? `struck corner: verdict=${detectedCorner.verdict} lamp_type=${detectedCorner.lamp_type} evidence="${(detectedCorner.evidence || '').slice(0, 80)}"`
+      : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
 
     // Layer 2 backstop (item 14): frontStruck=true but no lampObs from Call 1.
     // Migrated from perZone-based trigger to code-owned frontStruck — no prose dependency.
     // Uses the full Call-1 thread (Opus — thread carries 1568px images, Haiku-safe resize not applicable).
     // Expected input: ~22–33K tokens (system prefix cached + messages thread). max_tokens=512 covers
     // one tool_use block; observed backstop output at BL75JAU iter=0: 97 tokens.
-    if (!_exhaustedCalls.has('call1') && frontStruck && !lampObs) {
-      console.log('[LAMP] Layer 2 backstop triggered — frontStruck=true, no Call-1 lamp observation');
+    if (!_exhaustedCalls.has('call1') && !lampObs) {   // batch 89: backstop on every lot with no Call-1 lampObs
+      console.log('[LAMP] Layer 2 backstop triggered — no Call-1 lamp observation');
       const { res: backstopRes, exhausted: backstopExhausted } = await with529Retry('backstop', () => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -3788,12 +3792,12 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // Defensive floor: frontStruck=true from text fields but no observation after all layers
-    // (guards against transient API failures on the item-13 forced path; should not fire in practice)
-    if (frontStruck && !lampObs) {
+    // Defensive floor: no observation after all layers on any lot (batch 89 — every car is checked now)
+    // (guards against transient API failures on the forced path; should not fire in practice)
+    if (!lampObs) {
       lampObs = tier1FloorLampObs();
       lampObsSource = 'no-arm';
-      console.log('[LAMP] frontStruck text-confirmed — no observation after all layers; tier-1 floor applied');
+      console.log('[LAMP] no observation after all layers; tier-1 floor applied (apertureExposed:false → £0)');
     }
 
     // Layer 3: unconditional trigger observability — one line per run, every lot
