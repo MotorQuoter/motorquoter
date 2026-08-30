@@ -395,12 +395,12 @@ function buildCategorySlot(enrichedVd) {
 
 // "Why is it here?" — the surface-deceptive / provenance-contradiction check from the design
 // notes: warranty-age + low-mileage-for-age + minimal damage story is the trigger pattern: a
-// vehicle that LOOKS too clean to be genuine salvage. Severity steps up when the vendor-suffix
-// slot (above) also resolved to a non-insurer entry (C/Q) — the "Q on a clean car" pattern.
-// Thresholds are defensible defaults (UK new-car warranty ~3yr, UK average ~7-8k mi/yr) — Vincent
-// should tune them from trade experience once validated against real lots.
-const PROVENANCE_WARRANTY_AGE_YEARS = 3;
-const PROVENANCE_LOW_MILES_PER_YEAR = 6000;
+// vehicle that LOOKS too clean to be genuine salvage.
+// (batch 87 §6 — codePathA DELETED: the age+mileage+minimal-damage "too clean" heuristic pointed the
+// wrong way across the corpus — 5 genuine Cat S structural write-offs passed both numeric limbs, and
+// the one non-damage lot (DL72FVX stolen/recovered) failed them. A nearly-new low-mileage car in
+// Copart is the most ordinary thing in the auction. The constants and their derived flags are gone;
+// Path B (non-insurer C/Q vendor suffix) carries provenance instead.)
 
 // Structural floor (NOT a meaning-test): a model provenance reason may quote into the buyer-facing
 // slot only if it is sentence-shaped — ≥20 trimmed chars AND ≥4 whitespace-delimited words. This
@@ -434,13 +434,12 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
   const listedYear = enrichedVd.year ? parseInt(String(enrichedVd.year), 10) : NaN;
   const ageYears = !isNaN(listedYear) ? (currentYear - listedYear) : (brAgeYears ?? null);
   const cat = (enrichedVd.category || '').trim();
-  const hasDamageText = Boolean((enrichedVd.primaryDamage || '').trim() || (enrichedVd.secondaryDamage || '').trim());
 
   // Reason-gated: a bare boolean may not drive a buyer-facing assertion. The proseFlagged
   // contributor fires ONLY when the model both set the flag AND named a SUBSTANTIVE (sentence-
   // shaped) reason — see isSubstantiveReason. flag===true with an empty/absent/fragment reason →
-  // suppressed (treated as no model concern); the code paths (codePathA / qcCatSFlag) still render
-  // on their own merits, unchanged.
+  // suppressed (treated as no model concern); Path B (qcProvenanceConcern) still renders
+  // on its own merits, unchanged.
   const proseReason  = (proseFlags?.provenanceConcernReason || '').trim();
   const proseFlagged = proseFlags?.provenanceConcernFlagged === true && isSubstantiveReason(proseReason);
   const proseNull    = proseFlags?.provenanceConcernFlagged === null; // Call 2 unavailable
@@ -464,27 +463,21 @@ function buildProvenanceContradictionSlot(enrichedVd, vendorSuffix, brMileage, b
     });
   }
 
-  const isWarrantyAge = ageYears <= PROVENANCE_WARRANTY_AGE_YEARS;
-  const milesPerYear = ageYears > 0 ? brMileage / ageYears : brMileage;
-  const isLowMileage = milesPerYear < PROVENANCE_LOW_MILES_PER_YEAR;
-  const isMinimalDamageStory = !hasDamageText || /^u\b/i.test(cat);
   const nonInsurerSuffix = vendorSuffix.status === 'mapped' && vendorSuffix.mapped?.insurerEntered === false;
 
-  // Code path A (existing): too-clean pattern — warranty age + low mileage + minimal damage
-  const codePathA = isWarrantyAge && isLowMileage && isMinimalDamageStory;
-  // Code path B (two-tier): non-insurer (C/Q) entry on Cat U (primary) or Cat S (secondary)
+  // Code path B (two-tier): non-insurer (C/Q) entry on Cat U (primary) or Cat S (secondary).
+  // (Code path A — the age+mileage+minimal-damage "too clean" heuristic — was DELETED in batch 87 §6:
+  // descriptor-derived and inadmissible under D1, and the corpus showed it pointing the wrong way.)
   const provConcern = qcProvenanceConcern(enrichedVd, vendorSuffix); // 'catU' | 'catS' | null
 
-  // Conservative union: discrepancy if ANY of the three paths fires
-  if (codePathA || provConcern || proseFlagged) {
+  // Conservative union: discrepancy if EITHER surviving path fires (Path B, or a substantive prose flag)
+  if (provConcern || proseFlagged) {
     const descriptor = [enrichedVd.year, enrichedVd.make, enrichedVd.model].filter(Boolean).join(' ') || 'This vehicle';
     const signals = [];
-    if (codePathA)            signals.push(`unusually clean for salvage (${Math.round(milesPerYear).toLocaleString('en-GB')} mi/yr at ${cat}, minimal damage described)`);
     if (provConcern === 'catU') signals.push('non-insurer entry with no insurance salvage category recorded (Cat U — history unvouched)');
     if (provConcern === 'catS') signals.push('non-insurer entry on a Cat S structural write-off (historic category — possible unrepaired re-entry)');
     if (proseFlagged)         signals.push(proseReason);
     const whatsappParts = [];
-    if (codePathA)            whatsappParts.push(`unusually clean for salvage — low mileage for its age, ${cat}, minimal damage described`);
     if (provConcern === 'catU') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on an uncategorised Cat U — establish why it is in salvage');
     if (provConcern === 'catS') whatsappParts.push('non-insurer vendor entry (C/Q suffix) on a Cat S write-off — possible re-entered unrepaired lot');
     if (proseFlagged)         whatsappParts.push(`provenance concern raised — ${proseReason}`);
