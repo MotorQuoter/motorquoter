@@ -77,6 +77,30 @@ eq('labourMoney panel only', labourMoney({ panelWorkTop: 1250 }), 1250);
 ok('structural is NOT ×1.25 re-ranged', panelWorkRange(2500).money !== 3125 || true); // guard: structural never enters panelWorkRange
 ok('no double-count sentinel: 2500 structural stays 2500', structuralAllowance(true).money === 2500);
 
+// Q1/column ruling — two columns, money takes NEW+PAINTED
+import { assembleColumns } from '../lib/labour.mjs';
+{
+  // Vincent's Q5 example: quarter £800 (welded) + severe wing £600 (bolt-on), same zone
+  const c = assembleColumns([
+    { panelId: 'REAR_QUARTER', zone: 'rear', severity: 'SEVERE', action: 'replace' },
+    { panelId: 'FRONT_WING',   zone: 'rear', severity: 'SEVERE', action: 'replace' },
+  ]);
+  eq('columns: new+painted PW = 1100 (800+300, flattened together)', c.panelWorkNewPainted, 1100);
+  eq('columns: second-hand PW = 970 (welded 800 + bolt-on 170)', c.panelWorkSecondHand, 970);
+  eq('columns: new+painted money=top 1375', c.newPainted.money, 1375);
+  eq('columns: second-hand money=top 1213', c.secondHand.money, 1213);
+  ok('columns: money drives off the HIGHER (new+painted) column', c.newPainted.money > c.secondHand.money);
+}
+{
+  // all bolt-on, two moderate same zone: new+painted flattens (1050), second-hand additive (2×170=340)
+  const c = assembleColumns([
+    { panelId: 'FRONT_DOOR', zone: 'front', severity: 'MODERATE', action: 'repair' },
+    { panelId: 'BONNET',     zone: 'front', severity: 'MODERATE', action: 'repair' },
+  ]);
+  eq('columns bolt-on: new+painted PW = 1050', c.panelWorkNewPainted, 1050);
+  eq('columns bolt-on: second-hand PW = 340', c.panelWorkSecondHand, 340);
+}
+
 // reference-only constants present
 eq('sourced-finished fit ref', SOURCED_FINISHED_FIT, 170);
 ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANITY_ENVELOPE.fourxfour.new === 6000);
