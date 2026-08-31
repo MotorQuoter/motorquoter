@@ -3569,7 +3569,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               _sideDefaulted: _side.defaulted, _sideRejected: _side.rejected,
               _spanDefaulted: _span.defaulted, _spanRejected: _span.rejected,
             };
-            lampObsSource = (iter === 0) ? 'listing-forced' : 'voluntary-iter0'; // batch 89: tool forced on iter 0 for every lot
+            lampObsSource = (iter === 0) ? 'iter0-forced' : 'voluntary-iter0'; // batch 93 (PART D): tool forced on iter 0 for EVERY lot — nothing about the listing forces it post-batch-89 ungate (label was 'listing-forced'; renamed to describe what actually happens)
             if (_side.defaulted) console.log(`[IMPACT OBS][DEFAULT] struckSide ${_side.rejected != null ? `invalid "${_side.rejected}"` : 'absent'} → central (neutral default — C2, inert for rear)`);
             if (_span.defaulted) console.log(`[IMPACT OBS][DEFAULT] damageSpan ${_span.rejected != null ? `invalid "${_span.rejected}"` : 'absent'} → full_width (over-warn ruling 08Jul)`);
             console.log(`[IMPACT OBS] recordImpactObservation: struckSide=${lampObs.struckSide} apertureExposed=${lampObs.apertureExposed} rearApertureExposed=${lampObs.rearApertureExposed} damageSpan=${lampObs.damageSpan}`);
