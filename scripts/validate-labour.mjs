@@ -101,6 +101,36 @@ import { assembleColumns } from '../lib/labour.mjs';
   eq('columns bolt-on: second-hand PW = 340', c.panelWorkSecondHand, 340);
 }
 
+// body-panel classification + full computeLabour
+import { isBodyPanel, computeLabour } from '../lib/labour.mjs';
+ok('isBodyPanel FRONT_WING', isBodyPanel('FRONT_WING'));
+ok('isBodyPanel REAR_QUARTER', isBodyPanel('REAR_QUARTER'));
+ok('isBodyPanel SILL', isBodyPanel('SILL'));
+ok('NOT body panel HEADLAMP', !isBodyPanel('HEADLAMP'));
+ok('NOT body panel GRILLE', !isBodyPanel('GRILLE'));
+ok('NOT body panel RADIATOR_PACK', !isBodyPanel('RADIATOR_PACK'));
+ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
+{
+  // 2 body panels (front zone), 2 named tells fired → panel work + £2,500 structural
+  const r = computeLabour({
+    bodyPanels: [
+      { panelId: 'FRONT_WING', zone: 'front', severity: 'SEVERE', action: 'replace' }, // 600
+      { panelId: 'BONNET',     zone: 'front', severity: 'MODERATE', action: 'repair' },  // 700
+    ],
+    structuralTellCount: 2,
+  });
+  // new+painted flatten (front): dearest 700 + 300 = 1000 → ×1.25 = 1250; + structural 2500 = 3750
+  eq('computeLabour panelWorkMoney (1000×1.25)', r.panelWorkMoney, 1250);
+  eq('computeLabour structural money', r.structural.money, 2500);
+  eq('computeLabour total labourMoney', r.labourMoney, 3750);
+}
+{
+  // only 1 named tell → NO structural allowance
+  const r = computeLabour({ bodyPanels: [{ panelId: 'FRONT_DOOR', zone: 'front', severity: 'MODERATE', action: 'repair' }], structuralTellCount: 1 });
+  eq('computeLabour 1 tell → no structural', r.structural, null);
+  eq('computeLabour 1 tell labourMoney = panel work only (700×1.25=875)', r.labourMoney, 875);
+}
+
 // reference-only constants present
 eq('sourced-finished fit ref', SOURCED_FINISHED_FIT, 170);
 ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANITY_ENVELOPE.fourxfour.new === 6000);
