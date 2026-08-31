@@ -1157,7 +1157,9 @@ export default function SalvageSuccessPage() {
                         )}
                         {sg.divergence === true && (
                           <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(245,200,66,0.08)', border: '1.5px solid rgba(245,200,66,0.3)', borderRadius: 8, fontSize: 12, color: '#f5c842', lineHeight: 1.6 }}>
-                            Our assessment and the market data disagree here — worth a closer look before you bid.
+                            {sg.breakEvenSource === 'extrapolated'
+                              ? "Our estimated break-even sits above the market's predicted range — worth a closer look before you bid."
+                              : 'Our assessment and the market data disagree here — worth a closer look before you bid.'}
                           </div>
                         )}
                       </div>

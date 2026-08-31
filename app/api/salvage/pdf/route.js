@@ -964,7 +964,13 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
     let sgTxt = `SalvageGuide (independent auction market data) — predicted bid ${g(sg.bidLow)} - ${g(sg.bidHigh)}${sg.bidAvg != null ? ` (avg ${g(sg.bidAvg)})` : ''}.`;
     if (sg.retailLow != null && sg.retailHigh != null) sgTxt += ` Market retail ref ${g(sg.retailLow)} - ${g(sg.retailHigh)}.`;
-    if (sg.divergence === true) sgTxt += ` NOTE: our assessment and the market data disagree here — worth a closer look before you bid.`;
+    if (sg.divergence === true) {
+      // batch 95 §1: an extrapolated break-even (past the sampled margin ladder) is a weaker basis than
+      // a real in-range crossing, so the note hedges accordingly. In-range wording unchanged.
+      sgTxt += sg.breakEvenSource === 'extrapolated'
+        ? ` NOTE: our estimated break-even sits above the market's predicted range — worth a closer look before you bid.`
+        : ` NOTE: our assessment and the market data disagree here — worth a closer look before you bid.`;
+    }
     fieldBlock('Market Cross-Check', sgTxt);
   }
 
