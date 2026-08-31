@@ -5177,6 +5177,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       assessment._labourStructural = labour.structural;
       assessment._labourSrsFitting = labour.srsFitting;
       assessment._labourTellCount  = tellCount;
+      assessment._labourBodyPanels = bodyPanels;   // debug/report: the panels + grades that fed panel work
 
       // Delete the model labour aggregate; insert the code-owned rows.
       for (let i = gatedParts.length - 1; i >= 0; i--) if (isLabour(gatedParts[i].name)) gatedParts.splice(i, 1);
