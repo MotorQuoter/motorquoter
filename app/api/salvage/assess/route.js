@@ -3978,8 +3978,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // signal is the under-cost direction, A4). The frontBumperSevere limb is KEPT (Vincent overruled the
       // drop): a severe-but-attached bumper still tears mounting furniture, the ambiguity the demote exists
       // for. apertureExposed is UNTOUCHED — the lamp path still gates all lamp cost on it.
-      const frontBumperOff = (lampObs?.frontBumperPresent === 'absent') || frontBumperSevere;
-      const rearBumperOff  = (lampObs?.rearBumperPresent  === 'absent') || rearBumperSevere;
+      // REPLAY_BUMPER_LEGACY: dev-only A/B toggle (prod NEVER sets it) — reverts to the legacy apertureExposed
+      // derivation so the fix can be measured against it on the SAME cassettes (per-view noise cancels).
+      const _bumperLegacy = process.env.REPLAY_BUMPER_LEGACY === 'true';
+      const frontBumperOff = _bumperLegacy
+        ? ((lampObs?.apertureExposed === true) || frontBumperSevere)
+        : ((lampObs?.frontBumperPresent === 'absent') || frontBumperSevere);
+      const rearBumperOff  = _bumperLegacy
+        ? ((lampObs?.rearApertureExposed === true) || rearBumperSevere)
+        : ((lampObs?.rearBumperPresent  === 'absent') || rearBumperSevere);
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (present=${lampObs?.frontBumperPresent ?? 'missing'} severe=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (present=${lampObs?.rearBumperPresent ?? 'missing'} severe=${rearBumperSevere})`);
       // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
