@@ -5439,7 +5439,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const bidAvg  = sgNum(sg.salvage_auction_predicted_bid_average_gbp);
       const bidHigh = sgNum(sg.salvage_auction_predicted_bid_high_gbp);
       if (bidLow != null && bidHigh != null) {
-        const be = breakEvenHammer(assessment._marginScenarios);
+        // batch 94 §5: fall back to rebuildCeilingHammer when the in-range break-even is null (every
+        // sampled margin positive → true break-even sits above the ladder top). rebuildCeilingHammer is
+        // the SAME quantity — the hammer at which margin is zero — identical in-range, extrapolated past
+        // the top, and null ONLY when repair is non-viable (all-negative/ascending). Null still means
+        // "cannot compare", never false. beReal (in-range crossing) decides which figure was used.
+        const beReal = breakEvenHammer(assessment._marginScenarios);
+        const be     = rebuildCeilingHammer(assessment._marginScenarios);
+        const breakEvenSource = be == null ? null : (beReal != null ? 'breakEven' : 'extrapolated');
         const divergence = (be != null)
           ? (be < bidLow * (1 - SALVAGEGUIDE_DIVERGENCE_PCT) || be > bidHigh * (1 + SALVAGEGUIDE_DIVERGENCE_PCT))
           : null;
@@ -5447,9 +5454,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           bidLow, bidAvg, bidHigh,
           retailLow: sgNum(sg.category_adjusted_retail_value_low_gbp),
           retailHigh: sgNum(sg.category_adjusted_retail_value_high_gbp),
-          breakEven: be, divergence,
+          breakEven: be, breakEvenSource, divergence,
         };
-        console.log(`[SALVAGEGUIDE] bid £${bidLow}-£${bidHigh} (avg £${bidAvg ?? '—'}) breakEven=${be ?? 'n/a'} divergence=${divergence}`);
+        console.log(`[SALVAGEGUIDE] bid £${bidLow}-£${bidHigh} (avg £${bidAvg ?? '—'}) breakEven=${be ?? 'n/a'}(${breakEvenSource ?? '—'}) divergence=${divergence}`);
       }
     }
 
