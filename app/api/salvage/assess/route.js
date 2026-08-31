@@ -3440,8 +3440,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             type: 'boolean',
             description: 'True if the rear bumper is torn away or displaced from the body on the struck corner, exposing the rear-quarter-to-bumper seam or fold. Set on lots with rear bumper displacement; omit or set false if the rear bumper is intact. Assess this INDEPENDENTLY of the front — set it whenever the rear bumper is displaced, even if the primary impact is at the front.',
           },
+          frontBumperPresent: {
+            type: 'string',
+            enum: ['present', 'absent', 'cannot_tell'],
+            description: 'Is the front bumper skin still attached to and mounted on the vehicle? Judge ONLY presence/attachment, INDEPENDENT of damage: a cracked, scuffed, dented, or partially detached-but-still-hanging bumper that remains on the car is "present"; "absent" ONLY if the bumper skin has been fully removed or torn off the vehicle. "cannot_tell" if no photo shows the front bumper area clearly enough to judge. Do NOT infer absence from exposed structure behind a damaged wing — a hard corner hit can expose the recess with the bumper still fitted.',
+          },
+          rearBumperPresent: {
+            type: 'string',
+            enum: ['present', 'absent', 'cannot_tell'],
+            description: 'Is the rear bumper skin still attached to and mounted on the vehicle? Judge ONLY presence/attachment, INDEPENDENT of damage (a damaged-but-attached bumper is "present"; "absent" ONLY if the skin has been fully removed or torn off). "cannot_tell" if no photo shows the rear bumper area clearly. Do NOT infer absence from exposed structure behind a damaged quarter.',
+          },
         },
-        required: ['struckSide', 'apertureExposed', 'damageSpan'],
+        required: ['struckSide', 'apertureExposed', 'damageSpan', 'frontBumperPresent'],
       },
     };
 
@@ -3567,6 +3577,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               apertureExposed:     Boolean(block.input?.apertureExposed),
               damageSpan:          _span.value,
               rearApertureExposed: block.input?.rearApertureExposed === true,
+              frontBumperPresent:  block.input?.frontBumperPresent ?? null,   // batch 100: direct presence read; null → treated as PRESENT (no demote)
+              rearBumperPresent:   block.input?.rearBumperPresent ?? null,
               _sideDefaulted: _side.defaulted, _sideRejected: _side.rejected,
               _spanDefaulted: _span.defaulted, _spanRejected: _span.rejected,
             };
@@ -3959,9 +3971,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         (cp._severeOverride === true || cp._ledgerSeverity === 'SEVERE'));
       const frontBumperSevere = bumperSevereInLedger(PANEL.FRONT_BUMPER);
       const rearBumperSevere  = bumperSevereInLedger(PANEL.REAR_BUMPER);
-      const frontBumperOff = (lampObs?.apertureExposed === true)     || frontBumperSevere;
-      const rearBumperOff  = (lampObs?.rearApertureExposed === true) || rearBumperSevere;
-      console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (model=${lampObs?.apertureExposed === true} ledger=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (model=${lampObs?.rearApertureExposed === true} ledger=${rearBumperSevere})`);
+      // batch 100 (Vincent): the demote gates on whether the bumper is ACTUALLY OFF — a direct, positive
+      // presence read — not on apertureExposed (which a destroyed wing sets with the bumper still fitted,
+      // AK75RDX). frontBumperPresent === 'absent' is the ONLY positive trigger; present / cannot_tell /
+      // missing / null all read as PRESENT → no demote, keep the cost (removing cost on an unreadable
+      // signal is the under-cost direction, A4). The frontBumperSevere limb is KEPT (Vincent overruled the
+      // drop): a severe-but-attached bumper still tears mounting furniture, the ambiguity the demote exists
+      // for. apertureExposed is UNTOUCHED — the lamp path still gates all lamp cost on it.
+      const frontBumperOff = (lampObs?.frontBumperPresent === 'absent') || frontBumperSevere;
+      const rearBumperOff  = (lampObs?.rearBumperPresent  === 'absent') || rearBumperSevere;
+      console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (present=${lampObs?.frontBumperPresent ?? 'missing'} severe=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (present=${lampObs?.rearBumperPresent ?? 'missing'} severe=${rearBumperSevere})`);
       // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
       assessment._frontBumperOff = frontBumperOff;
