@@ -131,6 +131,20 @@ ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
   eq('computeLabour 1 tell labourMoney = panel work only (700×1.25=875)', r.labourMoney, 875);
 }
 
+// SRS fitting rider (spec §10) — tiered, Vincent's numbers, no interpolation
+import { SRS_FITTING, srsFitting } from '../lib/labour.mjs';
+eq('SRS T1 = 300', SRS_FITTING.T1, 300);
+eq('SRS T2 = 600', SRS_FITTING.T2, 600);
+eq('SRS T3 = 1000', SRS_FITTING.T3, 1000);
+eq('srsFitting(null) = 0', srsFitting(null), 0);
+ok('SRS curve accelerates (not linear — the £450 lesson)', SRS_FITTING.T3 - SRS_FITTING.T2 > SRS_FITTING.T2 - SRS_FITTING.T1);
+{
+  // full: 1 body panel (700 moderate), <2 tells, T3 airbag → 700×1.25 + 0 structural + 1000 SRS = 1875
+  const r = computeLabour({ bodyPanels: [{ panelId: 'BONNET', zone: 'front', severity: 'MODERATE', action: 'repair' }], structuralTellCount: 1, srsTier: 'T3' });
+  eq('computeLabour with SRS T3 (875 + 1000)', r.labourMoney, 1875);
+  eq('computeLabour srsFitting field', r.srsFitting, 1000);
+}
+
 // reference-only constants present
 eq('sourced-finished fit ref', SOURCED_FINISHED_FIT, 170);
 ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANITY_ENVELOPE.fourxfour.new === 6000);
