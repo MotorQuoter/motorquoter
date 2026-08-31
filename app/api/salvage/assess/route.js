@@ -33,6 +33,7 @@ import { normaliseLot } from '@/lib/normaliseLot';
 import { runRescueGate } from '@/lib/apertureRescue.mjs';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
+import { computeLabour, isBodyPanel } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -4630,6 +4631,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           used:    srsEntry.used,
           _tableMandated: true,
           _gOwned:  true,
+          _srsTier: srsT.tier,   // batch 95 §10: read by the labour reconcile to add the tiered fitting rider
         });
         srsInjected = true;
         const srsFlagDropped = suppressAirbagFlags(); // collapse the raw amalgamate flag INTO the canonical signal
@@ -5119,38 +5121,73 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // ── §4 LABOUR RECONCILIATION (batch 81, Vincent amendment 2) ───────────────────────────────────
-    // Labour/paint is summed into parts_sum unconditionally and filtered out of the displayed list — so
-    // before this it could ship (DL72FVX) labour to fit and paint ZERO surviving panels. Labour now
-    // follows what SURVIVES. NON-NEGOTIABLE FLOOR: zero surviving costed parts ⟹ zero labour. The partial
-    // shape is chosen by lib/parts.computeLabourRatio; Vincent's ruling (amendment 2): labour tracks the
-    // EXTENT of damage, not value. LABOUR_SHAPE selects the shape for the evaluation sweep (default the
-    // value baseline until Vincent picks). severityOf maps each part to its per-view verdict grade
-    // (_ledgerSeverity, now stamped on confirmed AND disagree AND single-minor entries). Runs AFTER fog
-    // seeding and BEFORE parts_sum. Touches labour rows only; never a part, never a flag.
+    // ── §11 CODE-OWNED LABOUR (batch 92/95) — replaces the model-authored labour + computeLabourRatio ──
+    // Authority: _cc/LABOUR_SPEC_v1_31Aug2026.md §9-11. The model's "Labour & paint" aggregate is DELETED
+    // and rebuilt from code: parts_sum = part costs + panel work (NEW+PAINTED column top) + structural
+    // allowance (≥2 named tells, band top, NOT re-ranged) + SRS fitting rider. The SECOND-HAND column is
+    // DISPLAY ONLY and never drives the bid. Runs AFTER fog seeding and BEFORE parts_sum.
     {
       const isLabour = (nm) => /labour|paint|prep/i.test(nm || '');
-      const labourRows = gatedParts.filter(p => isLabour(p.name));
-      if (labourRows.length) {
-        const shape = process.env.LABOUR_SHAPE || 'severity';   // Vincent's ruling (amendment 2): labour tracks the EXTENT of damage. severity locked; NO action multiplier (the repair×1.5 was an invented constant). Env override kept for evaluation only; prod never sets it.
-        const sevByPanel = new Map();
-        for (const cp of coreObs.costedParts) if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
-        const severityOf = (p) => sevByPanel.get(p.panelId) || 'MODERATE';
-        const ratio = computeLabourRatio({
-          survivingParts: gatedParts.filter(p => !isLabour(p.name)),
-          preGateParts:   (reconciledParts || []).filter(p => !isLabour(p.name)),
-          severityOf, shape,
-        });
-        const val = (p) => p.used ?? p.oem ?? 0;
-        for (const lr of labourRows) {
-          const before = val(lr);
-          const scaled = Math.round(before * ratio);
-          if (lr.used != null) lr.used = scaled; else lr.oem = scaled;
-          lr._labourReconciled = true;
-          if (scaled !== before) console.log(`[LABOUR RECONCILE][${shape}] "${lr.name}" £${before} → £${scaled} (ratio ${ratio.toFixed(3)})`);
-        }
-        if (ratio === 0) console.error('[LABOUR RECONCILE] zero surviving costed parts → labour zeroed (it was fitting nothing)');
+      const sevByPanel  = new Map();
+      const zoneByPanel = new Map();
+      for (const cp of coreObs.costedParts) {
+        if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
+        if (cp.panelId && cp.zone)            zoneByPanel.set(cp.panelId, cp.zone);
       }
+
+      // Q4 (flagged→costed): the flagged £0 quarter gets its band-default part cost + welded labour, flag
+      // RETAINED. FRONT_STRUCTURE needs no per-part promotion — its money is the structural allowance below.
+      const costedIds = new Set(gatedParts.filter(p => !isLabour(p.name) && p.panelId).map(p => p.panelId));
+      for (const f of (coreObs.flaggedParts || [])) {
+        if (f.panelId === PANEL.REAR_QUARTER && !costedIds.has(PANEL.REAR_QUARTER)) {
+          const entry = bandKey ? PANEL_PRICE_TABLE[PANEL.REAR_QUARTER]?.[bandKey] : null;
+          if (entry) {
+            gatedParts.push({ panelId: PANEL.REAR_QUARTER, name: PANEL_DISPLAY[PANEL.REAR_QUARTER], action: 'replace', oem: entry.oem, used: entry.used, _tableMandated: true, _q4Promoted: true });
+            costedIds.add(PANEL.REAR_QUARTER);
+            if (!zoneByPanel.has(PANEL.REAR_QUARTER)) zoneByPanel.set(PANEL.REAR_QUARTER, f.zone || 'rear');
+            console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default (used £${entry.used}); flag retained`);
+          }
+        }
+      }
+
+      // Surviving BODY panels get panel-work labour (isBodyPanel excludes lamps/glass/grille/rad-pack/slam/
+      // wheels — those carry their own price, fitting supply-and-fit or absorbed; spec §10 audit).
+      const bodyPanels = gatedParts
+        .filter(p => !isLabour(p.name) && p.panelId && isBodyPanel(p.panelId))
+        .map(p => ({ panelId: p.panelId, zone: zoneByPanel.get(p.panelId) || p.zone || 'default', severity: sevByPanel.get(p.panelId) || 'MODERATE', action: p.action || 'replace' }));
+
+      // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
+      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
+      const flagObs = (pid) => (coreObs.flaggedParts || []).some(f => f.panelId === pid && !/not visible in any photo/i.test(f.reason || ''));
+      // Bonnet tell = the bonnet displaced OR costed-with-damage — matches the Q2 measurement grid Vincent
+      // ruled ≥2 against (a crumpled bonnet on a frontal is the "not lining up" sign; a costed bonnet counts).
+      const bonnetTell = costedNow.has(PANEL.BONNET)
+        || (coreObs.flaggedParts || []).some(f => f.panelId === PANEL.BONNET && !/not visible in any photo/i.test(f.reason || '') && /proud|shut ?line|displac|misalign|lining up/i.test(f.reason || ''));
+      const tellCount =
+          ((costedNow.has(PANEL.SLAM_PANEL) || flagObs(PANEL.SLAM_PANEL)) ? 1 : 0)
+        + (flagObs(PANEL.DISPLACED_WHEEL) ? 1 : 0)
+        + (flagObs(PANEL.SIDE_STRUCTURE) ? 1 : 0)
+        + (bonnetTell ? 1 : 0);
+
+      const srsRow  = gatedParts.find(p => p.panelId === 'SRS_AIRBAG' && p._srsTier);
+      const srsTier = srsRow ? `T${srsRow._srsTier}` : null;
+
+      const labour = computeLabour({ bodyPanels, structuralTellCount: tellCount, srsTier });
+      assessment._labourColumns    = labour.columns;
+      assessment._labourStructural = labour.structural;
+      assessment._labourSrsFitting = labour.srsFitting;
+      assessment._labourTellCount  = tellCount;
+
+      // Delete the model labour aggregate; insert the code-owned rows.
+      for (let i = gatedParts.length - 1; i >= 0; i--) if (isLabour(gatedParts[i].name)) gatedParts.splice(i, 1);
+      gatedParts.push({ name: 'Labour & paint (new & painted)', action: '—', oem: labour.panelWorkMoney, used: null, _codeLabour: true });
+      if (labour.structural) {
+        gatedParts.push({ name: 'Structural allowance', action: '—', oem: labour.structural.money, used: null, _structuralAllowance: true });
+      }
+      if (labour.srsFitting > 0) {
+        gatedParts.push({ name: 'SRS fitting', action: '—', oem: labour.srsFitting, used: null, _srsFitting: true });
+      }
+      console.log(`[LABOUR CODE] panelWork(new+painted)=£${labour.panelWorkMoney} secondHand=£${labour.secondHandMoney} structural=£${labour.structural?.money ?? 0} srs=£${labour.srsFitting} tells=${tellCount} bodyPanels=${bodyPanels.length}`);
     }
 
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
