@@ -3980,13 +3980,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // for. apertureExposed is UNTOUCHED — the lamp path still gates all lamp cost on it.
       // REPLAY_BUMPER_LEGACY: dev-only A/B toggle (prod NEVER sets it) — reverts to the legacy apertureExposed
       // derivation so the fix can be measured against it on the SAME cassettes (per-view noise cancels).
-      const _bumperLegacy = process.env.REPLAY_BUMPER_LEGACY === 'true';
+      // batch 101 (Vincent, reversing the afternoon's keep-ruling): the severe limb is DROPPED. A demote must
+      // not hang off a grade that moves — the severe grade proved run-unstable (AK75RDX severe on the re-capture,
+      // not on the probe an hour earlier, same photos), and it fired ALONE on 4 present-bumper lots, masking
+      // the whole fix. If the bumper is still ON you cannot see behind it, so there is nothing exposed to be
+      // confused by — the confusion the demote exists for REQUIRES the bumper gone. So: absent, and only absent.
+      const _bumperLegacy = process.env.REPLAY_BUMPER_LEGACY === 'true';   // dev A/B: old apertureExposed||severe derivation
       const frontBumperOff = _bumperLegacy
         ? ((lampObs?.apertureExposed === true) || frontBumperSevere)
-        : ((lampObs?.frontBumperPresent === 'absent') || frontBumperSevere);
+        : (lampObs?.frontBumperPresent === 'absent');
       const rearBumperOff  = _bumperLegacy
         ? ((lampObs?.rearApertureExposed === true) || rearBumperSevere)
-        : ((lampObs?.rearBumperPresent  === 'absent') || rearBumperSevere);
+        : (lampObs?.rearBumperPresent  === 'absent');
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (present=${lampObs?.frontBumperPresent ?? 'missing'} severe=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (present=${lampObs?.rearBumperPresent ?? 'missing'} severe=${rearBumperSevere})`);
       // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
