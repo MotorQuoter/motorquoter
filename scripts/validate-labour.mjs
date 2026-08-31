@@ -111,7 +111,7 @@ ok('NOT body panel GRILLE', !isBodyPanel('GRILLE'));
 ok('NOT body panel RADIATOR_PACK', !isBodyPanel('RADIATOR_PACK'));
 ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
 {
-  // 2 body panels (front zone), 2 named tells fired → panel work + £2,500 structural
+  // batch 95: structural allowance WITHDRAWN — 2 tells no longer add £2,500. panel work only.
   const r = computeLabour({
     bodyPanels: [
       { panelId: 'FRONT_WING', zone: 'front', severity: 'SEVERE', action: 'replace' }, // 600
@@ -119,10 +119,14 @@ ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
     ],
     structuralTellCount: 2,
   });
-  // new+painted flatten (front): dearest 700 + 300 = 1000 → ×1.25 = 1250; + structural 2500 = 3750
+  // new+painted flatten (front): dearest 700 + 300 = 1000 → ×1.25 = 1250; NO structural (withdrawn)
   eq('computeLabour panelWorkMoney (1000×1.25)', r.panelWorkMoney, 1250);
-  eq('computeLabour structural money', r.structural.money, 2500);
-  eq('computeLabour total labourMoney', r.labourMoney, 3750);
+  eq('computeLabour structural WITHDRAWN → null even at ≥2 tells', r.structural, null);
+  eq('computeLabour total labourMoney = panel work only', r.labourMoney, 1250);
+}
+{ const { STRUCTURAL_ALLOWANCE_ENABLED } = await import('../lib/labour.mjs');
+  ok('STRUCTURAL_ALLOWANCE_ENABLED is false (withdrawn)', STRUCTURAL_ALLOWANCE_ENABLED === false);
+  eq('structuralAllowance() code KEPT (still returns 2500 if ever re-enabled)', structuralAllowance(true).money, 2500);
 }
 {
   // only 1 named tell → NO structural allowance
