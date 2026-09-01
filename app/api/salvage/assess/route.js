@@ -25,12 +25,11 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, computeLabourRatio,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, BUMPER_OFF_SEAM_REASON, BUMPER_OFF_MOUNTING_REASON, BUMPER_OFF_SYMMETRIC_REASON, BUMPER_OFF_UNCOSTABLE_REASON,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
-import { runRescueGate } from '@/lib/apertureRescue.mjs';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel } from '@/lib/labour.mjs';
@@ -1604,11 +1603,6 @@ const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagg
 // cosmetic and uncorroborated reasons so the buyer can tell how strong the signal is.
 const AMALG_REASON_SINGLE_MINOR = 'one photo suggested light damage here; the other views of this area did not — a single weak signal, not confirmed and not dismissed; carries no cost. If it matters to you, confirm on the WhatsApp inspection and add your own figure.';
 const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
-// Byte-for-byte copy of the gate's inline RQ rider (parts.mjs :282) — appended to
-// BUMPER_OFF_SEAM_REASON for rear-quarter so the no-model-row push matches the gate's
-// with-model-row flag reason exactly. Leading space is intentional (concatenation join).
-const BUMPER_OFF_RQ_RIDER = ' Inner structural integrity not visible from exterior shots — confirm on the WhatsApp inspection before bidding.';
-
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
 // running; the negative direction is always cannot-confirm → inspect, never "likely stripped".
@@ -3955,8 +3949,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // structured early call) → adjacent wing/quarter seam exposed → line demoted.
     // No peel/crush classification: bumper off is sufficient — the seam is exposed
     // regardless of how the bumper left.
-    const bumperOffDemoted = []; // { partName, rx } — fed to KCD scrub below
-    let _apertureReads = [];     // hoisted above the (unconditional) block so the always-stamp below runs on every lot
+    // Batch 103 (Vincent, 1 Sep 2026): the bumper-off DEMOTE is removed end-to-end — the
+    // bumper's state never suppresses another part. Only the derivation below survives (it
+    // feeds the fog rule + consequential seed, both of which ADD money). The old
+    // collect-suspects / aperture-probe / deterministic-demote / aperture-rescue machinery
+    // is gone; §4 adds a "state the limit" buyer note in its place.
     {
       // Adjacent-bumper LEDGER signal (code-owned fact) OR'd with the model flag.
       // A severe/displaced/missing bumper means the wing/quarter seam behind it is exposed →
@@ -3997,138 +3994,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
       assessment._frontBumperOff = frontBumperOff;
       assessment._rearBumperOff  = rearBumperOff;
-      // (a) collect aperture-suspect panels (guards + bumperOffHere unchanged), tagging aperture zone.
-      const _apertureSuspects = [];
-      for (const cp of coreObs.costedParts) {
-        if (cp.independentlyVisible !== true || cp._labourSafe || cp._amalgMissing === true) continue;
-        const isFW = /\bfront\b.*\bwing\b/i.test(cp.partName);
-        const isRQ = /\brear\b.*\bquarter\b/i.test(cp.partName);
-        const bumperOffHere = (isFW && frontBumperOff) || (isRQ && rearBumperOff);
-        if (bumperOffHere) _apertureSuspects.push({ cp, isRQ, apertureZone: isRQ ? 'rear' : 'front' });
-      }
-      // (b) C3 — fire a targeted aperture read PER suspect (frames per selectApertureFrames; prompt
-      // byte-identical — same lampObs). Parallel; full-set fallback inside runAperturePanelRead. Each
-      // panel is now gated on ITS OWN verdict, not one shared full-set read.
-      _apertureReads = await Promise.all(_apertureSuspects.map(async (s) => {
-        const { indices, source } = selectApertureFrames(s.cp, _frameZones, lampObs?.struckSide, s.apertureZone);
-        const r = await runAperturePanelRead(images, lampObs, indices, s.apertureZone, () => _exhaustedCalls.add('aperture-panel'));
-        return { ...s, verdict: r?.verdict ?? null, evidence: r?.evidence ?? '', frameSource: source };
-      }));
-      // (c) DETERMINISTIC bumper-off demote — keep-cost authority REVOKED. EVERY aperture suspect
-      // demotes regardless of the probe verdict, incl. 'torn', 'ambiguous', and null (probe
-      // failure/exhaust). Evidence: four SF69YBB runs across three prompt generations returned a false
-      // 'torn' on a clean quarter — perception cannot separate the panel face from body-coloured torn
-      // carrier wreckage in listing photos, so it no longer holds cost. This restores the June
-      // deterministic rule; the probe now selects the flag REASON only, never the cost decision. Cost is
-      // excluded via independentlyVisible=false (G-inject skips _gOwned; the gate strips a model row);
-      // the compensating flag below is the buyer's signal.
-      for (const { cp, isRQ, verdict, frameSource } of _apertureReads) {
-        console.log(`[APERTURE GATE] panel="${cp.partName}" verdict=${verdict} frames=${frameSource} → demote (deterministic)`);
-        cp.independentlyVisible = false;
-        cp._bumperOffStripped = true;
-        const _demoteCause = `${verdict ?? 'no-read'}-demote`;   // provenance only — probe no longer decides cost
-        cp._apertureDemoteCause = _demoteCause;
-        // 1b flag-gap: a _gOwned panel (no model Parts row) demoted here never reaches gateStripped, so
-        // the gate's :281-288 bumper-off flag never fires for it and the panel vanishes (no cost, no
-        // flag). Push the inspection flag at the demotion site, mirroring the RAD hatch (:2963). The
-        // gate's strip-loop dedup (parts.mjs :279, keyed on normName(partName)) suppresses its own push
-        // when a model row DOES exist, since this push lands first. The reason is verdict-selected;
-        // dedup is keyed on partName, not reason text, so the divergence is safe.
-        const _explained = (verdict === 'seam' || verdict === 'mounting-structure' || verdict === 'factory-symmetric');
-        coreObs.flaggedParts.push({
-          panelId:  cp.panelId,
-          partName: cp.partName,
-          zone:     cp.zone,
-          // Uncostable (torn/ambiguous/null) is HIGH — possible real cost excluded; the factory
-          // explanations (seam/mounting/symmetric) stay medium.
-          weight:   _explained ? 'medium' : 'high',
-          reason:   verdict === 'factory-symmetric'
-            ? BUMPER_OFF_SYMMETRIC_REASON
-            : verdict === 'mounting-structure'
-              ? BUMPER_OFF_MOUNTING_REASON
-              : verdict === 'seam'
-                ? (isRQ ? BUMPER_OFF_SEAM_REASON + BUMPER_OFF_RQ_RIDER : BUMPER_OFF_SEAM_REASON)
-                : BUMPER_OFF_UNCOSTABLE_REASON,
-          _bumperOffStripped: true,
-          _apertureDemoted: true,   // breadcrumb — deterministic bumper-off demote, for telemetry + validation
-          _apertureDemoteCause: _demoteCause,   // provenance: <verdict|no-read>-demote (probe no longer decides)
-        });
-        bumperOffDemoted.push({ partName: cp.partName, rx: isRQ ? /\brear\b.*\bquarter\b/i : /\bfront\b.*\bwing\b/i });
-        console.log(`[BUMPER-OFF] demoted "${cp.partName}" — bumper displaced (${_demoteCause})`);
-      }
     }
 
-    // ── Aperture Rescue Gate (Stage 1) — behind APERTURE_RESCUE_ENABLED (default OFF) ────────────
-    // Recover a genuinely-deformed panel the demote just floored with a `torn` verdict, WITHOUT
-    // re-opening the SF69YBB fabrication. Scope-locked (§1) to verdict==='torn' aperture demotes.
-    // Safe-by-construction: PROMOTE needs a frame UNANIMOUSLY face-deformed AND no frame face-clean
-    // (lib/apertureRescue.mjs decideRescue); any doubt / cannot-determine / wrong-panel → leave floored.
-    // On PROMOTE of a MODEL-row panel we restore its stripped parts-breakdown line (§4); a _gOwned
-    // panel has no model line → it stays a HIGH-weight flagged allowance (never an invented hard cost).
-    if (process.env.APERTURE_RESCUE_ENABLED === 'true') {
-      const _stripB64 = (du) => du.replace(/^data:[^;]+;base64,/, '');
-      const rescueImaging = {
-        async meta(du) { const im = await loadImage(Buffer.from(_stripB64(du), 'base64')); return { W: im.width, H: im.height }; },
-        async crop(du, box) {
-          const im = await loadImage(Buffer.from(_stripB64(du), 'base64'));
-          const c = createCanvas(box.width, box.height);
-          c.getContext('2d').drawImage(im, box.left, box.top, box.width, box.height, 0, 0, box.width, box.height);
-          return c.toDataURL('image/jpeg', 0.9);
-        },
-      };
-      const rescueCall = async (du, text, maxTok = 300) => {
-        const mm = du.match(/^data:([^;]+);base64,(.+)$/);
-        const media_type = mm ? mm[1] : 'image/jpeg';
-        const data = mm ? mm[2] : du;
-        const { res, exhausted } = await with529Retry('aperture-rescue', () => fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({
-            model: MODELS.assessPrimary, max_tokens: maxTok,
-            system: 'Respond ONLY with a raw JSON object. No markdown.',
-            messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type, data } }, { type: 'text', text }] }],
-          }),
-        }));
-        if (exhausted || !res?.ok) return null;
-        const d = await res.json();
-        return (d.content || []).find(b => b.type === 'text')?.text || null;
-      };
-      const _rescueInstanceIdx = (fs) => { const m = String(fs || '').match(/\[([\d,\s]*)\]/); return m ? m[1].split(',').map(s => parseInt(s.trim(), 10)).filter(Number.isFinite) : []; };
-      for (const a of _apertureReads) {
-        if (a.verdict !== 'torn') continue;   // scope lock §1 — only torn demotes are rescue candidates
-        const kind = a.isRQ ? 'REAR_QUARTER' : 'FRONT_WING';
-        const idxs = _rescueInstanceIdx(a.frameSource).slice(0, 3); // best-lit targeted frames (§3)
-        const frames = idxs.map((i) => ({ i, du: images[i] })).filter(f => f.du).map(f => ({ id: `${a.cp.panelId}_${f.i}`, dataUrl: f.du }));
-        if (!frames.length) { console.log(`[APERTURE RESCUE] ${a.cp.panelId} — no targeted frames; leave floored`); continue; }
-        let result;
-        try { result = await runRescueGate({ kind, frames, call: rescueCall, imaging: rescueImaging }); }
-        catch (err) { console.warn(`[APERTURE RESCUE] ${a.cp.panelId} error: ${err.message} — leave floored`); continue; }
-        console.log(`[APERTURE RESCUE] ${a.cp.panelId} -> ${result.decision} (${result.reason})`);
-        if (result.decision !== 'PROMOTE') continue;
-        if (a.cp._gOwned === true) {
-          // §4 no-model-line edge: keep the HIGH-weight flagged allowance already in place; never invent a hard cost.
-          a.cp._apertureRescuedAllowance = true;
-          console.log(`[APERTURE RESCUE] ${a.cp.panelId} PROMOTE but _gOwned (no model parts line) — kept as HIGH-weight allowance flag (§4)`);
-          continue;
-        }
-        // MODEL-row panel: restore the stripped parts-breakdown line — revert the demote's mutations so
-        // it re-costs via its original path (reconcile/gate below), with NO invented figure.
-        a.cp.independentlyVisible = true;
-        delete a.cp._bumperOffStripped;
-        a.cp._apertureRescued = true;
-        const _fi = coreObs.flaggedParts.findIndex(f => f._apertureDemoted && f.panelId === a.cp.panelId);
-        if (_fi !== -1) coreObs.flaggedParts.splice(_fi, 1);   // drop the "excluded from repair total" flag (now costed)
-        const _bi = bumperOffDemoted.findIndex(x => x.partName === a.cp.partName);
-        if (_bi !== -1) bumperOffDemoted.splice(_bi, 1);       // un-scrub from Key Cost Drivers
-        console.log(`[APERTURE RESCUE] PROMOTED "${a.cp.partName}" — model parts-breakdown line restored to costed set`);
-      }
-    }
-
-    // Always-stamp (C1): full per-suspect aperture evidence into JSONB — [] on no-suspect lots. Runs on
-    // EVERY lot (outside the unconditional block); _apertureReads is hoisted above the block for this.
-    assessment._apertureReads = _apertureReads.map(a => ({
-      panelId: a.cp.panelId, verdict: a.verdict, evidence: a.evidence, frameSource: a.frameSource, rescued: a.cp._apertureRescued === true,
-    }));
     // ── End bumper-off rule ────────────────────────────────────────────────────
 
     // ── RADIATOR_PACK corroboration floor + low-centre escape hatch (post-amalgamate) ──
@@ -4255,7 +4122,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const bonnetTwin = coreObs.costedParts.find(cp =>
         cp.panelId === PANEL.BONNET && cp.independentlyVisible === false &&
         !cp._perViewClear && !cp._amalgMissing && !cp._amalgUncorroborated &&
-        !cp._amalgNotVisible && !cp._radUncorroborated && !cp._bumperOffStripped);
+        !cp._amalgNotVisible && !cp._radUncorroborated);
       if (bonnetFlag && bonnetTwin) {
         const bonnetRead  = await runBonnetSkinRead(images, () => _exhaustedCalls.add('bonnet-skin'));
         const confident   = bonnetRead?.confidence === 'med' || bonnetRead?.confidence === 'high';
@@ -4374,7 +4241,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           cp.panelId === panelId &&
           cp.independentlyVisible === false &&
           !cp._perViewClear && !cp._amalgMissing && !cp._amalgUncorroborated &&
-          !cp._amalgNotVisible && !cp._radUncorroborated && !cp._bumperOffStripped);
+          !cp._amalgNotVisible && !cp._radUncorroborated);
         if (!twin) {
           console.log(`[AMALG][STICKY] ${panelId} ratio=${ratio.toFixed(3)} — no bare disagree-floor costed twin found → floor retained`);
           continue;
@@ -4519,13 +4386,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // figure. Locked Option A reconciliation is preserved: no new sum path, no divergence flag.
     for (const e of coreObs.costedParts) {
       if (!e._gOwned) continue;
-      // Honour the bumper-off/gate demotion: a _gOwned entry that was demoted to inspection
-      // (independentlyVisible=false / _bumperOffStripped) must NOT be re-costed here. The
-      // demotion is a fact set on coreObs.costedParts; the gate already stripped the row and
-      // moved it to inspection flags. Re-injecting full table cost would put a stripped panel
-      // back into the repair total (it must stay in inspection flags only).
-      if (e.independentlyVisible === false || e._bumperOffStripped === true) {
-        console.log(`[G INJECT] ${e.panelId} skipped — demoted (iv=false/_bumperOffStripped); not re-costed`);
+      // Honour the gate demotion: a _gOwned entry that amalgamate/the gate demoted to
+      // inspection (independentlyVisible=false) must NOT be re-costed here. The demotion is a
+      // fact set on coreObs.costedParts; the gate already stripped the row and moved it to
+      // inspection flags. Re-injecting full table cost would put a stripped panel back into
+      // the repair total (it must stay in inspection flags only).
+      if (e.independentlyVisible === false) {
+        console.log(`[G INJECT] ${e.panelId} skipped — demoted (iv=false); not re-costed`);
         continue;
       }
       if (!bandKey) {
@@ -5222,6 +5089,30 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.log(`[LABOUR CODE] panelWork(new+painted)=£${labour.panelWorkMoney} secondHand=£${labour.secondHandMoney} structural=£${labour.structural?.money ?? 0} srs=£${labour.srsFitting} tells=${tellCount} bodyPanels=${bodyPanels.length}`);
     }
 
+    // ── §4 (batch 103, Vincent — RATIFIED as the FULL fix) — STATE THE LIMIT ──────────────────────
+    // The demote is gone: the bumper's state never suppresses a part. Where an END's bumper is off
+    // AND the adjacent panel (front wing / rear quarter) IS costed, the panel stays costed on the
+    // visible evidence — but the bumper being torn away means the panel face behind it cannot be
+    // fully confirmed from listing photos. So COST IT and STATE THE LIMIT plainly; the buyer strikes
+    // the line on the ledger edit layer (batch 82) if the inspection shows it sound. This is the
+    // replacement for the old "excluded from repair total" flag — it ADDS certainty for the buyer
+    // without removing money. Reads the FINALISED gatedParts (post-Q4, post-labour).
+    for (const [off, panelId, end, panelWord] of [
+      [assessment._frontBumperOff, PANEL.FRONT_WING,   'front', 'wing'],
+      [assessment._rearBumperOff,  PANEL.REAR_QUARTER, 'rear',  'quarter panel'],
+    ]) {
+      if (off !== true) continue;
+      const costed = gatedParts.some(p => p.panelId === panelId && (p.used ?? p.oem ?? 0) > 0);
+      if (!costed) continue;   // §4 fires only on a COSTED adjacent panel
+      if (assessment._flaggedParts.some(f => f._bumperOffLimit && f.zone === end)) continue;
+      assessment._flaggedParts.push({
+        panelId, partName: PANEL_DISPLAY[panelId], zone: end, weight: 'medium',
+        reason: `The ${end} bumper is torn away on this side. Whether the ${panelWord} behind it is also damaged cannot be determined from these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.`,
+        _bumperOffLimit: true,
+      });
+      console.log(`[BUMPER-OFF §4] ${end} bumper off + ${panelId} costed → stated the limit (panel kept costed)`);
+    }
+
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
     // real repair line (action + finalised figure). Floored/flagged panels live in the
     // Inspection Flags surface, never here (one panel, one surface). No model-authored
@@ -5416,9 +5307,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               }
             }
             let seedItem;
-            if (flag._bumperOffStripped) {
-              seedItem = `Show ${part} behind the displaced bumper — confirm whether the panel itself is damaged or just the exposed seam.`;
-            } else if (flag._amalgDisagree) {
+            if (flag._amalgDisagree) {
               seedItem = `Show ${part} close-up — condition could not be resolved across views in the listing photos.`;
             } else if (flag._amalgNotVisible) {
               seedItem = `Show ${part} close-up — not visible in any of the listing photos.`;
