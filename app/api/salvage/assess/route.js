@@ -3234,6 +3234,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
 
       if (sgResult) enrichedVd.salvageGuide = sgResult;
+      else {
+        // Batch 103 §3 (Vincent): the paid SalvageGuide bid prediction is skipped whenever the salvage
+        // category string is one catLetter (:196) does not recognise (it returns null → the fetch is
+        // skipped at :3214). Today that is silent — the buyer pays and gets less with no word. Flag it,
+        // carrying the raw category string, and log it. DO NOT guess/widen a category: a wrong one returns
+        // a confidently wrong number. Fires ONLY on the unrecognised-category case (catLetter null with a
+        // non-empty category present) — a null sgResult from an API error / no-numbers is left alone.
+        const _rawCat = (enrichedVd.category ?? '').toString().trim();
+        if (_rawCat && !catLetter(enrichedVd.category)) {
+          enrichedVd.bidPredictionUnavailable = { rawCategory: _rawCat };
+          console.warn(`[SALVAGEGUIDE][UNAVAILABLE] category string not recognised — bid prediction skipped; rawCategory=${JSON.stringify(_rawCat)}`);
+        }
+      }
     }
 
     // ── Body-class resolution (Stage 5) ───────────────────────────────────────
@@ -5458,6 +5471,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         };
         console.log(`[SALVAGEGUIDE] bid £${bidLow}-£${bidHigh} (avg £${bidAvg ?? '—'}) breakEven=${be ?? 'n/a'}(${breakEvenSource ?? '—'}) divergence=${divergence}`);
       }
+    }
+    // Batch 103 §3: surface the unrecognised-category bid-prediction skip to the buyer (not on a Cat A/B
+    // hard stop — no bid framing there anyway). The raw category string travels for the report + logs.
+    if (!_catAB && enrichedVd.bidPredictionUnavailable) {
+      assessment._bidPredictionUnavailable = enrichedVd.bidPredictionUnavailable;
     }
 
     // ── Investment Block (AEP-style) — purely additive; READS the figures above ──────

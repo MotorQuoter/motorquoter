@@ -43,9 +43,17 @@ export async function POST(request) {
   const currentCount = data.rerun_count ?? 0;
   if (currentCount >= 1) return NextResponse.json({ error: 'Re-run limit reached' }, { status: 403 });
 
+  // Batch 103 §1 (Vincent): the free re-run must STOP destroying the paid report. Preserve the
+  // assessment the buyer paid for into prior_assessment before blanking `assessment` for the
+  // re-run. data.assessment is already in hand from the select above — no extra read.
+  // Guard: if the current assessment is null (e.g. a prior aborted re-run left it blank), do NOT
+  // overwrite an already-populated prior_assessment with null — keep the last good report.
+  const update = { assessment: null, status: 'pending', rerun_count: currentCount + 1 };
+  if (data.assessment != null) update.prior_assessment = data.assessment;
+
   await supabase
     .from('salvage_sessions')
-    .update({ assessment: null, status: 'pending', rerun_count: currentCount + 1 })
+    .update(update)
     .eq('id', salvage_id);
 
   return NextResponse.json({ success: true });

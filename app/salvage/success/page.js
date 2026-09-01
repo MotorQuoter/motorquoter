@@ -1348,6 +1348,24 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
+                {assessment._bidPredictionUnavailable && (
+                  <div className="field-row">
+                    <div className="field-key">
+                      Market Cross-Check
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: 2 }}>
+                        SalvageGuide — independent auction market data
+                      </span>
+                    </div>
+                    <div className="field-val">
+                      <div style={{ padding: '10px 12px', background: 'rgba(245,200,66,0.08)', border: '1.5px solid rgba(245,200,66,0.3)', borderRadius: 8, fontSize: 12, color: '#f5c842', lineHeight: 1.6 }}>
+                        The independent market bid prediction could not be run for this vehicle: its salvage
+                        category (&ldquo;{assessment._bidPredictionUnavailable.rawCategory}&rdquo;) was not one we
+                        could match to a standard salvage category, so this cross-check was skipped. Nothing has
+                        been guessed. Every other figure in this report is unaffected.
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {assessment._investmentBlock && (() => {
                   const ib = edited.investmentBlock;   // rebuild ceiling + breakeven-band mid recomputed
                   const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';

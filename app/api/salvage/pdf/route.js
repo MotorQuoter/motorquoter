@@ -1008,6 +1008,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
         : ` NOTE: our assessment and the market data disagree here — worth a closer look before you bid.`;
     }
     fieldBlock('Market Cross-Check', sgTxt);
+  } else if (assessment._bidPredictionUnavailable) {
+    // Batch 103 §3: the independent bid prediction was skipped because the salvage category string was
+    // not one we could match. Tell the buyer plainly; nothing is guessed.
+    fieldBlock('Market Cross-Check', `The independent market bid prediction (SalvageGuide) could not be run for this vehicle: its salvage category ("${assessment._bidPredictionUnavailable.rawCategory}") was not one we could match to a standard salvage category, so this cross-check was skipped. Nothing has been guessed. Every other figure in this report is unaffected.`);
   }
 
   // Investment Analysis — additive block (AEP-style). Omitted entirely if absent.
