@@ -111,11 +111,46 @@ const H = ledgerHash(synth._reconciledParts);   // the stamp a fresh edit layer 
      r3.stampMismatch === true && r3.delta === 0);
 }
 
-// CAT A/B — not editable, edits refused.
+// CAT A/B — not editable, edits refused. The engine stores the hard stop as `_catABHardStop` (a
+// letter), NOT `_catAB` — the gate must fire on the REAL field (dead-gate fixed batch 105).
 {
-  const catAB = { ...synth, _catAB: true };
+  const catAB = { ...synth, _catABHardStop: 'B' };
   const r = applyEdits(catAB, { stamp: H, strikes: ['REAR_BUMPER#0'], adds: [{ id: 'a', text: 'x', amount: 500 }] });
-  ok('Cat A/B: notEditable, edits refused, parts_sum unchanged', r.notEditable === true && r.partsSum === 1000 && r.delta === 0);
+  ok('Cat A/B (_catABHardStop): notEditable, edits refused, parts_sum unchanged', r.notEditable === true && r.partsSum === 1000 && r.delta === 0);
+  // Guard against a regression to the dead field: an assessment with ONLY the old inert name must
+  // still be caught by the defensive alias, but the real field is what the engine actually writes.
+  ok('Cat A/B: _catABHardStop alone is enough to refuse (does not depend on the dead _catAB)',
+     applyEdits({ ...synth, _catABHardStop: 'A' }, { stamp: H, strikes: ['REAR_BUMPER#0'], adds: [] }).notEditable === true);
+}
+
+// POSITIONAL-KEY CORRECTNESS (batch 105) — the render drops blank-name rows (the success `_named`
+// guard and the PDF `_pdfNamed` guard). Keys MUST come from applyEdits().rows (derived over the FULL
+// _reconciledParts) and only THEN be filtered — re-deriving keys over the filtered array shifts the
+// ordinal of any paired panel and would silently strike the wrong line. This is the correctness
+// condition for wiring the edit layer into the screen and the PDF.
+{
+  const withBlank = {
+    _partsReconciliation: { parts_sum: 100 },
+    _reconciledParts: [
+      { panelId: 'FOG_LAMP', name: 'Fog lamp L', used: 50, action: 'replace' },
+      { panelId: 'FOG_LAMP', name: '',           used: 0,  action: 'replace' }, // blank → render drops it
+      { panelId: 'FOG_LAMP', name: 'Fog lamp R', used: 50, action: 'replace' },
+    ],
+    _marginScenarios: null, _investmentBlock: null, _salvageGuide: null,
+  };
+  const HB = ledgerHash(withBlank._reconciledParts);
+  const r = applyEdits(withBlank, { stamp: HB, strikes: [], adds: [] });
+  const visible = r.rows.filter((x) => (x.name ?? '').trim() !== '');   // what the render shows
+  ok('surviving 2nd fog keeps its FULL-ledger key (FOG_LAMP#2), not a re-indexed one',
+     visible.length === 2 && visible[1]._rowKey === 'FOG_LAMP#2');
+  const rederived = rowKeyFor(visible);   // the WRONG way — over the filtered array
+  ok('re-deriving keys over the filtered array corrupts it to FOG_LAMP#1 (the trap)',
+     rederived[1] === 'FOG_LAMP#1');
+  ok('the two differ → render/PDF MUST use edited.rows keys, never rowKeyFor(filtered)',
+     visible[1]._rowKey !== rederived[1]);
+  // And a strike stored against the full-ledger key removes the RIGHT £50, leaving the other fog.
+  const rs = applyEdits(withBlank, { stamp: HB, strikes: ['FOG_LAMP#2'], adds: [] });
+  ok('strike FOG_LAMP#2 removes exactly £50 (the visible right fog), parts_sum 100→50', rs.partsSum === 50);
 }
 
 // STRIKE ALL — defined behaviour: parts_sum 0, margins assume no repair, flagged allStruck.

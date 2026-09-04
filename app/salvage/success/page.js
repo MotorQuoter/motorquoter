@@ -6,6 +6,7 @@ import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollecto
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
+import { applyEdits, ledgerHash } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -124,6 +125,17 @@ export default function SalvageSuccessPage() {
   const [bookingLine, setBookingLine] = useState(null);   // 4f C-6 booking reminder (computed off-render — impure now/log)
   const [bookingState, setBookingState] = useState(null);       // booking window state for the CURRENT lot (off-render)
   const [savedBookingState, setSavedBookingState] = useState(null); // …and for the SAVED lot (compare view)
+  // Buyer ledger edits (batch 82 → wired batch 105). Working set for the CURRENT ledger; loaded from
+  // the stored edit_layer on success, saved back on demand. editsAvailable stays false until the GET
+  // succeeds (deploy-before-apply: before the edit_layer column exists the GET fails and the controls
+  // simply never appear — the report renders normally).
+  const [editStrikes, setEditStrikes] = useState([]);           // [rowKey]
+  const [editAdds, setEditAdds] = useState([]);                 // [{id,text,amount}]
+  const [editMode, setEditMode] = useState(false);
+  const [editsAvailable, setEditsAvailable] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editNotice, setEditNotice] = useState('');
+  const [addDraft, setAddDraft] = useState({ text: '', amount: '' });
   const intervalRef = useRef(null);
   const salvageIdRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -192,9 +204,41 @@ export default function SalvageSuccessPage() {
       setRerunCount(data.rerunCount ?? 0);
       setBregoData(data.bregoData || null);
       setStatus('success');
+      loadEditLayer(data.assessment);   // buyer ledger edits — off the critical render path
     } catch (e) {
       setErrorMsg(e.message);
       setStatus('error');
+    }
+  };
+
+  // Fetch the stored edit layer for this ledger and seed the working set. Apply it ONLY when its
+  // stamp still matches the current ledger (a re-run / body-type patch invalidates it — kept in the DB
+  // as valid calibration, but shown as no-longer-applicable). Any failure (e.g. the edit_layer column
+  // not yet migrated) leaves editing unavailable and the report renders normally. Never throws.
+  const loadEditLayer = async (asmt) => {
+    setEditMode(false); setEditNotice('');
+    if (!asmt?._reconciledParts?.length) { setEditStrikes([]); setEditAdds([]); setEditsAvailable(false); return; }
+    try {
+      const cred = promoTokenRef.current
+        ? `promo_token=${encodeURIComponent(promoTokenRef.current)}`
+        : `session_id=${encodeURIComponent(sessionIdRef.current || '')}`;
+      const res = await fetch(`/api/salvage/edits?salvage_id=${salvageIdRef.current}&${cred}`);
+      if (!res.ok) { setEditsAvailable(false); return; }
+      const j = await res.json();
+      setEditsAvailable(true);
+      const layer = j.editLayer;
+      const cur = ledgerHash(asmt._reconciledParts);
+      if (layer && layer.stamp === cur) {
+        setEditStrikes(Array.isArray(layer.strikes) ? layer.strikes : []);
+        setEditAdds(Array.isArray(layer.adds) ? layer.adds : []);
+      } else {
+        setEditStrikes([]); setEditAdds([]);
+        if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0)) > 0) {
+          setEditNotice('You adjusted this ledger against an earlier version of the report — those changes no longer apply and have not been counted.');
+        }
+      }
+    } catch {
+      setEditsAvailable(false);
     }
   };
 
@@ -320,6 +364,61 @@ export default function SalvageSuccessPage() {
     : 'Assessment';
 
   const checklist = parseChecklist(assessment?.['WhatsApp Inspection Checklist']);
+
+  // ── Buyer ledger edits — handlers + the single recompute path (batch 105) ─────────────────────────
+  const toggleStrike = (key) => {
+    if (!key) return;
+    setEditStrikes((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
+  };
+  const removeAdd = (id) => setEditAdds((a) => a.filter((x) => x.id !== id));
+  const handleAddLine = () => {
+    const amt = Number(String(addDraft.amount).replace(/[^0-9.]/g, ''));
+    if (!addDraft.text.trim() || !Number.isFinite(amt)) return;
+    setEditAdds((a) => [...a, {
+      id: `add_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      text: addDraft.text.trim(), amount: amt,
+    }]);
+    setAddDraft({ text: '', amount: '' });
+  };
+  const handleSaveEdits = async () => {
+    if (!salvageIdRef.current || !assessment?._reconciledParts?.length) return;
+    setEditSaving(true); setEditNotice('');
+    try {
+      const res = await fetch('/api/salvage/edits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salvage_id: salvageIdRef.current,
+          stamp: ledgerHash(assessment._reconciledParts),
+          strikes: editStrikes,
+          adds: editAdds,
+          ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 409) { setEditNotice(j.error || 'The report changed since you started — reload before saving.'); return; }
+      if (!res.ok) throw new Error(j.error || 'Could not save your changes.');
+      // Adopt the server-sanitised layer so the screen matches exactly what will render on the PDF.
+      setEditStrikes(j.editLayer?.strikes ?? []);
+      setEditAdds(j.editLayer?.adds ?? []);
+      setEditNotice('Saved. Your changes are stored and appear on the downloaded PDF.');
+    } catch (e) {
+      setEditNotice(e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // The SINGLE recompute path, shared with the PDF (lib/ledgerEdits.applyEdits). With no edits it
+  // reproduces the engine's stored figures exactly (no-edit parity), so every parts_sum-downstream
+  // surface — repair banner, parts table + total, margin ladder, break-even, rebuild ceiling,
+  // SalvageGuide divergence — can route through `edited` unconditionally. Cheap + pure → in render.
+  const editStamp = assessment?._reconciledParts?.length ? ledgerHash(assessment._reconciledParts) : null;
+  const edited = assessment
+    ? applyEdits(assessment, { stamp: editStamp, strikes: editStrikes, adds: editAdds })
+    : null;
+  // Editable only with a structured ledger, the column present (GET succeeded), and no Cat A/B stop.
+  const ledgerEditable = !!(editsAvailable && assessment?._reconciledParts?.length && edited && !edited.notEditable);
 
   return (
     <>
@@ -516,11 +615,16 @@ export default function SalvageSuccessPage() {
               </div>
             )}
 
-            {/* Repair estimate banner — code-owned parts_sum, single figure */}
+            {/* Repair estimate banner — code-owned parts_sum, edited view (buyer strikes/adds applied) */}
             {assessment._partsReconciliation?.parts_sum > 0 && (
               <div className="repair-banner">
                 <div className="repair-banner-label">Estimated Repair — visible items</div>
-                <div className="repair-banner-value">£{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}</div>
+                <div className="repair-banner-value">£{Number(edited.partsSum).toLocaleString('en-GB')}</div>
+                {edited.applied && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 4 }}>
+                    Adjusted by you — engine estimate £{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}
+                  </div>
+                )}
               </div>
             )}
 
@@ -770,11 +874,16 @@ export default function SalvageSuccessPage() {
                     console.warn(`[PARTS RENDER GUARD] dropped blank-name row from ${src}:`, JSON.stringify(p));
                     return false;
                   });
-                  const parts = _named(assessment._reconciledParts?.length
-                    ? assessment._reconciledParts
-                    : parseParts(assessment['Parts Breakdown'] || ''), 'parts');
+                  const hasStructured = assessment._reconciledParts?.length > 0;
+                  // Render from the edit view's rows when we have a structured ledger — each row carries
+                  // its full-ledger _rowKey + _struck. Filter the blank-name guard over THESE rows so the
+                  // key travels with the row; NEVER re-derive keys over the filtered array (batch 105).
+                  const parts = hasStructured
+                    ? _named(edited.rows, 'parts')
+                    : _named(parseParts(assessment['Parts Breakdown'] || ''), 'parts');
+                  const addedRows = hasStructured ? (edited.addedRows || []) : [];
                   const allowanceParts = _named(assessment._allowanceParts || [], 'allowance');
-                  if (!parts.length && !allowanceParts.length) return null;
+                  if (!parts.length && !allowanceParts.length && !addedRows.length) return null;
                   const fmtP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const colSt = (align = 'left', bold = false) => ({
                     fontSize: 12, fontWeight: bold ? 700 : 400,
@@ -787,10 +896,11 @@ export default function SalvageSuccessPage() {
                     textAlign: align, paddingBottom: 4,
                   });
                   // Column totals — render-only; oemTotal never written to any stored field.
-                  const shTotal  = assessment._reconciledParts?.length > 0 && assessment._partsReconciliation?.parts_sum > 0
-                    ? assessment._partsReconciliation.parts_sum : null;
+                  const shTotal  = hasStructured && assessment._partsReconciliation?.parts_sum > 0
+                    ? edited.partsSum : null;
                   const oemTotal = shTotal != null
-                    ? parts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
+                    ? parts.filter(p => !p._struck).reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
+                      + addedRows.reduce((acc, a) => acc + (Number(a.amount) || 0), 0)
                     : null;
                   // Three cost columns. replace → OEM + S/H. repair → OEM (all-OEM "New" comparison, when the model
                   // gave a replace price) + Repair cost. labour/other → Repair cost only. The repair-row OEM now
@@ -815,15 +925,39 @@ export default function SalvageSuccessPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {parts.map((p, i) => { const c = costCells(p); return (
-                            <tr key={i}>
-                              <td style={colSt('left')}>{p.name}</td>
-                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11 }}>{p.action}</td>
-                              <td style={colSt('right')}>{fmtP(c.oem)}</td>
-                              <td style={colSt('right', c.sh != null)}>{fmtP(c.sh)}</td>
-                              <td style={colSt('right', c.repair != null)}>{fmtP(c.repair)}</td>
+                          {parts.map((p, i) => { const c = costCells(p); const struck = !!p._struck; const strikeSt = struck ? { textDecoration: 'line-through' } : null; return (
+                            <tr key={p._rowKey || i} style={struck ? { opacity: 0.5 } : undefined}>
+                              <td style={{ ...colSt('left'), ...strikeSt }}>
+                                {ledgerEditable && editMode && (
+                                  <button type="button" onClick={() => toggleStrike(p._rowKey)} title={struck ? 'Restore this line' : 'Remove this line from the repair total'}
+                                    style={{ marginRight: 8, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: struck ? '#4ade80' : '#f87171', cursor: 'pointer', textDecoration: 'none', display: 'inline-block' }}>
+                                    {struck ? '↺' : '✕'}
+                                  </button>
+                                )}
+                                {p.name}
+                              </td>
+                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p.action}</td>
+                              <td style={{ ...colSt('right'), ...strikeSt }}>{fmtP(c.oem)}</td>
+                              <td style={{ ...colSt('right', c.sh != null), ...strikeSt }}>{fmtP(c.sh)}</td>
+                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{fmtP(c.repair)}</td>
                             </tr>
                           ); })}
+                          {addedRows.map((a, i) => (
+                            <tr key={`add-${a.id || i}`}>
+                              <td style={colSt('left')}>
+                                {ledgerEditable && editMode && (
+                                  <button type="button" onClick={() => removeAdd(a.id)} title="Remove your line"
+                                    style={{ marginRight: 8, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: '#f87171', cursor: 'pointer', display: 'inline-block' }}>✕</button>
+                                )}
+                                {a.text}
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--orange)', textTransform: 'uppercase', marginLeft: 8 }}>Your line</span>
+                              </td>
+                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11 }}>added</td>
+                              <td style={colSt('right')}>—</td>
+                              <td style={colSt('right', true)}>{fmtP(a.amount)}</td>
+                              <td style={colSt('right')}>—</td>
+                            </tr>
+                          ))}
                           {allowanceParts.map((p, i) => (
                             <tr key={`al-${i}`} style={{ opacity: 0.65 }}>
                               <td style={{ ...colSt('left'), fontStyle: 'italic' }}>{p.name}</td>
@@ -859,6 +993,54 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
+                {/* Buyer ledger edits (batch 105) — strike a costed line you can confirm is sound, or add
+                    your own from the inspection. Reversible; recomputes the whole report live; saved to
+                    the PDF. Never shown on a Cat A/B hard stop. */}
+                {ledgerEditable && (
+                  <div className="field-row">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div className="field-key" style={{ marginBottom: 0 }}>Adjust This Ledger</div>
+                      <button type="button" onClick={() => setEditMode(m => !m)}
+                        style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, background: editMode ? 'var(--orange)' : 'transparent', border: '1.5px solid var(--orange)', borderRadius: 8, color: editMode ? '#fff' : 'var(--orange)', cursor: 'pointer' }}>
+                        {editMode ? 'Done' : 'Edit'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
+                      Strike a line you can confirm is sound on inspection, or add one we couldn&apos;t see. The repair total, margins, break-even and bid ceilings all update. Nothing is deleted — struck lines stay visible.
+                    </div>
+                    {editMode && (
+                      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input type="text" value={addDraft.text} onChange={e => setAddDraft(d => ({ ...d, text: e.target.value }))}
+                            placeholder="Add a line (e.g. Rear crossmember)"
+                            style={{ flex: 1, minWidth: 0, background: 'var(--bg3)', border: '1px solid var(--border-dim)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow', sans-serif", outline: 'none' }} />
+                          <input type="text" inputMode="numeric" value={addDraft.amount} onChange={e => setAddDraft(d => ({ ...d, amount: e.target.value }))}
+                            placeholder="£"
+                            style={{ width: 80, background: 'var(--bg3)', border: '1px solid var(--border-dim)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow', sans-serif", outline: 'none' }} />
+                          <button type="button" onClick={handleAddLine} disabled={!addDraft.text.trim() || !String(addDraft.amount).replace(/[^0-9.]/g, '')}
+                            style={{ padding: '8px 14px', fontSize: 13, fontWeight: 700, background: 'var(--orange)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', opacity: (!addDraft.text.trim() || !String(addDraft.amount).replace(/[^0-9.]/g, '')) ? 0.45 : 1 }}>Add</button>
+                        </div>
+                        {edited.warnings?.length > 0 && edited.warnings.map((w, i) => (
+                          <div key={i} style={{ fontSize: 11, color: '#f5c842', lineHeight: 1.5 }}>{w}</div>
+                        ))}
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button type="button" onClick={handleSaveEdits} disabled={editSaving}
+                            style={{ padding: '9px 16px', fontSize: 13, fontWeight: 800, background: 'var(--orange)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', opacity: editSaving ? 0.6 : 1 }}>
+                            {editSaving ? 'Saving…' : 'Save changes'}
+                          </button>
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                            {editStrikes.length} struck · {editAdds.length} added
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {editNotice && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)', background: 'rgba(245,200,66,0.08)', border: '1px solid rgba(245,200,66,0.3)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+                        {editNotice}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Parts Sourcing — shoppable affiliate links over the costed basket (AEP-style).
                     Additive: costed figures above are unchanged. Disclosure is mandatory + visible. */}
                 {assessment._partsSourcing?.links?.length > 0 && (() => {
@@ -1073,7 +1255,7 @@ export default function SalvageSuccessPage() {
                       <div className="field-val" style={{ marginBottom: assessment._marginScenarios?.length > 0 ? 10 : 0 }}>{assessment['Margin Calculation']}</div>
                     )}
                     {(() => {
-                      const scenarios = assessment._marginScenarios;
+                      const scenarios = edited.marginScenarios;   // margins shifted by −delta; rungs unchanged
                       if (!scenarios?.length) return null;
                       const carExit   = scenarios[0].exit_value;
                       const carRepair = scenarios[0].repair;
@@ -1136,7 +1318,7 @@ export default function SalvageSuccessPage() {
                   </div>
                 )}
                 {assessment._salvageGuide && (() => {
-                  const sg = assessment._salvageGuide;
+                  const sg = edited.salvageGuide;   // divergence recomputed against the edited break-even
                   const fmtGbp = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   return (
                     <div className="field-row">
@@ -1167,7 +1349,7 @@ export default function SalvageSuccessPage() {
                   );
                 })()}
                 {assessment._investmentBlock && (() => {
-                  const ib = assessment._investmentBlock;
+                  const ib = edited.investmentBlock;   // rebuild ceiling + breakeven-band mid recomputed
                   const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const range = (o) => o ? `${g(o.low)} – ${g(o.high)}${o.mid != null ? ` (avg ${g(o.mid)})` : ''}` : '—';
                   const salvageBasis = ib.asIsSalvage?.basis === 'salvageguide'

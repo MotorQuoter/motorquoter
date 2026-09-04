@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
+import { applyEdits } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -132,8 +133,12 @@ function parseChecklistItems(text) {
     .filter(s => s.length > 0);
 }
 
-function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate, bregoData) {
+function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate, bregoData, editLayer) {
   const assessment = resolveFields(rawAssessment);
+  // Buyer ledger edits (batch 105): the SAME recompute path the screen uses, so the PDF can never
+  // disagree with what the buyer saw. With no stored layer it reproduces the engine figures exactly.
+  // Every parts_sum-downstream surface below reads from `edited`; row keys come from edited.rows.
+  const edited = applyEdits(assessment, editLayer ?? null);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
@@ -541,21 +546,28 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 2;
   }
 
-  // Section 3: REPAIR ESTIMATE BANNER — code-owned parts_sum, single figure
+  // Section 3: REPAIR ESTIMATE BANNER — code-owned parts_sum, edited view (buyer strikes/adds applied)
   const partsSum = assessment._partsReconciliation?.parts_sum;
   if (partsSum > 0) {
-    checkPage(26);
+    const bannerH = edited.applied ? 24 : 19;
+    checkPage(bannerH + 7);
     y += 3;
     doc.setFillColor(240, 90, 26);
-    doc.roundedRect(MARGIN, y - 3, CONTENT_W, 19, 2, 2, 'F');
+    doc.roundedRect(MARGIN, y - 3, CONTENT_W, bannerH, 2, 2, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(255, 200, 170);
     doc.text('ESTIMATED REPAIR — VISIBLE ITEMS', MARGIN + 4, y + 3);
     doc.setFontSize(13);
     doc.setTextColor(255, 255, 255);
-    doc.text(`£${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 12);
-    y += 23;
+    doc.text(`£${Number(edited.partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 12);
+    if (edited.applied) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(255, 220, 200);
+      doc.text(`Adjusted by you - engine estimate £${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 18);
+    }
+    y += bannerH + 4;
   }
 
   // Fix 4 — Section 4: DAMAGE ASSESSMENT
@@ -641,13 +653,15 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     console.warn(`[PARTS RENDER GUARD] dropped blank-name row from ${src}:`, JSON.stringify(p));
     return false;
   });
-  const pdfParts = _pdfNamed(assessment._reconciledParts?.length
-    ? assessment._reconciledParts
-    : parsePdfParts(assessment['Parts Breakdown'] || ''), 'pdf-parts');
+  // Render from the edit view's rows when structured (each carries _rowKey + _struck); filter the
+  // blank-name guard over THESE rows so keys never re-index over the filtered array (batch 105).
+  const hasStructured = assessment._reconciledParts?.length > 0;
+  const pdfParts = _pdfNamed(hasStructured ? edited.rows : parsePdfParts(assessment['Parts Breakdown'] || ''), 'pdf-parts');
+  const pdfAddedRows = hasStructured ? (edited.addedRows || []) : [];
   const pdfAllowanceParts = _pdfNamed(assessment._allowanceParts || [], 'pdf-allowance');
-  if (pdfParts.length > 0 || pdfAllowanceParts.length > 0) {
+  if (pdfParts.length > 0 || pdfAllowanceParts.length > 0 || pdfAddedRows.length > 0) {
     const fmtPP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
-    checkPage(8 + (pdfParts.length + pdfAllowanceParts.length) * 6);
+    checkPage(8 + (pdfParts.length + pdfAddedRows.length + pdfAllowanceParts.length) * 6);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 100, 100);
@@ -686,20 +700,41 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     y += 2;
     for (const p of pdfParts) {
       const c = costCells(p);
+      const struck = !!p._struck;
       checkPage(6);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      const tc = struck ? 150 : 20;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(tc, tc, tc);
       doc.text(str(p.name),   MARGIN, y);
       doc.setTextColor(130, 130, 130); doc.setFontSize(7.5);
       doc.text(str(p.action), xAct,   y);
-      doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.setFontSize(8.5); doc.setTextColor(tc, tc, tc);
       doc.setFont('helvetica', 'normal');
       doc.text(str(fmtPP(c.oem)),    xOem + COL_OEM,       y, { align: 'right' });
-      doc.setFont('helvetica', c.sh != null ? 'bold' : 'normal');
+      doc.setFont('helvetica', (!struck && c.sh != null) ? 'bold' : 'normal');
       doc.text(str(fmtPP(c.sh)),     xSh + COL_SH,         y, { align: 'right' });
-      doc.setFont('helvetica', c.repair != null ? 'bold' : 'normal');
+      doc.setFont('helvetica', (!struck && c.repair != null) ? 'bold' : 'normal');
       doc.text(str(fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
+      // Struck line: a rule through the row, and the figures greyed — the line stays visible, never removed.
+      if (struck) { doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.3); doc.line(MARGIN, y - 1.1, xRepair + COL_REPAIR, y - 1.1); }
       y += 5;
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
+      doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    // Buyer added lines — the buyer's own figure, marked as theirs (in the S/H column).
+    for (const a of pdfAddedRows) {
+      checkPage(6);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(str(`${a.text}  (your line)`), MARGIN, y);
+      doc.setTextColor(130, 130, 130); doc.setFontSize(7.5);
+      doc.text('added', xAct, y);
+      doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text('—', xOem + COL_OEM, y, { align: 'right' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(str(fmtPP(a.amount)), xSh + COL_SH, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.text('—', xRepair + COL_REPAIR, y, { align: 'right' });
+      y += 5;
+      doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
     }
     // Allowance rows — visually distinct, excluded from repair total
@@ -727,8 +762,9 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
     // Column totals row — New (OEM) vs S/H bid. S/H = stored parts_sum (bid figure); New = oem??used per row.
     // Render-only: oemTotal never written to any stored field; no downstream calc reads it.
     if (assessment._partsReconciliation?.parts_sum > 0) {
-      const oemTotal = pdfParts.reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0);
-      const shTotal  = assessment._partsReconciliation.parts_sum;
+      const oemTotal = pdfParts.filter(p => !p._struck).reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
+        + pdfAddedRows.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+      const shTotal  = edited.partsSum;
       checkPage(14);
       doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.5);
       doc.line(xOem, y, PAGE_W - MARGIN, y);
@@ -879,7 +915,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Margin table — server-computed from tool inputs
   if (Array.isArray(assessment._marginScenarios) && assessment._marginScenarios.length > 0) {
-    const msc       = assessment._marginScenarios;
+    const msc       = edited.marginScenarios;   // margins shifted by −delta; rungs unchanged
     const fmtM      = (v) => {
       if (v == null) return '-';
       const n = Number(v);
@@ -960,7 +996,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // SalvageGuide market cross-check — labelled independent reference; omitted entirely if absent.
   if (assessment._salvageGuide) {
-    const sg = assessment._salvageGuide;
+    const sg = edited.salvageGuide;   // divergence recomputed against the edited break-even
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
     let sgTxt = `SalvageGuide (independent auction market data) — predicted bid ${g(sg.bidLow)} - ${g(sg.bidHigh)}${sg.bidAvg != null ? ` (avg ${g(sg.bidAvg)})` : ''}.`;
     if (sg.retailLow != null && sg.retailHigh != null) sgTxt += ` Market retail ref ${g(sg.retailLow)} - ${g(sg.retailHigh)}.`;
@@ -976,7 +1012,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
 
   // Investment Analysis — additive block (AEP-style). Omitted entirely if absent.
   if (assessment._investmentBlock) {
-    const ib = assessment._investmentBlock;
+    const ib = edited.investmentBlock;   // rebuild ceiling + breakeven-band mid recomputed
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
     const range = (o) => o ? `${g(o.low)} - ${g(o.high)}${o.mid != null ? ` (avg ${g(o.mid)})` : ''}` : '—';
     const lines = [];
@@ -1104,11 +1140,20 @@ export async function POST(request) {
     }
 
     const supabase = getSupabase();
-    const { data: session, error } = await supabase
+    // Deploy-before-apply: the edit_layer column may not be migrated yet. Try WITH it; if the select
+    // errors (column absent), fall back to the pre-edit-layer columns so the PDF still generates.
+    let { data: session, error } = await supabase
       .from('salvage_sessions')
-      .select('assessment, vehicle_details, market, stripe_session_id')
+      .select('assessment, vehicle_details, market, stripe_session_id, edit_layer')
       .eq('id', salvage_id)
       .single();
+    if (error) {
+      ({ data: session, error } = await supabase
+        .from('salvage_sessions')
+        .select('assessment, vehicle_details, market, stripe_session_id')
+        .eq('id', salvage_id)
+        .single());
+    }
 
     if (error || !session) {
       return Response.json({ error: 'Session not found' }, { status: 404 });
@@ -1144,7 +1189,8 @@ export async function POST(request) {
       market,
       identifier,
       today,
-      bregoData
+      bregoData,
+      session.edit_layer ?? null
     );
 
     return new Response(pdfBuffer, {

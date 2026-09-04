@@ -108,7 +108,9 @@ export async function POST(request) {
   if (!owns(session, session_id, promo_token)) return NextResponse.json({ error: 'Unauthorised' }, { status: 403 });
 
   // Cat A/B hard stop is not editable (batch 82 §4). Refuse rather than store an inert layer.
-  if (session.assessment?._catAB) {
+  // The engine stores the hard stop as `_catABHardStop`; `_catAB` was never written (dead gate fixed
+  // batch 105). Read the real field, keep the old name as a defensive alias.
+  if (session.assessment?._catABHardStop || session.assessment?._catAB) {
     return NextResponse.json({ error: 'This report is under a Cat A/B legal hard stop and cannot be edited.' }, { status: 409 });
   }
 
