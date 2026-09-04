@@ -1587,7 +1587,9 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
 }
 
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
-const AMALG_REASON_NOT_VISIBLE = 'not visible in any photo — no view showed this part clearly enough to confirm condition; request on the WhatsApp inspection before bidding';
+// batch 106 wording rule: the engine may NEVER assert a fact about the photograph SET (the buyer can
+// falsify "not in the photos" by looking — see AMZ3790 wheels). State it as the engine's READ instead.
+const AMALG_REASON_NOT_VISIBLE = 'no per-view read resolved this part — condition unconfirmed; request on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
 // confirmed displaced bumper. States only the situation and uncertainty — no damage verb,
 // no damage claim, no "inspect in person" (buyers have no Copart access).
@@ -2070,7 +2072,12 @@ function amalgamate(groups, viewPanelSets) {
         // silence. _perViewClear stays so the gate strips any model cost line (no money enters
         // parts_sum); _amalgSingleMinor marks both the entry and the flag so the §2 invariant guarantees
         // the flag reaches the buyer even if a downstream splice removes it. The buyer prices it (batch 82).
-        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → low-weight flag, no cost (Ruling 2)`);
+        // batch 106 — THE DOCUMENTED EXCEPTION to the £0-cost-at-band rule (family E). Every other
+        // unresolved-but-money-moving family flips to cost-at-band; a single unsupported MINOR does NOT.
+        // Vincent's batch-81 Ruling 2 stands: one weak signal that the other views of the area did not
+        // corroborate is not confirmed AND not dismissed — it carries no cost, only a low flag. Ratified
+        // again at batch 106 as the deliberate carve-out. Do not add a cost line here.
+        console.log(`[AMALG][COSMETIC] ${panelId} minorVotes=${minorVotes} < ${MINOR_COSMETIC_FLAG_THRESHOLD} → single unsupported MINOR → low-weight flag, no cost (Ruling 2; batch-106 exception)`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true, _amalgSingleMinor: true, _ledgerSeverity: 'MINOR' });
         flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: AMALG_REASON_SINGLE_MINOR, _amalgSingleMinor: true });
       }
@@ -4568,6 +4575,80 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.log(`[${logTag}] ${pid} band=${bandKey} used=£${wtEntry.used} (oem=£${wtEntry.oem}) stripped-model-rows=${wtStripped}`);
     }
 
+    // ── £0-RULE INJECTION (batch 106) — cost-at-band + state-the-limit for the flip families ────────
+    // Vincent's ruling: where the engine cannot resolve something that MOVES MONEY, cost it (band
+    // figure, or the structural jig FLOOR), KEEP the inspection flag (it states the limit), and the
+    // buyer strikes the line via the edit layer (batch 105). Mirrors G-inject: post-gate, additive,
+    // summed identically by sumPartsRealistic. Families that FLIP:
+    //   A structural  — positive structural read (FLAG_CLASS, high) → £500 FLOOR, rendered "from £500";
+    //                   a STRUCTURE panel flagged ONLY via NOT_VISIBLE gets NO floor (nobody saw it).
+    //   B not-visible — cost at band ONLY when adjacent to a panel already costed SEVERE on the same
+    //                   end (deterministic neighbour set — radiator behind a costed front bumper).
+    //   C/D uncorrob  — cost at band + flag (consistency; dormant on the corpus).
+    //   F cosmetic    — cost at the panel's band (repair) + low flag.
+    // E single-MINOR (Ruling 2) and G allowance (batch 107) do NOT flip; H/I/J untouched.
+    const ZERO_RULE_STRUCT_FLOOR = 500;
+    // A not-visible panel is "behind" one of these costed-severe neighbours on the same end. Code-owned,
+    // same shape as PANEL_REAR_NEIGHBOURS. Extend as Vincent rules — radiator-behind-front-end is canonical.
+    const ZERO_RULE_ADJACENCY = {
+      [PANEL.RADIATOR_PACK]: [PANEL.FRONT_BUMPER, PANEL.SLAM_PANEL, PANEL.BONNET, PANEL.GRILLE],
+      [PANEL.SLAM_PANEL]:    [PANEL.FRONT_BUMPER, PANEL.BONNET, PANEL.RADIATOR_PACK],
+    };
+    {
+      const sevOf = p => (p.used ?? p.oem ?? 0) > 0 && (p.action === 'replace' || p._ledgerSeverity === 'SEVERE' || p._gSeverity === 'SEVERE');
+      const costedSevere = new Set(gatedParts.filter(sevOf).map(p => p.panelId));
+      const alreadyCosted = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
+      // EV battery — Vincent ruling: NO band, NO floor (a hit HV pack ranges £0-to-total-loss, so no
+      // honest figure exists). But it is the LARGEST unknown on the car, not one of fifteen inspection
+      // items — upgrade the generic medium not-visible flag to HIGH with its own wording. Limit-only:
+      // never costed. The Red Flags HV paragraph is left as-is (it is correct).
+      for (const f of (coreObs.flaggedParts || [])) {
+        if (/EV_BATTERY|HV_BATTERY|\bBATTERY\b/.test(f.panelId || '')) {
+          f.weight = 'high';
+          f.reason = 'High-voltage battery — condition cannot be determined from photographs. A damaged pack can range from no cost to a total loss. Confirm HV isolation and pack integrity before bidding.';
+          f._evBatteryLimit = true;
+          console.log(`[ZERO-RULE][EV] ${f.panelId} → HIGH limit-only flag (no cost, no band)`);
+        }
+      }
+      for (const f of (coreObs.flaggedParts || [])) {
+        const pid = f.panelId;
+        if (!pid || alreadyCosted.has(pid)) continue;                 // no panel, or already in the money → never double
+        if (f._amalgSingleMinor) continue;                            // E — Ruling 2 exception
+        if (f._apertureDemoted || f._bumperOffStripped) continue;     // H — dies on the held bumper branch
+        if (f._srsExtentFloor) continue;                              // I — batch 107
+        const isStructReason = (f.reason || '').includes('structural or inspection-class');
+        const te = bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] : null;
+        let injected = null;
+        if (isStructReason && !f._amalgNotVisible) {
+          // A — positive structural read → £500 FLOOR (never a complete figure)
+          injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'inspect',
+            oem: null, used: ZERO_RULE_STRUCT_FLOOR, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
+        } else if (f._amalgNotVisible) {
+          // B — cost ONLY when behind a costed-severe neighbour; otherwise stays flag-only
+          const nbrs = ZERO_RULE_ADJACENCY[pid] || [];
+          if (!nbrs.some(n => costedSevere.has(n)) || !te) continue;
+          injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'replace',
+            oem: te.oem, used: te.used, _tableMandated: true, _zeroRule: 'B' };
+        } else if (f._amalgUncorroborated || f._radUncorroborated) {
+          // C / D — cost at band + flag (dormant on the corpus, path must obey the rule)
+          if (!te) continue;
+          injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'replace',
+            oem: te.oem, used: te.used, _tableMandated: true, _zeroRule: f._radUncorroborated ? 'D' : 'C' };
+        } else if (f._amalgCosmetic) {
+          // F — cosmetic 2-vote → band figure, repair
+          if (!te) continue;
+          injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'repair',
+            oem: null, used: te.used, _tableMandated: true, _zeroRule: 'F' };
+        }
+        if (!injected) continue;
+        // Defensive: strip any residual £0 row for this panel so the injected line is the only one.
+        for (let i = gatedParts.length - 1; i >= 0; i--) if (gatedParts[i].panelId === pid) gatedParts.splice(i, 1);
+        gatedParts.push(injected);
+        alreadyCosted.add(pid);
+        console.log(`[ZERO-RULE][${injected._zeroRule}] ${pid} → cost £${injected.used}${injected._structFloor ? ' (floor, "from")' : ''} (inspection flag retained — states the limit)`);
+      }
+    }
+
     // ── SRS airbag tier (CODE-owned from per-view enum + Copart paste) ───────────
     // THREE cleanly separated jobs — do not let them bleed:
     //   IN-PLAY = _srsGateOpen: the INDEPENDENT impact/interior signal (frontStruck / listing
@@ -5150,7 +5231,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         for (const cp of coreObs.costedParts) if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
         const severityOf = (p) => sevByPanel.get(p.panelId) || 'MODERATE';
         const ratio = computeLabourRatio({
-          survivingParts: gatedParts.filter(p => !isLabour(p.name)),
+          // batch 106: £0-rule injected rows (_zeroRule) are excluded from the labour ratio — the £500
+          // structural floor is jig-work all-in, and the band figures already stand alone; Vincent's
+          // ruled magnitude is parts-only. Injects must never scale the model's labour figure.
+          survivingParts: gatedParts.filter(p => !isLabour(p.name) && !p._zeroRule),
           preGateParts:   (reconciledParts || []).filter(p => !isLabour(p.name)),
           severityOf, shape,
         });
@@ -5212,6 +5296,32 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.warn(`[DAMAGE CARDS] skipped — ${e?.message || e}`);
     }
 
+    // batch 106 (6th & 7th surface) — stamp the ledger rowKey onto Key Cost Drivers + damage cards so the
+    // buyer edit layer (batch 105) can grey/drop a struck line here too, not just in the parts table. The
+    // keys are the SAME identity lib/ledgerEdits.rowKeyFor derives from _reconciledParts (panelId#ordinal,
+    // or name:slug#ordinal for a panelless row), consumed in LEDGER order per base — never re-derived
+    // positionally over the figure-sorted KCD array (the batch-105 trap). Paired identical rows are
+    // interchangeable, so which of the pair a key lands on is immaterial to the buyer.
+    {
+      const _baseOf = (e) => e?.panelId != null ? String(e.panelId)
+        : `name:${String(e?.name ?? e?.partName ?? e?.part ?? 'row').toLowerCase().trim().replace(/\s+/g, '-')}`;
+      const _ledgerKeys = new Map();   // base → [rowKeys in ledger order]
+      { const seen = new Map();
+        for (const p of gatedParts) {
+          const base = _baseOf(p);
+          const n = seen.get(base) ?? 0; seen.set(base, n + 1);
+          if (!_ledgerKeys.has(base)) _ledgerKeys.set(base, []);
+          _ledgerKeys.get(base).push(`${base}#${n}`);
+        }
+      }
+      const _stamp = (arr) => {
+        const q = new Map([..._ledgerKeys].map(([k, v]) => [k, [...v]]));   // fresh per-array queue copy
+        for (const e of (arr || [])) { const a = q.get(_baseOf(e)); e._rowKey = (a && a.length) ? a.shift() : null; }
+      };
+      _stamp(assessment._kcdParts);
+      _stamp(assessment._damageCards);
+    }
+
     // Floored-panel prose scrub (Cowork §13). Deterministic post-processor: using the FINAL damage
     // cards as ground truth, it drops Key-Cost-Driver lines whose lead panel was FLOORED (not costed)
     // and neutralises severe-damage adjectives asserted on floored panels in KCD/VDS — the reliable
@@ -5265,7 +5375,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const damagedWheelParts = gatedParts.filter(p => IS_WHEEL_TYRE.test(p.name));
       const netItem = damagedWheelParts.length > 0
         ? `Wheel/tyre damage already identified and costed (${damagedWheelParts.map(p => p.name).join(', ')}) — photograph ALL corners close-up to confirm extent of identified damage and that unaffected corners are serviceable`
-        : `Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges (the listing photos do not show the wheels clearly enough to confirm condition)`;
+        : `Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges`;
       console.log(`[WHEEL NET] ${damagedWheelParts.length > 0 ? 'adapt' : 'unconditional'} — appending to checklist. damagedWheels=${damagedWheelParts.length}`);
       const existing = (assessment['WhatsApp Inspection Checklist'] || '').trim();
       if (existing) {
@@ -5365,15 +5475,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             } else if (flag._amalgDisagree) {
               seedItem = `Show ${part} close-up — condition could not be resolved across views in the listing photos.`;
             } else if (flag._amalgNotVisible) {
-              seedItem = `Show ${part} close-up — not visible in any of the listing photos.`;
+              seedItem = `Show ${part} close-up — not resolved by the engine's read; condition unconfirmed.`;
             } else if (flag._gateGenerated) {
-              seedItem = `Show ${part} close-up — could not be confirmed from the listing photos.`;
+              seedItem = `Show ${part} close-up — could not be confirmed by the engine's read.`;
             } else if (flag.weight === 'high') {
               seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;
             } else if (flag.weight === 'low') {
               seedItem = `Show ${part} close-up — confirm the cosmetic damage extent.`;
             } else {
-              seedItem = `Show ${part} close-up — condition could not be confirmed from the listing photos.`;
+              seedItem = `Show ${part} close-up — condition could not be confirmed by the engine's read.`;
             }
             checklistText += `\n${nextItem}. ${seedItem}`;
             console.log(`[SEED] add "${part}" as item ${nextItem}`);

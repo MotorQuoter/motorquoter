@@ -139,6 +139,8 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // disagree with what the buyer saw. With no stored layer it reproduces the engine figures exactly.
   // Every parts_sum-downstream surface below reads from `edited`; row keys come from edited.rows.
   const edited = applyEdits(assessment, editLayer ?? null);
+  // batch 106 — struck row keys also drop the matching Key Cost Driver + damage card (6th/7th surface).
+  const struckKeys = new Set((edited.rows || []).filter(r => r._struck).map(r => r._rowKey));
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
@@ -706,14 +708,14 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(tc, tc, tc);
       doc.text(str(p.name),   MARGIN, y);
       doc.setTextColor(130, 130, 130); doc.setFontSize(7.5);
-      doc.text(str(p.action), xAct,   y);
+      doc.text(str(p._structFloor ? 'jig/geometry' : p.action), xAct,   y);
       doc.setFontSize(8.5); doc.setTextColor(tc, tc, tc);
       doc.setFont('helvetica', 'normal');
       doc.text(str(fmtPP(c.oem)),    xOem + COL_OEM,       y, { align: 'right' });
       doc.setFont('helvetica', (!struck && c.sh != null) ? 'bold' : 'normal');
       doc.text(str(fmtPP(c.sh)),     xSh + COL_SH,         y, { align: 'right' });
       doc.setFont('helvetica', (!struck && c.repair != null) ? 'bold' : 'normal');
-      doc.text(str(fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
+      doc.text(str(p._structFloor && c.repair != null ? `from ${fmtPP(c.repair)}` : fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
       // Struck line: a rule through the row, and the figures greyed — the line stays visible, never removed.
       if (struck) { doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.3); doc.line(MARGIN, y - 1.1, xRepair + COL_REPAIR, y - 1.1); }
       y += 5;
@@ -842,7 +844,10 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // (claim-bound; may be empty → drivers stand alone). Well-formed when colour drops entirely.
   {
     const kcdColour  = (assessment['Key Cost Drivers'] || '').trim();
-    const kcdDrivers = (assessment._kcdParts || []).map(d => d.prose).join('\n');
+    // batch 106: drop a struck driver; append the buyer's own added lines.
+    const kcdDrivers = (assessment._kcdParts || []).filter(d => !struckKeys.has(d._rowKey)).map(d => d.prose)
+      .concat((edited.addedRows || []).map(a => `${a.text} — your line: £${Number(a.amount).toLocaleString('en-GB')}`))
+      .join('\n');
     const kcdText    = [kcdColour, kcdDrivers].filter(Boolean).join('\n\n');
     if (kcdText) fieldBlock('Key Cost Drivers', kcdText);
   }
@@ -850,7 +855,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred (£0).
   if (assessment._damageCards?.length > 0) {
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
-    const lines = assessment._damageCards.map(c => {
+    const lines = assessment._damageCards.filter(c => !struckKeys.has(c._rowKey)).map(c => {
       const bits = [c.origin];
       if (c.severity) bits.push(c.severity);
       if (c.action) bits.push(c.action);

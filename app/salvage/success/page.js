@@ -419,6 +419,9 @@ export default function SalvageSuccessPage() {
     : null;
   // Editable only with a structured ledger, the column present (GET succeeded), and no Cat A/B stop.
   const ledgerEditable = !!(editsAvailable && assessment?._reconciledParts?.length && edited && !edited.notEditable);
+  // batch 106 — struck row keys drive the 6th/7th surfaces (Key Cost Drivers + Damage Breakdown): an
+  // entry whose _rowKey is struck is greyed/dropped there too, and buyer-added lines appear.
+  const struckKeys = new Set((edited?.rows || []).filter(r => r._struck).map(r => r._rowKey));
 
   return (
     <>
@@ -936,10 +939,10 @@ export default function SalvageSuccessPage() {
                                 )}
                                 {p.name}
                               </td>
-                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p.action}</td>
+                              <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p._structFloor ? 'jig/geometry' : p.action}</td>
                               <td style={{ ...colSt('right'), ...strikeSt }}>{fmtP(c.oem)}</td>
                               <td style={{ ...colSt('right', c.sh != null), ...strikeSt }}>{fmtP(c.sh)}</td>
-                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{fmtP(c.repair)}</td>
+                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{p._structFloor ? `from ${fmtP(c.repair)}` : fmtP(c.repair)}</td>
                             </tr>
                           ); })}
                           {addedRows.map((a, i) => (
@@ -1082,8 +1085,14 @@ export default function SalvageSuccessPage() {
                       {assessment['Key Cost Drivers'] && (
                         <div className="field-val">{assessment['Key Cost Drivers']}</div>
                       )}
-                      {(assessment._kcdParts || []).map((d, i) => (
-                        <div className="field-val" key={i}>{d.prose}</div>
+                      {(assessment._kcdParts || []).map((d, i) => {
+                        const struck = struckKeys.has(d._rowKey);
+                        return (
+                          <div className="field-val" key={i} style={struck ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{d.prose}</div>
+                        );
+                      })}
+                      {(edited?.addedRows || []).map((a, i) => (
+                        <div className="field-val" key={`kadd-${a.id || i}`}>{a.text} — your line: £{Number(a.amount).toLocaleString('en-GB')}</div>
                       ))}
                     </div>
                   </div>
@@ -1102,8 +1111,8 @@ export default function SalvageSuccessPage() {
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                        {cards.map((c, i) => (
-                          <div key={i} style={{ borderLeft: `3px solid ${oc[c.origin] || '#888'}`, paddingLeft: 10 }}>
+                        {cards.map((c, i) => { const struck = struckKeys.has(c._rowKey); return (
+                          <div key={i} style={{ borderLeft: `3px solid ${oc[c.origin] || '#888'}`, paddingLeft: 10, ...(struck ? { textDecoration: 'line-through', opacity: 0.5 } : {}) }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
                                 {c.part}
@@ -1116,7 +1125,7 @@ export default function SalvageSuccessPage() {
                             </div>
                             {c.note ? <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginTop: 2 }}>{c.note}</div> : null}
                           </div>
-                        ))}
+                        ); })}
                       </div>
                     </div>
                   );
