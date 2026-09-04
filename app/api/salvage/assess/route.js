@@ -4623,6 +4623,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           // A — positive structural read → £500 FLOOR (never a complete figure)
           injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'inspect',
             oem: null, used: ZERO_RULE_STRUCT_FLOOR, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
+          // The floor IS in the repair total — the flag (and its damage card) must say so, not the old
+          // "not included in the repair cost" (which now contradicts the Parts Breakdown line). batch 106.
+          f.reason = `A floor of £${ZERO_RULE_STRUCT_FLOOR} is included in the repair total; the true figure for jig/geometry work cannot be scoped from photographs.`;
+          f._structFloorFlag = true;
         } else if (f._amalgNotVisible) {
           // B — cost ONLY when behind a costed-severe neighbour; otherwise stays flag-only
           const nbrs = ZERO_RULE_ADJACENCY[pid] || [];
@@ -5348,7 +5352,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         customId:   (process.env.EBAY_EPN_CUSTOM_ID   || '').trim() || null,
       };
       const _sourcing = buildPartsSourcing({
-        parts:   gatedParts,
+        // batch 106: the £0-rule injected rows are excluded from the shoppable eBay list — you cannot buy
+        // a chassis jig from a breaker, and the band-flip lines are unconfirmed until inspection.
+        parts:   gatedParts.filter(p => !p._zeroRule),
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
         epn,
       });

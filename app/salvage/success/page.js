@@ -1120,7 +1120,7 @@ export default function SalvageSuccessPage() {
                                 {c.severity ? <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 6 }}>{c.severity}</span> : null}
                               </span>
                               <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                {c.cost ? g(c.cost) : '£0'}<span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>{c.action ? ` · ${c.action}` : ''}</span>
+                                {c._structFloor ? `from ${g(c.cost)}` : (c.cost ? g(c.cost) : '£0')}<span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>{c.action ? ` · ${c.action}` : ''}</span>
                               </span>
                             </div>
                             {c.note ? <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginTop: 2 }}>{c.note}</div> : null}

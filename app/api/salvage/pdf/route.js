@@ -859,7 +859,7 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       const bits = [c.origin];
       if (c.severity) bits.push(c.severity);
       if (c.action) bits.push(c.action);
-      const head = `${c.part} — ${bits.join(', ')}: ${c.cost ? g(c.cost) : '£0'}`;
+      const head = `${c.part} — ${bits.join(', ')}: ${c._structFloor ? `from ${g(c.cost)}` : (c.cost ? g(c.cost) : '£0')}`;
       return c.note ? `${head}\n  ${c.note}` : head;
     });
     fieldBlock('Damage Breakdown', lines.join('\n'));
