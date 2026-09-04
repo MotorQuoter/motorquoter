@@ -77,7 +77,7 @@ console.log('\n2. Deletes photos, keeps the row (UPDATE, never DELETE)');
   ok('NO DELETE was issued against salvage_sessions', !fake.calls.some(c => c.startsWith('row-DELETE')));
   assert('order: remove(real upload paths) → UPDATE stamping image_paths/images/images_purged_at', fake.calls,
     ['storage-remove:upload-abc/0.jpg,upload-abc/1.jpg', 'row-update:row-xyz:image_paths,images,images_purged_at']);
-  ok('the row survives with images_purged_at stamped', fake.store[0].images_purged_at != null && fake.store[0].image_paths === null && fake.store[0].images === null);
+  ok('the row survives with images_purged_at stamped', fake.store[0].images_purged_at != null && fake.store[0].image_paths === null && Array.isArray(fake.store[0].images) && fake.store[0].images.length === 0);
 }
 
 // ── 3. Idempotent — a re-run skips already-stamped rows ───────────────────────────────────────────
@@ -116,7 +116,7 @@ console.log('\n6. Code-level guards');
 {
   const lib = read('lib/imageRetention.mjs');
   ok('the sweep issues NO delete against salvage_sessions (UPDATE only)', !/salvage_sessions'\)\s*\n?\s*\.delete\(/.test(lib) && !/from\('salvage_sessions'\)\.delete\(/.test(lib));
-  ok('purge stamps images_purged_at + nulls both image copies', lib.includes('images_purged_at: new Date().toISOString()') && lib.includes('image_paths: null') && lib.includes('images: null'));
+  ok('purge stamps images_purged_at + nulls image_paths + empties images ([] — the column is NOT NULL)', lib.includes('images_purged_at: new Date().toISOString()') && lib.includes('image_paths: null') && lib.includes('images: []'));
   ok('the sweep skips already-purged rows', lib.includes("is('images_purged_at', null)"));
   ok('removes the ROW image_paths, not a guessed prefix', lib.includes('row.image_paths') && !/\$\{id\}\//.test(lib));
   ok('NO keep column/filter — age alone', !lib.includes("'keep'") && !/keep\s+boolean/i.test(lib));
