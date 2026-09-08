@@ -1035,6 +1035,13 @@ export default function SalvageSuccessPage() {
                             {editStrikes.length} struck · {editAdds.length} added
                           </span>
                         </div>
+                        {/* Labour follows the ledger (Vincent's ruling, 8 Sep): striking a body panel now
+                            removes its panel-work labour too. A line the buyer adds carries the figure HE
+                            chose, so it earns no labour on top — say so rather than let him wonder. */}
+                        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                          Striking a body panel also removes its share of the labour. A line you add is
+                          used exactly as you price it — no labour is added on top.
+                        </div>
                       </div>
                     )}
                     {editNotice && (

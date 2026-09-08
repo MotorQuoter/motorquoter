@@ -200,5 +200,65 @@ if (!existsSync(FX)) {
   }
 }
 
+// -- LABOUR FOLLOWS THE LEDGER (Vincent's ruling, 8 Sep) -----------------------------------------
+// Striking a panel used to remove its PART cost and leave its LABOUR in the total. A welded quarter is
+// £800 all-in per LABOUR_SPEC_v1, so a buyer striking £175 was clearing £175 of a ~£975 phantom.
+// applyEdits now re-runs lib/labour.computeLabour over the SURVIVING body panels.
+{
+  const mk = () => ({
+    _reconciledParts: [
+      { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 365, used: 200 },
+      { panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', oem: 320, used: 175 },
+      { panelId: 'GRILLE', name: 'Grille', action: 'replace', oem: 180, used: 90 },
+      { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'inspect', oem: null, used: 500, _zeroRule: 'A', _structFloor: true },
+      { name: 'Labour & paint (new & painted)', action: 'x', oem: 1750, used: null, _codeLabour: true },
+    ],
+    _partsReconciliation: { parts_sum: 2715 },
+    _labourBodyPanels: [
+      { panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'repair' },
+      { panelId: 'REAR_QUARTER', zone: 'flank-damaged-side', severity: 'SEVERE', action: 'replace' },
+    ],
+    _labourTellCount: 1,
+  });
+
+  const a = mk();
+  const H = ledgerHash(a._reconciledParts);
+  const k = rowKeyFor(a._reconciledParts);
+  const qKey = k[1], grilleKey = k[2];
+
+  const none = applyEdits(a, { stamp: H, strikes: [], adds: [] });
+  ok('labour: NO-EDIT PARITY - labour untouched and labourDelta is 0',
+     none.labourDelta === 0 && none.partsSum === a._partsReconciliation.parts_sum
+     && none.rows.find((r) => r._codeLabour).oem === 1750);
+
+  const sq = applyEdits(a, { stamp: H, strikes: [qKey], adds: [] });
+  const lrow = sq.rows.find((r) => r._codeLabour);
+  ok('labour: striking a BODY panel recomputes the labour row DOWN',
+     lrow._labourRecomputed === true && lrow.oem < 1750);
+  ok('labour: the strike removes the part AND its labour from parts_sum',
+     sq.partsSum === a._partsReconciliation.parts_sum - 175 + sq.labourDelta && sq.labourDelta < 0);
+  ok('labour: _labourWas records the engine figure it replaced', lrow._labourWas === 1750);
+
+  const sg = applyEdits(a, { stamp: H, strikes: [grilleKey], adds: [] });
+  ok('labour: striking a NON-body panel (grille) leaves labour alone',
+     sg.labourDelta === 0 && sg.rows.find((r) => r._codeLabour).oem === 1750);
+
+  const ad = applyEdits(a, { stamp: H, strikes: [], adds: [{ id: 'x', text: 'my line', amount: 400 }] });
+  ok('labour: a buyer-ADDED line earns NO labour (he priced his own line)',
+     ad.labourDelta === 0 && ad.partsSum === a._partsReconciliation.parts_sum + 400);
+
+  const stale = applyEdits(a, { stamp: 'L9-stale', strikes: [qKey], adds: [] });
+  ok('labour: a suppressed / stampMismatch layer recomputes NOTHING',
+     stale.stampMismatch === true && stale.labourDelta === 0
+     && stale.rows.find((r) => r._codeLabour).oem === 1750);
+
+  ok('labour: _zeroRule rows earn no panel-work labour (absent from the engine input list)',
+     !a._labourBodyPanels.some((bp) => bp.panelId === 'FRONT_STRUCTURE'));
+
+  const noPanels = applyEdits({ ...a, _labourBodyPanels: undefined }, { stamp: H, strikes: [qKey], adds: [] });
+  ok('labour: an older assessment with no _labourBodyPanels degrades safely (no recompute, no crash)',
+     noPanels.labourDelta === 0 && noPanels.partsSum === a._partsReconciliation.parts_sum - 175);
+}
+
 console.log(`\n${fail === 0 ? 'OK' : 'FAILED'} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
