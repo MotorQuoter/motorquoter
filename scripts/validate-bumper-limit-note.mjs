@@ -90,6 +90,26 @@ if (!ak || !amz || !dl) {
   ok('DL72FVX: both derivations say the FRONT bumper is on → no front note',
      dl._frontBumperOffAny === false && !noteFor(dl, 'front'));
 
+  // THE LOT IT WAS ALL WRITTEN FOR. SF69YBB's rear bumper is torn from the body; the presence read says
+  // PRESENT, so the money path is wrong AND the note used to be suppressed with it. Ground truth says the
+  // quarter behind it is UNDAMAGED, so this is the exact shape that must never ship again: costed, but
+  // stated as unconfirmed and strikeable, and never offered for sale.
+  const sf = load('SF69YBB');
+  if (!sf) {
+    console.log('  SKIP — SF69YBB dump absent (its cassette is overwritten by whichever tree ran last)');
+  } else {
+    ok('SF69YBB: the presence read still says the rear bumper is ON (money path untouched)',
+       sf._rearBumperOff === false);
+    ok('SF69YBB: the note-only signal catches it via the legacy limb', sf._rearBumperOffAny === true);
+    ok('SF69YBB: the limit note IS present on the rear quarter', noteFor(sf, 'rear'));
+    ok('SF69YBB: the quarter STAYS COSTED — Vincent ruled it stays and the buyer strikes it',
+       (sf._reconciledParts || []).some((p) => p.panelId === 'REAR_QUARTER' && (p.used ?? p.oem ?? 0) > 0));
+    ok('SF69YBB: NO eBay link on the quarter we have just said we cannot confirm',
+       !linked(sf, 'Rear quarter panel'));
+    ok('SF69YBB: the Damage Breakdown card carries the limit, not a bare "Severe / replace"',
+       (sf._damageCards || []).some((c) => /quarter/i.test(c.part || '') && /torn away/.test(c.note || '')));
+  }
+
   // 5. Legacy must not alter a money figure. These are the engine's own totals from the same
   //    cassettes before and after the change; they are asserted as the exact known values.
   ok('money unmoved by the note: AK75RDX 8015 · AMZ3790 4900 · DL72FVX 2070',
