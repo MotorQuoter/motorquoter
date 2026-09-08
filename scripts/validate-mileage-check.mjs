@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { checkMileageTimeline, toMiles, resolvePhotoOdometerReading } from '../lib/mileageCheck.mjs';
+import { buildMileageCorroborationSlot } from '../lib/mileageCorroboration.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (vrm) => JSON.parse(readFileSync(join(HERE, 'fixtures', 'mot', `${vrm}.dvsa.json`), 'utf8'));
@@ -254,4 +255,64 @@ test('§2b: no numbers → fall back to listing (unchanged)', () => {
 test('§2b: the OLD behaviour is fixed — a two-number cluster read is no longer discarded', () => {
   // Pre-batch-75 (`uniq.length===1 ? uniq[0] : NaN`) returned null here; now it confirms 29,869.
   assert.equal(resolvePhotoOdometerReading([29869, 312], 29869).value, 29869);
+});
+
+// ── batch 106 §2 (EO-01) — the mileage CORROBORATION slot: silence is not agreement ──────────────
+// The defect: a lot with a listing figure and NO MOT ladder was told its mileage was "corroborated
+// against other sources" — verdict:confirmed / confidence:corroborated — when there were no other
+// sources. "Confirmed" must now require a SECOND independent source that positively agreed.
+
+test('EO-01: listing figure, NO MOT ladder (single source) → NOT corroborated, NOT confirmed', () => {
+  // AMZ3790 shape: source is the Copart listing field, and it is the ONLY mileage source present.
+  const slot = buildMileageCorroborationSlot(
+    { _mileageSourceCount: 1 },   // one independent source only
+    107423, 'copart_listed',
+  );
+  assert.notEqual(slot.verdict, 'confirmed');           // must NOT collapse into "Verified clear"
+  assert.notEqual(slot.confidence, 'corroborated');     // must NOT claim corroboration
+  assert.equal(slot.verdict, 'unconfirmed');
+  assert.ok(slot.flag && slot.flag.tier === 1);         // carries the tier-1 odometer-photo ask
+  assert.match(slot.detail, /only mileage source|nothing independent/i);
+});
+
+test('EO-01: single-source slot agrees with the Red Flags line (does not claim corroboration)', () => {
+  const slot = buildMileageCorroborationSlot({ _mileageSourceCount: 1 }, 50000, 'listing_odometer');
+  assert.doesNotMatch(slot.detail, /no discrepancy flagged|cross-checked/i);
+});
+
+test('EO-01: two or more sources agreeing (no flag) → confirmed / corroborated is TRUE', () => {
+  const slot = buildMileageCorroborationSlot({ _mileageSourceCount: 2 }, 60000, 'listing_odometer');
+  assert.equal(slot.verdict, 'confirmed');
+  assert.equal(slot.confidence, 'corroborated');
+  assert.equal(slot.flag, null);                        // a genuinely-clear slot carries no flag
+  assert.match(slot.detail, /cross-checked against 1 other source\b/);
+});
+
+test('EO-01: three sources agreeing → pluralised "2 other sources"', () => {
+  const slot = buildMileageCorroborationSlot({ _mileageSourceCount: 3 }, 60000, 'dvsa_mot');
+  assert.equal(slot.verdict, 'confirmed');
+  assert.match(slot.detail, /cross-checked against 2 other sources\b/);
+});
+
+test('EO-01: a discrepancy flag still wins over the source count (unchanged first branch)', () => {
+  const slot = buildMileageCorroborationSlot(
+    { _mileageSourceCount: 2, motMileageFlag: 'Photo 40,000 vs listing 90,000 — verify' },
+    90000, 'listing_odometer',
+  );
+  assert.equal(slot.verdict, 'discrepancy');
+  assert.ok(slot.flag);
+});
+
+test('EO-01: age-estimate branch is unchanged — still unconfirmed with the photo ask', () => {
+  const slot = buildMileageCorroborationSlot({ _mileageSourceCount: 0 }, 120000, 'age_anomaly');
+  assert.equal(slot.verdict, 'unconfirmed');
+  assert.match(slot.detail, /ESTIMATED from vehicle age/);
+  assert.ok(slot.flag && slot.flag.tier === 1);
+});
+
+test('EO-01: missing count defaults to single-source (never silently corroborates)', () => {
+  // Defensive: an older stored assessment without _mileageSourceCount must NOT read as corroborated.
+  const slot = buildMileageCorroborationSlot({}, 50000, 'copart_listed');
+  assert.notEqual(slot.confidence, 'corroborated');
+  assert.equal(slot.verdict, 'unconfirmed');
 });

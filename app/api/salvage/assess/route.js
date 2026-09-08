@@ -17,6 +17,7 @@ import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
+import { buildMileageCorroborationSlot } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
   CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
@@ -478,50 +479,9 @@ function buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFla
   });
 }
 
-const MILEAGE_SOURCE_LABELS = {
-  copart_listed: 'the Copart listing field',
-  listing_odometer: 'the listing description',
-  photo_odometer: 'the dashboard photo',
-  dvsa_mot: 'the last DVSA MOT record',
-  default_fallback: 'a default estimate',
-};
-
-// Reuses the code's EXISTING mileage-hygiene signals (motMileageFlag / photoMileageFlag /
-// age-estimate source) rather than re-deriving comparison logic — those flags already ARE the
-// corroboration check; this slot just forces them into a verdict instead of leaving them as
-// prose the model might restate inconsistently.
-function buildMileageCorroborationSlot(enrichedVd, brMileage, brMileageSource) {
-  const fmtMiles = (n) => `${Number(n).toLocaleString('en-GB')} miles`;
-  const flagText = enrichedVd.motMileageFlag || enrichedVd.photoMileageFlag || null;
-
-  if (flagText) {
-    return buildSlot({
-      id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
-      kind: 'confirmation', verdict: 'discrepancy',
-      detail: String(flagText).replace(/^[⚠️\s|]+/, '').trim(),
-      confidence: 'visible', source: 'code',
-      flag: { severity: 'caution', whatsapp: 'Mileage sources do not agree — confirm actual mileage (dash photo plus V5/MOT paperwork) before bidding', tier: 1 },
-    });
-  }
-
-  if (brMileageSource === 'age_estimate' || brMileageSource === 'age_anomaly') {
-    return buildSlot({
-      id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
-      kind: 'confirmation', verdict: 'unconfirmed',
-      detail: `${fmtMiles(brMileage)} — ESTIMATED from vehicle age only; no listing, photo or DVSA mileage was available`,
-      confidence: 'inferred', source: 'code',
-      flag: { severity: 'caution', whatsapp: 'No confirmed mileage is available for this lot — photograph the odometer clearly and confirm it against the V5/MOT paperwork before bidding', tier: 1 },
-    });
-  }
-
-  const sourceLabel = MILEAGE_SOURCE_LABELS[brMileageSource] || brMileageSource;
-  return buildSlot({
-    id: 'mileage-corroboration', label: 'Mileage corroborated against other sources',
-    kind: 'confirmation', verdict: 'confirmed',
-    detail: `${fmtMiles(brMileage)} from ${sourceLabel} — no discrepancy flagged against the other available sources`,
-    confidence: 'corroborated', source: 'code',
-  });
-}
+// buildMileageCorroborationSlot + MILEAGE_SOURCE_LABELS extracted to lib/mileageCorroboration.mjs
+// (batch 106 §2 / EO-01) so the verdict logic is a pure, importable function the mileage validator
+// asserts against. The caller supplies enrichedVd._mileageSourceCount (computed at the call site).
 
 // Generalised salvage-count slot — consumes selfMatchCount/recordsExcludingSelf from the
 // generalised tagSelfReference() above. 0 excl. self = clean; 1 = note worth a light WhatsApp
@@ -3181,6 +3141,26 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     if (brMileageSource === 'age_anomaly') {
       console.log(`[MILEAGE ANOMALY] vrm=${enrichedVd.vrm || 'unknown'} year=${enrichedVd.year || '?'} age=${brAgeYears ?? '?'}yr no listing/photo/DVSA mileage available, estimating ${brMileage} miles from age`);
     }
+
+    // batch 106 §2 (EO-01): count the INDEPENDENT mileage sources that actually produced a reading
+    // for THIS lot. "Corroborated" must rest on a second source that positively agreed — not on the
+    // absence of a discrepancy flag (a single source has nothing to disagree with, and scoring that
+    // silence as agreement is the same fault the £0 rule kills). Three independent sources:
+    //   1. the listing (Copart structured field OR listing-description odometer — one source)
+    //   2. the dash-photo read, only if it survived the sanity checks above (photoOdometer != null)
+    //   3. the last DVSA MOT record
+    // Brego/One Auto is NOT counted — it consumes brMileage as input, it does not originate a figure.
+    const _listingMileagePresent = (() => {
+      const raw = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
+      if (raw == null) return false;
+      const m = String(raw).replace(/,/g, '').match(/\d+/);
+      return m ? parseInt(m[0], 10) >= 1 : false;
+    })();
+    const _dvsaMileagePresent = (() => {
+      const d = parseInt(String(enrichedVd.lastMotMileage ?? '').replace(/,/g, ''), 10);
+      return d >= 1;
+    })();
+    enrichedVd._mileageSourceCount = [_listingMileagePresent, photoOdometer != null, _dvsaMileagePresent].filter(Boolean).length;
 
     // Fetch salvage history + Brego valuation in parallel (GB/NI only)
     let bregoData = null;
