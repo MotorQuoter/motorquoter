@@ -17,7 +17,7 @@ import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
-import { buildMileageCorroborationSlot } from '@/lib/mileageCorroboration.mjs';
+import { buildMileageCorroborationSlot, countIndependentMileageSources } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
   CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
@@ -3145,11 +3145,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // batch 106 §2 (EO-01): count the INDEPENDENT mileage sources that actually produced a reading
     // for THIS lot. "Corroborated" must rest on a second source that positively agreed — not on the
     // absence of a discrepancy flag (a single source has nothing to disagree with, and scoring that
-    // silence as agreement is the same fault the £0 rule kills). Three independent sources:
-    //   1. the listing (Copart structured field OR listing-description odometer — one source)
-    //   2. the dash-photo read, only if it survived the sanity checks above (photoOdometer != null)
-    //   3. the last DVSA MOT record
+    // silence as agreement is the same fault the £0 rule kills).
+    //
+    // batch 106 §4 (EO-01 re-opened, Vincent's ruling 8 Sep): there are TWO independent sources, not
+    // three. The listing figure IS the dashboard reading — transcribed by the member of auction staff
+    // who photographed the cluster — so the listing field and the dash-photo read are ONE source seen
+    // twice, and treating their agreement as corroboration compares a number to its own origin. On
+    // AMZ3790 they sat 180 miles apart (107,423 listed / 107,243 read): that is not two sources
+    // agreeing, it is one source typed wrong by 180. The dashboard contributes exactly 1 whether one
+    // or both of its readings landed (never 0 when only the photo read survives, or the slot would
+    // mis-route into the age-estimate branch).
+    //   1. the DASHBOARD — the listing field (Copart structured or description) OR the dash-photo read
+    //   2. the last DVSA MOT record — the only genuinely independent mileage record we hold
     // Brego/One Auto is NOT counted — it consumes brMileage as input, it does not originate a figure.
+    // Consequence, deliberate: "corroborated" now REQUIRES a DVSA MOT record. A lot with no MOT ladder
+    // reads "nothing independent corroborates it" + the tier-1 odometer ask, agreeing with Red Flags.
     const _listingMileagePresent = (() => {
       const raw = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
       if (raw == null) return false;
@@ -3160,7 +3170,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const d = parseInt(String(enrichedVd.lastMotMileage ?? '').replace(/,/g, ''), 10);
       return d >= 1;
     })();
-    enrichedVd._mileageSourceCount = [_listingMileagePresent, photoOdometer != null, _dvsaMileagePresent].filter(Boolean).length;
+    // The dashboard is ONE source however many times it is read (batch 106 §4). The rule itself lives
+    // in lib/mileageCorroboration.countIndependentMileageSources so the validator can assert it.
+    enrichedVd._mileageSourceCount = countIndependentMileageSources({
+      listingMileagePresent: _listingMileagePresent,
+      photoOdometerPresent: photoOdometer != null,
+      dvsaMileagePresent: _dvsaMileagePresent,
+    });
 
     // Fetch salvage history + Brego valuation in parallel (GB/NI only)
     let bregoData = null;

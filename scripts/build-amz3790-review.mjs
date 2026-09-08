@@ -182,7 +182,7 @@ const html = `<title>AMZ3790 — Batch 106 Review</title>
     `<div class="kv"><b>verdict:</b> <span class="good">${esc(A_mile?.verdict)}</span> &nbsp; <b>confidence:</b> <span class="good">${esc(A_mile?.confidence)}</span> &nbsp; <b>flag:</b> ${A_mile?.flag ? `tier ${A_mile.flag.tier} ${esc(A_mile.flag.severity)}` : 'none'}</div>` +
       `<pre>${esc(A_mile?.detail)}</pre>` +
       `<div class="kv ${A_mv.ok ? 'good' : 'bad'}">${A_mv.ok ? '' : 'FAIL — '}${esc(A_mv.why)}.</div>` +
-      (A_mv.multi ? `<div class="kv">⚠️ RUN-DEPENDENT ON THIS LOT. AMZ3790 has no MOT ladder, so the second source is the Haiku dash read — which lands on some runs and not others. When it lands and agrees, "corroborated" is correct under the rule; when it does not, the same code says "this is the only mileage source available". Both are honest; the wording will differ between runs. Flagged for your call, not folded in.</div>` : ''),
+      (A_mv.multi ? `<div class="kv">The second source here is a DVSA MOT record — the only mileage record independent of the dashboard.</div>` : `<div class="kv">Batch 106 §4: the listing figure IS the dashboard reading, transcribed by the staff member who photographed the cluster. Listing + dash-photo is ONE source seen twice, so it can no longer buy a "corroborated" — that now requires a DVSA MOT record, which this lot has none of. This also removes the run-to-run wording wobble: the verdict no longer depends on whether the Haiku dash read lands.</div>`),
     'EO-01. Silence (no discrepancy flag) is no longer scored as agreement — "confirmed" now requires a second independent source that positively agreed.')}
 
   ${pair('EV / HV battery — HIGH, limit-only, no figure', 5,

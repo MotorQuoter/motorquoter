@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { checkMileageTimeline, toMiles, resolvePhotoOdometerReading } from '../lib/mileageCheck.mjs';
-import { buildMileageCorroborationSlot } from '../lib/mileageCorroboration.mjs';
+import { buildMileageCorroborationSlot, countIndependentMileageSources } from '../lib/mileageCorroboration.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (vrm) => JSON.parse(readFileSync(join(HERE, 'fixtures', 'mot', `${vrm}.dvsa.json`), 'utf8'));
@@ -315,4 +315,73 @@ test('EO-01: missing count defaults to single-source (never silently corroborate
   const slot = buildMileageCorroborationSlot({}, 50000, 'copart_listed');
   assert.notEqual(slot.confidence, 'corroborated');
   assert.equal(slot.verdict, 'unconfirmed');
+});
+
+// ── batch 106 §4 (EO-01 re-opened) — the listing figure IS the dashboard reading ──────────────────
+// Vincent's ruling, 8 Sep: "if it is reading the dash mileage, comparing that to the listed mileage
+// and saying corroborated, that is wrong — because the person listing it is using the dash mileage."
+// The §2 fix corrected the VERDICT branch and left the COUNT wrong, so listing + dash-photo scored 2
+// and AMZ3790 was told it had been cross-checked against an independent source that does not exist.
+// These assert the counting rule and the slot it feeds, end to end.
+
+// A count → slot helper, so each case reads as the lot shape it represents.
+const slotFor = (sources, brMileage, brMileageSource, extra = {}) =>
+  buildMileageCorroborationSlot(
+    { _mileageSourceCount: countIndependentMileageSources(sources), ...extra },
+    brMileage, brMileageSource,
+  );
+
+test('EO-01 §4: THE AMZ3790 CASE — listing + dash photo, NO DVSA → NOT corroborated', () => {
+  // The regression test for the ruling. Two readings of one dashboard is one source.
+  const sources = { listingMileagePresent: true, photoOdometerPresent: true, dvsaMileagePresent: false };
+  assert.equal(countIndependentMileageSources(sources), 1);
+  const slot = slotFor(sources, 107423, 'copart_listed');
+  assert.equal(slot.verdict, 'unconfirmed');
+  assert.equal(slot.confidence, 'inferred');
+  assert.notEqual(slot.confidence, 'corroborated');
+  assert.ok(slot.flag && slot.flag.tier === 1);
+  assert.doesNotMatch(slot.detail, /cross-checked against/i);   // the phrase must NOT appear
+});
+
+test('EO-01 §4: listing + dash photo + DVSA → confirmed, "1 other source" (not 2)', () => {
+  const sources = { listingMileagePresent: true, photoOdometerPresent: true, dvsaMileagePresent: true };
+  assert.equal(countIndependentMileageSources(sources), 2);
+  const slot = slotFor(sources, 60000, 'copart_listed');
+  assert.equal(slot.verdict, 'confirmed');
+  assert.equal(slot.confidence, 'corroborated');
+  assert.match(slot.detail, /cross-checked against 1 other source with no discrepancy/);
+  assert.doesNotMatch(slot.detail, /2 other sources/);
+});
+
+test('EO-01 §4: dash photo only (no listing, no DVSA) → unconfirmed, NOT the age-estimate branch', () => {
+  // The dashboard must still count as 1 — a 0 would claim no mileage was available at all.
+  const sources = { listingMileagePresent: false, photoOdometerPresent: true, dvsaMileagePresent: false };
+  assert.equal(countIndependentMileageSources(sources), 1);
+  const slot = slotFor(sources, 88000, 'photo_odometer');
+  assert.equal(slot.verdict, 'unconfirmed');
+  assert.match(slot.detail, /only mileage source|nothing independent/i);
+  assert.doesNotMatch(slot.detail, /ESTIMATED from vehicle age/);   // must not mis-route
+});
+
+test('EO-01 §4: listing + DVSA, no dash photo → confirmed / corroborated', () => {
+  const sources = { listingMileagePresent: true, photoOdometerPresent: false, dvsaMileagePresent: true };
+  assert.equal(countIndependentMileageSources(sources), 2);
+  const slot = slotFor(sources, 60000, 'listing_odometer');
+  assert.equal(slot.verdict, 'confirmed');
+  assert.equal(slot.confidence, 'corroborated');
+});
+
+test('EO-01 §4: the discrepancy branch still wins over the count — the asymmetry is the point', () => {
+  // Agreement between a figure and its own origin is not corroboration; DISAGREEMENT between them is
+  // still real information (transcription error, swapped cluster, wrong lot) and must keep flagging.
+  const sources = { listingMileagePresent: true, photoOdometerPresent: true, dvsaMileagePresent: false };
+  const slot = slotFor(sources, 90000, 'listing_odometer',
+    { photoMileageFlag: 'Photo odometer reads 40,000 miles; listing shows 90,000 miles' });
+  assert.equal(slot.verdict, 'discrepancy');
+  assert.ok(slot.flag && slot.flag.tier === 1);
+});
+
+test('EO-01 §4: no mileage at all → 0 sources', () => {
+  assert.equal(countIndependentMileageSources({}), 0);
+  assert.equal(countIndependentMileageSources({ listingMileagePresent: false, photoOdometerPresent: false, dvsaMileagePresent: false }), 0);
 });
