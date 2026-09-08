@@ -25,7 +25,7 @@ import {
 } from '@/lib/coreSlots';
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
-  applyVisibilityGate, finalizeLampInstrumentation, computeLabourRatio,
+  applyVisibilityGate, finalizeLampInstrumentation,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -5144,8 +5144,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
       // Surviving BODY panels get panel-work labour (isBodyPanel excludes lamps/glass/grille/rad-pack/slam/
       // wheels — those carry their own price, fitting supply-and-fit or absorbed; spec §10 audit).
+      // batch 106 interaction (re-applied at the rebase — the old computeLabourRatio carried this, and the
+      // conflict resolution took the new mechanism whole, so it had to be re-stated here): £0-rule injected
+      // rows (_zeroRule) get NO panel-work labour. Vincent's ruled magnitude for the £0 rule is PARTS ONLY —
+      // a band figure stated because the engine could not resolve a panel must not also buy labour on a
+      // panel nobody has confirmed is damaged. FRONT_STRUCTURE's £500 floor is excluded anyway (it is not in
+      // BODY_PANEL_LABOUR, and the floor is jig-work all-in), but families B/C/D/F inject REAL body panels
+      // at band and those would otherwise pull labour.
       const bodyPanels = gatedParts
-        .filter(p => !isLabour(p.name) && p.panelId && isBodyPanel(p.panelId))
+        .filter(p => !isLabour(p.name) && p.panelId && !p._zeroRule && isBodyPanel(p.panelId))
         .map(p => ({ panelId: p.panelId, zone: zoneByPanel.get(p.panelId) || p.zone || 'default', severity: sevByPanel.get(p.panelId) || 'MODERATE', action: p.action || 'replace' }));
 
       // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
