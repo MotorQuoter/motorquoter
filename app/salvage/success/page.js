@@ -6,7 +6,7 @@ import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollecto
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits, ledgerHash } from '@/lib/ledgerEdits.mjs';
+import { applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -234,7 +234,7 @@ export default function SalvageSuccessPage() {
       } else {
         setEditStrikes([]); setEditAdds([]);
         if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0)) > 0) {
-          setEditNotice('You adjusted this ledger against an earlier version of the report — those changes no longer apply and have not been counted.');
+          setEditNotice(EDITS_DISCARDED_NOTICE);
         }
       }
     } catch {

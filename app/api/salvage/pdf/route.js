@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits } from '@/lib/ledgerEdits.mjs';
+import { applyEdits, EDITS_DISCARDED_PDF } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -133,7 +133,11 @@ function parseChecklistItems(text) {
     .filter(s => s.length > 0);
 }
 
-function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate, bregoData, editLayer) {
+// Exported for scripts/validate-pdf-edit-notice.mjs (batch 106 §5), which renders REAL PDFs through
+// jsPDF and reads the text back. pdf-parity asserts on this file's source; that proves the branch is
+// written, not that the sentence reaches the page — and "no human has opened one" is the whole reason
+// this item exists. Dev-tooling export only; the route's HTTP surface is unchanged.
+export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, checkDate, bregoData, editLayer) {
   const assessment = resolveFields(rawAssessment);
   // Buyer ledger edits (batch 105): the SAME recompute path the screen uses, so the PDF can never
   // disagree with what the buyer saw. With no stored layer it reproduces the engine figures exactly.
@@ -551,7 +555,26 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
   // Section 3: REPAIR ESTIMATE BANNER — code-owned parts_sum, edited view (buyer strikes/adds applied)
   const partsSum = assessment._partsReconciliation?.parts_sum;
   if (partsSum > 0) {
-    const bannerH = edited.applied ? 24 : 19;
+    // batch 106 §5 — the buyer's edits got exactly one mention on this page, and it only fired when they
+    // APPLIED. On a stamp mismatch (the ledger moved under a stored layer) `applied` is false, so "no
+    // edits" and "edits exist and were deliberately not counted" rendered IDENTICALLY. Suppressing the
+    // layer is correct and unchanged — a strike keyed FOG_LAMP#1 against a re-ordered ledger would strike
+    // the wrong line — the SILENCE was the defect: the engine took a decision that moves money and told
+    // him nothing, on the artefact he carries to the auction. Same sentence the screen already uses
+    // (success/page.js:236), hyphens not em-dashes (the PDF suppressor is a standing constraint here).
+    // Gated on the layer actually holding edits, exactly as the screen is — a present-but-empty layer
+    // must not fire it, and neither must a clean report.
+    const _layerEditCount = (editLayer?.strikes?.length || 0) + (editLayer?.adds?.length || 0);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    const discardedLines = (!edited.applied && edited.stampMismatch && _layerEditCount > 0)
+      ? doc.splitTextToSize(EDITS_DISCARDED_PDF, CONTENT_W - 8)
+      : [];
+    // Grow the banner to fit the sentence rather than truncate it — the sentence matters more than the
+    // layout (Vincent, batch 106 §5).
+    const bannerH = edited.applied ? 24
+      : discardedLines.length ? 24 + (discardedLines.length - 1) * 3.2
+      : 19;
     checkPage(bannerH + 7);
     y += 3;
     doc.setFillColor(240, 90, 26);
@@ -568,6 +591,11 @@ function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identifier, c
       doc.setFontSize(6.5);
       doc.setTextColor(255, 220, 200);
       doc.text(`Adjusted by you - engine estimate £${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 18);
+    } else if (discardedLines.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(255, 220, 200);
+      doc.text(discardedLines, MARGIN + 4, y + 18, { lineHeightFactor: 1.15 });
     }
     y += bannerH + 4;
   }
