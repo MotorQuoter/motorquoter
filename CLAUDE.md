@@ -132,7 +132,22 @@ DVSA_TOKEN_URL
 The replay harness (`scripts/replay.mjs`, `scripts/capture-fixture.mjs`) exists to tune the salvage engine without paying the full assessment stack (~£3–4.50/lot). Follow this cost policy for every test run:
 
 1. **Default `--vision-fixture` (£0)** for deterministic changes — costing, ceilings, reconciliation, parts, gates. Replay stored per-view verdicts; no model spend.
-2. **`--vision-live` (~4–5p/run) ONLY for model-generated changes** — per-view severity, and prose (Visible Damage Summary / Key Cost Drivers / Red Flags). Never use it for deterministic checks; unit-test those at £0.
+2. **`--vision-live` (~£1.60 / $2.05 per LOT) ONLY for model-generated changes** — per-view severity, and prose (Visible Damage Summary / Key Cost Drivers / Red Flags). Never use it for deterministic checks; unit-test those at £0.
+
+   🔴 **CORRECTED 8 Sep 2026 — this line used to say "~4–5p/run" and was wrong by ~40×.** That stale
+   figure had already caused one bad decision on this project. **A live lot is not a call; it is ~40
+   model calls.** Derivation, from `fixtures/AMZ3790/model-cassette.json` (23 images, a full
+   assessment) priced at Opus 4.8 $5/$25 per MTok and Haiku 4.5 $1/$5, cache write 1.25× / read 0.1×:
+
+   | | calls | cost |
+   |---|---|---|
+   | `claude-opus-4-8` | 37 | $1.994 |
+   | `claude-haiku-4-5` | 3 | $0.057 |
+   | **one lot** | **40** | **$2.05 (~£1.60)** |
+
+   **So a 14-lot sweep is ~$28.70 (~£22), not ~60p.** ✅ Independently reproduces batch 83's recorded
+   ~£22 for 13 lots. ⚠️ Heavier lots cost more — AMZ3790 is one 23-image lot, not an upper bound.
+   **Re-derive from a cassette rather than quoting this table once the call mix changes.**
 3. **Never re-run the paid One Auto stack in testing** — always use the fixture seam (`__setOneAutoReplayProvider`, £0). The paid stack (~£3–4.50/lot) is exactly what the harness exists to kill.
 4. **Minimal K and lots** — smallest sample that answers the question; start with 1–3 lots; scale only if warranted AND Vincent OKs.
 5. **Quote the spend BEFORE any live batch.** If a run would exceed **~£2**, flag for Vincent's go first.
