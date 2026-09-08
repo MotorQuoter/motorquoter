@@ -68,7 +68,37 @@ function movedLines() {
   return rows;
 }
 
+// Decompose the headline movement HONESTLY. The £0 rule contributes exactly the structural floor;
+// anything else is the fresh vision read moving the model's own figures (labour is model-authored and
+// then SCALED by the reconcile ratio — the floor is excluded from that ratio by construction).
+const isLab = (n) => /labour|paint|prep/i.test(n || '');
+const shOf = (x) => (x._reconciledParts || []).reduce((t, p) => t + (p.used ?? p.oem ?? 0), 0);
+const floorOf = (x) => (x._reconciledParts || []).filter((p) => p._zeroRule).reduce((t, p) => t + (p.used ?? p.oem ?? 0), 0);
+const labOf = (x) => (x._reconciledParts || []).filter((p) => isLab(p.name)).reduce((t, p) => t + (p.used ?? p.oem ?? 0), 0);
+const D_floor = floorOf(after) - floorOf(before);
+const D_labour = labOf(after) - labOf(before);
+const D_other = (shOf(after) - shOf(before)) - D_floor - D_labour;
+
 const B_mile = mileageSlot(before), A_mile = mileageSlot(after);
+
+// EO-01 verdict test. Asserts the RULE, not one run's outcome. The engine may legitimately reach
+// "confirmed" on this lot when the Haiku dash read lands and agrees with the listing — that is TWO
+// independent sources, which is exactly what the rule now requires. What must never come back is the
+// OLD shape: "confirmed"/"corroborated" resting on nothing having objected. Only the >=2-source branch
+// emits "cross-checked against N other source(s)", so the presence of that phrase behind a confirmed
+// verdict is the structural proof that a second source positively agreed.
+const XCHECK = /cross-checked against (\d+) other sources?/;
+const mileVerdict = (sl) => {
+  if (!sl) return { ok: false, why: 'slot missing' };
+  if (sl.verdict === 'discrepancy') return { ok: true, why: 'sources disagree — flagged (unchanged first branch)' };
+  if (sl.verdict !== 'confirmed' && sl.confidence !== 'corroborated') {
+    return { ok: true, why: 'single source — honest "unconfirmed", carries the tier-1 odometer ask' };
+  }
+  const m = XCHECK.exec(sl.detail || '');
+  if (m) return { ok: true, why: `${Number(m[1]) + 1} independent sources present and agreeing — "corroborated" is earned`, multi: Number(m[1]) + 1 };
+  return { ok: false, why: 'confirmed/corroborated with NO second source named — silence scored as agreement (the EO-01 defect)' };
+};
+const B_mv = mileVerdict(B_mile), A_mv = mileVerdict(A_mile);
 const B_card = structuralCard(before), A_card = structuralCard(after);
 const B_flag = structuralFlag(before), A_flag = structuralFlag(after);
 const B_ev = evEvidence(before), A_ev = evEvidence(after);
@@ -118,7 +148,7 @@ const html = `<title>AMZ3790 — Batch 106 Review</title>
   <p>BEFORE = the frozen 4-Sep baseline (the broken version you already saw). AFTER = a fresh replay of <code>feat/zero-rule-batch106</code> against the stored fixture (23 images, One&nbsp;Auto from the fixture seam, vision live). Off the fixture, not the Vercel preview — the stored preview row still shows the old text.</p>
 </header>
 <main>
-  <div class="banner"><b>Repair total (S/H):</b> <span class="money">${g(B_sum)} → <b class="good">${g(A_sum)}</b></span> &nbsp;·&nbsp; the +${g(A_sum - B_sum)} is the £500 structural floor entering the total. ${moved.length ? `<b class="bad">The fresh vision read also moved ${moved.length} other line${moved.length === 1 ? '' : 's'}</b> — see the foot of the page; those are vision variance, not batch-106 fixes.` : `The fresh vision read moved no other costed line — every S/H figure below the structural floor reproduced the baseline exactly.`}</div>
+  <div class="banner"><b>Repair total (S/H):</b> <span class="money">${g(B_sum)} → <b class="good">${g(A_sum)}</b></span> &nbsp;·&nbsp; of the +${g(A_sum - B_sum)}, <b>${g(D_floor)} is the structural floor</b> (the batch-106 fix) and <b class="bad">${g(D_labour)} is labour</b>${D_other ? ` plus ${g(D_other)} on other parts` : ''} — the model authored a different labour figure on this fresh vision read (£1,400 → £1,600 pre-gate, ratio 1.0 both runs). <b>That £200 is variance, not a fix.</b> ${moved.length ? `<b class="bad">The fresh vision read also moved ${moved.length} other line${moved.length === 1 ? '' : 's'}</b> — see the foot of the page; those are vision variance, not batch-106 fixes.` : `The fresh vision read moved no other costed line — every S/H figure below the structural floor reproduced the baseline exactly.`}</div>
 
   ${pair('Parts Breakdown — the structural floor is IN the total', 1,
     { ok: !!structuralBreakdownLine(after), label: structuralBreakdownLine(after) ? 'in the total' : 'MISSING' },
@@ -146,12 +176,13 @@ const html = `<title>AMZ3790 — Batch 106 Review</title>
     null)}
 
   ${pair('CORE checklist mileage slot — no longer claims corroboration; agrees with Red Flags', 4,
-    { ok: A_mile?.verdict !== 'confirmed' && A_mile?.confidence !== 'corroborated', label: (A_mile?.verdict !== 'confirmed' && A_mile?.confidence !== 'corroborated') ? 'not corroborated' : 'STILL corroborated' },
+    { ok: A_mv.ok, label: A_mv.ok ? (A_mv.multi ? `corroborated by ${A_mv.multi} sources` : 'not corroborated') : 'silence scored as agreement' },
     `<div class="kv"><b>verdict:</b> <span class="bad">${esc(B_mile?.verdict)}</span> &nbsp; <b>confidence:</b> <span class="bad">${esc(B_mile?.confidence)}</span> &nbsp; <b>flag:</b> ${B_mile?.flag ? 'yes' : 'none'}</div>` +
       `<pre>${esc(B_mile?.detail)}</pre><div class="kv bad">Sits under "Verified clear" — claims corroboration that does not exist (no MOT ladder on this lot).</div>`,
     `<div class="kv"><b>verdict:</b> <span class="good">${esc(A_mile?.verdict)}</span> &nbsp; <b>confidence:</b> <span class="good">${esc(A_mile?.confidence)}</span> &nbsp; <b>flag:</b> ${A_mile?.flag ? `tier ${A_mile.flag.tier} ${esc(A_mile.flag.severity)}` : 'none'}</div>` +
       `<pre>${esc(A_mile?.detail)}</pre>` +
-      (A_mile?.verdict !== 'confirmed' && A_mile?.confidence !== 'corroborated' ? `<div class="kv good">Single source only → honest "unconfirmed". Now agrees with the Red Flags line instead of contradicting it.</div>` : `<div class="kv bad">Still claims corroboration — FAIL.</div>`),
+      `<div class="kv ${A_mv.ok ? 'good' : 'bad'}">${A_mv.ok ? '' : 'FAIL — '}${esc(A_mv.why)}.</div>` +
+      (A_mv.multi ? `<div class="kv">⚠️ RUN-DEPENDENT ON THIS LOT. AMZ3790 has no MOT ladder, so the second source is the Haiku dash read — which lands on some runs and not others. When it lands and agrees, "corroborated" is correct under the rule; when it does not, the same code says "this is the only mileage source available". Both are honest; the wording will differ between runs. Flagged for your call, not folded in.</div>` : ''),
     'EO-01. Silence (no discrepancy flag) is no longer scored as agreement — "confirmed" now requires a second independent source that positively agreed.')}
 
   ${pair('EV / HV battery — HIGH, limit-only, no figure', 5,
@@ -170,10 +201,10 @@ const html = `<title>AMZ3790 — Batch 106 Review</title>
 const outPath = resolve(ROOT, '_cc/amz3790_batch106_review.html');
 writeFileSync(outPath, html);
 console.log(`Wrote ${outPath}`);
-console.log(`Repair total S/H: ${g(B_sum)} → ${g(A_sum)}  (structural floor +${g(A_sum - B_sum)})`);
+console.log(`Repair total S/H: ${g(B_sum)} → ${g(A_sum)}  = floor +${g(D_floor)} (the fix) + labour +${g(D_labour)} (vision variance)${D_other ? ` + other +${g(D_other)}` : ''}`);
 console.log(`Check 1 (structural in total):   ${structuralBreakdownLine(after) ? 'PASS' : 'FAIL'}`);
 console.log(`Check 2 (no contradiction):      ${(!badPhrase(A_card?.note) && !badPhrase(A_flag?.reason)) ? 'PASS' : 'FAIL'}`);
 console.log(`Check 3 (no eBay on structural): ${!srcHasStructure(A_src) ? 'PASS' : 'FAIL'}`);
-console.log(`Check 4 (mileage not corrob.):   ${(A_mile?.verdict !== 'confirmed' && A_mile?.confidence !== 'corroborated') ? 'PASS' : 'FAIL'}`);
+console.log(`Check 4 (mileage verdict earned): ${A_mv.ok ? 'PASS' : 'FAIL'} — ${A_mv.why}`);
 console.log(`Check 5 (EV limit-only):         ${(A_ev.rf.length > 0 || A_ev.fp.length > 0) ? 'PASS' : 'FAIL'}`);
 if (moved.length) console.log(`NOTE: fresh vision moved ${moved.length} other line(s): ${moved.map((m) => m.part).join(', ')}`);
