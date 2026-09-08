@@ -3999,12 +3999,23 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // the whole fix. If the bumper is still ON you cannot see behind it, so there is nothing exposed to be
       // confused by — the confusion the demote exists for REQUIRES the bumper gone. So: absent, and only absent.
       const _bumperLegacy = process.env.REPLAY_BUMPER_LEGACY === 'true';   // dev A/B: old apertureExposed||severe derivation
-      const frontBumperOff = _bumperLegacy
-        ? ((lampObs?.apertureExposed === true) || frontBumperSevere)
-        : (lampObs?.frontBumperPresent === 'absent');
-      const rearBumperOff  = _bumperLegacy
-        ? ((lampObs?.rearApertureExposed === true) || rearBumperSevere)
-        : (lampObs?.rearBumperPresent  === 'absent');
+      const _frontOffNew    = (lampObs?.frontBumperPresent === 'absent');
+      const _rearOffNew     = (lampObs?.rearBumperPresent  === 'absent');
+      const _frontOffLegacy = ((lampObs?.apertureExposed     === true) || frontBumperSevere);
+      const _rearOffLegacy  = ((lampObs?.rearApertureExposed === true) || rearBumperSevere);
+      const frontBumperOff = _bumperLegacy ? _frontOffLegacy : _frontOffNew;
+      const rearBumperOff  = _bumperLegacy ? _rearOffLegacy  : _rearOffNew;
+      // batch 107 — DECOUPLE THE WARNING FROM THE MONEY. The presence read wins the accuracy count
+      // (3/4 vs 2/4) and keeps the money path, but on SF69YBB it reads a torn-off rear bumper as
+      // PRESENT — and that same wrong read was also suppressing the §4 limit note, so the buyer got
+      // "seriously impact-damaged … requiring replacement" asserted as fact, plus an eBay link, on a
+      // panel the ground truth says is UNDAMAGED. A phantom is only cheap when the buyer is TOLD it
+      // might be one. So the NOTE fires when EITHER derivation says the bumper is off.
+      // ⛔ NOTE ONLY. These two values must never reach a money path, a zone, a gate input or a bid
+      // parameter — a spurious note on a sound bumper is mild noise; a missing one is a confident
+      // phantom with a shopping link, and A4 says which way that asymmetry should run.
+      assessment._frontBumperOffAny = _frontOffNew || _frontOffLegacy;
+      assessment._rearBumperOffAny  = _rearOffNew  || _rearOffLegacy;
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (present=${lampObs?.frontBumperPresent ?? 'missing'} severe=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (present=${lampObs?.rearBumperPresent ?? 'missing'} severe=${rearBumperSevere})`);
       // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
@@ -5198,9 +5209,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // the line on the ledger edit layer (batch 82) if the inspection shows it sound. This is the
     // replacement for the old "excluded from repair total" flag — it ADDS certainty for the buyer
     // without removing money. Reads the FINALISED gatedParts (post-Q4, post-labour).
+    // batch 107: gated on the NOTE-ONLY signal (either derivation), not the money-path read — see the
+    // bumper block above. The note adds certainty and removes nothing, so a false positive is cheap.
     for (const [off, panelId, end, panelWord] of [
-      [assessment._frontBumperOff, PANEL.FRONT_WING,   'front', 'wing'],
-      [assessment._rearBumperOff,  PANEL.REAR_QUARTER, 'rear',  'quarter panel'],
+      [assessment._frontBumperOffAny, PANEL.FRONT_WING,   'front', 'wing'],
+      [assessment._rearBumperOffAny,  PANEL.REAR_QUARTER, 'rear',  'quarter panel'],
     ]) {
       if (off !== true) continue;
       const costed = gatedParts.some(p => p.panelId === panelId && (p.used ?? p.oem ?? 0) > 0);
@@ -5250,6 +5263,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         costedParts:    coreObs.costedParts,
         flaggedParts:   coreObs.flaggedParts,
         allowanceParts,
+        // batch 107: the §4 limit note is pushed onto assessment._flaggedParts (a copy taken earlier),
+        // so the limit lookup reads the authoritative list; card composition is unchanged.
+        limitFlags:     assessment._flaggedParts,
       });
       if (_cards.length > 0) {
         assessment._damageCards = _cards;
@@ -5306,6 +5322,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // EPN campaign ID comes from server env; when unset the links are honest plain eBay searches
     // (no campid) so nothing fabricated/broken ships — the panel switches live when the ID lands.
     // Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
+    const _bumperOffLimitPanels = new Set(
+      (assessment._flaggedParts || []).filter(f => f._bumperOffLimit && f.panelId).map(f => f.panelId),
+    );
     try {
       const epn = {
         campaignId: (process.env.EBAY_EPN_CAMPAIGN_ID || '').trim() || null,
@@ -5314,7 +5333,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _sourcing = buildPartsSourcing({
         // batch 106: the £0-rule injected rows are excluded from the shoppable eBay list — you cannot buy
         // a chassis jig from a breaker, and the band-flip lines are unconfirmed until inspection.
-        parts:   gatedParts.filter(p => !p._zeroRule),
+        // batch 107: a panel carrying the §4 bumper-off LIMIT note is excluded on the same principle.
+        // We have just told the buyer we cannot confirm that panel is damaged behind a torn bumper —
+        // offering to sell him the part in the next section is the worst version of this defect.
+        parts:   gatedParts.filter(p => !p._zeroRule && !_bumperOffLimitPanels.has(p.panelId)),
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
         epn,
       });
