@@ -20,8 +20,8 @@ import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
 import { buildMileageCorroborationSlot, countIndependentMileageSources } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
-  CORE_GROUPS, VENDOR_SUFFIX_MAP, WHEEL_CORNERS, CORNER_LABELS,
-  wheelSlotId, tyreSlotId, buildSlot, buildGroup, assembleCoreSlots,
+  CORE_GROUPS, VENDOR_SUFFIX_MAP,
+  buildSlot, buildGroup, assembleCoreSlots,
 } from '@/lib/coreSlots';
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
@@ -582,9 +582,6 @@ function buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags) {
   });
 }
 
-function findCornerObs(coreObs, corner) {
-  return (coreObs.corners || []).find(c => c?.corner === corner) || null;
-}
 
 // 06 Jun fix — SR16GOT slot/prose clash: these details name the SAME 4 states the model records
 // in `recordCoreObservations` and reasons about in prose, so the slot can never land on a verdict
@@ -619,45 +616,72 @@ const CORNER_VERDICT_CONFIDENCE = {
 // Flag wording is keyed off WHICH gap the model reported — "looks fine but no dedicated shot"
 // reads very differently to a buyer than "we can't see this corner at all", and the verdict
 // (the model's own observation, not a derived visibility flag) is what decides which is true.
+// batch 107 task 4: non-positional. These used to be keyed per corner; the corner was never read
+// (see buildPhysicalGroup), so naming one was a claim the engine could not support. The wording now
+// asks for all four corners without asserting anything about any of them.
 const CORNER_FLAG_WHATSAPP = {
-  'no-dedicated-shot-but-appears-intact': corner => `Get a close-up of the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre — they look fine in the wider shots but there's no dedicated photo to confirm`,
-  'genuinely-not-visible': corner => `Photograph the ${CORNER_LABELS[corner].toLowerCase()} wheel and tyre square-on — not clearly visible enough to confirm in the current photo set`,
+  'no-dedicated-shot-but-appears-intact': () => `Get a close-up of each wheel and tyre — they look fine in the wider shots but there's no dedicated photo of any corner to confirm`,
+  'genuinely-not-visible': () => `Photograph all four wheels and tyres square-on — none was clearly visible enough to confirm in the current photo set`,
 };
 
-function buildWheelSlot(corner, cornerObs) {
-  const verdict = cornerObs?.wheelVerdict || 'genuinely-not-visible';
+// batch 107 task 4 — these slots used to be EIGHT per-corner slots (wheel-front-left … tyre-rear-right)
+// read from `coreObs.corners`. That field is assigned `[]` in both of its two assignment sites (:3724
+// success, :3747 floor), Call 2 does not return the key, and nothing else ever writes it — so
+// findCornerObs always returned null, every one of the eight slots took its DEFAULT verdict
+// ('genuinely-not-visible'), and four "photograph the <corner> wheel and tyre square-on — not clearly
+// visible enough to confirm" flags fired on EVERY report. On AK75RDX those four were the lot's ONLY
+// structured flags, while its own per-view votes graded the wheel damaged 2 of 10 and the ledger
+// costed it. The engine was stating an observation it never made. Same family as the mileage fix:
+// silence rendered as a finding.
+//
+// The slots are now driven by the per-view evidence that actually exists (pvVotesMap), and are
+// NON-POSITIONAL: one wheel slot and one tyre slot for the car.
+// ⛔ NO CORNER IS NAMED, and no corner is inferred — there is no corner read in the engine and this
+// does not invent one (Vincent, 9 Sep: "we can do a wheel check without naming them OSF or NSR").
+// ⛔ The vote counts are VIEW counts, never wheel counts, so no quantity is stated either — three
+// photos of one kerbed wheel are three damaged votes, not three damaged wheels. Instance COUNTING is
+// task 2's job via the correspondence pass; until it lands, this says only what was observed.
+// The BL75JAU rule holds: all-clean incidental views are NOT evidence a wheel is sound, so a clean
+// read lands on 'no-dedicated-shot-but-appears-intact' and never on the all-clear verdict.
+const PHYSICAL_EVIDENCE_VERDICT = (votes) => {
+  if (!votes || (votes.resolving ?? 0) === 0) return 'genuinely-not-visible';   // truly unseen — honest
+  if ((votes.damaged ?? 0) > 0)               return 'damaged';                 // observed damage
+  return 'no-dedicated-shot-but-appears-intact';                                // seen, nothing found
+};
+
+function buildWheelSlot(votes) {
+  const verdict = PHYSICAL_EVIDENCE_VERDICT(votes);
   const flagWhatsapp = CORNER_FLAG_WHATSAPP[verdict];
   return buildSlot({
-    id: wheelSlotId(corner), label: `${CORNER_LABELS[corner]} wheel`,
+    id: 'wheel', label: 'Wheels',
     kind: 'wheel', verdict,
     detail: WHEEL_VERDICT_DETAIL[verdict] || WHEEL_VERDICT_DETAIL['genuinely-not-visible'],
     confidence: CORNER_VERDICT_CONFIDENCE[verdict] || 'hidden',
     source: 'model',
-    flag: flagWhatsapp ? { severity: 'info', whatsapp: flagWhatsapp(corner), tier: 1 } : null,
+    flag: flagWhatsapp ? { severity: 'info', whatsapp: flagWhatsapp(), tier: 1 } : null,
   });
 }
 
-function buildTyreSlot(corner, cornerObs) {
-  const verdict = cornerObs?.tyreVerdict || 'genuinely-not-visible';
+function buildTyreSlot(votes) {
+  const verdict = PHYSICAL_EVIDENCE_VERDICT(votes);
   return buildSlot({
-    id: tyreSlotId(corner), label: `${CORNER_LABELS[corner]} tyre`,
+    id: 'tyre', label: 'Tyres',
     kind: 'tyre', verdict,
     detail: TYRE_VERDICT_DETAIL[verdict] || TYRE_VERDICT_DETAIL['genuinely-not-visible'],
     confidence: CORNER_VERDICT_CONFIDENCE[verdict] || 'hidden',
     source: 'model',
-    // No flag here — the wheel slot for the same corner already raises the "photograph this
-    // corner" question; duplicating it per-tyre would double the WhatsApp item for one gap.
+    // No flag here — the wheel slot already raises the "photograph the wheels and tyres" question;
+    // duplicating it per-tyre would double the WhatsApp item for one gap.
     flag: null,
   });
 }
 
-function buildPhysicalGroup(coreObs) {
-  const slots = [];
-  for (const corner of WHEEL_CORNERS) {
-    const cornerObs = findCornerObs(coreObs, corner);
-    slots.push(buildWheelSlot(corner, cornerObs));
-    slots.push(buildTyreSlot(corner, cornerObs));
-  }
+function buildPhysicalGroup(pvVotes) {
+  const votes = pvVotes || {};
+  const slots = [
+    buildWheelSlot(votes[PANEL.WHEEL] || null),
+    buildTyreSlot(votes[PANEL.TYRE] || null),
+  ];
   return buildGroup({ id: CORE_GROUPS.PHYSICAL.id, label: CORE_GROUPS.PHYSICAL.label, slots });
 }
 
@@ -5669,9 +5693,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._slots = assembleCoreSlots([
       buildIdentityGroup(enrichedVd, coreObs, brMileage, brAgeYears, proseFlags),
       buildMileageGroup(enrichedVd, brMileage, brMileageSource, proseFlags),
-      buildPhysicalGroup(coreObs),
+      buildPhysicalGroup(assessment._pvVotes),
     ]);
-    console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length}`);
+    const _physSlots = (assessment._slots.groups.find(g => g.id === CORE_GROUPS.PHYSICAL.id)?.slots ?? [])
+      .map(s => `${s.id}:${s.verdict}`).join(' ');
+    console.log(`[CORE SLOTS] groups=${assessment._slots.groups.length} allClear=${assessment._slots.allClear.length} flags=${assessment._slots.flags.length} physical=[${_physSlots}]`);
 
     // ── §7 (batch 73): show Copart's damage LABEL to the BUYER — code-side, AFTER both model calls ──
     // The label family is withheld from perception (3b) because it is auction staff's classification,
