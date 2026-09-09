@@ -1640,6 +1640,8 @@ For each damage-relevant part you can assess in this photo, output one line in t
 
 PART: <PANEL_ID> | iv:<true|false|na|missing> | sev:<SEVERE|MODERATE|MINOR|-> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
+ONE LINE PER PART — with ONE EXCEPTION. AIRBAG is counted per BAG, not per part: a photo showing two deployed bags gets TWO PART: AIRBAG lines. See the AIRBAG entry in the vocabulary below. Every other identifier keeps one line per photo.
+
 <PANEL_ID> must be one identifier from the closed vocabulary below, written exactly as shown (SCREAMING_SNAKE_CASE). If a part you observe does not fit any identifier, use OTHER.
 
 CLOSED PANEL VOCABULARY:
@@ -1697,13 +1699,23 @@ STRUCTURAL FLAG — never costed; always flagged for inspection:
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
   AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover) — DEPLOYED bag only, NOT an intact airbag or a dash warning light. Genuine non-airbag interior damage still uses OTHER.
-                    For AIRBAG ONLY, append the bag's POSITION as a final field: | pos:<driver|passenger|curtain-left|curtain-right|unknown>
+                    AIRBAG IS COUNTED PER BAG, NOT PER PHOTO. This is the one exception to one-line-per-part.
+                    Before writing any AIRBAG line, look over the WHOLE cabin in this photograph and count the deployed
+                    bags you can actually see — steering wheel boss, dashboard top, both roof rails, seat bolsters.
+                    Then write ONE LINE FOR EACH BAG YOU COUNTED, appending that bag's POSITION as a final field:
+                      | pos:<driver|passenger|curtain-left|curtain-right|unknown>
                       driver       — bag out of the STEERING WHEEL boss
-                      passenger    — bag out of the DASHBOARD on the non-steering side
+                      passenger    — bag out of the DASHBOARD on the non-steering side (on a right-hand-drive car
+                                     this is the LEFT of the cabin; on a left-hand-drive car, the RIGHT)
                       curtain-left / curtain-right — long bag down the ROOF RAIL above the side windows, left or right as THIS photo is viewed
-                      unknown      — a deployed bag this photo does not place
-                    Emit ONE PART: AIRBAG line PER DEPLOYED BAG VISIBLE IN THIS PHOTO — two bags visible means two lines with different pos values.
-                    Report only what THIS photo shows. Never infer a passenger bag from a driver bag, or a second curtain from one. If you cannot place it, use pos:unknown.
+                      unknown      — a deployed bag you can see but cannot place
+                    WORKED EXAMPLE — one photo of a cabin with the wheel bag AND the dash bag both hanging out
+                    produces exactly these TWO lines, and writing only the first would be WRONG:
+                      PART: AIRBAG | iv:true | sev:SEVERE | z:interior | pos:driver
+                      PART: AIRBAG | iv:true | sev:SEVERE | z:interior | pos:passenger
+                    Report only what THIS photo shows. Counting is not inferring: never add a passenger bag because a
+                    driver bag fired, and never add a second curtain because one is out — but never omit a second bag
+                    that is plainly there either. If you can see a bag but cannot place it, use pos:unknown.
 
 PRESENCE CHECK:
   SPARE_WHEEL       spare wheel / spare tyre (visible in boot)
