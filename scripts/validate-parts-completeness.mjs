@@ -97,10 +97,15 @@ test('§1: namedAsIntact absent/empty → IDENTICAL to pre-batch-75 (fail toward
 // ── Fix B ──────────────────────────────────────────────────────────────────
 const fog = (zone) => ({ panelId: PANEL.FOG_LAMP, name: 'Fog lamp', action: 'replace', oem: null, used: 80, zone });
 
+// batch 107 (Vincent, 9 Sep): every "bumper gone ⇒ cost the pair" case below asserts the 30–31 Jul
+// trade rule, which batch 81 §3 gates on a CONFIRMED parent — so each must pass *BumperConfirmed:true.
+// Without it the call lands on §3's unconfirmed-parent FLAG branch and cost-pairing never runs, which
+// is what made these five red: the tests predate §3 and were never given its parameter. §3's own
+// branch is pinned separately at the end of this block — it was previously pinned by nothing.
 test('Fix B: bumper GONE + one front fog → clone the second fog (cost pairs)', () => {
   const costed = [fog('front'), { panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }];
   const before = sumUsed(costed);
-  const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, frontBumperGone: true });
+  const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, frontBumperConfirmed: true });
   assert.equal(costedToAdd.length, 1);
   assert.equal(costedToAdd[0].used, 80);
   assert.equal(costedToAdd[0]._fogPaired, true);
@@ -122,7 +127,7 @@ test('Fix B: bumper INTACT + one front fog → no cost, one "check second" flag'
 
 test('Fix B: rear bumper gone + one rear fog → clone rear fog', () => {
   const costed = [fog('rear')];
-  const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, rearBumperGone: true });
+  const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, rearBumperGone: true, rearBumperConfirmed: true });
   assert.equal(costedToAdd.length, 1);
   assert.equal(flagsToAdd.length, 0);
 });
@@ -140,7 +145,7 @@ test('Fix B: CONTROL — bumper INTACT + no fogs → strict no-op (parts_sum unt
 test('Fix B: bumper GONE + ZERO fogs + band seed → costs BOTH fogs (run-1 under-cost fixed)', () => {
   const costed = [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }];
   const before = sumUsed(costed);
-  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, fogSeed: { oem: 95, used: 80 } });
+  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, frontBumperConfirmed: true, fogSeed: { oem: 95, used: 80 } });
   assert.equal(r.costedToAdd.length, 2);                       // both fogs seeded from zero
   assert.ok(r.costedToAdd.every(f => f.panelId === PANEL.FOG_LAMP && f.used === 80 && f._fogPaired));
   assert.ok(r.costedToAdd.every(f => (f.oem ?? null) === null), 'seeded fog carries NO invented OEM price (batch 66 green bar)');
@@ -151,8 +156,13 @@ test('Fix B: bumper GONE + ZERO fogs + band seed → costs BOTH fogs (run-1 unde
 test('Fix B (batch 71 FIX 4): a SEEDED fog is named for its end, not bare "Fog lamp"', () => {
   // A rear-seeded fog must be distinguishable from a front one in the report — the zone was always
   // carried; only the display name dropped it. Seed from zero on each end and check the name + zone.
-  const front = applyFogBumperRule({ costedParts: [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }], frontBumperGone: true, fogSeed: { oem: 95, used: 80 } });
-  const rear  = applyFogBumperRule({ costedParts: [{ panelId: PANEL.REAR_BUMPER,  name: 'Rear bumper',  action: 'replace', used: 300 }], rearBumperGone:  true, fogSeed: { oem: 95, used: 80 } });
+  const front = applyFogBumperRule({ costedParts: [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }], frontBumperGone: true, frontBumperConfirmed: true, fogSeed: { oem: 95, used: 80 } });
+  const rear  = applyFogBumperRule({ costedParts: [{ panelId: PANEL.REAR_BUMPER,  name: 'Rear bumper',  action: 'replace', used: 300 }], rearBumperGone:  true, rearBumperConfirmed:  true, fogSeed: { oem: 95, used: 80 } });
+  // batch 107: these two length assertions are the point of the repair. Without them the `.every()`
+  // calls below pass VACUOUSLY on an empty array ([].every(...) === true) — which is exactly what this
+  // test did while §3's gate was silently returning zero seeded rows. Assert the rows exist FIRST.
+  assert.equal(front.costedToAdd.length, 2, 'front seeds both fogs (non-empty — guards against vacuous .every)');
+  assert.equal(rear.costedToAdd.length,  2, 'rear seeds both fogs (non-empty — guards against vacuous .every)');
   assert.ok(front.costedToAdd.every(f => f.name === 'Front fog lamp' && f.zone === 'front'), 'seeded front fogs are "Front fog lamp"');
   assert.ok(rear.costedToAdd.every(f => f.name === 'Rear fog lamp'  && f.zone === 'rear'),  'seeded rear fogs are "Rear fog lamp"');
   assert.ok(![...front.costedToAdd, ...rear.costedToAdd].some(f => f.name === 'Fog lamp'), 'no seeded fog keeps the bare end-less name');
@@ -161,11 +171,17 @@ test('Fix B (batch 71 FIX 4): a SEEDED fog is named for its end, not bare "Fog l
 test('Fix B: bumper GONE + ZERO fogs + NO band → flag (never silently absent, no cost)', () => {
   const costed = [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }];
   const before = sumUsed(costed);
-  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, fogSeed: null });
+  // batch 107: the parent MUST be confirmed here, otherwise §3's unconfirmed-parent branch fires first
+  // and returns its own flag — whose wording also matches /both.*fog lamps sit in it/i, so this test
+  // passed while never once reaching the no-band limb it is named for. The _fogUnconfirmedParent
+  // assertion below is what makes that impossible to regress into again.
+  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, frontBumperConfirmed: true, fogSeed: null });
   assert.equal(r.costedToAdd.length, 0);
   assert.equal(sumUsed(costed), before);                      // no price → no cost move
   assert.equal(r.flagsToAdd.length, 1);
   assert.match(r.flagsToAdd[0].reason, /both.*fog lamps sit in it/i);
+  assert.ok(!r.flagsToAdd[0]._fogUnconfirmedParent, 'this is the NO-BAND branch, not §3 unconfirmed-parent');
+  assert.equal(r.flagsToAdd[0].weight, 'medium');             // no-band flag is medium; §3's is low
 });
 
 test('Fix B: two front fogs already present → no-op (already paired)', () => {
@@ -176,7 +192,7 @@ test('Fix B: two front fogs already present → no-op (already paired)', () => {
 });
 
 test('Fix B: fog with no zone treated as FRONT', () => {
-  const r = applyFogBumperRule({ costedParts: [fog(undefined)], frontBumperGone: true });
+  const r = applyFogBumperRule({ costedParts: [fog(undefined)], frontBumperGone: true, frontBumperConfirmed: true });
   assert.equal(r.costedToAdd.length, 1);
 });
 
@@ -184,10 +200,69 @@ test('Fix B: fog with no zone treated as FRONT', () => {
 test('Fix B (v2.0): rear fog identified by NAME when zone is absent', () => {
   const rearByName = { panelId: PANEL.FOG_LAMP, name: 'Rear fog lamp', action: 'replace', used: 80 };
   // rear bumper gone, one rear fog (named, no zone field) → clone the second rear fog
-  const r = applyFogBumperRule({ costedParts: [rearByName], rearBumperGone: true, frontBumperGone: false });
+  const r = applyFogBumperRule({ costedParts: [rearByName], rearBumperGone: true, rearBumperConfirmed: true, frontBumperGone: false });
   assert.equal(r.costedToAdd.length, 1);
   // and it must NOT be treated as a front fog (front bumper intact, so a front read would give a flag)
   assert.equal(r.flagsToAdd.length, 0);
+});
+
+// ── Fix B §3 — the UNCONFIRMED-PARENT money guard (batch 81 §3; pinned batch 107) ────────────
+// Vincent, batch 81 §3: "a part seeded from another part's state may be COSTED only when the parent
+// is CONFIRMED." An unconfirmed bumper (a §1 disagree survivor, or _rearBumperOff fired from an
+// aperture read) yields a FLAG, never a cost — this is what stopped DL72FVX seeding £130 of fogs from
+// a bumper that was itself gate-stripped. Until batch 107 this branch was pinned by NOTHING: the five
+// cost-pairing tests all landed on it by accident, so it read as "the pairing limb is broken" rather
+// than "the guard is working". These cases assert the guard directly so a future rebase cannot delete
+// it silently. Production supplies the parameter at route.js:5070-5071 via _bumperConfirmed (:5065).
+test('Fix B §3: bumper gone but parent UNCONFIRMED + one fog → FLAG, never a cost', () => {
+  const costed = [fog('front')];
+  const before = sumUsed(costed);
+  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true /* frontBumperConfirmed omitted → false */ });
+  assert.equal(r.costedToAdd.length, 0, 'an unconfirmed parent seeds NO cost');
+  assert.equal(sumUsed([...costed, ...r.costedToAdd]), before, 'parts_sum is untouched by an unconfirmed parent');
+  assert.equal(r.flagsToAdd.length, 1);
+  assert.equal(r.flagsToAdd[0]._fogUnconfirmedParent, true);
+  assert.equal(r.flagsToAdd[0].weight, 'low');                    // low weight: uncertain, not asserted
+  assert.equal(r.flagsToAdd[0].used ?? null, null, 'a flag carries no price');
+});
+
+test('Fix B §3: unconfirmed parent + ZERO fogs + a band → still FLAG (the DL72FVX phantom guard)', () => {
+  // The exact DL72FVX shape: a price band IS available, so without §3 the rule would seed two fogs
+  // from a bumper nobody confirmed. £0 must move.
+  const costed = [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }];
+  const before = sumUsed(costed);
+  const r = applyFogBumperRule({ costedParts: costed, frontBumperGone: true, fogSeed: { oem: 95, used: 80 } });
+  assert.equal(r.costedToAdd.length, 0, 'a band does NOT license seeding from an unconfirmed parent');
+  assert.equal(sumUsed([...costed, ...r.costedToAdd]), before, 'the £130 DL72FVX phantom stays dead');
+  assert.equal(r.flagsToAdd.length, 1);
+  assert.equal(r.flagsToAdd[0]._fogUnconfirmedParent, true);
+});
+
+test('Fix B §3: confirming the parent is what UNLOCKS the cost (same call, one flag flipped)', () => {
+  // The control for the two above: identical inputs, parent confirmed → the July trade rule applies.
+  const mk = (confirmed) => applyFogBumperRule({
+    costedParts: [{ panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 300 }],
+    frontBumperGone: true, frontBumperConfirmed: confirmed, fogSeed: { oem: 95, used: 80 },
+  });
+  const unconfirmed = mk(false), confirmed = mk(true);
+  assert.equal(unconfirmed.costedToAdd.length, 0);
+  assert.equal(confirmed.costedToAdd.length, 2);
+  assert.equal(sumUsed(confirmed.costedToAdd), 160);              // 2 × £80, the band S/H rate
+  assert.ok(confirmed.costedToAdd.every(f => (f.oem ?? null) === null), 'seeded fog invents no OEM price');
+});
+
+test('Fix B §3: the guard is PER END — a confirmed front does not license an unconfirmed rear', () => {
+  const costed = [fog('front'), fog('rear')];
+  const r = applyFogBumperRule({
+    costedParts: costed,
+    frontBumperGone: true, frontBumperConfirmed: true,
+    rearBumperGone:  true, rearBumperConfirmed:  false,
+  });
+  assert.equal(r.costedToAdd.length, 1, 'only the confirmed front end pairs');
+  assert.equal(r.costedToAdd[0].zone, 'front');
+  assert.equal(r.flagsToAdd.length, 1, 'the unconfirmed rear end flags instead');
+  assert.equal(r.flagsToAdd[0].zone, 'rear');
+  assert.equal(r.flagsToAdd[0]._fogUnconfirmedParent, true);
 });
 
 // ── Fix A — the door-mirror DROP case (GY75CJU kick-back) ────────────────────
