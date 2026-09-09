@@ -1313,6 +1313,19 @@ const PAIRED_FLANK_PANELS = new Set([
   PANEL.SILL, PANEL.SIDE_SKIRT, PANEL.DOOR_MIRROR, PANEL.SIDE_GLASS,
 ]);
 
+// batch 107 task 2 (Vincent, 9 Sep: "we just need to say e.g. 2 wheels damaged" — a COUNT, never a
+// corner name). WHEEL and TYRE have FOUR instances each, which is why they were held out of G above.
+// Pooling four corners into one panel makes `disagree` structurally inevitable — one damaged corner
+// among three clean ones is always a mixed vote — which forces independentlyVisible=false, which the
+// table inject (:4460, requires true) then refuses. Split into instances, a single damaged wheel is
+// all-damaged on its own views and resolves on its own merits.
+// ⛔ This set is ONLY for G's instance-correspondence pass and its S2c safety abort — which wheels
+// DO inherit deliberately (Cowork, 9 Sep): a lone damaged wheel in one photo, contradicted by a view
+// that positively saw a clean one, stays uncosted. The failure mode must be "nothing changes", never
+// "wrong money". PAIRED_FLANK_PANELS keeps its narrower membership for the front-flank struck-side
+// probe targeting, which is side-inference and must never apply to a four-corner panel.
+const G_INSTANCE_PANELS = new Set([...PAIRED_FLANK_PANELS, PANEL.WHEEL, PANEL.TYRE]);
+
 // Silence-as-clean (Defect-2 / option C) — DELIBERATELY scoped to REAR_PANEL only.
 // A view that imaged a co-visible rear neighbour but emitted NO line for the target panel
 // counts as an implicit-clean vote (the panel was in frame; the model looked and didn't flag
@@ -1346,7 +1359,7 @@ async function runCorrespondencePass(perViewResults, images, onExhaust) {
   const panelObsMap = new Map();
   for (const { costedParts, idx } of perViewResults) {
     for (const cp of costedParts) {
-      if (!PAIRED_FLANK_PANELS.has(cp.panelId)) continue;
+      if (!G_INSTANCE_PANELS.has(cp.panelId)) continue;                 // batch 107: + WHEEL/TYRE
       if (!panelObsMap.has(cp.panelId)) panelObsMap.set(cp.panelId, { damaged: [], clean: [] });
       const obs = panelObsMap.get(cp.panelId);
       if (cp.independentlyVisible === true)  obs.damaged.push(idx);
@@ -1391,7 +1404,7 @@ async function runCorrespondencePass(perViewResults, images, onExhaust) {
 Per-view analysis flagged these observations:
 ${obsLines.join('\n')}
 
-Each of the panels above exists as a LEFT and a RIGHT physical instance — one each side of the car (two front doors, two rear doors, two sills, etc.). Looking at the images: for each panel, how many PHYSICALLY DISTINCT damaged instances are there?
+Each of the panels above exists as SEVERAL physical instances on the car. Most are a pair — one each side (two front doors, two rear doors, two sills, two wings). WHEEL and TYRE are FOUR, one at each corner. Looking at the images: for each panel, how many PHYSICALLY DISTINCT damaged instances are there? There may be one, or up to four.
 
 For each distinct damaged instance, list the view indices showing it. Group views showing the SAME physical instance together. Do NOT name sides — group only by same-vs-different physical instance. If you cannot tell whether two views show the same or different instances, say so for that pair — it will be treated as unresolved and floored (the safe default).
 
@@ -1401,7 +1414,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     {
       "panelId": "<PANEL_ID from the observations above>",
       "distinct_damaged_instances": <number>,
-      "instance_groups": [[<view indices for instance 1>], [<view indices for instance 2 if present>]],
+      "instance_groups": [[<view indices for instance 1>], [<view indices for instance 2 if present>], [<instance 3 if present>], [<instance 4 if present>]],
       "uncertain_view_pairs": [[<a>, <b>]],
       "confidence": "low" | "med" | "high"
     }
@@ -1437,7 +1450,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
   const corrResult = new Map();
   for (const entry of corrParsed.panels) {
     const { panelId, distinct_damaged_instances, instance_groups, uncertain_view_pairs, confidence } = entry;
-    if (!PAIRED_FLANK_PANELS.has(panelId)) { console.warn(`[CORR] unknown panelId "${panelId}" in response — skipped`); continue; }
+    if (!G_INSTANCE_PANELS.has(panelId)) { console.warn(`[CORR] unknown panelId "${panelId}" in response — skipped`); continue; }
     if (confidence === 'low') {
       console.log(`[CORR] ${panelId} confidence=low → floored`);
       corrResult.set(panelId, { instance_groups: [], uncertain_view_pairs: [], floored: true });
@@ -1684,6 +1697,13 @@ STRUCTURAL FLAG — never costed; always flagged for inspection:
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
   AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover) — DEPLOYED bag only, NOT an intact airbag or a dash warning light. Genuine non-airbag interior damage still uses OTHER.
+                    For AIRBAG ONLY, append the bag's POSITION as a final field: | pos:<driver|passenger|curtain-left|curtain-right|unknown>
+                      driver       — bag out of the STEERING WHEEL boss
+                      passenger    — bag out of the DASHBOARD on the non-steering side
+                      curtain-left / curtain-right — long bag down the ROOF RAIL above the side windows, left or right as THIS photo is viewed
+                      unknown      — a deployed bag this photo does not place
+                    Emit ONE PART: AIRBAG line PER DEPLOYED BAG VISIBLE IN THIS PHOTO — two bags visible means two lines with different pos values.
+                    Report only what THIS photo shows. Never infer a passenger bag from a driver bag, or a second curtain from one. If you cannot place it, use pos:unknown.
 
 PRESENCE CHECK:
   SPARE_WHEEL       spare wheel / spare tyre (visible in boot)
@@ -1937,7 +1957,7 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       // entirely — so a genuine single-angle dent (only one view had the angle) is NOT floored.
       const excludedCleanViews = excludedIndices.filter(idx =>
         /\|\s*iv:false\s*\|/i.test(memberByView.get(idx) ?? ''));
-      if (PAIRED_FLANK_PANELS.has(panelId) && instDamagedVotes < 2 && excludedCleanViews.length > 0) {
+      if (G_INSTANCE_PANELS.has(panelId) && instDamagedVotes < 2 && excludedCleanViews.length > 0) {
         console.log(`[G] ${panelId} SAFETY_ABORT=excluded-clean-uncorroborated damaged=${instDamagedVotes} excludedCleanViews=[${excludedCleanViews.join(',')}] action=floor`);
         result.push(group); continue;
       }
@@ -2471,12 +2491,12 @@ function parsePartVerdicts(blockText) {
     // PART: name | iv:X | z:Y | ph:Z  (ph optional)
     const pm = t.match(
       new RegExp(
-        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*(?:\\|\\s*sev:(SEVERE|MODERATE|MINOR|-)\\s*)?\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?\\s*$`,
+        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*(?:\\|\\s*sev:(SEVERE|MODERATE|MINOR|-)\\s*)?\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?(?:\\s*\\|\\s*pos:(driver|passenger|curtain-left|curtain-right|unknown))?\\s*$`,
         'i'
       )
     );
     if (pm) {
-      const [, rawId, ivRaw, sevRaw, zone, phRaw] = pm;
+      const [, rawId, ivRaw, sevRaw, zone, phRaw, posRaw] = pm;
       const panelId  = rawId.trim();
       const partName = PANEL_DISPLAY[panelId] ?? panelId;
       costedParts.push({
@@ -2486,6 +2506,9 @@ function parsePartVerdicts(blockText) {
         independentlyVisible: ivRaw === 'true' ? true : ivRaw === 'false' ? false : ivRaw.toLowerCase() === 'missing' ? 'missing' : null,
         severity:             (sevRaw && sevRaw !== '-') ? sevRaw.toUpperCase() : null,
         partHeight:           phRaw || null,
+        // batch 107 task 3 — AIRBAG only; null on every other panel. This is a BAG position, never a
+        // vehicle side for damage, so the side-scrub discipline does not apply to it.
+        srsPosition:          posRaw ? posRaw.toLowerCase() : null,
       });
       continue;
     }
@@ -2680,12 +2703,45 @@ function analyseAirbagPaste(pasteRaw) {
 //                                            flag; otherwise the honest "confirm whether deployed"
 //                                            defer flag). A bare plural "airbags" is NOT a count —
 //                                            never infer T2 from the word being plural.
-function srsTierFromSignals(deploymentConfirmedByEnum, paste) {
+// batch 107 task 3 — the PERCEPTION-derived positions, unioned across views.
+// Copart's descriptor says only "AIRBAGS DEPLOYED" and names no position on ANY lot in the corpus,
+// so the paste branches below have NEVER fired: all five airbag lots we hold billed the T1 floor
+// while Vincent's own read of the interior frames put four of them at T2/T3 (£300–£700 short each,
+// and short is the DANGEROUS direction — a cheaper-looking repair makes the bidder bid MORE).
+// ⛔ NEVER count votes. `pvVotesMap.AIRBAG.damaged` counts VIEWS, not BAGS — three photos of one
+// driver bag are three damaged votes and ONE bag. Only DISTINCT POSITIONS may raise the tier.
+// 'unknown' is deliberately NOT a position: it confirms a bag without placing it, so it can never
+// contribute to a count. Two views that both say 'unknown' remain one unplaced bag.
+export function srsPositionsFromPerView(perViewCostedParts) {
+  const positions = new Set();
+  for (const cp of perViewCostedParts || []) {
+    if (cp?.panelId !== PANEL.AIRBAG) continue;
+    if (cp.independentlyVisible !== true) continue;      // a bag we did not actually see
+    const p = cp.srsPosition;
+    if (p && p !== 'unknown') positions.add(p);
+  }
+  return positions;
+}
+
+export function srsTierFromSignals(deploymentConfirmedByEnum, paste, srsPositions = new Set()) {
   const deploymentConfirmed = Boolean(deploymentConfirmedByEnum) || paste.deployed;
   if (!deploymentConfirmed) return { deploymentConfirmed: false, tier: null, confident: false, countResolved: false, branch: 'no-deployment-signal' };
-  if (paste.curtainSide) return { deploymentConfirmed: true, tier: 3, confident: true, countResolved: true,  branch: 'paste-curtain/side→T3' };
-  if (paste.bothFront)   return { deploymentConfirmed: true, tier: 2, confident: true, countResolved: true,  branch: 'paste-both-front→T2' };
-  return { deploymentConfirmed: true, tier: 1, confident: true, countResolved: false, branch: 'deployment-confirmed-count-unresolved→T1-floor' };
+  const pos = srsPositions instanceof Set ? srsPositions : new Set(srsPositions || []);
+  const curtain = [...pos].some(p => p.startsWith('curtain'));
+  const front   = ['driver', 'passenger'].filter(p => pos.has(p));
+  // PERCEPTION FIRST — it is an observation of the car; the paste is a vendor descriptor.
+  if (curtain)          return { deploymentConfirmed: true, tier: 3, confident: true, countResolved: true, positions: [...pos], branch: 'perview-curtain→T3' };
+  if (front.length >= 2) return { deploymentConfirmed: true, tier: 2, confident: true, countResolved: true, positions: [...pos], branch: 'perview-both-front→T2' };
+  // Paste retained as a corroborating fallback — it has never fired on the corpus, but a vendor who
+  // DOES name a position should still be heard when perception placed nothing.
+  if (paste.curtainSide) return { deploymentConfirmed: true, tier: 3, confident: true, countResolved: true, positions: [...pos], branch: 'paste-curtain/side→T3' };
+  if (paste.bothFront)   return { deploymentConfirmed: true, tier: 2, confident: true, countResolved: true, positions: [...pos], branch: 'paste-both-front→T2' };
+  // Floor. Vincent, 9 Sep, REJECTING a move to T2 here: occupant detection suppresses the passenger
+  // bag on an empty seat, and salvage lots are disproportionately single-occupant — so "both front
+  // always fire" cannot be assumed. Adding cost on an assumption is the mirror of the rule already
+  // ruled twice. The floor stays T1; the READ is the fix. The buyer is told the limit either way
+  // (the HIGH flag paired with this branch names driver/passenger/curtain as the open question).
+  return { deploymentConfirmed: true, tier: 1, confident: true, countResolved: false, positions: [...pos], branch: 'deployment-confirmed-count-unresolved→T1-floor' };
 }
 
 // Thrown by runAssessment when too many model calls exhausted their 529 retries (single-instance
@@ -4621,7 +4677,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const _airbagEnumFlag = coreObs.flaggedParts.some(f => f.panelId === PANEL.AIRBAG);
     const _deploymentByEnum = (_airbagVotes?.damaged > 0) || _airbagEnumFlag;
     const _srsPaste = analyseAirbagPaste(enrichedVd.rawCopartPaste);
-    const srsT = srsTierFromSignals(_deploymentByEnum, _srsPaste);
+    // batch 107 task 3 — POSITIONS from the raw per-view reads (amalgamate pools by panelId, which
+    // would collapse two bags into one row and lose exactly the distinction we need).
+    const _srsPositions = srsPositionsFromPerView(perViewResults.flatMap(r => r.costedParts || []));
+    const srsT = srsTierFromSignals(_deploymentByEnum, _srsPaste, _srsPositions);
 
     // IN-PLAY gate — §3 THIRD-DOOR FIX (Vincent, 29 Aug). Previously this gate opened on
     // `frontStruck || /front|cabin|.../.test(enrichedVd.primaryDamage/secondaryDamage)` — i.e. on the
@@ -4638,7 +4697,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const _srsGateOpen = _srsInteriorVision || srsT.deploymentConfirmed;
     let srsInjected = false;
     let srsDeferred = false;
-    console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} deploymentConfirmed=${srsT.deploymentConfirmed}; label no longer opens the gate) enumDeployed=${_deploymentByEnum} (votes=${_airbagVotes?.damaged ?? 0} amalgFlag=${_airbagEnumFlag}) paste={deployed:${_srsPaste.deployed},intact:${_srsPaste.intact},curtainSide:${_srsPaste.curtainSide},bothFront:${_srsPaste.bothFront}} → tier=${srsT.tier ? 'T' + srsT.tier : 'none'} confident=${srsT.confident} countResolved=${srsT.countResolved} branch=${srsT.branch}`);
+    console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} deploymentConfirmed=${srsT.deploymentConfirmed}; label no longer opens the gate) enumDeployed=${_deploymentByEnum} (votes=${_airbagVotes?.damaged ?? 0} amalgFlag=${_airbagEnumFlag}) paste={deployed:${_srsPaste.deployed},intact:${_srsPaste.intact},curtainSide:${_srsPaste.curtainSide},bothFront:${_srsPaste.bothFront}} positions=[${[..._srsPositions].join(',') || 'none'}] → tier=${srsT.tier ? 'T' + srsT.tier : 'none'} confident=${srsT.confident} countResolved=${srsT.countResolved} branch=${srsT.branch}`);
 
     if (_srsGateOpen && srsT.deploymentConfirmed) {
       // Deployment CERTAIN (enum and/or paste). Cost the tier — T1 is a confident FLOOR, never £0.
