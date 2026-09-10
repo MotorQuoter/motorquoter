@@ -625,14 +625,19 @@ const CORNER_FLAG_WHATSAPP = {
 };
 
 // batch 107 task 4 — these slots used to be EIGHT per-corner slots (wheel-front-left … tyre-rear-right)
-// read from `coreObs.corners`. That field is assigned `[]` in both of its two assignment sites (:3724
-// success, :3747 floor), Call 2 does not return the key, and nothing else ever writes it — so
-// findCornerObs always returned null, every one of the eight slots took its DEFAULT verdict
-// ('genuinely-not-visible'), and four "photograph the <corner> wheel and tyre square-on — not clearly
-// visible enough to confirm" flags fired on EVERY report. On AK75RDX those four were the lot's ONLY
+// read from a `coreObs.corners` field. That field NEVER CARRIED DATA: Call 2 did not return the key
+// and nothing else ever wrote it, so both of its assignment sites set the empty array and every read
+// came back empty. findCornerObs therefore always returned null, every one of the eight slots took
+// its DEFAULT verdict ('genuinely-not-visible'), and four "photograph the <corner> wheel and tyre
+// square-on — not clearly visible enough to confirm" flags fired on EVERY report. On AK75RDX those
+// four were the lot's ONLY
 // structured flags, while its own per-view votes graded the wheel damaged 2 of 10 and the ledger
 // costed it. The engine was stating an observation it never made. Same family as the mileage fix:
 // silence rendered as a finding.
+// batch 108 B2 — the field itself is now GONE. Batch 107 removed its last reader; a repo-wide grep
+// then found zero reads and two write-only assignments of `[]`, so both were deleted. Deliberately
+// recorded WITHOUT line numbers: the previous version of this comment cited two that had already
+// rotted by a hundred lines, and a stale reference in a load-bearing comment is worse than none.
 //
 // The slots are now driven by the per-view evidence that actually exists (pvVotesMap), and are
 // NON-POSITIONAL: one wheel slot and one tyre slot for the car.
@@ -3857,7 +3862,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.log('[CALL2] raw tool_use input:', JSON.stringify(call2ToolBlock.input));
       const inp = call2ToolBlock.input;
       coreObs = {
-        corners: [],
         proseFlags: {
           provenanceConcernFlagged:      typeof inp.provenanceConcernFlagged === 'boolean'      ? inp.provenanceConcernFlagged      : null,
           provenanceConcernReason:       (typeof inp.provenanceConcernReason === 'string' && inp.provenanceConcernReason.trim()) ? inp.provenanceConcernReason.trim() : null,
@@ -3880,7 +3884,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // from the vision dash-read (runDashClusterRead) after it awaits at line ~2498.
     if (!coreObs) {
       coreObs = {
-        corners: [],
         proseFlags: { provenanceConcernFlagged: null, provenanceConcernReason: null, salvageSelfReferenceConfirmed: null },
         perZone:     [],
         namedAsIntact: [],

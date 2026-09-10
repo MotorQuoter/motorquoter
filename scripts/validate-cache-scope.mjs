@@ -81,8 +81,25 @@ console.log('\n4. Call sites pass params; the legacy (callType, reg, fetchFn) ov
   const assess = readFileSync(join(ROOT, 'app/api/salvage/assess/route.js'), 'utf8');
   assertTrue('BREGO_GB now passes current_mileage as a keyed param',
     assess.includes("withOneAutoCache('BREGO_GB', cleanVrmB, { current_mileage: brMileage }"));
-  assertTrue('SALVAGEGUIDE passes category + mileage + damage as keyed params',
-    assess.includes("{ salvage_category: sgCat, current_mileage: sgMileage, primary_damage_desc: sgDamage }"));
+  // EO-42 CLOSED (batch 108 B1). This used to assert that SALVAGEGUIDE passed a third keyed param,
+  // `primary_damage_desc: sgDamage`. Batch 87's D1 ruling DELETED that param on 30 Aug: the Copart
+  // damage descriptor is inadmissible, wrong in both directions across the corpus, and on SF69YBB the
+  // string sent was literally "Unknown". The assertion outlived the code it described and had been
+  // red ever since — a test asserting the presence of something a ruling removed.
+  // It is replaced by two assertions that pin the ruling instead of contradicting it.
+  const sgStart = assess.indexOf("'SALVAGEGUIDE', cleanVrmB,");
+  const sgEnd   = assess.indexOf('bidpredictionfromvrm', sgStart);
+  const sgCall  = (sgStart >= 0 && sgEnd > sgStart) ? assess.slice(sgStart, sgEnd) : '';
+  // The locate-guard is not ceremony: without it, a moved anchor makes sgCall '' and the
+  // "appears nowhere" assertion below passes VACUOUSLY — a test that quietly stops testing.
+  assertTrue('the SALVAGEGUIDE call region was located (guards the two assertions below)',
+    sgCall.length > 0);
+  assertTrue('SALVAGEGUIDE passes exactly { salvage_category, current_mileage } as keyed params',
+    assess.includes("{ salvage_category: sgCat, current_mileage: sgMileage },"));
+  // D1 PINNED. The region sliced above spans the cache-key params object AND the URLSearchParams
+  // that builds the outbound query, so this catches the descriptor coming back by either route.
+  assertTrue('D1 ruling: primary_damage_desc appears NOWHERE in the SALVAGEGUIDE call',
+    !sgCall.includes('primary_damage_desc'));
   // A param-free caller left in legacy form proves the overload is exercised in real code.
   assertTrue('a legacy param-free caller (SALVAGEHISTORY) is untouched',
     assess.includes("withOneAutoCache('SALVAGEHISTORY', cleanVrmB, async () =>"));
