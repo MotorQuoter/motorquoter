@@ -2323,8 +2323,19 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     : (detectionVerdict || 'cannot_determine');
 
   const checklistEntry = 'Show the struck-side headlamp aperture with the bumper pulled clear — confirm the actual headlamp type and that a serviceable unit is fitted, not just an exposed recess.';
+  // batch 109C (Vincent, 10 Sep) — the second lamp is now COSTED and IN the repair total, so the
+  // buyer-facing strings must say that. The previous wording ended "flagged as inspection allowance,
+  // not included in repair total", which contradicts the money the moment C1 lands.
   const checklistEntry2nd = lampCount === 2
-    ? `Inspect the opposite-side headlamp — on a full-width frontal impact both lamps are implicated; check for displacement, cracking, or moisture ingress and confirm serviceability. Budget ~£${bandValue} if replacement needed — flagged as inspection allowance, not included in repair total.`
+    ? `Inspect the opposite-side headlamp — on a full-width frontal impact both lamps are implicated. Replacement costed at £${bandValue} (${resolvedType}) and included in the repair total; confirm serviceability on inspection.`
+    : null;
+
+  // On a full-width hit the Key Cost Drivers line named ONE headlamp on every path, so a two-lamp
+  // impact under-described its own biggest lamp cost. When lampCount is 2 this shared line replaces
+  // all three singular variants; on lampCount 1 it is null and each path keeps its own wording
+  // byte-identical.
+  const pairCostDriver = lampCount === 2
+    ? `Both front headlamps — full-width frontal impact; replacement costed at £${bandValue} each (${resolvedType}${lampTypeAssumed ? ', assumed' : ''}), £${bandValue * 2} in total. Confirm serviceability on inspection.`
     : null;
 
   if (effectiveVerdict === 'present') {
@@ -2332,27 +2343,27 @@ function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdi
     // unreliable regardless of what appears present. Verdict controls wording only.
     let verdictLine = `Struck front corner headlamp — the headlamp on the struck corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
     verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
-    const costDriverEntry = lampTypeAssumed
+    const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
-      : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`;
+      : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`);
     return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   if (effectiveVerdict === 'missing') {
     let verdictLine = `Struck front corner headlamp — the headlamp on the struck corner is missing. Replacement costed at £${bandValue} (${resolvedType}).`;
     verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
-    const costDriverEntry = lampTypeAssumed
+    const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
-      : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`;
+      : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`);
     return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
   let verdictLine = `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
   verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
-  const costDriverEntry = lampTypeAssumed
+  const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
-    : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`;
+    : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`);
   return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
 }
 
