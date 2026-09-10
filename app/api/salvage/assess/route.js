@@ -1805,8 +1805,21 @@ async function runPerViewAssess(image, idx, onExhaust) {
     console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${_u.input_tokens} Output:${_u.output_tokens} CacheWrite:${_u.cache_creation_input_tokens ?? 0} CacheRead:${_u.cache_read_input_tokens ?? 0} Stop:${apiData.stop_reason}`);
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
-    const { costedParts } = parsePartVerdicts(raw);
+    // batch 108 A2 — the raw per-view text, verbatim, behind an env var. Until now this string was
+    // read by the two parsers on the next two lines and then garbage-collected: never logged, never
+    // returned, never stamped. That is why batch 107's AIRBAG question could not be settled at any
+    // price — the evidence had never existed, so there was nothing to go and find. Same env pattern
+    // as MQ_DUMP_CALL1_PROMPT / MQ_TRACE_FLAGS: unset → logging byte-identical to before (bar A1).
+    if (process.env.MQ_LOG_PERVIEW_RAW) {
+      console.log(`[PER-VIEW][${idx}] RAW <<<\n${raw}\n>>> END RAW`);
+    }
+    const { costedParts, unmatched } = parsePartVerdicts(raw);
     const hvLabelSeen = parseHvLines(raw);
+    // batch 108 A1 — a line the grammar refused. It is still dropped; it is no longer dropped unseen.
+    if (unmatched.length) {
+      console.warn(`[PER-VIEW][${idx}] ${unmatched.length} UNPARSED line(s) — dropped from costedParts, shown here so the loss is never silent:`);
+      for (const u of unmatched) console.warn(`[PER-VIEW][${idx}] UNPARSED: "${u}"`);
+    }
     if (hvLabelSeen) console.log(`[PER-VIEW][${idx}] HV: visible`);
     // Validate each emitted string against the closed PANEL vocabulary.
     // Unknown strings (including the legacy 'none' sentinel) are routed to OTHER and logged.
@@ -1824,7 +1837,11 @@ async function runPerViewAssess(image, idx, onExhaust) {
       .filter(Boolean);
     enriched.forEach(cp => {
       const ivLabel = cp.independentlyVisible === true ? 'true' : cp.independentlyVisible === false ? 'false' : cp.independentlyVisible === 'missing' ? 'missing' : 'na';
-      console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}`);
+      // batch 108 A3 — `pos` is printed whenever the parser set one. This line was quoted in the
+      // batch-107 report as evidence of "a single row, pos:driver" when its format string could not
+      // print a position at all; a log that cannot show a field must never be read as showing it.
+      const posLabel = cp.srsPosition ? ` pos=${cp.srsPosition}` : '';
+      console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}${posLabel}`);
     });
     if (enriched.length === 0) console.log(`[PER-VIEW][${idx}] 0 valid enum IDs from this view — no records contributed`);
     return { costedParts: enriched, idx, hvLabelSeen };
@@ -2490,10 +2507,19 @@ function parseParts(text, sideScrubOut = null) {
   return result;
 }
 
-function parsePartVerdicts(blockText) {
+// batch 108 A1 — the third return value, `unmatched`, is the whole point of this batch. This parser
+// drops any line its grammar does not admit, and until now it dropped them UNSEEN: batch 107's AIRBAG
+// question ("did the model emit one bag line or two?") was unanswerable because a malformed second
+// line and a never-written second line are byte-identical in every artefact the engine keeps.
+// A dropped line is still dropped — the grammar is unchanged and deliberately strict — but it is now
+// always reported to the caller, which always logs it. Silence is a defect.
+// EXPORTED so scripts/validate-perview-parse.mjs pins the LITERAL shipped function, never a copy
+// (same reason srsTierFromSignals is exported — a lifted duplicate drifts and then proves nothing).
+export function parsePartVerdicts(blockText) {
   const costedParts  = [];
   const flaggedParts = [];
-  if (!blockText) return { costedParts, flaggedParts };
+  const unmatched    = [];
+  if (!blockText) return { costedParts, flaggedParts, unmatched };
 
   const ZONES = 'front|rear|flank-damaged-side|roof|underside|interior';
 
@@ -2537,12 +2563,30 @@ function parsePartVerdicts(blockText) {
       const panelId  = rawId.trim();
       const partName = PANEL_DISPLAY[panelId] ?? panelId;
       flaggedParts.push({ panelId, partName, zone, weight, reason: reason.trim() });
+      continue;
     }
-    // Unmatched lines silently skipped. Absent block → both arrays [].
+
+    // batch 108 A1 — everything that reached here matched no grammar. It is still DROPPED (nothing
+    // below adds it to costedParts or flaggedParts); it is merely no longer dropped in silence.
+    // Two exclusions, both "handled, not lost":
+    //   - blank lines: the model pads its block; nothing was ever said.
+    //   - a WELL-FORMED HV: line: the contract asks for exactly one per photo with three legal
+    //     values (:1772, `HV: <visible|absent|na>`). parseHvLines reads it on the separate pass and
+    //     returns false for `absent`/`na` BY DESIGN — that is complete handling, not lost evidence.
+    //     A MALFORMED HV: line (`HV: yes`) is NOT excluded: the sticker observation was intended and
+    //     did not register, which is exactly the loss this array exists to surface.
+    if (!t) continue;
+    if (HV_LINE_LEGAL.test(t)) continue;
+    unmatched.push(t);
   }
 
-  return { costedParts, flaggedParts };
+  return { costedParts, flaggedParts, unmatched };
 }
+
+// The three HV values the per-view contract admits (:1772 — `HV: <visible|absent|na>`). Used ONLY by
+// parsePartVerdicts's A1 unmatched-line test, to tell a legitimate HV emission from a malformed one.
+// It does NOT widen parseHvLines: hvLabelSeen still fires on `visible` alone, unchanged.
+const HV_LINE_LEGAL = /^HV:\s*(?:visible|absent|na)\s*$/i;
 
 // Returns true if any line in the per-view output is "HV: visible".
 // Distinct from parsePartVerdicts — HV: lines have a different prefix and are not PART: records.
