@@ -1060,95 +1060,10 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
   }
 }
 
-// Fault 1a — aperture panel read (torn / seam / mounting-structure / factory-symmetric). Dedicated
-// single-purpose vision pass (mirrors runDashClusterRead): a bumper-off rear-quarter / front-wing is
-// byte-identical on every existing field between a genuinely torn panel, an intact seam merely exposed
-// by the missing bumper, torn bumper-mounting furniture standing in front of a clean panel, and a
-// factory styling pressing that reads as a crease. This read is the ONLY signal that separates them.
-// It judges the PANEL'S OWN OUTER FACE: torn/folded/buckled on the face = genuine impact (keep cost);
-// straight intact seam, torn mounting furniture, OR a feature matched on the undamaged opposite side,
-// all with a clean face = no panel damage (demote to flag). Returns a constrained enum; CODE owns the cost decision.
-// Fail-safe: any failure/exhaust → null; invalid verdict → 'ambiguous'. Both keep cost
-// (policy: on structure, ambiguity falls to assume-damage).
-async function runAperturePanelRead(images, lampObs, frameIndices, apertureZone, onExhaust) {
-  // Per-suspect corner steer (C1): zone comes from the caller's suspect tag, not lampObs aggregation.
-  // struckSide is a FRONT-impact datum (C2 ruling) — it steers the FRONT hint only, never a rear read.
-  const isRear     = apertureZone === 'rear';
-  const bumperWord = isRear ? 'rear bumper' : 'front bumper';
-  const sideWord   = (!isRear && (lampObs?.struckSide === 'offside' || lampObs?.struckSide === 'nearside'))
-    ? lampObs.struckSide + ' ' : '';
-  const cornerHint = isRear ? 'rear' : `${sideWord}front`;
-  const APERTURE_PROMPT = `You are judging a single salvage vehicle from auction photos. The ${bumperWord} is displaced or torn away on the ${cornerHint} corner, exposing the body panel behind it (the rear quarter panel for a rear corner, the front wing for a front corner).
-
-Survey ALL photos to locate that corner, then focus on the ${cornerHint} corner where the bumper is displaced. Judge the BODY PANEL'S OWN METAL — not the bumper, not the panel gap:
-
-SURFACE SELECTION — read this before judging: with the bumper displaced or absent, TWO different surfaces are visible at this corner. (1) The OUTER PAINTED FACE — the smooth, body-coloured skin that was visible before the bumper left. (2) The EXPOSED INNER STRUCTURE — bumper mounting brackets, closing panels, vent housings, wiring, apertures, and unfinished or roughly painted metal that the bumper used to cover. The inner structure is irregular, rough, and cluttered BY DESIGN — it is NOT damage and must NOT be graded, and torn, bent, or exposed mounting furniture (mounting rails, carrier brackets, closing-panel tinware) visible in front of the panel is the MOUNTING-STRUCTURE verdict below, never TORN. Factory pressed swage or character lines running along the flank are styling, not creases. Judge ONLY the outer painted face. If the outer painted face shows smooth, continuous paint and reflections, the panel is undamaged regardless of how rough the exposed inner region looks.
-
-TORN = deformation on the OUTER PAINTED FACE, away from the bumper-mating edge and away from exposed inner structure and mounting hardware: sharp creases radiating into the panel face, dents or crumpling on the face, cracked or scuffed paint at the deformation, or a body line misaligned versus the adjacent door or panel. This is genuine impact to the panel's own skin.
-SEAM = a factory pressed flange, fold, return edge, seam, or join line at the panel's bumper-mating edge, now visible ONLY because the bumper is displaced or absent. The factory closure line is STRAIGHT, UNIFORM, and WELL-DEFINED — it runs a consistent, manufactured path. A clean, regular line at the exposed edge is evidence the panel is UNDAMAGED: you are seeing the join the bumper used to cover. Deformation at or along the exposed mating edge alone, with the panel face otherwise clean, is SEAM.
-MOUNTING-STRUCTURE = torn, bent, or exposed bumper-mounting FURNITURE — not the panel's outer face. Serrated bumper mounting rails (sawtooth-profile black strips are FACTORY HARDWARE, not creased metal), carrier brackets, and lower closing-panel / carrier tinware all tear away with a displaced bumper. The outer painted face itself shows NO deformation — its paint and reflections are continuous. The damage belongs to the bumper assembly, not to this panel.
-FACTORY-SYMMETRIC = the feature that appears to be damage on this panel is present in the SAME position and shape on the opposite-side equivalent panel in the reference frames — it is factory styling (haunch pressing, character line, swage) or a shared reflection pattern, not impact. The panel is UNDAMAGED.
-
-ATTRIBUTE BY WHAT, NOT WHERE: choose the verdict by which component the damaged metal belongs to, not by where it sits in the frame. Torn metal at the panel's edge that is part of the bumper carrier or its mounting furniture is MOUNTING-STRUCTURE even though it lies inside the panel's visual region. Only deformation of the panel's OWN outer painted face is TORN.
-
-GEOMETRY TEST — apply before deciding TORN: genuine impact creasing is IRREGULAR — it changes direction, varies in depth, breaks the panel's reflection, and disturbs the paint. The factory closure line does none of these. Any crease you intend to cite as TORN must be visibly DISTINCT from the straight closure line and from shadow cast at the exposed edge. If the only "damage" you can see follows a straight, uniform path, it is the factory closure — verdict SEAM.
-
-MANDATORY BEFORE ANY "torn" VERDICT — OPPOSITE-SIDE TEST: when frames of the opposite-side equivalent panel are provided, you MUST examine the same location on the undamaged side before returning "torn". Many body styles carry a pronounced factory haunch or character pressing sweeping over the rear wheel arch that breaks reflections and reads as a crease — it is styling, present identically on both sides. If the feature you intend to cite as damage appears in the same position and shape on the opposite side, the verdict is FACTORY-SYMMETRIC. Return "torn" only when you can state in your evidence sentence what is DIFFERENT from the opposite side at that location. If opposite-side frames are provided and you cannot articulate the asymmetry, the verdict is "ambiguous", not "torn".
-
-Return ONLY a raw JSON object — no markdown, no explanation, no surrounding text:
-{ "verdict": "torn" | "seam" | "mounting-structure" | "factory-symmetric" | "ambiguous", "evidence": "<one short sentence on the panel metal you can see; for a torn verdict, when opposite-side frames are provided, name what is DIFFERENT from the opposite side at that location>" }
-
-Use "ambiguous" ONLY when the photos genuinely cannot resolve the panel's metal condition (angle, lighting, occlusion). Do NOT use "ambiguous" as a hedge when the metal condition is visible — decide torn, seam, mounting-structure, or factory-symmetric.`;
-  try {
-    if (images.length > 35) console.warn(`[APERTURE PANEL] image set truncated to 35 (received ${images.length})`);
-    // C3 targeting: read the panel's targeted frames when given; else the full set (never empty).
-    const all = images.slice(0, 35);
-    const targeted = Array.isArray(frameIndices) && frameIndices.length ? frameIndices.map(i => images[i]).filter(Boolean) : [];
-    const frameSet = targeted.length ? targeted : all;
-    const imageBlocks = frameSet.map(img => {
-      let mediaType = 'image/jpeg';
-      let data = img;
-      const m = img.match(/^data:([^;]+);base64,(.+)$/);
-      if (m) { mediaType = m[1]; data = m[2]; }
-      return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
-    });
-    // Shared-image cache breakpoint — same 35-image payload + same system as correspondence;
-    // this read fires after correspondence's cache write → cache READ ($0.50/M vs fresh $5/M).
-    if (imageBlocks.length) imageBlocks[imageBlocks.length - 1].cache_control = { type: 'ephemeral' };
-    const { res, exhausted } = await with529Retry('aperture-panel', () => fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: MODELS.assessPrimary,
-        max_tokens: 512,
-        system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
-        messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: APERTURE_PROMPT }] }],
-      }),
-    }));
-    if (exhausted) { onExhaust?.(); return null; }
-    if (!res?.ok) { console.warn('[APERTURE PANEL] API error:', res?.status); return null; }
-    const apiData = await res.json();
-    console.log('[TOKEN LOG] aperture-panel Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[APERTURE PANEL] max_tokens — truncated; returning null (keep-cost fail-safe)'); return null; }
-    if (apiData.stop_reason === 'refusal')   { console.warn('[APERTURE PANEL] refusal — content policy; returning null (keep-cost fail-safe)'); return null; }
-    const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) { console.warn('[APERTURE PANEL] no JSON object in response:', raw.slice(0, 200)); return null; }
-    const parsed = JSON.parse(match[0]);
-    const verdict  = ['torn', 'seam', 'mounting-structure', 'factory-symmetric', 'ambiguous'].includes(parsed.verdict) ? parsed.verdict : 'ambiguous';
-    const evidence = typeof parsed.evidence === 'string' ? parsed.evidence : '';
-    console.log(`[APERTURE PANEL] verdict=${verdict} evidence="${evidence}"`);
-    return { verdict, evidence };
-  } catch (err) {
-    console.warn('[APERTURE PANEL] error:', err.message);
-    return null;
-  }
-}
-
 // ── Attribution probe (commit 2) — per costed panel, challenge the pipeline's own claim ───────
 // Fired at the application point over the surviving costed set (Option B — universal by
 // construction). Opus, one call per panel; a mismatch or non-verdict FLOORS (one-way, never
-// promotes). Structured alongside the other targeted reads (aperture/sticker): imageBlocks map,
+// promotes). Structured alongside the other targeted reads (sticker/sill-rocker): imageBlocks map,
 // with529Retry, trailing cache_control breakpoint, raw-JSON parse + closed-enum validation.
 
 // Fixed, code-owned severity wording — single owner of the two costed grades' probe phrasing.
@@ -1215,39 +1130,6 @@ function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
     }
   }
   return selectProbeFrames(frameZones, cp.zone);
-}
-
-// Aperture-read frame targeting (C3). Sibling of selectProbeFramesForPanel; called per aperture-
-// suspect panel. Precedence, each self-naming in `source`:
-//   1. correspondence-split flank instance (_gOwned) → its OWN member frames (side-correct).
-//   2. frame-zone frames on the aperture zone OR the struck side (union — the seam-vs-crease call
-//      needs both the corner-facing and the struck-side profile evidence).
-//   3. null → full-set fallback inside runAperturePanelRead.
-function selectApertureFrames(cp, frameZones, struckSide, apertureZone) {
-  if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
-    // Opposite-reference augmentation: append the Case-B excluded-CLEAN views so the C1 comparison
-    // instruction has reference material (the split's damaged-only set starves it). Damaged frames
-    // LEAD (index order = payload order); deduped refs FOLLOW. Thin-set log measures the damaged
-    // instance (not the augmented set) — augmentation adds comparators, not damage evidence.
-    const dmg  = cp._probeViews;
-    const refs = Array.isArray(cp._oppRefViews) ? cp._oppRefViews.filter(i => !dmg.includes(i)) : [];
-    const idx  = [...dmg, ...refs].slice(0, 35);
-    if (dmg.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin instance set (${dmg.length} frames)`);
-    const source = refs.length
-      ? `corr-instance+opp-ref:[${dmg.join(',')}]+[${refs.join(',')}]`
-      : `corr-instance:[${dmg.join(',')}]`;
-    return { indices: idx, source };
-  }
-  if (frameZones.ok) {
-    const want = [apertureZone];
-    if (struckSide === 'offside' || struckSide === 'nearside') want.push(struckSide);
-    const idx = frameZones.frames.filter(f => f.zones.some(z => want.includes(z))).map(f => f.i).slice(0, 35);
-    if (idx.length) {
-      if (idx.length <= 2) console.log(`[APERTURE] ${cp.panelId} thin aperture-zone set (${idx.length} frames)`);
-      return { indices: idx, source: `aperture-zone:${want.join('+')}:[${idx.join(',')}]` };
-    }
-  }
-  return { indices: null, source: 'full-set:no-targeted-frames' };
 }
 
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
@@ -1395,10 +1277,12 @@ async function runCorrespondencePass(perViewResults, images, onExhaust) {
     if (m) { mediaType = m[1]; data = m[2]; }
     return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
   });
-  // Shared-image cache breakpoint. These 3 reads (correspondence, aperture, sill-rocker)
+  // Shared-image cache breakpoint. These 2 reads (correspondence, sill-rocker)
   // send the IDENTICAL 35-image payload AND the identical system string, so a cache_control
   // on the last image block makes the [system + 35 images] prefix reusable across them.
-  // correspondence fires first → cache WRITE (1.25×); aperture/sill-rocker fire later within
+  // (Batch 109: the aperture read was the third; it was deleted as an orphan, so the prefix is
+  // now shared by two reads — still ≥2, so the breakpoint still pays for itself.)
+  // correspondence fires first → cache WRITE (1.25×); sill-rocker fires later within
   // the 5-min window → cache READ ($0.50/M vs fresh $5/M). Read-specific prompt text sits
   // AFTER this block, uncached (negligible). Only pays off because ≥2 reads reuse the prefix.
   if (corrImageBlocks.length) corrImageBlocks[corrImageBlocks.length - 1].cache_control = { type: 'ephemeral' };
