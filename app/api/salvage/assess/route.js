@@ -2293,7 +2293,10 @@ function tier1FloorLampObs() {
   };
 }
 
-function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false) {
+// EXPORTED (batch 109C) so scripts/validate-headlamp-pair.mjs asserts the LITERAL shipped wording,
+// never a copy — the same reason srsTierFromSignals and parsePartVerdicts are exported. A validator
+// that re-types a buyer-facing string proves only that the copy matches itself.
+export function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false) {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
