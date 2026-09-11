@@ -35,7 +35,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -5252,6 +5252,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         }
       }
 
+      // batch 116 (Vincent, 11 Sep: "Fix this duplication of parts and repair") — the GRADE owns repair vs
+      // replace on a bolt-on body panel, and a MINOR/MODERATE repair carries NO part cost (spec §1: MODERATE is
+      // £700 all-in; "PART cost separate" is on SEVERE only). Runs before bodyPanels so labour sees the grade-
+      // owned action; lib/labour.mjs owns the rule and its exclusions (welded three, _zeroRule, ungraded).
+      {
+        const _gradeChanges = applyGradeOwnsAction(gatedParts, sevByPanel);
+        for (const c of _gradeChanges) console.log(`[GRADE→ACTION] ${c.panelId} ${c.grade}: ${c.from} → ${c.to}`);
+      }
+
       // Surviving BODY panels get panel-work labour (isBodyPanel excludes lamps/glass/grille/rad-pack/slam/
       // wheels — those carry their own price, fitting supply-and-fit or absorbed; spec §10 audit).
       // batch 106 interaction (re-applied at the rebase — the old computeLabourRatio carried this, and the
@@ -5266,7 +5275,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         .map(p => ({ panelId: p.panelId, zone: zoneByPanel.get(p.panelId) || p.zone || 'default', severity: sevByPanel.get(p.panelId) || 'MODERATE', action: p.action || 'replace' }));
 
       // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
-      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
+      // batch 116: a repaired panel (_repairNoPart, £0 part, cost in panel work) is still a costed, damaged panel.
+      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart)).map(p => p.panelId));
       const flagObs = (pid) => (coreObs.flaggedParts || []).some(f => f.panelId === pid && !/not visible in any photo/i.test(f.reason || ''));
       // Bonnet tell = the bonnet displaced OR costed-with-damage — matches the Q2 measurement grid Vincent
       // ruled ≥2 against (a crumpled bonnet on a frontal is the "not lining up" sign; a costed bonnet counts).
@@ -5315,7 +5325,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       [assessment._rearBumperOffAny,  PANEL.REAR_QUARTER, 'rear',  'quarter panel'],
     ]) {
       if (off !== true) continue;
-      const costed = gatedParts.some(p => p.panelId === panelId && (p.used ?? p.oem ?? 0) > 0);
+      const costed = gatedParts.some(p => p.panelId === panelId && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));   // batch 116: a repaired panel is costed (in panel work)
       if (!costed) continue;   // §4 fires only on a COSTED adjacent panel
       if (assessment._flaggedParts.some(f => f._bumperOffLimit && f.zone === end)) continue;
       assessment._flaggedParts.push({
@@ -5439,7 +5449,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // batch 107: a panel carrying the §4 bumper-off LIMIT note is excluded on the same principle.
         // We have just told the buyer we cannot confirm that panel is damaged behind a torn bumper —
         // offering to sell him the part in the next section is the worst version of this defect.
-        parts:   gatedParts.filter(p => !p._zeroRule && !_bumperOffLimitPanels.has(p.panelId)),
+        parts:   gatedParts.filter(p => !p._zeroRule && !p._repairNoPart && !_bumperOffLimitPanels.has(p.panelId)),   // batch 116: no eBay link for a panel being repaired
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
         epn,
       });

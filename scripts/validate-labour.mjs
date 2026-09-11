@@ -4,6 +4,7 @@ import {
   PANEL_WORK, WELDED_LABOUR, weldedClass, panelLabour, flattenPanelWork,
   structuralAllowance, STRUCTURAL_BAND_HIGH, panelWorkRange, labourMoney,
   RANGE_LOW_PCT, RANGE_HIGH_PCT, SOURCED_FINISHED_FIT, SANITY_ENVELOPE,
+  applyGradeOwnsAction, REPAIR_NO_PART_NOTE,
 } from '../lib/labour.mjs';
 
 let pass = 0, fail = 0;
@@ -152,6 +153,98 @@ ok('SRS curve accelerates (not linear — the £450 lesson)', SRS_FITTING.T3 - S
 // reference-only constants present
 eq('sourced-finished fit ref', SOURCED_FINISHED_FIT, 170);
 ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANITY_ENVELOPE.fourxfour.new === 6000);
+
+
+// ── batch 116 — THE GRADE OWNS REPAIR-VS-REPLACE; A MINOR/MODERATE BOLT-ON REPAIR CARRIES NO PART ──
+// Vincent, 11 Sep: "Fix this duplication of parts and repair." Spec §1: MODERATE is "genuine dent or crease,
+// repairable", £700 ALL-IN; "On SEVERE the PART cost is separate". Pinned against the SPEC, not the code.
+{
+  const sd72 = () => [   // SD72HXH's shape: two creased doors graded MODERATE, the model priced a NEW door each
+    { panelId: 'FRONT_DOOR', name: 'Front door', action: 'replace', oem: 600, used: 330 },
+    { panelId: 'REAR_DOOR', name: 'Rear door', action: 'replace', oem: 565, used: 310 },
+    { name: 'Labour & paint', action: '—', oem: 1400 },
+  ];
+  const sev = new Map([['FRONT_DOOR', 'MODERATE'], ['REAR_DOOR', 'MODERATE']]);
+  const rows = sd72();
+  const ch = applyGradeOwnsAction(rows, sev);
+  ok('SD72HXH: both MODERATE doors become action "repair"', rows[0].action === 'repair' && rows[1].action === 'repair');
+  ok('SD72HXH: neither door carries a part cost any more (the £640 S/H duplication is gone)',
+     (rows[0].used ?? rows[0].oem ?? 0) === 0 && (rows[1].used ?? rows[1].oem ?? 0) === 0);
+  ok('SD72HXH: the model\'s part figures are kept for audit, not in the money',
+     rows[0]._modelPart?.used === 330 && rows[1]._modelPart?.used === 310 && rows[0]._repairNoPart === true);
+  ok('SD72HXH: two changes reported', ch.length === 2);
+  ok('non-panel rows (labour) untouched', rows[2].oem === 1400 && rows[2].action === '—');
+
+  // The panel work still charges them: MODERATE £700 each, zone-flattened (dearest full, extra half) × 1.25.
+  const lab = computeLabour({ bodyPanels: [
+    { panelId: 'FRONT_DOOR', zone: 'flank-damaged-side', severity: 'MODERATE', action: 'repair' },
+    { panelId: 'REAR_DOOR', zone: 'flank-damaged-side', severity: 'MODERATE', action: 'repair' },
+  ] });
+  eq('SD72HXH: the repair is still costed in panel work — (700 + 350) × 1.25', lab.panelWorkMoney, 1313);
+
+  const minor = [{ panelId: 'FRONT_WING', name: 'Front wing', action: 'replace', oem: 290, used: 165 }];
+  applyGradeOwnsAction(minor, new Map([['FRONT_WING', 'MINOR']]));
+  ok('MINOR bolt-on → repair, no part', minor[0].action === 'repair' && (minor[0].used ?? minor[0].oem ?? 0) === 0);
+
+  const severe = [{ panelId: 'FRONT_DOOR', name: 'Front door', action: 'replace', oem: 600, used: 330 }];
+  applyGradeOwnsAction(severe, new Map([['FRONT_DOOR', 'SEVERE']]));
+  ok('SEVERE bolt-on → replace, part KEPT (spec: "On SEVERE the PART cost is separate")', severe[0].action === 'replace' && severe[0].used === 330 && !severe[0]._repairNoPart);
+
+  const sevRepair = [{ panelId: 'BONNET', name: 'Bonnet', action: 'repair', oem: 500, used: 280 }];
+  applyGradeOwnsAction(sevRepair, new Map([['BONNET', 'SEVERE']]));
+  ok('SEVERE with a model "repair" word → the GRADE wins: replace, part kept', sevRepair[0].action === 'replace' && sevRepair[0].used === 280 && sevRepair[0]._modelAction === 'repair');
+
+  const modRepair = [{ panelId: 'REAR_DOOR', name: 'Rear door', action: 'repair', oem: 500, used: 250 }];
+  applyGradeOwnsAction(modRepair, new Map([['REAR_DOOR', 'MODERATE']]));
+  ok('MODERATE already worded "repair" (FE68AOP shape) → its £250 part still goes', (modRepair[0].used ?? modRepair[0].oem ?? 0) === 0);
+
+  for (const pid of ['REAR_QUARTER', 'SILL', 'ROOF']) {
+    const w = [{ panelId: pid, name: pid, action: 'repair', oem: 400, used: 220 }];
+    applyGradeOwnsAction(w, new Map([[pid, 'MODERATE']]));
+    ok(`WELDED ${pid} is NOT touched (spec keys welded on repair/replace, silent on part cost)`, w[0].used === 220 && w[0].action === 'repair' && !w[0]._repairNoPart);
+  }
+
+  const zr = [{ panelId: 'FRONT_WING', name: 'Front wing', action: 'repair', oem: null, used: 120, _zeroRule: 'F' }];
+  applyGradeOwnsAction(zr, new Map([['FRONT_WING', 'MINOR']]));
+  ok('£0-rule row (_zeroRule F) is NOT touched — it earns no panel work, so its band figure is its only cost', zr[0].used === 120 && !zr[0]._repairNoPart);
+
+  const nonBody = [{ panelId: 'GRILLE', name: 'Grille', action: 'replace', oem: 190, used: 70 }, { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', used: 350, _lampMandated: true }];
+  applyGradeOwnsAction(nonBody, new Map([['GRILLE', 'MODERATE'], ['HEADLAMP', 'MODERATE']]));
+  ok('non-body COST parts (grille, headlamp) keep their part — they earn no panel-work labour', nonBody[0].used === 70 && nonBody[1].used === 350);
+
+  const ungraded = [{ panelId: 'FRONT_DOOR', name: 'Front door', action: 'replace', oem: 600, used: 330 }];
+  applyGradeOwnsAction(ungraded, new Map());
+  ok('a row with NO ledger grade is left alone (no grade, no ruling)', ungraded[0].used === 330);
+
+  ok('the repaired-panel note says no panel is bought and where the cost sits', /no new panel/.test(REPAIR_NO_PART_NOTE) && /Labour & paint/.test(REPAIR_NO_PART_NOTE));
+}
+
+
+// ── batch 116 — every surface says what the money says for a repaired panel ──────────────────────
+{
+  const { assembleVdsParts, sumPartsRealistic } = await import('../lib/parts.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const { readFileSync } = await import('node:fs');
+  const rows = [
+    { panelId: 'FRONT_DOOR', name: 'Front door', action: 'replace', oem: 600, used: 330 },
+    { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 400, used: 200 },
+    { name: 'Labour & paint (new & painted)', action: '—', oem: 1500, _codeLabour: true },
+  ];
+  applyGradeOwnsAction(rows, new Map([['FRONT_DOOR', 'MODERATE'], ['FRONT_BUMPER', 'SEVERE']]));
+  eq('money: the repaired door adds nothing on top of labour (200 + 1500)', sumPartsRealistic(rows), 1700);
+  const vds = assembleVdsParts([], rows);
+  ok('VDS: the repaired door says so, in the one shared sentence', vds.find((b) => b.panelId === 'FRONT_DOOR').prose === REPAIR_NO_PART_NOTE);
+  ok('VDS: the replaced bumper keeps its figure', vds.find((b) => b.panelId === 'FRONT_BUMPER').prose === 'Replace — £200.');
+  const cards = buildDamageCards({ gatedParts: rows, costedParts: [], flaggedParts: [], allowanceParts: [] });
+  const door = cards.find((c) => c.panelId === 'FRONT_DOOR');
+  ok('Damage card: the repaired door carries the note (never a bare £0 that reads as free)', door.note === REPAIR_NO_PART_NOTE && door.action === 'repair');
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  ok('route: the rule runs inside the labour block, before bodyPanels', route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') > 0
+     && route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') < route.indexOf('const bodyPanels = gatedParts'));
+  ok('route: a repaired panel still counts as costed for the bonnet tell and the §4 bumper-off note',
+     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 2);
+  ok('route: no eBay parts link for a panel being repaired', /gatedParts\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));
+}
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
