@@ -53,12 +53,24 @@ function makeFixtureProvider(paid) {
 
 async function main() {
   const vrm = (process.argv[2] || '').toUpperCase();
-  const mode = process.argv.includes('--vision-fixture') ? 'vision-fixture' : 'vision-live';
+  // batch 120: --fill-misses — serve every recorded call from the cassette and go LIVE only for misses,
+  // appending them. Its own opt-in flag: it cannot be combined with --capture / --vision-live / --vision-fixture,
+  // requires --max-fills N and --fill-cap-usd X, and refuses without an existing cassette. --fill-misses-dry
+  // fires nothing: it lists the misses and prices them from the recorded responses they replace.
+  const fillLive = process.argv.includes('--fill-misses');
+  const fillDry = process.argv.includes('--fill-misses-dry');
+  const argVal = (flag) => { const i = process.argv.indexOf(flag); return i > -1 ? process.argv[i + 1] : undefined; };
+  if ((fillLive || fillDry) && ['--capture', '--vision-live', '--vision-fixture'].some(f => process.argv.includes(f))) {
+    console.error('--fill-misses / --fill-misses-dry cannot be combined with --capture, --vision-live or --vision-fixture.');
+    process.exit(2);
+  }
+  if (fillLive && fillDry) { console.error('Pick one of --fill-misses or --fill-misses-dry.'); process.exit(2); }
+  const mode = (fillLive || fillDry) ? 'fill' : process.argv.includes('--vision-fixture') ? 'vision-fixture' : 'vision-live';
   // batch 83: --capture runs live vision AND freezes every model response into the lot's cassette, so a
   // later --vision-fixture run replays the full assess path deterministically at £0.
   const capture = process.argv.includes('--capture');
   const a3off = process.argv.includes('--a3-off');   // A3 SEVERE-DISCIPLINE clause removed (A/B off-arm)
-  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture|--capture] [--a3-off] [--dump <path>]'); process.exit(2); }
+  if (!vrm) { console.error('Usage: node --loader ./scripts/lib/alias-loader.mjs scripts/replay.mjs <VRM> [--vision-live|--vision-fixture|--capture|--fill-misses-dry|--fill-misses --max-fills N --fill-cap-usd X] [--a3-off] [--dump <path>]'); process.exit(2); }
 
   loadEnv();
   // Set the A3 toggle BEFORE importing the route module — PER_VIEW_PROMPT reads REPLAY_A3_OFF at
@@ -97,6 +109,15 @@ async function main() {
     }
     cassette = installCassette({ mode: 'replay', cassettePath });
     console.log(`[CASSETTE] replaying model calls from ${vrm}/model-cassette.json — £0, deterministic`);
+  } else if (mode === 'fill') {
+    const maxFills = Number(argVal('--max-fills'));
+    const capUsd = Number(argVal('--fill-cap-usd'));
+    try {
+      cassette = installCassette({ mode: 'fill', cassettePath, maxFills, capUsd, dryRun: fillDry });
+    } catch (e) { console.error(e.message); process.exit(3); }
+    console.log(fillDry
+      ? `[CASSETTE] FILL-DRY — replaying ${vrm}/model-cassette.json; misses are LISTED, NOTHING is fired (£0)`
+      : `[CASSETTE] FILL — replaying ${vrm}/model-cassette.json; LIVE only for misses, max ${maxFills} fill(s), cap $${capUsd} (paid on a miss)`);
   } else if (capture) {
     cassette = installCassette({ mode: 'capture', cassettePath });
     console.log(`[CASSETTE] capturing model calls → ${vrm}/model-cassette.json (LIVE VISION — paid)`);
@@ -115,7 +136,13 @@ async function main() {
   } finally {
     if (cassette) {
       const s = cassette.uninstall();
-      console.log(`[CASSETTE] ${mode === 'vision-fixture' ? 'served' : 'captured'} ${s.served || s.captured} call(s), missed ${s.missed}, passthrough ${s.passthrough}`);
+      if (mode === 'fill') {
+        console.log(`[CASSETTE] FILL${fillDry ? '-DRY' : ''} served ${s.served} recorded call(s), missed ${s.missed}, filled LIVE ${s.filled} ($${s.fillUsd.toFixed(4)}), passthrough ${s.passthrough}`);
+        for (const m of s.misses) console.log(`[CASSETTE] miss: key=${m.key} — ${m.why} — ${m.label}`);
+        for (const u of s.unserved || []) console.log(`[CASSETTE] recorded but not served this run: key=${u.key} model=${u.model} in=${u.usage.input_tokens ?? 0} out=${u.usage.output_tokens ?? 0} cacheWrite=${u.usage.cache_creation_input_tokens ?? 0} cacheRead=${u.usage.cache_read_input_tokens ?? 0} cost=$${u.usd.toFixed(4)} — ${(JSON.parse(u.text).content || []).map(c => c.type === 'tool_use' ? `tool_use:${c.name}` : (c.text || '').slice(0, 60).replace(/\s+/g, ' ')).join(' | ')}`);
+      } else {
+        console.log(`[CASSETTE] ${mode === 'vision-fixture' ? 'served' : 'captured'} ${s.served || s.captured} call(s), missed ${s.missed}, passthrough ${s.passthrough}`);
+      }
     }
   }
   console.log(`runAssessment completed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
