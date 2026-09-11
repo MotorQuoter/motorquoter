@@ -8,7 +8,7 @@ import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import {
   applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE,
-  lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure,
+  lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts,
 } from '@/lib/ledgerEdits.mjs';
 import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
@@ -842,7 +842,8 @@ export default function SalvageSuccessPage() {
                   // Standfirst (1-2 sentences) is model-authored synthesis.
                   // Per-panel section is code-assembled (_vdsParts, Step 4c).
                   const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
-                  const vdsParts = assessment._vdsParts || [];
+                  // batch 115: through the edit layer — struck blocks struck through, lamp corrections re-priced.
+                  const vdsParts = editedVdsParts(assessment._vdsParts || [], edited);
                   const bodyStyle = assessment._bodyStyle || '';
                   const stickerSuffix = assessment._stickerSuffix || '';
                   const vendorEntry = stickerSuffix && stickerSuffix !== 'UNREADABLE'
@@ -874,7 +875,7 @@ export default function SalvageSuccessPage() {
                         )}
                         {preamble && <div className="field-val">{preamble}</div>}
                         {vdsParts.map((p, i) => (
-                          <div key={i}>
+                          <div key={i} style={p._struck ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
                               {p.partName}{p.action ? ` — ${p.action}` : ''}
                             </div>

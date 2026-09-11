@@ -4487,10 +4487,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         console.log(`[LAMP] tier-2 assumed-type disclosure flag emitted (type=${lampResult.lampType}, band £${lampResult.lampAllowance})`);
       }
     }
-    // batch 114 task 2 — the struck-side headlamp ask goes back into the WhatsApp checklist (tier 2, lamp in the
-    // money). Post-gate on purpose: only here is "a lamp is costed" known. lib/parts.mjs owns the rule.
+    // batch 114 task 2 — the struck-side headlamp ask goes back into the WhatsApp checklist. batch 115: on TIER 2
+    // ALONE — costed or shelved (A1), the lamp gets the ask. lib/parts.mjs owns the rule.
     {
-      const _lampAsk = lampChecklistItem(lampResult, gatedParts);
+      const _lampAsk = lampChecklistItem(lampResult);
       if (_lampAsk) {
         const _before = assessment['WhatsApp Inspection Checklist'];
         assessment['WhatsApp Inspection Checklist'] = appendChecklistItem(_before, _lampAsk);
@@ -5330,6 +5330,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // real repair line (action + finalised figure). Floored/flagged panels live in the
     // Inspection Flags surface, never here (one panel, one surface). No model-authored
     // per-panel prose survives. Reads the FINALISED ledger (post bumper-off, post gate).
+    // batch 115: each block carries rowKeyFor(gatedParts)[i]. That is the ledger key ONLY because gatedParts
+    // is not mutated between here and `assessment._reconciledParts = gatedParts` below — every splice/push
+    // on gatedParts in this route happens ABOVE this line. Keep it that way, or move this assembly after
+    // the last mutation (validate-headlamp-pair pins that the keys match the stored ledger).
     assessment._vdsParts = assembleVdsParts(coreObs.costedParts, gatedParts);
     console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled costed block(s)`);
 
@@ -5532,7 +5536,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               continue;
             }
             // Rule 2: lamp panels when tier2Fired → curated lamp entries cover the aperture (checklistEntry, restored batch 114
-            // when a lamp is in the money; checklistEntry2nd on a pair). Residual: an A1-shelved tier-2 lamp gets neither.
+            // on every tier-2 lot since batch 115, costed or A1-shelved; checklistEntry2nd on a pair).
             if (isLampLine(part) && lampResult?.tier2Fired) {
               console.log(`[SEED] skip "${part}" reason=lamp-tier2`);
               continue;

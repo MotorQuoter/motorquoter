@@ -36,6 +36,7 @@ import {
   computeLampResult, resolveLampBand, photoLampType, deriveLampType, selectStruckCornerVerdict,
 } from '@/app/api/salvage/assess/route.js';
 import { normaliseLot } from '@/lib/normaliseLot.js';
+import { applyEdits, rowKeyFor, ledgerHash, editedVdsParts } from '@/lib/ledgerEdits.mjs';
 
 const FIX = 'fixtures';
 const load = v => (j => j.assessment || j)(JSON.parse(readFileSync(`${FIX}/${v}/baseline-assessment.json`, 'utf8')));
@@ -928,16 +929,19 @@ const ASK = computeLampResult('offside', true, 'led', 'present', null, 'single_c
 test('114 CHECKLIST: tier 2 with a lamp in the money → the shipped checklistEntry, verbatim', () => {
   const L = load('AK75RDX')._lampResult;
   const o = runChain([modelLamp(240), LABOUR], L);
-  assert.equal(lampChecklistItem(L, o.gated), L.checklistEntry);
+  assert.equal(lampChecklistItem(L), L.checklistEntry);
   assert.match(ASK, /^Show the struck-side headlamp aperture with the bumper pulled clear — confirm the actual headlamp type/);
 });
 
-test('114 CHECKLIST: no lamp in the money (A1-shelved) → no item; tier 1 → no item', () => {
+// batch 115 (Vincent, 11 Sep: "close it") REVERSES the 114 pin that a shelved lamp gets no item: the ask is
+// now on tier 2 ALONE — the shelved (A1) lamp is the one the engine could not confirm, where it matters most.
+test('115 CHECKLIST: an A1-SHELVED lamp (nothing in the money) now gets the ask too; tier 1 still gets none', () => {
   const L = load('AK75RDX')._lampResult;
   const shelved = runChain([modelLamp(240), LABOUR], L, 'na');
-  assert.equal(lampChecklistItem(L, shelved.gated), null, 'the ruling is "when a lamp is costed"');
-  assert.equal(lampChecklistItem({ ...L, tier2Fired: false }, [mRow()]), null);
-  assert.equal(lampChecklistItem(null, [mRow()]), null);
+  assert.equal(shelved.moneyLamps.length, 0, 'guard: the lamp really is shelved');
+  assert.equal(lampChecklistItem(L), L.checklistEntry, 'tier 2 alone — costed or shelved');
+  assert.equal(lampChecklistItem({ ...L, tier2Fired: false }), null);
+  assert.equal(lampChecklistItem(null), null);
 });
 
 test('114 CHECKLIST: appended exactly like every code-owned item — numbered after the last numbered item', () => {
@@ -948,7 +952,7 @@ test('114 CHECKLIST: appended exactly like every code-owned item — numbered af
 });
 
 test('114 CHECKLIST: route.js appends it post-gate through the helpers; only ONE of the four dark strings returns', () => {
-  assert.match(ROUTE_SRC, /lampChecklistItem\(lampResult, gatedParts\)/);
+  assert.match(ROUTE_SRC, /lampChecklistItem\(lampResult\)/);   // batch 115: tier 2 alone — no money argument
   assert.match(ROUTE_SRC, /appendChecklistItem\(_before, _lampAsk\)/);
   const code = ROUTE_SRC.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');   // code, not comments
   for (const dark of ['verdictLine', 'costDriverEntry', 'tier1Line']) {
@@ -957,7 +961,7 @@ test('114 CHECKLIST: route.js appends it post-gate through the helpers; only ONE
 });
 
 test('114 CORPUS: the stored lots that gain the item are exactly the tier-2 lots with a lamp in the money', () => {
-  const gain = lots().filter(v => { const A = load(v); return lampChecklistItem(A._lampResult, A._reconciledParts || []) != null; });
+  const gain = lots().filter(v => lampChecklistItem(load(v)._lampResult) != null);
   assert.deepEqual(gain, ['AK75RDX', 'AMZ3790', 'EA17HDN', 'GY75CJU', 'KT73YAJ', 'SA26KVT', 'SD75YGC', 'SF69YBB', 'URZ7545', 'YH23NVW']);
 });
 
@@ -967,4 +971,138 @@ test('114 SINGLE OWNER: HEADLAMP_BANDS lives only in lib/lampBands.mjs — route
   const ledgerSrc = readFileSync('lib/ledgerEdits.mjs', 'utf8');
   assert.match(ledgerSrc, /from '\.\/lampBands\.mjs'/, 'the edit layer prices from the same owner');
   assert.ok(!/halogen:\s*150/.test(ledgerSrc) && !/halogen:\s*150/.test(ROUTE_SRC), 'no second literal copy of the band values');
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// BATCH 115 TASK 1 — THE VISIBLE DAMAGE SUMMARY THROUGH THE EDIT LAYER (Vincent: "fix it")
+// The trap (Cowork): a filter whose keys match nothing looks exactly like one that works. So every case
+// below asserts a MATCH actually happened — never only that the code ran.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// A ledger built to break a per-panel QUEUE key: a FRONT_STRUCTURE £500 jig floor (skipped by the VDS)
+// sits BEFORE a second FRONT_STRUCTURE row that the VDS does print. A queue would hand that printed row
+// FRONT_STRUCTURE#0 — the floor's key. Also: a costed pair (two HEADLAMP), two identical fog lamps, a
+// panelless line, and labour (skipped).
+const vdsLedger = () => {
+  const L = load('SA26KVT')._lampResult;
+  const o = runChain([modelLamp(240), modelLamp(240), LABOUR], L);          // two band-owned HEADLAMP rows + labour
+  return [
+    { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'inspect', used: 500, _structFloor: true },
+    { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'repair', used: 420 },
+    ...o.gated.filter(r => /headlamp/i.test(r.name)),
+    { panelId: 'FOG_LAMP', name: 'Fog lamp', action: 'replace', used: 70 },
+    { panelId: 'FOG_LAMP', name: 'Fog lamp', action: 'replace', used: 70 },
+    { name: 'Wiring loom repair', action: 'repair', used: 90 },
+    { name: 'Labour & paint', action: '—', oem: 800 },
+  ];
+};
+const asmtOf = rows => ({ _reconciledParts: rows, _partsReconciliation: { parts_sum: sumPartsRealistic(rows) } });
+
+test('115 KEYS: every VDS block carries EXACTLY the key applyEdits gives its source row (content-checked, non-vacuous)', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const edited = applyEdits(asmtOf(rows), null);
+  const byKey = new Map(edited.rows.map(r => [r._rowKey, r]));
+  assert.equal(vds.length, 6, 'guard: 8 ledger rows − floor − labour = 6 printed blocks');
+  let matched = 0;
+  for (const b of vds) {
+    const row = byKey.get(b._rowKey);
+    assert.ok(row, `block "${b.partName}" carries key ${b._rowKey}, which is not a ledger key`);
+    assert.equal(row.name, b.partName, `key ${b._rowKey} points at "${row.name}", not "${b.partName}"`);
+    assert.ok(b.prose.includes(`£${Number(row.used ?? row.oem).toLocaleString('en-GB')}`), `block figure ≠ its ledger row (${b._rowKey})`);
+    matched++;
+  }
+  assert.equal(matched, vds.length, 'every block matched a ledger row');
+});
+
+test('115 KEYS: the printed FRONT_STRUCTURE block is FRONT_STRUCTURE#1 — a per-panel queue would have said #0 (the floor)', () => {
+  const vds = assembleVdsParts(verdict(true), vdsLedger());
+  const fs = vds.filter(b => b.panelId === 'FRONT_STRUCTURE');
+  assert.equal(fs.length, 1);
+  assert.equal(fs[0]._rowKey, 'FRONT_STRUCTURE#1');
+});
+
+test('115 STRIKE: a struck row genuinely DISAPPEARS from the PDF VDS — and ONLY that row', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const asmt = asmtOf(rows);
+  const edited = applyEdits(asmt, { stamp: ledgerHash(rows), strikes: ['FOG_LAMP#1', 'FRONT_STRUCTURE#1'], adds: [] });
+  const pdf = editedVdsParts(vds, edited, { dropStruck: true });
+  assert.equal(pdf.length, vds.length - 2, 'exactly the two struck blocks are gone');
+  assert.equal(pdf.filter(b => b.panelId === 'FOG_LAMP').length, 1, 'one of the two identical fogs remains');
+  assert.ok(!pdf.some(b => b._rowKey === 'FOG_LAMP#1'), 'the struck fog is not printed');
+  assert.ok(!pdf.some(b => b.panelId === 'FRONT_STRUCTURE'), 'the struck structure block is not printed');
+});
+
+test('115 STRIKE: striking the FLOOR (FRONT_STRUCTURE#0, not printed in the VDS) removes NOTHING from the VDS', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const edited = applyEdits(asmtOf(rows), { stamp: ledgerHash(rows), strikes: ['FRONT_STRUCTURE#0'], adds: [] });
+  const pdf = editedVdsParts(vds, edited, { dropStruck: true });
+  assert.equal(pdf.length, vds.length, 'the printed FRONT_STRUCTURE#1 block stays — a queue key would wrongly drop it');
+});
+
+test('115 NEGATIVE: blocks whose rows were NOT struck still print, byte-identical', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const edited = applyEdits(asmtOf(rows), { stamp: ledgerHash(rows), strikes: ['FOG_LAMP#1'], adds: [] });
+  const pdf = editedVdsParts(vds, edited, { dropStruck: true });
+  for (const b of vds.filter(b => b._rowKey !== 'FOG_LAMP#1')) {
+    const p = pdf.find(x => x._rowKey === b._rowKey);
+    assert.ok(p, `${b._rowKey} vanished though it was not struck`);
+    assert.equal(p.prose, b.prose);
+  }
+});
+
+test('115 SCREEN: the screen keeps a struck block but marks it _struck (struck through, as its KCD is)', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const edited = applyEdits(asmtOf(rows), { stamp: ledgerHash(rows), strikes: ['FOG_LAMP#1'], adds: [] });
+  const screen = editedVdsParts(vds, edited);
+  assert.equal(screen.length, vds.length);
+  assert.deepEqual(screen.filter(b => b._struck).map(b => b._rowKey), ['FOG_LAMP#1']);
+});
+
+test('115 RE-PRICE: a halogen correction re-prices the lamp blocks\' prose, through repriceStoredEntry', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows);
+  const edited = applyEdits(asmtOf(rows), { stamp: ledgerHash(rows), strikes: [], adds: [], lampType: 'halogen' });
+  const lamps = editedVdsParts(vds, edited).filter(b => b.panelId === 'HEADLAMP');
+  assert.equal(lamps.length, 2);
+  for (const b of lamps) assert.equal(b.prose, 'Replace — £150.');
+  assert.ok(editedVdsParts(vds, edited).filter(b => b.panelId !== 'HEADLAMP').every((b, i) => b.prose === vds.filter(v => v.panelId !== 'HEADLAMP')[i].prose), 'non-lamp prose untouched');
+});
+
+test('115 OLD REPORTS: a VDS assessed before batch 115 (no _rowKey) is never matched — it prints as it always did', () => {
+  const rows = vdsLedger();
+  const vds = assembleVdsParts(verdict(true), rows).map(({ _rowKey, ...b }) => b);   // strip keys = a stored pre-115 report
+  const edited = applyEdits(asmtOf(rows), { stamp: ledgerHash(rows), strikes: ['FOG_LAMP#1'], adds: [] });
+  assert.equal(editedVdsParts(vds, edited, { dropStruck: true }).length, vds.length);
+});
+
+test('115 KEYS: assembleVdsParts derives keys with rowKeyFor over the SAME array — pinned against the real function', () => {
+  const rows = vdsLedger();
+  const keys = rowKeyFor(rows);
+  const vds = assembleVdsParts(verdict(true), rows);
+  const printedIdx = rows.map((r, i) => i).filter(i => !/labour|paint|prep/i.test(rows[i].name) && !rows[i]._structFloor);
+  assert.deepEqual(vds.map(b => b._rowKey), printedIdx.map(i => keys[i]));
+});
+
+test('115 ROUTE ORDER: no gatedParts mutation after the VDS is assembled (the key identity depends on it)', () => {
+  const code = ROUTE_SRC.split('\n');
+  const vdsAt = code.findIndex(l => /assessment\._vdsParts = assembleVdsParts\(/.test(l));
+  const storedAt = code.findIndex(l => /assessment\._reconciledParts = gatedParts;/.test(l));
+  assert.ok(vdsAt > 0 && storedAt > vdsAt, 'guard: both lines found, VDS first');
+  const between = code.slice(vdsAt + 1, storedAt).filter(l => !l.trim().startsWith('//'));
+  assert.ok(!between.some(l => /gatedParts\s*\.\s*(splice|push|unshift|pop|shift|sort|reverse)\s*\(|gatedParts\s*\[[^\]]+\]\s*=[^=]/.test(l)),
+    'a gatedParts mutation between VDS assembly and the stored ledger would desynchronise the keys');
+});
+
+test('115 WIRING: both surfaces render the VDS through editedVdsParts (screen marks, PDF drops)', () => {
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  assert.match(page, /const vdsParts = editedVdsParts\(assessment\._vdsParts \|\| \[\], edited\);/);
+  assert.match(page, /p\._struck \? \{ textDecoration: 'line-through'/);
+  assert.match(pdf, /const vdsParts = editedVdsParts\(assessment\._vdsParts \|\| \[\], edited, \{ dropStruck: true \}\);/);
+  assert.ok(!/assessment\._vdsParts \|\| \[\];/.test(page) && !/const vdsParts = assessment\._vdsParts/.test(pdf), 'no surface still reads the raw stored VDS');
 });

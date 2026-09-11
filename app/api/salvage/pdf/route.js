@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure } from '@/lib/ledgerEdits.mjs';
+import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -616,7 +616,9 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // strips any stray PART: text; the per-panel section is fully code-owned.
   {
     const { preamble } = parseVdsParts(assessment['Visible Damage Summary'] || '');
-    const vdsParts = assessment._vdsParts || [];
+    // batch 115: through the edit layer — a struck block is dropped (as Key Cost Drivers are), a lamp
+    // correction re-prices the figure in its prose.
+    const vdsParts = editedVdsParts(assessment._vdsParts || [], edited, { dropStruck: true });
     const bodyStyle = assessment._bodyStyle || '';
     const stickerSuffix = assessment._stickerSuffix || '';
     const vendorEntry = stickerSuffix && stickerSuffix !== 'UNREADABLE'

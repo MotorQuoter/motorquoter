@@ -16,6 +16,7 @@
 import zlib from 'node:zlib';
 import { buildAssessmentPdf } from '../app/api/salvage/pdf/route.js';
 import { ledgerHash, EDITS_DISCARDED_NOTICE, EDITS_DISCARDED_PDF } from '../lib/ledgerEdits.mjs';
+import { assembleVdsParts } from '../lib/parts.mjs';
 
 let pass = 0, fail = 0;
 const ok = (label, cond) => {
@@ -173,6 +174,44 @@ console.log('\n7. batch 114 — the buyer\'s lamp-type correction survives the P
   const stale = renderL({ stamp: 'L3-stale', strikes: [], adds: [], lampType: 'halogen' });
   ok('RE-RUN: a correction made against an earlier ledger is discarded AND the buyer is told',
      stale.includes(EDITS_DISCARDED_PDF) && !stale.includes('Headlamp type corrected by the buyer'));
+}
+
+
+console.log('\n8. batch 115 — the Visible Damage Summary respects the buyer\'s edits on the PDF');
+{
+  // Distinct figures on the two identical-base fog rows so each VDS block's prose is unique on the page
+  // (the parts table prints figures in columns, never the VDS sentence "Replace - £72.").
+  const rows = [
+    { panelId: 'BONNET', name: 'Bonnet', action: 'replace', oem: 500, used: 280 },
+    { panelId: 'FOG_LAMP', name: 'Fog lamp', action: 'replace', oem: 90, used: 71 },
+    { panelId: 'FOG_LAMP', name: 'Fog lamp', action: 'replace', oem: 90, used: 72 },
+    { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350 },
+  ];
+  const vdsAsmt = {
+    'Visible Damage Summary': 'Front-end impact.',
+    'Recommended Action': 'Bid to the ceiling.',
+    _reconciledParts: rows,
+    _partsReconciliation: { parts_sum: 773 },
+    _vdsParts: assembleVdsParts([], rows),   // the real assembler → the real keys
+  };
+  const renderV = (l) => pdfText(buildAssessmentPdf(vdsAsmt, vd, 'GB', 'TEST123', '11/09/2026', null, l));
+  const VS = ledgerHash(rows);
+
+  const clean = renderV(null);
+  ok('guard: with no edits BOTH fog blocks are on the page', clean.includes('Replace - £71.') && clean.includes('Replace - £72.'));
+  ok('guard: the lamp block prints at the engine band', clean.includes('Replace - £350.'));
+
+  const struck = renderV({ stamp: VS, strikes: ['FOG_LAMP#1'], adds: [] });
+  ok('STRIKE: the struck fog block (£72) is GONE from the Visible Damage Summary', !struck.includes('Replace - £72.'));
+  ok('NEGATIVE: the unstruck fog block (£71) is still printed', struck.includes('Replace - £71.'));
+  ok('NEGATIVE: the unstruck bonnet block is still printed', struck.includes('Replace - £280.'));
+
+  const corrected = renderV({ stamp: VS, strikes: [], adds: [], lampType: 'halogen' });
+  ok('RE-PRICE: after a halogen correction the VDS lamp block says £150', corrected.includes('Replace - £150.'));
+  ok('RE-PRICE: and no VDS block still quotes the engine £350', !corrected.includes('Replace - £350.'));
+
+  const stale = renderV({ stamp: 'L4-stale', strikes: ['FOG_LAMP#1'], adds: [] });
+  ok('STALE layer: nothing is dropped from the VDS (the strike does not apply)', stale.includes('Replace - £72.'));
 }
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
