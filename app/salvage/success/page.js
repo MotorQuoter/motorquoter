@@ -8,7 +8,7 @@ import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import {
   applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE,
-  lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts,
+  lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts, editedSourcingLinks,
 } from '@/lib/ledgerEdits.mjs';
 import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
@@ -82,6 +82,16 @@ function parseChecklist(text) {
 // shared with the PDF). computeBookingLine is impure (Date.now()) — call it only in the
 // async handler / off-render, never in a render or effect body.
 
+// batch 117 — a comparable identity for an edit layer's content (strikes, adds, lamp type), used to tell whether
+// the buyer's on-screen edits differ from what the server has stored. Strikes are a set, so order is ignored.
+function editsKeyOf(strikes, adds, lampType) {
+  return JSON.stringify({
+    s: [...(strikes || [])].sort(),
+    a: (adds || []).map((x) => [x?.id ?? null, x?.text ?? '', Number(x?.amount) || 0]),
+    t: lampType ?? null,
+  });
+}
+
 function confidenceColor(level) {
   if (!level) return '#f0ebe6';
   const l = level.toLowerCase();
@@ -136,6 +146,10 @@ export default function SalvageSuccessPage() {
   const [editStrikes, setEditStrikes] = useState([]);           // [rowKey]
   const [editAdds, setEditAdds] = useState([]);                 // [{id,text,amount}]
   const [editLampType, setEditLampType] = useState(null);        // batch 114: buyer lamp-type correction (halogen|hid|led) or null
+  // batch 117 — what the SERVER holds (last loaded or saved layer), so the page knows when the buyer's edits are
+  // unsaved. The PDF is built from the stored layer; without this, a download silently contradicted the screen.
+  const [savedEditsKey, setSavedEditsKey] = useState(editsKeyOf([], [], null));
+  const [pdfUnsavedPrompt, setPdfUnsavedPrompt] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editsAvailable, setEditsAvailable] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -234,11 +248,14 @@ export default function SalvageSuccessPage() {
       const layer = j.editLayer;
       const cur = ledgerHash(asmt._reconciledParts);
       if (layer && layer.stamp === cur) {
-        setEditStrikes(Array.isArray(layer.strikes) ? layer.strikes : []);
-        setEditAdds(Array.isArray(layer.adds) ? layer.adds : []);
-        setEditLampType(LAMP_TYPES.includes(layer.lampType) ? layer.lampType : null);
+        const s = Array.isArray(layer.strikes) ? layer.strikes : [];
+        const a = Array.isArray(layer.adds) ? layer.adds : [];
+        const t = LAMP_TYPES.includes(layer.lampType) ? layer.lampType : null;
+        setEditStrikes(s); setEditAdds(a); setEditLampType(t);
+        setSavedEditsKey(editsKeyOf(s, a, t));   // batch 117: this IS what the PDF will print
       } else {
         setEditStrikes([]); setEditAdds([]); setEditLampType(null);
+        setSavedEditsKey(editsKeyOf([], [], null));   // a discarded (stale-stamp) layer applies nothing on the PDF either
         if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0) + (layer.lampType ? 1 : 0)) > 0) {
           setEditNotice(EDITS_DISCARDED_NOTICE);
         }
@@ -305,8 +322,14 @@ export default function SalvageSuccessPage() {
     }
   };
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async ({ ignoreUnsaved = false } = {}) => {
     if (!assessment) return;
+    // batch 117 (found by Vincent on the preview): the PDF is built from the SAVED edit layer, so downloading
+    // with unsaved edits produced a report that silently contradicted the screen (£4,480 on screen, £5,250 on
+    // paper). Stop and say so; the buyer chooses — save first, or download without them. Never auto-saved.
+    const unsaved = editsAvailable && editsKeyOf(editStrikes, editAdds, editLampType) !== savedEditsKey;
+    if (unsaved && !ignoreUnsaved) { setPdfUnsavedPrompt(true); return; }
+    setPdfUnsavedPrompt(false);
     setPdfLoading(true);
     try {
       const res = await fetch('/api/salvage/pdf', {
@@ -386,8 +409,9 @@ export default function SalvageSuccessPage() {
     }]);
     setAddDraft({ text: '', amount: '' });
   };
+  // Returns true when the layer reached the server (batch 117: the unsaved-download prompt saves, then downloads).
   const handleSaveEdits = async () => {
-    if (!salvageIdRef.current || !assessment?._reconciledParts?.length) return;
+    if (!salvageIdRef.current || !assessment?._reconciledParts?.length) return false;
     setEditSaving(true); setEditNotice('');
     try {
       const res = await fetch('/api/salvage/edits', {
@@ -403,15 +427,19 @@ export default function SalvageSuccessPage() {
         }),
       });
       const j = await res.json().catch(() => ({}));
-      if (res.status === 409) { setEditNotice(j.error || 'The report changed since you started — reload before saving.'); return; }
+      if (res.status === 409) { setEditNotice(j.error || 'The report changed since you started — reload before saving.'); return false; }
       if (!res.ok) throw new Error(j.error || 'Could not save your changes.');
       // Adopt the server-sanitised layer so the screen matches exactly what will render on the PDF.
-      setEditStrikes(j.editLayer?.strikes ?? []);
-      setEditAdds(j.editLayer?.adds ?? []);
-      setEditLampType(j.editLayer?.lampType ?? null);
+      const s = j.editLayer?.strikes ?? [];
+      const a = j.editLayer?.adds ?? [];
+      const t = j.editLayer?.lampType ?? null;
+      setEditStrikes(s); setEditAdds(a); setEditLampType(t);
+      setSavedEditsKey(editsKeyOf(s, a, t));   // batch 117: screen and PDF agree again
       setEditNotice('Saved. Your changes are stored and appear on the downloaded PDF.');
+      return true;
     } catch (e) {
       setEditNotice(e.message);
+      return false;
     } finally {
       setEditSaving(false);
     }
@@ -1097,7 +1125,9 @@ export default function SalvageSuccessPage() {
                 {/* Parts Sourcing — shoppable affiliate links over the costed basket (AEP-style).
                     Additive: costed figures above are unchanged. Disclosure is mandatory + visible. */}
                 {assessment._partsSourcing?.links?.length > 0 && (() => {
-                  const { disclosure, links } = assessment._partsSourcing;
+                  const { disclosure } = assessment._partsSourcing;
+                  // batch 117: through the edit layer — a link whose every ledger row is struck shows struck through, with no link.
+                  const links = editedSourcingLinks(assessment._partsSourcing.links, edited);
                   return (
                     <div className="field-row">
                       <div className="field-key">
@@ -1108,15 +1138,19 @@ export default function SalvageSuccessPage() {
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                         {links.map((l, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-                            <span style={{ fontSize: 13, color: 'var(--text)' }}>
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, ...(l._struck ? { opacity: 0.5 } : {}) }}>
+                            <span style={{ fontSize: 13, color: 'var(--text)', ...(l._struck ? { textDecoration: 'line-through' } : {}) }}>
                               <span style={{ fontWeight: 600 }}>{l.part}</span>
                               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#4ade80', textTransform: 'uppercase', marginLeft: 8 }}>{l.feedLabel}</span>
                             </span>
-                            <a href={l.url} target="_blank" rel="nofollow sponsored noopener noreferrer"
-                               style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', whiteSpace: 'nowrap', textDecoration: 'none' }}>
-                              Find on eBay →
-                            </a>
+                            {l._struck ? (
+                              <span style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>struck from your ledger</span>
+                            ) : (
+                              <a href={l.url} target="_blank" rel="nofollow sponsored noopener noreferrer"
+                                 style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', whiteSpace: 'nowrap', textDecoration: 'none' }}>
+                                Find on eBay →
+                              </a>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1464,7 +1498,7 @@ export default function SalvageSuccessPage() {
                           </div>
                         )}
                         <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
-                          Indicative estimates from market data and the code-owned parts grid — not a guaranteed valuation.{ib.confidence ? ` Confidence: ${ib.confidence}.` : ''}
+                          Indicative estimates from market data and the code-owned parts grid — not a guaranteed valuation.{ib.confidence ? ` Confidence: ${String(ib.confidence).replace(/[.\s]+$/, '')}.` : ''}
                         </div>
                       </div>
                     </div>
@@ -1601,8 +1635,29 @@ export default function SalvageSuccessPage() {
               </div>
             )}
 
+            {/* batch 117 — unsaved ledger edits at download time: say so, let the buyer choose. Never auto-saved. */}
+            {pdfUnsavedPrompt && (
+              <div role="alert" style={{ border: '1.5px solid var(--orange)', borderRadius: 10, padding: '10px 12px', marginBottom: 10, fontSize: 13, color: 'var(--text)', lineHeight: 1.5 }}>
+                You have unsaved changes to this ledger. The PDF is built from your saved report, so it would not include them.
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button type="button" disabled={editSaving || pdfLoading}
+                    onClick={async () => { if (await handleSaveEdits()) handleDownloadPdf({ ignoreUnsaved: true }); }}
+                    style={{ padding: '7px 12px', fontSize: 12, fontWeight: 800, background: 'var(--orange)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+                    Save my changes, then download
+                  </button>
+                  <button type="button" disabled={pdfLoading} onClick={() => handleDownloadPdf({ ignoreUnsaved: true })}
+                    style={{ padding: '7px 12px', fontSize: 12, fontWeight: 700, background: 'transparent', border: '1.5px solid var(--orange)', borderRadius: 8, color: 'var(--orange)', cursor: 'pointer' }}>
+                    Download without them
+                  </button>
+                  <button type="button" onClick={() => setPdfUnsavedPrompt(false)}
+                    style={{ padding: '7px 12px', fontSize: 12, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 8, color: 'var(--text-dim)', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="actions">
-              <button className="btn-pdf" onClick={handleDownloadPdf} disabled={pdfLoading}>
+              <button className="btn-pdf" onClick={() => handleDownloadPdf()} disabled={pdfLoading}>
                 {pdfLoading ? 'Generating PDF...' : '⬇ Download Assessment Report'}
               </button>
               <button className="btn-new" onClick={() => router.push('/salvage')}>

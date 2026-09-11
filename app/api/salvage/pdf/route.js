@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts } from '@/lib/ledgerEdits.mjs';
+import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts, editedSourcingLinks } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -831,7 +831,11 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
 
   // Parts Sourcing — shoppable affiliate links over the costed basket (AEP-style). Additive:
   // the costed figures above are unchanged. Disclosure is mandatory + visible (web + PDF).
-  const pdfSourcing = assessment._partsSourcing;
+  // batch 117: through the edit layer — a link whose every ledger row the buyer struck is dropped (as its Key
+  // Cost Drivers are); the section is omitted entirely if nothing is left to buy.
+  const pdfSourcing = assessment._partsSourcing
+    ? { ...assessment._partsSourcing, links: editedSourcingLinks(assessment._partsSourcing.links, edited, { dropStruck: true }) }
+    : null;
   if (pdfSourcing?.links?.length > 0) {
     checkPage(16);
     doc.setFont('helvetica', 'bold');
@@ -1080,7 +1084,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       if (c.flip)     lines.push(`  - Sell on as it stands: ${g(c.flip.value)} — ${c.flip.assumption}`);
       if (c.partsOut) lines.push(`  - Break for parts: ${g(c.partsOut.value)} — ${c.partsOut.assumption}`);
     }
-    lines.push(`Indicative estimates — not a guaranteed valuation.${ib.confidence ? ` Confidence: ${ib.confidence}.` : ''}`);
+    lines.push(`Indicative estimates — not a guaranteed valuation.${ib.confidence ? ` Confidence: ${String(ib.confidence).replace(/[.\s]+$/, '')}.` : ''}`);
     fieldBlock('Investment Analysis', lines.join('\n'));
   }
 

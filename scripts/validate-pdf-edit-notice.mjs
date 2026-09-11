@@ -214,5 +214,49 @@ console.log('\n8. batch 115 — the Visible Damage Summary respects the buyer\'s
   ok('STALE layer: nothing is dropped from the VDS (the strike does not apply)', stale.includes('Replace - £72.'));
 }
 
+
+console.log('\n9. batch 117 — Parts Sourcing respects the ledger; no fitting for sale; one full stop');
+{
+  const { buildPartsSourcing } = await import('../lib/partsSourcing.mjs');
+  const { rowKeyFor } = await import('../lib/ledgerEdits.mjs');
+  const rows = [
+    { panelId: 'BONNET', name: 'Bonnet', action: 'replace', oem: 500, used: 280 },
+    { panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', oem: 260, used: 145 },
+    { name: 'SRS fitting', action: '—', oem: 300, used: null, _srsFitting: true },
+  ];
+  const keys = rowKeyFor(rows);
+  const srcAsmt = {
+    'Recommended Action': 'Bid.',
+    _reconciledParts: rows,
+    _partsReconciliation: { parts_sum: 725 },
+    _partsSourcing: buildPartsSourcing({ parts: rows.map((p, i) => ({ ...p, _rowKey: keys[i] })), vehicle: { make: 'FORD', model: 'KUGA', year: 2023 } }),
+    _investmentBlock: { confidence: 'Medium — the non-run cause is unconfirmed.', asIsClean: { mid: 4000 }, afterRepairValue: 6000, bidCeilings: { rebuild: { value: 2000, assumption: 'x' } } },
+  };
+  const renderS = (l) => pdfText(buildAssessmentPdf(srcAsmt, vd, 'GB', 'TEST123', '11/09/2026', null, l));
+  const count = (t, s) => t.split(s).length - 1;
+  const clean = renderS(null);
+  ok('guard: two buyable parts → two eBay listings', count(clean, 'eBay UK · used') === 2);
+  ok('SRS fitting is NOT in Parts Sourcing (it is a fitting operation, not a part)', srcAsmt._partsSourcing.links.every((l) => !/fitting/i.test(l.part)));
+  const struck = renderS({ stamp: ledgerHash(rows), strikes: ['REAR_QUARTER#0'], adds: [] });
+  ok('STRIKE: the struck rear quarter\'s eBay link is gone from the PDF (one link left)', count(struck, 'eBay UK · used') === 1);
+  ok('NEGATIVE: the unstruck bonnet keeps its link', struck.includes('Bonnet') && count(struck, 'eBay UK · used') === 1);
+  const all = renderS({ stamp: ledgerHash(rows), strikes: ['REAR_QUARTER#0', 'BONNET#0'], adds: [] });
+  ok('every buyable part struck → the Parts Sourcing section is omitted', !all.includes('PARTS SOURCING'));
+  ok('CONFIDENCE: one full stop, not two ("…unconfirmed.." fixed)', clean.includes('Confidence: Medium - the non-run cause is unconfirmed.') && !clean.includes('unconfirmed..'));
+}
+
+console.log('\n10. batch 117 — the screen (source pins; the page itself needs the preview)');
+{
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  ok('screen: Parts Sourcing renders through editedSourcingLinks', /const links = editedSourcingLinks\(assessment\._partsSourcing\.links, edited\);/.test(page));
+  ok('screen: a struck link shows no eBay link', /l\._struck \? \(\s*<span[^>]*>struck from your ledger<\/span>/.test(page));
+  ok('screen: the confidence clause strips a trailing full stop before adding one', page.includes("String(ib.confidence).replace(/[.\\s]+$/, '')"));
+  ok('screen: the download stops on unsaved edits and asks (never silently saves)',
+     page.includes('if (unsaved && !ignoreUnsaved) { setPdfUnsavedPrompt(true); return; }')
+     && page.includes('Save my changes, then download') && page.includes('Download without them'));
+  ok('screen: the saved-state snapshot is taken on load AND on save', (page.match(/setSavedEditsKey\(editsKeyOf\(/g) || []).length === 3);
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

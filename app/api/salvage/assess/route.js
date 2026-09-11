@@ -31,6 +31,7 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
+import { rowKeyFor } from '@/lib/ledgerEdits.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -5435,6 +5436,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // EPN campaign ID comes from server env; when unset the links are honest plain eBay searches
     // (no campid) so nothing fabricated/broken ships — the panel switches live when the ID lands.
     // Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
+    const _ledgerRowKeys = rowKeyFor(gatedParts);   // batch 117 — the ledger's own keys, for edit-aware Parts Sourcing
     const _bumperOffLimitPanels = new Set(
       (assessment._flaggedParts || []).filter(f => f._bumperOffLimit && f.panelId).map(f => f.panelId),
     );
@@ -5449,7 +5451,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // batch 107: a panel carrying the §4 bumper-off LIMIT note is excluded on the same principle.
         // We have just told the buyer we cannot confirm that panel is damaged behind a torn bumper —
         // offering to sell him the part in the next section is the worst version of this defect.
-        parts:   gatedParts.filter(p => !p._zeroRule && !p._repairNoPart && !_bumperOffLimitPanels.has(p.panelId)),   // batch 116: no eBay link for a panel being repaired
+        // batch 116: no eBay link for a panel being repaired. batch 117: each row carries its LEDGER key, taken from
+        // rowKeyFor over the FULL gatedParts (= _reconciledParts, unmutated since the VDS assembly) BEFORE filtering —
+        // never re-derived over the filtered array — so a struck row's link can be dropped at render.
+        parts:   gatedParts.map((p, i) => ({ ...p, _rowKey: _ledgerRowKeys[i] }))
+          .filter(p => !p._zeroRule && !p._repairNoPart && !_bumperOffLimitPanels.has(p.panelId)),
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
         epn,
       });

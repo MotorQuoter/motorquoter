@@ -89,5 +89,60 @@ const rNoVeh = buildPartsSourcing({ parts: [{ name: 'Bonnet', used: 180 }], epn:
 ok('no vehicle → part-only query', rNoVeh.links[0].url.includes(encodeURIComponent('Bonnet')) && !rNoVeh.links[0].url.includes('undefined'));
 eq('zero/negative cost → null (not 0)', buildPartsSourcing({ parts: [{ name: 'Trim clip', used: 0, oem: 0 }], epn: EPN }).links[0].cost, null);
 
+
+// ── batch 117 — a fitting operation is not a part; a struck part is not for sale ──────────────────
+{
+  const { editedSourcingLinks, applyEdits, rowKeyFor, ledgerHash } = await import('../lib/ledgerEdits.mjs');
+  const { readFileSync } = await import('node:fs');
+
+  // TASK 1 — the code-owned rows carry markers, not labour words in their names.
+  const withRiders = [
+    { name: 'Front bumper', action: 'replace', used: 160, panelId: 'FRONT_BUMPER' },
+    { name: 'SRS fitting', action: '—', oem: 300, used: null, _srsFitting: true },                   // AMZ3790, live
+    { name: 'Labour & paint (new & painted)', action: '—', oem: 2125, used: null, _codeLabour: true },
+    { name: 'Structural allowance', action: '—', oem: 2500, used: null, _structuralAllowance: true },
+    { name: 'Front structure', action: 'inspect', used: 500, panelId: 'FRONT_STRUCTURE', _structFloor: true },
+  ];
+  const r117 = buildPartsSourcing({ parts: withRiders, vehicle, epn: null });
+  eq('SRS fitting / code labour / allowance / jig floor are NOT offered on eBay — only the bumper', r117.links.map((l) => l.part), ['Front bumper']);
+  ok('SRS fitting specifically has no "Find on eBay" link (the live AMZ3790 defect)', !r117.links.some((l) => /fitting/i.test(l.part)));
+  ok('a FUTURE rider with an arbitrary name is excluded by its marker alone (the name test would not catch it)',
+     buildPartsSourcing({ parts: [{ name: 'ADAS camera calibration', action: '—', oem: 180, _srsFitting: true }], vehicle }).links.length === 0);
+  ok('a model-written labour line (no marker) is still caught by the name fallback', buildPartsSourcing({ parts: [{ name: 'Paint & materials', oem: 300 }], vehicle }).links.length === 0);
+
+  // TASK 5 — Parts Sourcing through the edit layer, keyed off the LEDGER, never names.
+  const ledger = [
+    { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', used: 160 },
+    { panelId: 'FOG_LAMP', name: 'Front fog lamp', action: 'replace', used: 40 },
+    { panelId: 'FOG_LAMP', name: 'Front fog lamp', action: 'replace', used: 40 },
+    { panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', used: 145 },
+    { name: 'Labour & paint (new & painted)', action: '—', oem: 1500, _codeLabour: true },
+  ];
+  const keys = rowKeyFor(ledger);
+  const src = buildPartsSourcing({ parts: ledger.map((p, i) => ({ ...p, _rowKey: keys[i] })), vehicle });
+  eq('links carry the ledger keys of EVERY row they stand for (two fogs → one link, two keys)',
+     src.links.map((l) => [l.part, l._rowKeys]), [['Front bumper', ['FRONT_BUMPER#0']], ['Front fog lamp', ['FOG_LAMP#0', 'FOG_LAMP#1']], ['Rear quarter panel', ['REAR_QUARTER#0']]]);
+  const asmt = { _reconciledParts: ledger, _partsReconciliation: { parts_sum: 1885 } };
+  const H = ledgerHash(ledger);
+  const struckQ = applyEdits(asmt, { stamp: H, strikes: ['REAR_QUARTER#0'], adds: [] });
+  const pdf = editedSourcingLinks(src.links, struckQ, { dropStruck: true });
+  eq('PDF: the struck rear quarter has NO sourcing entry (Vincent\'s saved AMZ3790 PDF still offered it)', pdf.map((l) => l.part), ['Front bumper', 'Front fog lamp']);
+  const screen = editedSourcingLinks(src.links, struckQ);
+  eq('screen: the struck entry is kept but marked _struck (rendered struck through, no link)', screen.map((l) => [l.part, l._struck]), [['Front bumper', false], ['Front fog lamp', false], ['Rear quarter panel', true]]);
+  eq('an unstruck link is byte-identical to before (only _struck:false added)',
+     (({ _struck, ...rest }) => rest)(pdf[0]), src.links[0]);
+  const oneFog = applyEdits(asmt, { stamp: H, strikes: ['FOG_LAMP#1'], adds: [] });
+  ok('two fogs, ONE struck → the fog link stays (the other fog still needs buying)', editedSourcingLinks(src.links, oneFog, { dropStruck: true }).some((l) => l.part === 'Front fog lamp'));
+  const bothFog = applyEdits(asmt, { stamp: H, strikes: ['FOG_LAMP#0', 'FOG_LAMP#1'], adds: [] });
+  ok('both fogs struck → the fog link goes', !editedSourcingLinks(src.links, bothFog, { dropStruck: true }).some((l) => l.part === 'Front fog lamp'));
+  const oldLinks = src.links.map(({ _rowKeys, ...l }) => l);   // a report assessed before 117
+  eq('an old report\'s links (no keys) are never matched — they print as they always did', editedSourcingLinks(oldLinks, struckQ, { dropStruck: true }).length, 3);
+  ok('a stale layer drops nothing', editedSourcingLinks(src.links, applyEdits(asmt, { stamp: 'L5-stale', strikes: ['REAR_QUARTER#0'], adds: [] }), { dropStruck: true }).length === 3);
+
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  ok('route: the keys come from rowKeyFor over the FULL ledger, attached BEFORE the sourcing filter',
+     /const _ledgerRowKeys = rowKeyFor\(gatedParts\);/.test(route) && /gatedParts\.map\(\(p, i\) => \(\{ \.\.\.p, _rowKey: _ledgerRowKeys\[i\] \}\)\)\s*\n\s*\.filter\(/.test(route));
+}
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} parts-sourcing: ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

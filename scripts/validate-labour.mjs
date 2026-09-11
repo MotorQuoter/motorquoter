@@ -243,7 +243,40 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
      && route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') < route.indexOf('const bodyPanels = gatedParts'));
   ok('route: a repaired panel still counts as costed for the bonnet tell and the §4 bumper-off note',
      (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 2);
-  ok('route: no eBay parts link for a panel being repaired', /gatedParts\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));
+  // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
+  // assertion is the same — a repaired panel is excluded from the eBay sourcing basket.
+  ok('route: no eBay parts link for a panel being repaired', /\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));
+}
+
+
+// ── batch 117 — ONE owner of "labour / allowance line, not a purchasable part" (isNonPartRow) ─────
+{
+  const { assembleVdsParts, assembleKcdParts, sumPartsRealistic } = await import('../lib/parts.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const { isNonPartRow, MODEL_LABOUR_NAME_RX } = await import('../lib/labour.mjs');
+  const srs = { name: 'SRS fitting', action: '—', oem: 300, used: null, _srsFitting: true };
+  ok('THE DEFECT, pinned: the old name-only test does NOT recognise "SRS fitting"', MODEL_LABOUR_NAME_RX.test(srs.name) === false);
+  ok('isNonPartRow recognises it by its MARKER', isNonPartRow(srs) === true);
+  for (const m of ['_codeLabour', '_srsFitting', '_structuralAllowance', '_structFloor']) {
+    ok(`marker ${m} alone makes a row non-part, whatever its name`, isNonPartRow({ name: 'Zzz', [m]: true }) === true);
+  }
+  ok('a model-written labour line (no marker) is caught by the name fallback', isNonPartRow({ name: 'Labour & paint' }) && isNonPartRow({ name: 'Prep and blend' }));
+  ok('a real part is not caught', !isNonPartRow({ name: 'Front bumper', panelId: 'FRONT_BUMPER' }) && !isNonPartRow({ name: 'SRS airbag kit (deployed)', panelId: 'SRS_AIRBAG' }));
+
+  const rows = [
+    { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', used: 160 },
+    { panelId: 'SRS_AIRBAG', name: 'SRS airbag kit (deployed)', action: 'replace', used: 310 },
+    { name: 'Labour & paint (new & painted)', action: '—', oem: 2125, used: null, _codeLabour: true },
+    srs,
+    { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'inspect', used: 500, _structFloor: true, _zeroRule: 'A' },
+  ];
+  ok('VDS: "SRS fitting" no longer appears as a replaced part ("Replace — £300.")', !assembleVdsParts([], rows).some((b) => /fitting/i.test(b.partName)));
+  ok('KCD: "SRS fitting — replace: £300" is gone from Key Cost Drivers', !assembleKcdParts(rows).some((d) => /fitting/i.test(d.partName)));
+  const cards = buildDamageCards({ gatedParts: rows, costedParts: [], flaggedParts: [], allowanceParts: [] });
+  ok('Damage cards: no "Visible" £300 card for a fitting operation', !cards.some((c) => /fitting/i.test(c.part || '')));
+  ok('Damage cards: the £500 jig floor KEEPS its Visible "from £500" card (batch 106, deliberately)', cards.some((c) => c._structFloor && c.origin === 'Visible'));
+  ok('the airbag KIT (a real part) still appears everywhere', assembleKcdParts(rows).some((d) => /airbag kit/i.test(d.partName)) && cards.some((c) => /airbag kit/i.test(c.part || '')));
+  eq('NO money moves: the £300 is still in the repair total (160 + 310 + 2125 + 300 + 500)', sumPartsRealistic(rows), 3395);
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
