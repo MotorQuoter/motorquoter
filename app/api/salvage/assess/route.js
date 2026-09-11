@@ -26,9 +26,11 @@ import {
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
+  lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
+import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -137,12 +139,7 @@ function getSupabase() {
   );
 }
 
-const HEADLAMP_BANDS = {
-  halogen: 150, // S/H unit + fitted, GBP
-  hid:     250, // HID / projector unit + fitted
-  led:     350, // LED / adaptive / matrix unit + fitted
-};
-const HEADLAMP_BAND_DEFAULT = 'led'; // conservative high — indeterminate spec always defaults here
+// HEADLAMP_BANDS / HEADLAMP_BAND_DEFAULT — single owner is lib/lampBands.mjs (batch 114), imported above.
 
 const ASSESSMENT_FIELDS = [
   'Visible Damage Summary',
@@ -4490,6 +4487,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         console.log(`[LAMP] tier-2 assumed-type disclosure flag emitted (type=${lampResult.lampType}, band £${lampResult.lampAllowance})`);
       }
     }
+    // batch 114 task 2 — the struck-side headlamp ask goes back into the WhatsApp checklist (tier 2, lamp in the
+    // money). Post-gate on purpose: only here is "a lamp is costed" known. lib/parts.mjs owns the rule.
+    {
+      const _lampAsk = lampChecklistItem(lampResult, gatedParts);
+      if (_lampAsk) {
+        const _before = assessment['WhatsApp Inspection Checklist'];
+        assessment['WhatsApp Inspection Checklist'] = appendChecklistItem(_before, _lampAsk);
+        console.log((_before || '').trim()
+          ? '[LAMP] struck-side headlamp checklist item appended (batch 114)'
+          : '[LAMP] checklist section empty — struck-side headlamp item not appended');
+      }
+    }
 
     // Option G — inject code-owned cost lines for G-split COSTED instances.
     // These entries were filtered out of the model-facing ledger (see ledgerPreamble) so the
@@ -5522,7 +5531,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               console.log(`[SEED] skip "${part}" reason=wheelnet`);
               continue;
             }
-            // Rule 2: lamp panels when tier2Fired → curated lamp entries cover the aperture
+            // Rule 2: lamp panels when tier2Fired → curated lamp entries cover the aperture (checklistEntry, restored batch 114
+            // when a lamp is in the money; checklistEntry2nd on a pair). Residual: an A1-shelved tier-2 lamp gets neither.
             if (isLampLine(part) && lampResult?.tier2Fired) {
               console.log(`[SEED] skip "${part}" reason=lamp-tier2`);
               continue;

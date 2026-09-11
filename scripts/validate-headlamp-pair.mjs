@@ -29,6 +29,7 @@ import {
   reconcileParts, applyVisibilityGate, sumPartsRealistic, classifyLampMoneyRows,
   finalizeLampInstrumentation, LAMP_PAIR_LIMIT_REASON,
   assembleVdsParts, tier2LampDisclosureFlag, LAMP_SURPLUS_LIMIT_REASON,
+  lampChecklistItem, appendChecklistItem,
 } from '@/lib/parts.mjs';
 import { buildDamageCards } from '@/lib/damageCards.mjs';
 import {
@@ -917,4 +918,53 @@ test('113 WIRING: route.js feeds the photograph\'s type to BOTH band resolutions
   assert.match(ROUTE_SRC, /detectedCorner\?\.verdict\s+\|\| null,\s*\n\s*photoType,/);
   assert.match(ROUTE_SRC, /resolveLampBand\(_specLampType, photoType\)/);
   assert.ok(!/resolveLampBand\(_specLampType, null\)/.test(ROUTE_SRC), 'the orphan path must not pass detection as null any more');
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// BATCH 114 TASK 2 — the struck-side headlamp ask is back in the WhatsApp checklist (Vincent: "yes")
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+const ASK = computeLampResult('offside', true, 'led', 'present', null, 'single_corner', false).checklistEntry;
+
+test('114 CHECKLIST: tier 2 with a lamp in the money → the shipped checklistEntry, verbatim', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), LABOUR], L);
+  assert.equal(lampChecklistItem(L, o.gated), L.checklistEntry);
+  assert.match(ASK, /^Show the struck-side headlamp aperture with the bumper pulled clear — confirm the actual headlamp type/);
+});
+
+test('114 CHECKLIST: no lamp in the money (A1-shelved) → no item; tier 1 → no item', () => {
+  const L = load('AK75RDX')._lampResult;
+  const shelved = runChain([modelLamp(240), LABOUR], L, 'na');
+  assert.equal(lampChecklistItem(L, shelved.gated), null, 'the ruling is "when a lamp is costed"');
+  assert.equal(lampChecklistItem({ ...L, tier2Fired: false }, [mRow()]), null);
+  assert.equal(lampChecklistItem(null, [mRow()]), null);
+});
+
+test('114 CHECKLIST: appended exactly like every code-owned item — numbered after the last numbered item', () => {
+  assert.equal(appendChecklistItem('1. A\n2. B\n3. C', ASK), `1. A\n2. B\n3. C\n4. ${ASK}`);
+  assert.equal(appendChecklistItem('- a bullet item', ASK), `- a bullet item\n1. ${ASK}`, 'same rule as the existing appenders');
+  assert.equal(appendChecklistItem('', ASK), '', 'an empty section is left alone, as the existing appenders do');
+  assert.equal(appendChecklistItem('1. A', null), '1. A');
+});
+
+test('114 CHECKLIST: route.js appends it post-gate through the helpers; only ONE of the four dark strings returns', () => {
+  assert.match(ROUTE_SRC, /lampChecklistItem\(lampResult, gatedParts\)/);
+  assert.match(ROUTE_SRC, /appendChecklistItem\(_before, _lampAsk\)/);
+  const code = ROUTE_SRC.split('\n').filter(l => !l.trim().startsWith('//')).join('\n');   // code, not comments
+  for (const dark of ['verdictLine', 'costDriverEntry', 'tier1Line']) {
+    assert.ok(!new RegExp(`lampResult\\??\\.${dark}\\b`).test(code), `${dark} must stay dark`);
+  }
+});
+
+test('114 CORPUS: the stored lots that gain the item are exactly the tier-2 lots with a lamp in the money', () => {
+  const gain = lots().filter(v => { const A = load(v); return lampChecklistItem(A._lampResult, A._reconciledParts || []) != null; });
+  assert.deepEqual(gain, ['AK75RDX', 'AMZ3790', 'EA17HDN', 'GY75CJU', 'KT73YAJ', 'SA26KVT', 'SD75YGC', 'SF69YBB', 'URZ7545', 'YH23NVW']);
+});
+
+test('114 SINGLE OWNER: HEADLAMP_BANDS lives only in lib/lampBands.mjs — route.js imports it and holds no copy', () => {
+  assert.ok(!/const HEADLAMP_BANDS\s*=/.test(ROUTE_SRC), 'route.js must not define its own band table');
+  assert.match(ROUTE_SRC, /import \{ HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT \} from '@\/lib\/lampBands\.mjs';/);
+  const ledgerSrc = readFileSync('lib/ledgerEdits.mjs', 'utf8');
+  assert.match(ledgerSrc, /from '\.\/lampBands\.mjs'/, 'the edit layer prices from the same owner');
+  assert.ok(!/halogen:\s*150/.test(ledgerSrc) && !/halogen:\s*150/.test(ROUTE_SRC), 'no second literal copy of the band values');
 });

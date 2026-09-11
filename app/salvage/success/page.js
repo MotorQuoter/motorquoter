@@ -6,7 +6,11 @@ import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollecto
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE } from '@/lib/ledgerEdits.mjs';
+import {
+  applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE,
+  lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure,
+} from '@/lib/ledgerEdits.mjs';
+import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -131,6 +135,7 @@ export default function SalvageSuccessPage() {
   // simply never appear — the report renders normally).
   const [editStrikes, setEditStrikes] = useState([]);           // [rowKey]
   const [editAdds, setEditAdds] = useState([]);                 // [{id,text,amount}]
+  const [editLampType, setEditLampType] = useState(null);        // batch 114: buyer lamp-type correction (halogen|hid|led) or null
   const [editMode, setEditMode] = useState(false);
   const [editsAvailable, setEditsAvailable] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -217,7 +222,7 @@ export default function SalvageSuccessPage() {
   // not yet migrated) leaves editing unavailable and the report renders normally. Never throws.
   const loadEditLayer = async (asmt) => {
     setEditMode(false); setEditNotice('');
-    if (!asmt?._reconciledParts?.length) { setEditStrikes([]); setEditAdds([]); setEditsAvailable(false); return; }
+    if (!asmt?._reconciledParts?.length) { setEditStrikes([]); setEditAdds([]); setEditLampType(null); setEditsAvailable(false); return; }
     try {
       const cred = promoTokenRef.current
         ? `promo_token=${encodeURIComponent(promoTokenRef.current)}`
@@ -231,9 +236,10 @@ export default function SalvageSuccessPage() {
       if (layer && layer.stamp === cur) {
         setEditStrikes(Array.isArray(layer.strikes) ? layer.strikes : []);
         setEditAdds(Array.isArray(layer.adds) ? layer.adds : []);
+        setEditLampType(LAMP_TYPES.includes(layer.lampType) ? layer.lampType : null);
       } else {
-        setEditStrikes([]); setEditAdds([]);
-        if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0)) > 0) {
+        setEditStrikes([]); setEditAdds([]); setEditLampType(null);
+        if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0) + (layer.lampType ? 1 : 0)) > 0) {
           setEditNotice(EDITS_DISCARDED_NOTICE);
         }
       }
@@ -392,6 +398,7 @@ export default function SalvageSuccessPage() {
           stamp: ledgerHash(assessment._reconciledParts),
           strikes: editStrikes,
           adds: editAdds,
+          lampType: editLampType,
           ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
         }),
       });
@@ -401,6 +408,7 @@ export default function SalvageSuccessPage() {
       // Adopt the server-sanitised layer so the screen matches exactly what will render on the PDF.
       setEditStrikes(j.editLayer?.strikes ?? []);
       setEditAdds(j.editLayer?.adds ?? []);
+      setEditLampType(j.editLayer?.lampType ?? null);
       setEditNotice('Saved. Your changes are stored and appear on the downloaded PDF.');
     } catch (e) {
       setEditNotice(e.message);
@@ -415,8 +423,16 @@ export default function SalvageSuccessPage() {
   // SalvageGuide divergence — can route through `edited` unconditionally. Cheap + pure → in render.
   const editStamp = assessment?._reconciledParts?.length ? ledgerHash(assessment._reconciledParts) : null;
   const edited = assessment
-    ? applyEdits(assessment, { stamp: editStamp, strikes: editStrikes, adds: editAdds })
+    ? applyEdits(assessment, { stamp: editStamp, strikes: editStrikes, adds: editAdds, lampType: editLampType })
     : null;
+  // batch 114 — rows the buyer's lamp-type correction re-priced (rowKey → {from,to}); the stored KCD and
+  // Damage Breakdown entries for those rows are re-priced at render so no surface keeps the engine figure.
+  const lampRepriced = lampRepricedKeys(edited);
+  // The lamp-type picklist shows where the engine's type came from (batch 113's lampTypeSource).
+  const lampSourceText = { photo: 'read from the photographs', spec: 'from the vehicle spec', default: 'assumed — neither the photographs nor the spec showed it' };
+  const engineLampType = assessment?._lampResult?.lampType ?? null;
+  const engineLampSource = assessment?._lampResult?.lampTypeSource ?? null;
+  const lampTypeLabel = t => (t === 'hid' ? 'HID' : t === 'led' ? 'LED' : t);
   // Editable only with a structured ledger, the column present (GET succeeded), and no Cat A/B stop.
   const ledgerEditable = !!(editsAvailable && assessment?._reconciledParts?.length && edited && !edited.notEditable);
   // batch 106 — struck row keys drive the 6th/7th surfaces (Key Cost Drivers + Damage Breakdown): an
@@ -885,6 +901,7 @@ export default function SalvageSuccessPage() {
                     ? _named(edited.rows, 'parts')
                     : _named(parseParts(assessment['Parts Breakdown'] || ''), 'parts');
                   const addedRows = hasStructured ? (edited.addedRows || []) : [];
+                  const firstLampKey = parts.find(r => r._lampMandated && !r._struck)?._rowKey ?? null;
                   const allowanceParts = _named(assessment._allowanceParts || [], 'allowance');
                   if (!parts.length && !allowanceParts.length && !addedRows.length) return null;
                   const fmtP = v => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
@@ -938,6 +955,24 @@ export default function SalvageSuccessPage() {
                                   </button>
                                 )}
                                 {p.name}
+                                {/* batch 114 — the lamp-type picklist, once, on the first costed headlamp row: where the
+                                    engine's type came from, and (in edit mode) the buyer's correction. Lot-level: both
+                                    headlamps of one car share one technology, so one choice re-prices every lamp row. */}
+                                {p._lampMandated && !struck && p._rowKey === firstLampKey && engineLampType && (
+                                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, textDecoration: 'none' }}>
+                                    {edited?.lampTypeCorrection
+                                      ? <>Type: {lampTypeLabel(edited.lampTypeCorrection.type)} — corrected by you (engine: {lampTypeLabel(engineLampType)}, {lampSourceText[engineLampSource] || 'engine'})</>
+                                      : <>Type: {lampTypeLabel(engineLampType)} — {lampSourceText[engineLampSource] || 'engine'}</>}
+                                    {ledgerEditable && editMode && (
+                                      <select value={editLampType ?? ''} onChange={e => setEditLampType(e.target.value || null)}
+                                        title="Correct the headlamp type if the inspection shows a different unit"
+                                        style={{ marginLeft: 8, fontSize: 11, background: 'var(--bg3)', color: 'var(--text)', border: '1px solid var(--border-dim)', borderRadius: 6, padding: '1px 4px' }}>
+                                        <option value="">Keep engine type</option>
+                                        {LAMP_TYPES.map(t => <option key={t} value={t}>{lampTypeLabel(t)} (£{HEADLAMP_BANDS[t]} per unit)</option>)}
+                                      </select>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                               <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p._structFloor ? 'jig/geometry' : p.action}</td>
                               <td style={{ ...colSt('right'), ...strikeSt }}>{fmtP(c.oem)}</td>
@@ -970,6 +1005,13 @@ export default function SalvageSuccessPage() {
                               <td style={colSt('right')}>—</td>
                             </tr>
                           ))}
+                          {edited?.lampTypeCorrection && (
+                            <tr>
+                              <td colSpan={5} style={{ fontSize: 10, color: 'var(--orange)', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
+                                {edited.lampTypeCorrection.line}
+                              </td>
+                            </tr>
+                          )}
                           {allowanceParts.length > 0 && (
                             <tr>
                               <td colSpan={5} style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic', padding: '5px 4px', borderTop: '1px solid var(--border-dim)' }}>
@@ -1032,7 +1074,7 @@ export default function SalvageSuccessPage() {
                             {editSaving ? 'Saving…' : 'Save changes'}
                           </button>
                           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                            {editStrikes.length} struck · {editAdds.length} added
+                            {editStrikes.length} struck · {editAdds.length} added{editLampType ? ` · lamp type: ${lampTypeLabel(editLampType)}` : ''}
                           </span>
                         </div>
                         {/* Labour follows the ledger (Vincent's ruling, 8 Sep): striking a body panel now
@@ -1092,7 +1134,8 @@ export default function SalvageSuccessPage() {
                       {assessment['Key Cost Drivers'] && (
                         <div className="field-val">{assessment['Key Cost Drivers']}</div>
                       )}
-                      {(assessment._kcdParts || []).map((d, i) => {
+                      {(assessment._kcdParts || []).map((d0, i) => {
+                        const d = repriceStoredEntry(d0, lampRepriced.get(d0._rowKey));   // batch 114 lamp-type correction
                         const struck = struckKeys.has(d._rowKey);
                         return (
                           <div className="field-val" key={i} style={struck ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{d.prose}</div>
@@ -1106,7 +1149,7 @@ export default function SalvageSuccessPage() {
                 ) : null}
                 {/* Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred */}
                 {assessment._damageCards?.length > 0 && (() => {
-                  const cards = assessment._damageCards;
+                  const cards = assessment._damageCards.map(c => repriceStoredEntry(c, lampRepriced.get(c._rowKey)));   // batch 114
                   const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const oc = { Visible: '#4ade80', Related: '#b8860b', Inferred: '#888' };
                   return (
@@ -1139,7 +1182,7 @@ export default function SalvageSuccessPage() {
                 })()}
                 {/* Inspection Flags — structured per-part flags (model + gate-generated), weight high→low */}
                 {(() => {
-                  const flags = buildBuyerFlags(assessment);
+                  const flags = withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited);   // batch 114
                   if (!flags.length) return null;
                   const wc = { high: '#c0392b', medium: '#b8860b', low: '#888' };
                   return (
@@ -1426,7 +1469,7 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
-                {buildBuyerFlags(assessment).some(f => f.weight === 'high') && (
+                {withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited).some(f => f.weight === 'high') && (
                   <div className="field-row">
                     <div className="field-key">Bid Directive</div>
                     <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>{categoryDirective(vehicleDetails?.category)}</div>

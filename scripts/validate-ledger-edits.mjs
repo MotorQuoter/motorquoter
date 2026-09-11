@@ -10,7 +10,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { applyEdits, rowKeyFor, figureOf, ledgerHash } from '../lib/ledgerEdits.mjs';
+import {
+  applyEdits, rowKeyFor, figureOf, ledgerHash,
+  isLampType, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure,
+} from '../lib/ledgerEdits.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let pass = 0, fail = 0;
@@ -258,6 +261,121 @@ if (!existsSync(FX)) {
   const noPanels = applyEdits({ ...a, _labourBodyPanels: undefined }, { stamp: H, strikes: [qKey], adds: [] });
   ok('labour: an older assessment with no _labourBodyPanels degrades safely (no recompute, no crash)',
      noPanels.labourDelta === 0 && noPanels.partsSum === a._partsReconciliation.parts_sum - 175);
+}
+
+
+// ── (L) LAMP-TYPE CORRECTION — batch 114 (Vincent, 11 Sep: "Let the photo set the band with the user having
+// the option to correct it"). A lot-level edit_layer.lampType re-prices every in-money code-owned lamp row.
+console.log('\n(L) LAMP-TYPE CORRECTION — batch 114');
+{
+  const lampAsmt = {
+    _partsReconciliation: { parts_sum: 1700 },
+    _exitValue: 5000,
+    _reconciledParts: [
+      { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350, _lampPair: true },
+      { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350, _lampPair: true },
+      { panelId: 'BONNET', name: 'Bonnet', action: 'replace', used: 400 },
+      { name: 'Labour & paint', oem: 600, action: '—' },
+    ],
+    _marginScenarios: [
+      { hammer: 500,  margin: 1500, repair: 1700, exit_value: 5000 },
+      { hammer: 1500, margin: 500,  repair: 1700, exit_value: 5000 },
+      { hammer: 2500, margin: -500, repair: 1700, exit_value: 5000 },
+    ],
+  };
+  const snapshot = JSON.stringify(lampAsmt);
+  const LH = ledgerHash(lampAsmt._reconciledParts);
+  const L = (extra) => ({ stamp: LH, strikes: [], adds: [], ...extra });
+
+  const none = applyEdits(lampAsmt, null);
+  ok('no-edit parity: no layer → the engine figure, no correction', none.partsSum === 1700 && none.lampTypeCorrection === null);
+
+  const hal = applyEdits(lampAsmt, L({ lampType: 'halogen' }));
+  ok('re-price: halogen moves the total by exactly 2 × (150 − 350) = −£400', hal.partsSum === 1300 && hal.delta === -400);
+  ok('re-price: both in-money lamp rows now £150, each marked {from:350,to:150}',
+     hal.rows.filter((r) => r._lampMandated).every((r) => r.used === 150 && r._lampTypeCorrected?.from === 350 && r._lampTypeCorrected?.to === 150));
+  ok('re-price: non-lamp rows untouched', hal.rows.find((r) => r.panelId === 'BONNET').used === 400);
+  ok('re-price: every margin shifts by +400 (total fell by 400)', hal.marginScenarios.every((s, i) => s.margin === lampAsmt._marginScenarios[i].margin + 400));
+  ok('re-price: lampTypeCorrection reports type, band, rows and delta',
+     hal.lampTypeCorrection?.type === 'halogen' && hal.lampTypeCorrection.band === 150
+     && hal.lampTypeCorrection.rowsRepriced === 2 && hal.lampTypeCorrection.delta === -400);
+  ok('re-price: the rendered line is the ruled sentence',
+     hal.lampTypeCorrection.line === 'Headlamp type corrected by the buyer to halogen (£150 per unit).');
+  ok('hid is rendered upper-case in the line', applyEdits(lampAsmt, L({ lampType: 'hid' })).lampTypeCorrection.line === 'Headlamp type corrected by the buyer to HID (£250 per unit).');
+
+  ok('STAMP UNCHANGED: the correction never touches _reconciledParts — its ledgerHash is still the stamp',
+     hal.stamp === LH && ledgerHash(lampAsmt._reconciledParts) === LH);
+  ok('IMMUTABLE: the stored engine assessment is byte-identical after applyEdits', JSON.stringify(lampAsmt) === snapshot);
+
+  const same = applyEdits(lampAsmt, L({ lampType: 'led' }));
+  ok('SAME TYPE is a no-op on the money (LED → LED): £1,700, delta 0, 0 rows re-priced',
+     same.partsSum === 1700 && same.delta === 0 && same.lampTypeCorrection.rowsRepriced === 0);
+  ok('…but it is still recorded as the buyer\'s confirmed type (drives the flag removal)', same.lampTypeCorrection?.type === 'led');
+
+  const strike = applyEdits(lampAsmt, L({ strikes: ['HEADLAMP#0'], lampType: 'halogen' }));
+  ok('STRIKE WINS: a struck lamp stays struck and is not re-priced; the other goes to £150 (1700 − 350 − 200 = £1,150)',
+     strike.partsSum === 1150 && strike.rows[0]._struck === true && strike.rows[0].used === 350 && strike.rows[1].used === 150);
+
+  const mixed = applyEdits(lampAsmt, L({ strikes: ['BONNET#0'], adds: [{ id: 'a1', text: 'Headlamp bracket', amount: 40 }], lampType: 'hid' }));
+  ok('existing strikes and adds keep applying alongside a correction (1700 − 400 + 40 − 200 = £1,140)', mixed.partsSum === 1140);
+
+  const shelved = {
+    _partsReconciliation: { parts_sum: 1000 },
+    _reconciledParts: [{ panelId: 'BONNET', name: 'Bonnet', action: 'replace', used: 1000 }],
+    _allowanceParts: [{ name: 'Headlamp', action: 'replace', used: 350, _allowance: true }],
+  };
+  const sh = applyEdits(shelved, { stamp: ledgerHash(shelved._reconciledParts), strikes: [], adds: [], lampType: 'halogen' });
+  ok('A1-SHELVED lamps stay out: an allowance-only lamp is never re-priced into the total', sh.partsSum === 1000 && sh.delta === 0);
+
+  ok('closed enum: an off-enum type is ignored entirely', applyEdits(lampAsmt, L({ lampType: 'xenon' })).lampTypeCorrection === null
+     && applyEdits(lampAsmt, L({ lampType: 'xenon' })).partsSum === 1700);
+  ok('isLampType is exactly halogen / hid / led', ['halogen', 'hid', 'led'].every(isLampType) && !isLampType('LED') && !isLampType(null));
+
+  const stale = applyEdits(lampAsmt, { stamp: 'L4-stale', strikes: [], adds: [], lampType: 'halogen' });
+  ok('RE-RUN: a stale stamp suppresses the correction with the rest of the layer (nothing applied, flagged as a mismatch)',
+     stale.stampMismatch === true && stale.applied === false && stale.partsSum === 1700 && stale.lampTypeCorrection === null);
+
+  ok('a layer carrying ONLY lampType (no strikes/adds arrays) still applies — and a stale one still reports the mismatch',
+     applyEdits(lampAsmt, { stamp: LH, lampType: 'halogen' }).partsSum === 1300
+     && applyEdits(lampAsmt, { stamp: 'L4-stale', lampType: 'halogen' }).stampMismatch === true);
+
+  ok('Cat A/B: a hard-stopped report is never re-priced',
+     applyEdits({ ...lampAsmt, _catABHardStop: 'A' }, L({ lampType: 'halogen' })).partsSum === 1700);
+
+  // Stored code-assembled surfaces — re-priced at render from the rows the correction moved.
+  const rp = lampRepricedKeys(hal);
+  ok('lampRepricedKeys maps each re-priced row key to {from,to}', rp.get('HEADLAMP#0')?.to === 150 && rp.get('HEADLAMP#1')?.to === 150 && !rp.has('BONNET#0'));
+  const kcd = repriceStoredEntry({ partName: 'Headlamp', figure: 350, prose: 'Headlamp — replace: £350', _rowKey: 'HEADLAMP#0' }, rp.get('HEADLAMP#0'));
+  ok('KCD driver re-priced: figure and prose', kcd.figure === 150 && kcd.prose === 'Headlamp — replace: £150');
+  const card = repriceStoredEntry({ part: 'Headlamp', cost: 350, note: 'Full-width frontal impact — both headlamps are costed at £350 each and included in the repair total; confirm serviceability on inspection.' }, rp.get('HEADLAMP#0'));
+  ok('Damage card re-priced: cost and the code-owned "£350 each" note', card.cost === 150 && /costed at £150 each/.test(card.note) && !/£350/.test(card.note));
+  ok('an entry with no re-priced row is returned untouched', repriceStoredEntry(kcd, undefined) === kcd);
+
+  const flags = [
+    { partName: 'Headlamp', reason: 'Lamp type could not be confirmed …', _tier2LampDisclosure: true },
+    { partName: 'Headlamp', reason: 'orphan', _orphanLampDisclosure: true },
+    { partName: 'Bonnet', reason: 'keep me' },
+  ];
+  ok('FLAG: the "type assumed" disclosure goes once the buyer has corrected / confirmed the type',
+     withoutAnsweredLampDisclosure(flags, hal).map((f) => f.partName).join() === 'Bonnet'
+     && withoutAnsweredLampDisclosure(flags, same).length === 1);
+  ok('FLAG: with no correction every flag stays', withoutAnsweredLampDisclosure(flags, none).length === 3);
+}
+
+// (L2) REAL stored lot — SA26KVT's stored ledger (one mandated LED lamp in its money)
+{
+  const p = join(ROOT, 'fixtures/SA26KVT/baseline-assessment.json');
+  if (existsSync(p)) {
+    const raw = JSON.parse(readFileSync(p, 'utf8'));
+    const a = raw.assessment || raw;
+    const S = ledgerHash(a._reconciledParts);
+    const base = applyEdits(a, null);
+    const hal = applyEdits(a, { stamp: S, strikes: [], adds: [], lampType: 'halogen' });
+    const lamps = a._reconciledParts.filter((r) => r._lampMandated).length;
+    ok(`SA26KVT: no-edit parity holds (£${a._partsReconciliation.parts_sum})`, base.partsSum === a._partsReconciliation.parts_sum);
+    ok(`SA26KVT: halogen moves the edited view by ${lamps} × (150 − 350); the engine parts_sum is untouched`,
+       hal.partsSum === a._partsReconciliation.parts_sum + lamps * (150 - 350) && a._partsReconciliation.parts_sum === base.partsSum);
+  }
 }
 
 console.log(`\n${fail === 0 ? 'OK' : 'FAILED'} — ${pass} passed, ${fail} failed`);

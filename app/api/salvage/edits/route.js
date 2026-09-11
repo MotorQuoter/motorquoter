@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { ledgerHash } from '@/lib/ledgerEdits';
+import { ledgerHash, isLampType } from '@/lib/ledgerEdits';
 
 // Buyer ledger edits (batch 82). Stores a reversible, version-stamped edit layer over the IMMUTABLE
 // engine assessment. GET returns the stored layer; POST replaces it (the client owns the strikes/adds
@@ -94,7 +94,7 @@ export async function POST(request) {
   let body;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid request body' }, { status: 400 }); }
 
-  const { salvage_id, session_id, promo_token, stamp, strikes, adds } = body;
+  const { salvage_id, session_id, promo_token, stamp, strikes, adds, lampType } = body;
   if (!salvage_id || !UUID_RE.test(String(salvage_id))) {
     return NextResponse.json({ error: 'Missing or invalid salvage_id' }, { status: 400 });
   }
@@ -124,10 +124,13 @@ export async function POST(request) {
 
   const cleanStrikes = sanitizeStrikes(strikes);
   const cleanAdds = sanitizeAdds(adds);
+  // batch 114 — the buyer's lamp-type correction: closed enum (lib/lampBands LAMP_TYPES via isLampType);
+  // anything else is dropped to null (no correction), never stored.
+  const cleanLampType = isLampType(lampType) ? lampType : null;
 
-  const editLayer = (cleanStrikes.length === 0 && cleanAdds.length === 0)
+  const editLayer = (cleanStrikes.length === 0 && cleanAdds.length === 0 && !cleanLampType)
     ? null   // no edits → clear the layer
-    : { stamp: currentStamp, rerunStamp: session.rerun_count ?? 0, strikes: cleanStrikes, adds: cleanAdds, updatedAt: new Date().toISOString() };
+    : { stamp: currentStamp, rerunStamp: session.rerun_count ?? 0, strikes: cleanStrikes, adds: cleanAdds, ...(cleanLampType ? { lampType: cleanLampType } : {}), updatedAt: new Date().toISOString() };
 
   const { error: updErr } = await supabase
     .from('salvage_sessions')

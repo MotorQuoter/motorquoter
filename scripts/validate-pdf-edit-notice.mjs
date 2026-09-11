@@ -128,5 +128,52 @@ console.log('\n6. the two surfaces share ONE sentence — they cannot drift');
   ok('the PDF string carries no em-dash', !EDITS_DISCARDED_PDF.includes('—'));
 }
 
+
+console.log('\n7. batch 114 — the buyer\'s lamp-type correction survives the PDF download');
+{
+  const lampRows = [
+    { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350, _lampPair: true },
+    { panelId: 'HEADLAMP', name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350, _lampPair: true },
+    { panelId: 'BONNET', name: 'Bonnet', action: 'replace', oem: 500, used: 280 },
+  ];
+  const keys = ['HEADLAMP#0', 'HEADLAMP#1', 'BONNET#0'];
+  const lampAsmt = {
+    'Parts Breakdown': 'Headlamp - replace: £350\nHeadlamp - replace: £350\nBonnet - replace: £280',
+    'Recommended Action': 'Bid to the ceiling.',
+    _reconciledParts: lampRows,
+    _partsReconciliation: { parts_sum: 980 },
+    _kcdParts: [
+      { partName: 'Headlamp', action: 'replace', figure: 350, prose: 'Headlamp — replace: £350', _rowKey: keys[0] },
+      { partName: 'Headlamp', action: 'replace', figure: 350, prose: 'Headlamp — replace: £350', _rowKey: keys[1] },
+      { partName: 'Bonnet', action: 'replace', figure: 280, prose: 'Bonnet — replace: £280', _rowKey: keys[2] },
+    ],
+    _damageCards: [
+      { part: 'Headlamp', origin: 'Visible', action: 'replace', cost: 350, note: 'Full-width frontal impact — both headlamps are costed at £350 each and included in the repair total; confirm serviceability on inspection.', _rowKey: keys[0] },
+    ],
+    _flaggedParts: [
+      { partName: 'Headlamp', zone: 'front', weight: 'medium', reason: 'Lamp type could not be confirmed from the vehicle spec or the listing photographs, so the higher LED/adaptive band has been used.', _tier2LampDisclosure: true, _gateGenerated: true },
+    ],
+  };
+  const renderL = (l) => pdfText(buildAssessmentPdf(lampAsmt, vd, 'GB', 'TEST123', '11/09/2026', null, l));
+  const LS = ledgerHash(lampRows);
+
+  const before = renderL(null);
+  ok('no correction: the assumed-type flag is on the PDF', before.includes('Lamp type could not be confirmed'));
+  ok('no correction: no correction line', !before.includes('Headlamp type corrected by the buyer'));
+
+  const t = renderL({ stamp: LS, strikes: [], adds: [], lampType: 'halogen' });
+  ok('correction: the ruled line is printed', t.includes('Headlamp type corrected by the buyer to halogen (£150 per unit).'));
+  ok('correction: the banner shows the edited total £580 (980 − 2 × 200)', t.includes('580'));
+  ok('correction: "Adjusted by you" is shown', t.includes(ADJUSTED));
+  ok('correction: Key Cost Drivers re-priced — "Headlamp - replace: £150"', t.includes('Headlamp - replace: £150'));
+  ok('correction: no Key Cost Driver still says £350', !t.includes('Headlamp - replace: £350'));
+  ok('correction: the damage card note is re-priced to "£150 each"', t.includes('costed at £150 each'));
+  ok('correction: the answered "type could not be confirmed" flag is gone', !t.includes('Lamp type could not be confirmed'));
+
+  const stale = renderL({ stamp: 'L3-stale', strikes: [], adds: [], lampType: 'halogen' });
+  ok('RE-RUN: a correction made against an earlier ledger is discarded AND the buyer is told',
+     stale.includes(EDITS_DISCARDED_PDF) && !stale.includes('Headlamp type corrected by the buyer'));
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

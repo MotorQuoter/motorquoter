@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
-import { applyEdits, EDITS_DISCARDED_PDF } from '@/lib/ledgerEdits.mjs';
+import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
 import { categoryDirective } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
@@ -145,6 +145,9 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   const edited = applyEdits(assessment, editLayer ?? null);
   // batch 106 — struck row keys also drop the matching Key Cost Driver + damage card (6th/7th surface).
   const struckKeys = new Set((edited.rows || []).filter(r => r._struck).map(r => r._rowKey));
+  // batch 114 — rows re-priced by the buyer's lamp-type correction (rowKey → {from,to}); the stored KCD and
+  // Damage Breakdown entries for them are re-priced below so no surface keeps the engine's figure.
+  const lampRepriced = lampRepricedKeys(edited);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
@@ -564,7 +567,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     // (success/page.js:236), hyphens not em-dashes (the PDF suppressor is a standing constraint here).
     // Gated on the layer actually holding edits, exactly as the screen is — a present-but-empty layer
     // must not fire it, and neither must a clean report.
-    const _layerEditCount = (editLayer?.strikes?.length || 0) + (editLayer?.adds?.length || 0);
+    const _layerEditCount = (editLayer?.strikes?.length || 0) + (editLayer?.adds?.length || 0) + (editLayer?.lampType ? 1 : 0);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     const discardedLines = (!edited.applied && edited.stampMismatch && _layerEditCount > 0)
@@ -783,6 +786,13 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
     }
+    // batch 114 — the buyer's lamp-type correction, stated on the artefact he carries to the auction.
+    if (edited.lampTypeCorrection) {
+      checkPage(5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(240, 90, 26);
+      doc.text(str(edited.lampTypeCorrection.line), MARGIN, y);
+      y += 5;
+    }
     if (pdfAllowanceParts.length > 0) {
       checkPage(5);
       doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(160, 160, 160);
@@ -873,7 +883,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   {
     const kcdColour  = (assessment['Key Cost Drivers'] || '').trim();
     // batch 106: drop a struck driver; append the buyer's own added lines.
-    const kcdDrivers = (assessment._kcdParts || []).filter(d => !struckKeys.has(d._rowKey)).map(d => d.prose)
+    const kcdDrivers = (assessment._kcdParts || []).filter(d => !struckKeys.has(d._rowKey)).map(d => repriceStoredEntry(d, lampRepriced.get(d._rowKey)).prose)
       .concat((edited.addedRows || []).map(a => `${a.text} — your line: £${Number(a.amount).toLocaleString('en-GB')}`))
       .join('\n');
     const kcdText    = [kcdColour, kcdDrivers].filter(Boolean).join('\n\n');
@@ -883,7 +893,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred (£0).
   if (assessment._damageCards?.length > 0) {
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
-    const lines = assessment._damageCards.filter(c => !struckKeys.has(c._rowKey)).map(c => {
+    const lines = assessment._damageCards.filter(c => !struckKeys.has(c._rowKey)).map(c0 => repriceStoredEntry(c0, lampRepriced.get(c0._rowKey))).map(c => {
       const bits = [c.origin];
       if (c.severity) bits.push(c.severity);
       if (c.action) bits.push(c.action);
@@ -894,7 +904,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   }
 
   // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
-  const pdfFlags = buildBuyerFlags(assessment);
+  const pdfFlags = withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited);   // batch 114
   if (pdfFlags.length > 0) {
     checkPage(14);
     doc.setFont('helvetica', 'bold');
