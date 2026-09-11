@@ -28,6 +28,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import {
   reconcileParts, applyVisibilityGate, sumPartsRealistic, classifyLampMoneyRows,
   finalizeLampInstrumentation, LAMP_PAIR_LIMIT_REASON,
+  assembleVdsParts, tier2LampDisclosureFlag, LAMP_SURPLUS_LIMIT_REASON,
 } from '@/lib/parts.mjs';
 import { buildDamageCards } from '@/lib/damageCards.mjs';
 import { computeLampResult } from '@/app/api/salvage/assess/route.js';
@@ -384,13 +385,19 @@ test('1a LINE: it warns even when the unowned row is the ONLY lamp row', () => {
 // The REAL chain, today. This case documents the open leak — it is the 1b shape, and its money is
 // deliberately NOT asserted: whether the surplus row is dropped or band-priced is Vincent's ruling.
 // What IS asserted is that the leak can no longer hide.
-test('1a REAL CHAIN (AK75RDX, count 1, model priced 2): the leak is now COUNTED and WARNED — money pending 1b', () => {
+// batch 112 task 1 (Vincent, 11 Sep: "Band"). This case pinned the OPEN leak in 111 — the surplus row at
+// the model's £260, warned. The ruling closes it: the surplus HEADLAMP row is banded and mandated, and the
+// line logs the sanctioned SURPLUS shape instead of warning.
+test('1a REAL CHAIN (AK75RDX, count 1, model priced 2): CLOSED by the batch-112 ruling — both banded, SURPLUS logs', () => {
   const L = load('AK75RDX')._lampResult;
   const o = runChain([modelLamp(240), modelLamp(260), LABOUR], L);
   const f = finalizeLampInstrumentation(o.gated, L);
-  assert.equal(o.moneyLamps.length, 2, 'guard: this is the leak shape');
-  assert.equal(f.lamp_money_rows, 2, 'the counter now reports what is in the money');
-  assert.equal(classifyLampMoneyRows(o.gated, L, L.spanSource).level, 'warn');
+  assert.equal(o.moneyLamps.length, 2, 'guard: this is the surplus shape');
+  assert.equal(f.lamp_money_rows, 2, 'the counter reports what is in the money');
+  for (const r of o.moneyLamps) assert.equal(r.used, L.lampAllowance, 'no model price survives — the band owns both');
+  const c = classifyLampMoneyRows(o.gated, L, L.spanSource);
+  assert.equal(c.level, 'log');
+  assert.match(c.line, /^\[LAMP MONEY\]\[SURPLUS\] 2 lamp rows in parts_sum/);
 });
 
 test('1a CORPUS: every stored lot has 0 unmandated lamp rows in the money (the leak has never fired)', () => {
@@ -568,4 +575,207 @@ test('TASK 3 FLAGS: a no-cost HEADLAMP flag is NOT rewritten on a lampCount 1 lo
   const r = reconcileParts([modelLamp(240), LABOUR], L, cp, 0, null, L.lampAllowance, false, L.lampAllowance);
   applyVisibilityGate(r.parts, cp, flags, L);
   assert.equal(flags[0].reason, AMALG.AMALG_REASON_SINGLE_MINOR);
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// BATCH 112 — Vincent, 11 Sep 2026: "Band and yes to the rest."
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+const freeText = (name, used) => ({ name, action: 'replace', oem: used * 2, used });   // no panelId — as parseParts leaves a non-enum row
+
+// ── TASK 1 — THE SURPLUS HEADLAMP ROW IS BANDED, WITH THE GUARD ───────────────────────────────────
+for (const vrm of ['AK75RDX', 'KT73YAJ']) {
+  test(`TASK 1: ${vrm} (lampCount 1) — a second HEADLAMP line is banded, mandated, and states its limit once`, () => {
+    const L = load(vrm)._lampResult;
+    assert.equal(L.lampCount, 1, 'guard: single-corner lot');
+    const o = runChain([modelLamp(240), modelLamp(260), LABOUR], L);
+    assert.equal(o.moneyLamps.length, 2);
+    const s = o.moneyLamps.filter(r => r._lampSurplus);
+    assert.equal(s.length, 1, 'exactly one row is the surplus');
+    assert.equal(s[0].used, L.lampAllowance);
+    assert.equal(s[0]._lampMandated, true);
+    assert.equal(s[0]._modelLampCost, 260, 'the model figure is kept only as instrumentation');
+    const lf = o.flags.filter(f => f._lampSurplusLimit);
+    assert.equal(lf.length, 1);
+    assert.equal(lf[0].reason, LAMP_SURPLUS_LIMIT_REASON);
+    assert.match(lf[0].reason, /strike the line on the ledger if the inspection shows it sound\.$/, 'the batch-103 §4 voice');
+    assert.ok(!/^Neither/.test(lf[0].reason), '"neither" is false here — the kept lamp IS confirmed');
+  });
+}
+
+test('TASK 1: the surplus moves the total by exactly (band − model) on that row', () => {
+  const L = load('AK75RDX')._lampResult;
+  const after = runChain([modelLamp(240), modelLamp(260), LABOUR], L).sum;
+  const lampless = sumPartsRealistic([LABOUR]);
+  assert.equal(after - lampless, 2 * L.lampAllowance, 'both lamps at band');
+});
+
+test('TASK 1: a THIRD HEADLAMP line on a lampCount 1 lot is dropped, not banded (a vehicle has two)', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), modelLamp(260), modelLamp(280), LABOUR], L);
+  assert.equal(o.moneyLamps.length, 2);
+  assert.equal(o.allowanceParts.length, 0, 'and not shelved');
+});
+
+test('TASK 1: no surplus row, no surplus flag — a lampCount 1 lot with one lamp is exactly as before', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), LABOUR], L);
+  assert.equal(o.moneyLamps.length, 1);
+  assert.ok(!o.moneyLamps[0]._lampSurplus);
+  assert.equal(o.flags.length, 0);
+});
+
+test('TASK 1: the surplus on iv != true falls to A1 with the kept lamp — nothing banded into the total', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), modelLamp(260), LABOUR], L, 'na');
+  assert.equal(o.moneyLamps.length, 0);
+  assert.ok(!o.flags.some(f => f._lampSurplusLimit), 'no "included in the repair total" note on a lamp that is not');
+});
+
+// THE GUARD. Only a genuinely HEADLAMP-panel row is band-priced.
+for (const name of ['Headlamp bracket', 'Headlamp washer jet', 'Headlight bulb']) {
+  test(`TASK 1 GUARD: "${name}" (lamp-named, no HEADLAMP panelId) is NEVER billed at the band`, () => {
+    const L = load('AK75RDX')._lampResult;
+    const o = runChain([modelLamp(240), freeText(name, 40), LABOUR], L);
+    const row = o.gated.find(r => r.name === name);
+    assert.ok(row, 'the row survives in the money');
+    assert.equal(row.used, 40, 'at its own figure — a £40 part never bills at £350');
+    assert.ok(!row._lampMandated && !row._lampSurplus);
+    const c = classifyLampMoneyRows(o.gated, L, L.spanSource);
+    assert.equal(c.level, 'warn');
+    assert.match(c.line, /^\[LAMP MONEY\]\[UNIDENTIFIED\]/, 'reported as unidentified, not repriced');
+    assert.ok(!/INVARIANT BROKEN/.test(c.line), 'and not called a breach — the band does not own it');
+  });
+}
+
+test('TASK 1 GUARD: a lamp-named row first + ONE HEADLAMP row is not turned into a surplus (no second lamp billed)', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([freeText('Headlamp bracket', 40), modelLamp(240), LABOUR], L);
+  assert.equal(o.gated.filter(r => r._lampSurplus).length, 0, 'one HEADLAMP row is the lamp, not a surplus');
+  assert.equal(o.gated.filter(r => r._lampMandated).length, 1, 'exactly one lamp is band-owned');
+});
+
+// THE RESIDUAL, stated and pinned: a free-text PLURAL lamp row with no panelId is not band-priced. It
+// stays at the model's figure and is reported UNIDENTIFIED. Call 1's grammar requires a PANEL_ID on
+// every row (config/assessmentEngine.js:115-117) and all 14 recorded runs obey it — the only free-text
+// row in the corpus is "Labour & paint" — so this shape needs a grammar break the corpus has never shown.
+test('TASK 1 RESIDUAL: "Headlamps (pair)" with no panelId stays at the model price and is reported, not repriced', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), freeText('Headlamps (pair)', 480), LABOUR], L);
+  assert.equal(o.gated.find(r => r.name === 'Headlamps (pair)').used, 480);
+  assert.match(classifyLampMoneyRows(o.gated, L, L.spanSource).line, /^\[LAMP MONEY\]\[UNIDENTIFIED\]/);
+});
+
+test('TASK 1: a HEADLAMP-panel row at a non-band price is STILL a breach (NOT BAND-OWNED, INVARIANT BROKEN)', () => {
+  const c = classifyLampMoneyRows([mRow(), unowned(260), LABOUR], T2C1, 'single_corner');
+  assert.match(c.line, /^\[LAMP MONEY\]\[NOT BAND-OWNED\].*INVARIANT BROKEN: the band owns every headlamp pound/);
+});
+
+test('TASK 1 CARDS: the surplus card carries the flag reason; the kept lamp card does not', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), modelLamp(260), LABOUR], L);
+  const cards = buildDamageCards({ gatedParts: o.gated, costedParts: verdict(true), flaggedParts: o.flags, allowanceParts: [] });
+  const lampCards = cards.filter(c => /headlamp/i.test(c.part || ''));
+  assert.equal(lampCards.length, 2);
+  assert.equal(lampCards.filter(c => c.note === LAMP_SURPLUS_LIMIT_REASON).length, 1);
+  assert.equal(cards.filter(c => c.origin === 'Related').length, 0, 'the flag does not add a £0 third card');
+});
+
+// ── TASK 2 — THE ASSUMED-TYPE DISCLOSURE REACHES THE BUYER ON TIER 2 ─────────────────────────────
+const DISCLOSURE = ROUTE_SRC.match(/^const LAMP_ASSUMED_DISCLOSURE = '([^']+)';/m)[1];   // the shipped single owner
+
+test('TASK 2: tier 2 + assumed type + a lamp in the money → exactly one disclosure flag, the shipped sentence', () => {
+  const r = computeLampResult('central', true, null, 'cannot_determine', null, 'full_width', false);
+  assert.equal(r.lampTypeAssumed, true, 'guard');
+  const o = runChain([modelLamp(240), LABOUR], r);
+  const f = tier2LampDisclosureFlag(r, o.gated, o.flags, DISCLOSURE);
+  assert.ok(f);
+  assert.equal(f.reason, DISCLOSURE);
+  assert.equal(f._tier2LampDisclosure, true);
+  assert.equal(tier2LampDisclosureFlag(r, o.gated, [...o.flags, f], DISCLOSURE), null, 'one per lot');
+});
+
+test('TASK 2: no disclosure when the type is concrete, when no lamp is in the money, on tier 1, or beside the orphan flag', () => {
+  const concrete = computeLampResult('central', true, 'led', 'cannot_determine', null, 'full_width', false);
+  const assumed  = computeLampResult('central', true, null,  'cannot_determine', null, 'full_width', false);
+  assert.equal(tier2LampDisclosureFlag(concrete, runChain([modelLamp(240), LABOUR], concrete).gated, [], DISCLOSURE), null);
+  assert.equal(tier2LampDisclosureFlag(assumed, [LABOUR], [], DISCLOSURE), null, 'no lamp in the money — nothing to disclose');
+  assert.equal(tier2LampDisclosureFlag({ ...assumed, tier2Fired: false }, [mRow()], [], DISCLOSURE), null);
+  assert.equal(tier2LampDisclosureFlag(assumed, [mRow()], [{ _orphanLampDisclosure: true }], DISCLOSURE), null);
+});
+
+test('TASK 2: route.js pushes the helper\'s flag and holds the ONLY copy of the sentence (single owner)', () => {
+  assert.match(ROUTE_SRC, /tier2LampDisclosureFlag\(lampResult, gatedParts, coreObs\.flaggedParts, LAMP_ASSUMED_DISCLOSURE\)/);
+  const partsSrc = readFileSync('lib/parts.mjs', 'utf8');
+  assert.ok(!partsSrc.includes(DISCLOSURE.slice(0, 40)), 'lib/parts.mjs must not carry a copy of the disclosure');
+  assert.equal(ROUTE_SRC.split(DISCLOSURE.slice(0, 40)).length - 1, 1, 'exactly one copy in route.js');
+});
+
+// ── TASK 3 — THE VDS NEVER SAYS "NOT PRESENT" FOR A PAIR OR SURPLUS HALF ─────────────────────────
+test('TASK 3: pair — inserted half (model priced 1) no longer claims "Not present in the listing photos"', () => {
+  const L = load('SA26KVT')._lampResult;
+  const o = runChain([modelLamp(240), LABOUR], L);
+  const vds = assembleVdsParts(verdict(true), o.gated).filter(b => /headlamp/i.test(b.partName));
+  assert.equal(vds.length, 2);
+  for (const b of vds) assert.equal(b.prose, `Replace — £${L.lampAllowance}.`);
+});
+
+test('TASK 3: pair — a pooled "missing" ledger (AMZ3790 shape) cannot be pinned to either lamp, so neither claims it', () => {
+  const L = load('AMZ3790')._lampResult;
+  const led = [{ panelId: 'HEADLAMP', partName: 'Headlamp', independentlyVisible: true, zone: 'front', _amalgMissing: true }];
+  const o = runChain([modelLamp(240), modelLamp(240), LABOUR], L);
+  for (const b of assembleVdsParts(led, o.gated).filter(b => /headlamp/i.test(b.partName))) {
+    assert.ok(!/Not present in the listing photos/.test(b.prose), b.prose);
+  }
+});
+
+test('TASK 3: the surplus half never claims it either', () => {
+  const L = load('AK75RDX')._lampResult;
+  const led = [{ panelId: 'HEADLAMP', partName: 'Headlamp', independentlyVisible: true, zone: 'front', _amalgMissing: true }];
+  const o = runChain([modelLamp(240), modelLamp(260), LABOUR], L);
+  const lamps = assembleVdsParts(led, o.gated).filter(b => /headlamp/i.test(b.partName));
+  assert.equal(lamps.filter(b => /Not present/.test(b.prose)).length, 1, 'the kept lamp keeps the true ledger claim; the surplus does not borrow it');
+});
+
+test('TASK 3 KEPT: a non-pair lamp on a "missing" ledger still says "Not present in the listing photos" (true there)', () => {
+  const L = load('AK75RDX')._lampResult;
+  const led = [{ panelId: 'HEADLAMP', partName: 'Headlamp', independentlyVisible: true, zone: 'front', _amalgMissing: true }];
+  const o = runChain([modelLamp(240), LABOUR], L);
+  assert.equal(assembleVdsParts(led, o.gated).find(b => /headlamp/i.test(b.partName)).prose, `Not present in the listing photos — replace, £${L.lampAllowance}.`);
+});
+
+test('TASK 3 KEPT: a non-pair _inserted row is byte-identical to before (wording unchanged by this batch)', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([LABOUR], L);   // model priced 0 lamps on lampCount 1 → one inserted lamp
+  assert.equal(assembleVdsParts(verdict(true), o.gated).find(b => /headlamp/i.test(b.partName)).prose, `Not present in the listing photos — replace, £${L.lampAllowance}.`);
+});
+
+test('TASK 3 KEPT: a missing non-lamp panel keeps its wording', () => {
+  const led = [{ panelId: 'GRILLE', partName: 'Grille', independentlyVisible: true, zone: 'front', _amalgMissing: true }];
+  const out = assembleVdsParts(led, [{ panelId: 'GRILLE', name: 'Grille', action: 'replace', used: 70 }]);
+  assert.equal(out[0].prose, 'Not present in the listing photos — replace, £70.');
+});
+
+// ── TASK 4 — THE PAIR EXCEPTION IS FOR UNCERTAINTY, NOT CLEAN LAMPS ──────────────────────────────
+test('TASK 4: a _perViewClear pair (every view saw the lamps undamaged) is NOT costed — it falls to A1', () => {
+  const L = load('SA26KVT')._lampResult;
+  const cp = [{ panelId: 'HEADLAMP', partName: 'Headlamp', independentlyVisible: false, zone: 'front', _perViewClear: true }];
+  const flags = [];
+  const r = reconcileParts([modelLamp(240), LABOUR], L, cp, 0, null, L.lampAllowance, false, L.lampAllowance);
+  const g = applyVisibilityGate(r.parts, cp, flags, L);
+  assert.equal(lampRows(g.gatedParts).length, 0, 'no money for lamps the photos show as sound');
+  assert.equal(g.gateAllowanceParts.length, 2);
+  assert.ok(!flags.some(f => f._lampPairLimit), 'and no "included in the repair total" note');
+  assert.ok(flags.some(f => /NOT included in the repair total/.test(f.reason)), 'the A1 wording, true there');
+});
+
+test('TASK 4: an UNCERTAIN pair (iv na / false without _perViewClear / no verdict) is still costed, as ruled in 111', () => {
+  const L = load('SA26KVT')._lampResult;
+  for (const iv of ['na', false]) assert.equal(runChain([modelLamp(240), LABOUR], L, iv).moneyLamps.length, 2, `iv=${iv}`);
+});
+
+test('TASK 4 CORPUS: still theoretical — no stored pair lot is _perViewClear or iv != true (all six had a lamp in the money)', () => {
+  for (const v of lots().filter(v => load(v)._lampResult?.lampCount === 2)) {
+    assert.ok(lampRows(load(v)._reconciledParts).some(p => p._lampMandated), v);
+  }
 });

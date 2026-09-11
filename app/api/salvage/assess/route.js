@@ -25,7 +25,7 @@ import {
 } from '@/lib/coreSlots';
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
-  applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows,
+  applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -4451,6 +4451,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         reason: LAMP_ASSUMED_DISCLOSURE, _orphanLampDisclosure: true, _gateGenerated: true,
       });
       console.log(`[LAMP ORPHAN] "${gp.name}" assumed-LED disclosure flag emitted`);
+    }
+    // batch 112 task 2 (Vincent, 11 Sep) — the SAME disclosure on the tier-2 path. On a tier-2 lot with an
+    // indeterminate spec the buyer is charged the higher LED band (2 × on a pair), and since 0724bfd (2 Jun)
+    // the only sentence saying the type was ASSUMED lived in _lampResult.verdictLine, which no surface reads.
+    // Follows the orphan mechanism above rather than reviving the dead verdictLine → page/PDF chain; one
+    // flag per lot, raised only when a lamp is actually in the money. Single owner: LAMP_ASSUMED_DISCLOSURE.
+    {
+      const _t2Disclosure = tier2LampDisclosureFlag(lampResult, gatedParts, coreObs.flaggedParts, LAMP_ASSUMED_DISCLOSURE);
+      if (_t2Disclosure) {
+        coreObs.flaggedParts.push(_t2Disclosure);
+        console.log(`[LAMP] tier-2 assumed-type disclosure flag emitted (type=${lampResult.lampType}, band £${lampResult.lampAllowance})`);
+      }
     }
 
     // Option G — inject code-owned cost lines for G-split COSTED instances.
