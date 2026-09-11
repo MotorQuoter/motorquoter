@@ -354,6 +354,20 @@ test('1a COUNTER: a panelId-HEADLAMP row whose name escapes isLampLine is still 
   assert.equal(f.lamp_money_rows, 2);
 });
 
+test('1a COUNTER: a free-text PLURAL lamp row with NO panelId (escapes isLampLine) is still counted and warned', () => {
+  for (const name of ['Headlamps (pair)', 'Headlights', 'Head light unit']) {
+    const g = [mRow(), { name, action: 'replace', oem: 900, used: 480 }, LABOUR];
+    assert.equal(finalizeLampInstrumentation(g, T2C1).lamp_money_rows, 2, name);
+    assert.equal(classifyLampMoneyRows(g, T2C1, 'single_corner').level, 'warn', name);
+  }
+});
+
+test('1a COUNTER: non-lamp rows are not counted (fog lamp, labour, bonnet)', () => {
+  const g = [mRow(), { name: 'Fog lamp', used: 70, panelId: 'FOG_LAMP' }, { name: 'Bonnet', used: 280, panelId: 'BONNET' }, LABOUR];
+  assert.equal(finalizeLampInstrumentation(g, T2C1).lamp_money_rows, 1);
+  assert.equal(classifyLampMoneyRows(g, T2C1, 'single_corner'), null);
+});
+
 test('1a LINE: any unmandated lamp row in parts_sum WARNS as NOT BAND-OWNED, naming its figure', () => {
   const c = classifyLampMoneyRows([mRow(), unowned(), LABOUR], T2C1, 'single_corner');
   assert.equal(c.level, 'warn');
