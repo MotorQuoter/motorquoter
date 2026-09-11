@@ -258,5 +258,27 @@ console.log('\n10. batch 117 — the screen (source pins; the page itself needs 
   ok('screen: the saved-state snapshot is taken on load AND on save', (page.match(/setSavedEditsKey\(editsKeyOf\(/g) || []).length === 3);
 }
 
+console.log('\n11. batch 117 task 6 — the jig floor\'s stated ceiling prints whole on the PDF (flag + card)');
+{
+  const { STRUCT_FLOOR_NOTE } = await import('../lib/labour.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const floor = { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'inspect', oem: null, used: 500, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
+  const flag = { panelId: 'FRONT_STRUCTURE', partName: 'Front structure', zone: 'front', weight: 'high', reason: STRUCT_FLOOR_NOTE, _structFloorFlag: true };
+  const rows = [{ panelId: 'BONNET', name: 'Bonnet', action: 'replace', oem: 500, used: 280 }, floor];
+  const asmt = {
+    'Recommended Action': 'Bid.',
+    _reconciledParts: rows,
+    _partsReconciliation: { parts_sum: 780 },
+    _flaggedParts: [flag],
+    _damageCards: buildDamageCards({ gatedParts: rows, costedParts: [], flaggedParts: [flag], allowanceParts: [] }),
+  };
+  // pdfText already joins the chunks and collapses whitespace, so wrapped lines rejoin.
+  const flat = pdfText(buildAssessmentPdf(asmt, vd, 'GB', 'TEST123', '11/09/2026', null, null));
+  const tail = 'up to £2,000 or £3,000 on a heavier hit or a larger vehicle, and can only be quoted after inspection.';
+  ok('PDF: the ceiling prints on BOTH surfaces that carry it (Inspection Flag + Damage Breakdown card)', flat.split(tail).length - 1 === 2);
+  ok('PDF: the sentence prints whole — floor clause intact on both', flat.split('A floor of £500 for jig/geometry work is included in the repair total.').length - 1 === 2);
+  ok('PDF: the Parts Breakdown row still reads "Front structure · jig/geometry · from £500" (money display unchanged)', flat.includes('Front structure jig/geometry - - from £500 Repair total'));
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

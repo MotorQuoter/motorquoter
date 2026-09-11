@@ -36,7 +36,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -4590,7 +4590,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     //   C/D uncorrob  — cost at band + flag (consistency; dormant on the corpus).
     //   F cosmetic    — cost at the panel's band (repair) + low flag.
     // E single-MINOR (Ruling 2) and G allowance (batch 107) do NOT flip; H/I/J untouched.
-    const ZERO_RULE_STRUCT_FLOOR = 500;
+    const ZERO_RULE_STRUCT_FLOOR = STRUCT_FLOOR_GBP;   // £500 — one owner (lib/labour.mjs), money unchanged
     // A not-visible panel is "behind" one of these costed-severe neighbours on the same end. Code-owned,
     // same shape as PANEL_REAR_NEIGHBOURS. Extend as Vincent rules — radiator-behind-front-end is canonical.
     const ZERO_RULE_ADJACENCY = {
@@ -4628,7 +4628,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             oem: null, used: ZERO_RULE_STRUCT_FLOOR, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
           // The floor IS in the repair total — the flag (and its damage card) must say so, not the old
           // "not included in the repair cost" (which now contradicts the Parts Breakdown line). batch 106.
-          f.reason = `A floor of £${ZERO_RULE_STRUCT_FLOOR} is included in the repair total; the true figure for jig/geometry work cannot be scoped from photographs.`;
+          // batch 117 task 6: the floor states its ceiling (Vincent 11 Sep) — single owner, lib/labour.mjs.
+          f.reason = STRUCT_FLOOR_NOTE;
           f._structFloorFlag = true;
         } else if (f._amalgNotVisible) {
           // B — cost ONLY when behind a costed-severe neighbour; otherwise stays flag-only

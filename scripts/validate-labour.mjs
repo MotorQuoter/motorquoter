@@ -279,5 +279,34 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   eq('NO money moves: the £300 is still in the repair total (160 + 310 + 2125 + 300 + 500)', sumPartsRealistic(rows), 3395);
 }
 
+console.log('\n11. batch 117 task 6 — the jig floor states its ceiling (Vincent 11 Sep: "from £500 up to 2 or 3k")');
+{
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } = await import('../lib/labour.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const { sumPartsRealistic } = await import('../lib/parts.mjs');
+  // Every shipped source file under app/ and lib/.
+  const walk = (d) => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : /\.(m?js)$/.test(n) ? [p] : []; });
+  const src = [...walk('app'), ...walk('lib')].map((p) => [p, readFileSync(p, 'utf8')]);
+  const count = (needle) => src.reduce((n, [, s]) => n + (s.split(needle).length - 1), 0);
+  eq('ONE OWNER: the sentence\'s literal appears exactly once in source', count('can only be quoted after inspection'), 1);
+  eq('…and it lives in lib/labour.mjs', src.filter(([, s]) => s.includes('can only be quoted after inspection')).map(([p]) => p.replace(/\\/g, '/')).join(), 'lib/labour.mjs');
+  eq('the old floor-only sentence is gone from source (no second wording left behind)', count('the true figure for jig/geometry work cannot be scoped'), 0);
+  ok('the sentence keeps the floor IN the total', STRUCT_FLOOR_NOTE.startsWith('A floor of £500 for jig/geometry work is included in the repair total.'));
+  ok('the sentence states the ceiling: £2,000 or £3,000 on a heavier hit or a larger vehicle', STRUCT_FLOOR_NOTE.includes('up to £2,000 or £3,000 on a heavier hit or a larger vehicle'));
+  ok('"depending on the vehicle" is in the WORDS (no-classifier ruling — the range is not picked by code)', STRUCT_FLOOR_NOTE.includes('depending on the vehicle and the extent of the damage'));
+  ok('Latin-1 only (the PDF flag renderer silently drops en/em dashes)', !/[^\x00-\xFF]/.test(STRUCT_FLOOR_NOTE));
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  ok('route: the structural flag reason IS the owner', /f\.reason = STRUCT_FLOOR_NOTE;\s*\n\s*f\._structFloorFlag = true;/.test(route));
+  ok('route: the floor figure comes from the same owner (£500 unchanged)', route.includes('const ZERO_RULE_STRUCT_FLOOR = STRUCT_FLOOR_GBP;') && STRUCT_FLOOR_GBP === 500);
+  const floor = { panelId: 'FRONT_STRUCTURE', name: 'Front structure', action: 'inspect', oem: null, used: 500, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
+  const cards = buildDamageCards({ gatedParts: [floor], costedParts: [], flaggedParts: [{ panelId: 'FRONT_STRUCTURE', partName: 'Front structure', weight: 'high', reason: STRUCT_FLOOR_NOTE, _structFloorFlag: true }], allowanceParts: [] });
+  const card = cards.find((c) => c._structFloor);
+  ok('damage card: the Visible floor card carries the SAME sentence as the flag', card?.origin === 'Visible' && card.note === STRUCT_FLOOR_NOTE);
+  eq('damage card: no second (Related) card for the same panel', cards.filter((c) => /front structure/i.test(c.part || '')).length, 1);
+  eq('NO money moves: the floor row still sums £500', sumPartsRealistic([floor]), 500);
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
