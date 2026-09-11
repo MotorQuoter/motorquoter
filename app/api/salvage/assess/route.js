@@ -2341,10 +2341,19 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
     ? `Both front headlamps — full-width frontal impact; replacement costed at £${bandValue} each (${resolvedType}${lampTypeAssumed ? ', assumed' : ''}), £${bandValue * 2} in total. Confirm serviceability on inspection.`
     : null;
 
+  // batch 111 task 2 (Vincent, 11 Sep: "plural"). On lampCount 2 the verdict line speaks about BOTH lamps
+  // and the combined figure, as costDriverEntry and checklistEntry2nd already do. Two variants only: the
+  // `missing` variant below is unreachable while LAMP_DETECTION_CONFIDENT_WORDING is false (missing →
+  // cannot_determine), so it is left singular — pluralise it too if that toggle is ever flipped.
+  // lampCount 1 strings are byte-identical (pinned in validate-headlamp-pair).
+  const pairFigure = `Replacement costed at £${bandValue} each (${resolvedType}), £${bandValue * 2} in total, both included in the repair total.`;
+
   if (effectiveVerdict === 'present') {
     // Cost always applies on apertureExposed — a displaced-bumper aperture makes photo evidence
     // unreliable regardless of what appears present. Verdict controls wording only.
-    let verdictLine = `Struck front corner headlamp — the headlamp on the struck corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
+    let verdictLine = lampCount === 2
+      ? `Both front headlamps — full-width frontal impact; the headlamp on the struck corner appears present, but on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. ${pairFigure}`
+      : `Struck front corner headlamp — the headlamp on the struck corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £${bandValue} (${resolvedType}) as a precautionary allowance.`;
     verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
     const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
@@ -2362,7 +2371,9 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
-  let verdictLine = `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
+  let verdictLine = lampCount === 2
+    ? `Both front headlamps — full-width frontal impact; on a displaced-bumper impact both headlamps are treated as replacements; presence and serviceability cannot be confirmed from the photos. ${pairFigure}`
+    : `Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £${bandValue} (${resolvedType}).`;
   verdictLine += lampTypeAssumed ? assumedDisclosure : ' Confirm on inspection.';
   const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
@@ -4423,6 +4434,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // precautionary (iv≠true) mandated lamp is now moved OUT of the repair total into an inspection
     // allowance — the gate returns those rows in gateAllowanceParts; merge them into allowanceParts
     // (same £0-in-total, band-shown-as-allowance treatment as the reconcileParts lamp allowances).
+    // Exception (batch 111, Vincent 11 Sep): the full-width lamp PAIR stays costed with a strike-the-line flag.
     const { gatedParts, gateAllowanceParts } = applyVisibilityGate(reconciledParts, coreObs.costedParts, coreObs.flaggedParts, lampResult);
     if (gateAllowanceParts?.length) allowanceParts.push(...gateAllowanceParts);
     _traceFlags('post-gate');
