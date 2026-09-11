@@ -1123,6 +1123,56 @@ const PROBE_ZONE_MAP = {
   front: ['front'], rear: ['rear'], 'flank-damaged-side': ['nearside', 'offside', 'flank'],
   roof: ['roof'], interior: ['interior'],
 };
+// ── batch 119 — TWO READS THAT DISAGREE ARE NOT BOTH TRUSTED (Vincent, 11 Sep: "E it is.") ─────────
+// The frame-zone pass (its own Haiku call) and the per-view read (Opus) look at the same photo. On
+// AMZ3790 frame 20 the frame-zone read said ["detail","front"] while the per-view read named
+// REAR_QUARTER SEVERE — the quarter's only damaged vote, which Q4 turned into £1,145. A per-view vote for
+// an END-SPECIFIC panel, from a frame the frame-zone read places at the OTHER end ONLY, is contradicted:
+// it is DEMOTED to na. Constraints, each pinned in validate-zone-demote:
+//   1. na, never clean — na says "this read cannot be trusted"; clean would invent an observation.
+//   2. EXCLUSIVE tags only, read strictly: the frame's aspects (bar "detail") must be ONE end and nothing
+//      else. A three-quarter shot (["front","nearside"]) carries a side, and a side legitimately shows the
+//      far end's corner panels (the rear quarter along the flank) — measured on the three replayable lots,
+//      the looser "one end and not the other" reading would have silenced five genuine clean
+//      rear-quarter reads from front three-quarter shots. ["front","rear"], wide shots, roof/interior
+//      combinations → never demote.
+//   3. END-SPECIFIC panels only (below). Doors, sills, skirts, mirrors, glass, wheels, tyres, roof, fog
+//      lamps (front OR rear), windscreen and everything else are out of scope.
+//   4. Fail open: frame-zone failed, no tag, or a bare ["detail"] → no demotion.
+//   5. Every demotion is logged, always, with both reads and the tag set.
+export const END_SPECIFIC_PANELS = {
+  front: new Set([PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING, PANEL.HEADLAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_STRUCTURE]),
+  rear:  new Set([PANEL.REAR_BUMPER, PANEL.REAR_QUARTER, PANEL.REAR_LAMP, PANEL.BOOT_LID, PANEL.REAR_PANEL, PANEL.REAR_GLASS, PANEL.REAR_STRUCTURE]),
+};
+// 'front' | 'rear' when the frame shows that end ONLY (ignoring the "detail" marker), else null.
+export function frameEndOnly(zones) {
+  const aspects = (Array.isArray(zones) ? zones : []).filter(z => z !== 'detail');
+  return aspects.length === 1 && (aspects[0] === 'front' || aspects[0] === 'rear') ? aspects[0] : null;
+}
+// Mutates the contradicted rows in place (vote rows and instance rows share objects) and returns the
+// demotions. Runs BEFORE the correspondence pass and grouping, so no downstream consumer ever sees them.
+export function demoteContradictedVotes(perViewResults, frameZones) {
+  const demotions = [];
+  if (!frameZones?.ok || !Array.isArray(frameZones.frames)) return demotions;           // fail open
+  const tagsByView = new Map(frameZones.frames.map(f => [f.i, f.zones]));
+  for (const r of perViewResults || []) {
+    const tags = tagsByView.get(r.idx);
+    const end = frameEndOnly(tags);
+    if (!end) continue;
+    const contradicted = END_SPECIFIC_PANELS[end === 'front' ? 'rear' : 'front'];
+    for (const cp of new Set([...(r.costedParts || []), ...(r.instanceParts || [])])) {
+      if (!contradicted.has(cp?.panelId)) continue;
+      if (cp.independentlyVisible == null) continue;                                     // already na
+      const was = { iv: cp.independentlyVisible, sev: cp.severity ?? null };
+      cp.independentlyVisible = null;                                                    // na — NEVER false
+      cp.severity = null;
+      cp._zoneDemoted = { was, tags, frameEnd: end };
+      demotions.push({ view: r.idx, panelId: cp.panelId, was, tags });
+    }
+  }
+  return demotions;
+}
+
 // Frame selection from the always-run frame-zone pass. Every fallback names itself in `source`
 // (silence is a defect). null indices → the probe reads the full set.
 function selectProbeFrames(frameZones, panelZone) {
@@ -3669,6 +3719,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
+
+    // Resolve the always-run frame-zone pass once (fired at the per-view fan-out). By here per-view is
+    // already awaited, so this single Haiku call is long done — a no-cost join. batch 119: joined HERE,
+    // before the correspondence pass and grouping, so the contradiction demote below lands before any
+    // vote is counted. Also consumed by the sticker retry (windscreenLabel) and the attribution probe.
+    const _frameZones = await frameZonePromise; // { ok, frames:[{i,zones,windscreenLabel}] }
+    const _zoneDemotions = demoteContradictedVotes(perViewResults, _frameZones);
+    for (const d of _zoneDemotions) {
+      const wasIv = d.was.iv === true ? 'true' : d.was.iv === false ? 'false' : d.was.iv;
+      console.log(`[ZONE DEMOTE] view ${d.view} ${d.panelId} iv:${wasIv}${d.was.sev ? ` sev:${d.was.sev}` : ''} → na — the frame-zone read tags this photo ${JSON.stringify(d.tags)} (${frameEndOnly(d.tags)} only), so a ${frameEndOnly(d.tags) === 'front' ? 'REAR' : 'FRONT'} panel cannot be in it. Vote discarded (na), never flipped to clean.`);
+    }
+    console.log(`[ZONE DEMOTE] ${_zoneDemotions.length} vote(s) demoted${_frameZones.ok ? '' : ' — frame-zone pass failed, rule not applied (fail open)'}`);
+
     const correspondenceMap = await runCorrespondencePass(perViewResults, images, () => _exhaustedCalls.add('correspondence'));
     console.log(`[G] correspondenceMap size=${correspondenceMap.size} panels=${[...correspondenceMap.keys()].join(',') || 'none'}`);
     const rawGroups         = groupByPanelId(perViewResults);
@@ -3683,11 +3746,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     );
     const pvResult          = amalgamate(groups, viewPanelSets);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
-
-    // Resolve the always-run frame-zone pass once (fired at the per-view fan-out). By here per-view
-    // is already awaited, so this single Haiku call is long done — a no-cost join before CALL1.
-    // Consumed by the sticker retry (windscreenLabel) and, in commit 2, the attribution probe (zones).
-    const _frameZones = await frameZonePromise; // { ok, frames:[{i,zones,windscreenLabel}] }
 
     const callClaude = async (withTools, forced = false) => {
       const body = JSON.stringify({
@@ -4017,6 +4075,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._raw = sanitizedRawText;
     assessment._market = market;
     assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
+    assessment._zoneDemotions = _zoneDemotions; // batch 119 — every per-view vote the frame-zone read contradicted (→ na)
     if (lampResult) assessment._lampResult = lampResult;
     assessment._lampObs = lampObs ? {
       struckSide:          lampObs.struckSide ?? 'central',
