@@ -49,5 +49,21 @@ ok('struck-side probe (P2) takes the offside close-up but NOT the side-unknown "
 const corr = selectProbeFramesForPanel({ panelId: 'FRONT_WING', zone: 'flank-damaged-side', _gOwned: true, _probeViews: [0, 1, 6] }, fz, 'offside', true);
 ok('a correspondence-owned instance still takes its OWN frames (the zone tag does not override it)', corr.source === 'corr-instance:[0,1,6]');
 
+console.log('\n4. TASK 5 — option D (Vincent, 11 Sep): count the red brake lamp, state the parking-brake limit');
+{
+  const { buildDashLine, DASH_BRAKE_PARKING_NOTE } = await import('../app/api/salvage/assess/route.js');
+  ok('dash prompt: a lit red brake symbol IS ABS_BRAKE on a parked car — emit it, do not skip it', src.includes('is ABS_BRAKE even on a parked car where it may only mean the parking brake is on: emit it, do not skip it'));
+  ok('the telltale enum is unchanged — no PARKING_BRAKE token (that was option C)', !src.includes('PARKING_BRAKE'));
+  const withBrake = buildDashLine({ cluster: 'warning', telltales: ['TPMS', 'ABS_BRAKE'] });
+  ok('ABS_BRAKE in the read → the line names it AND carries the parking-brake note', withBrake === `Dashboard read: warning light(s) shown — tyre pressure, ABS/brake. ${DASH_BRAKE_PARKING_NOTE}`);
+  ok('NEGATIVE: no ABS_BRAKE → the line is byte-identical to before (no note)', buildDashLine({ cluster: 'warning', telltales: ['ENGINE_MIL'] }) === 'Dashboard read: warning light(s) shown — engine (MIL)');
+  ok('clean / unlit / no-photo lines unchanged', buildDashLine({ cluster: 'clean', telltales: [] }) === 'Dashboard read: cluster lit, no warning lights shown.'
+    && buildDashLine({ cluster: 'unlit', telltales: [] }).startsWith('The instrument cluster is photographed but unlit')
+    && buildDashLine({ cluster: 'no-photo', telltales: [] }) === 'No dashboard photograph in the listing.');
+  ok('the note is Latin-1 and dash-free (the PDF strips dashes)', !/[^\x00-\xFF]/.test(DASH_BRAKE_PARKING_NOTE) && !/[—–]/.test(DASH_BRAKE_PARKING_NOTE));
+  ok('ONE OWNER: the note\'s literal appears once in the route', src.split('lit by an applied parking brake, so check it goes out').length - 1 === 1);
+  ok('the route builds the line through buildDashLine (not a second inline copy)', src.includes('const _dashLine = buildDashLine(dashRead);'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} prompt-batch118: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -834,6 +834,28 @@ const TELLTALE_LABELS = {
   ABS_BRAKE: 'ABS/brake', STEERING_EPS: 'power steering', ENGINE_MIL: 'engine (MIL)',
   BATTERY_12V: '12V charging', TPMS: 'tyre pressure', OTHER_TELLTALE: 'other warning',
 };
+// batch 118 task 5 — Vincent ruled option D, 11 Sep: COUNT a lit red brake lamp and STATE THE LIMIT.
+// The red (!) in a circle is lit by an applied parking brake on a parked car AND by a brake-system fault
+// (low fluid, EBD); a photograph cannot tell which. Hiding it would hide a real fault, so the read keeps
+// emitting ABS_BRAKE and the buyer is told the innocent explanation to check. Single owner; appended to
+// the code-owned dashboard line whenever ABS_BRAKE is in the read. No dashes: the PDF strips them.
+export const DASH_BRAKE_PARKING_NOTE = 'A red brake lamp is also lit by an applied parking brake, so check it goes out when the brake is released.';
+
+// The code-owned dashboard line (replaces the model's VDS cluster assertion). Lifted out of the pipeline
+// UNCHANGED for every state (batch 118) so the brake note is pinned on the shipped function; the only
+// addition is that note, appended when ABS_BRAKE is in a warning read.
+export function buildDashLine(dashRead) {
+  if (dashRead.cluster === 'warning') {
+    const telltales = dashRead.telltales || [];
+    const base = `Dashboard read: warning light(s) shown — ${telltales.map(t => TELLTALE_LABELS[t] || t).join(', ')}`;
+    return telltales.includes('ABS_BRAKE') ? `${base}. ${DASH_BRAKE_PARKING_NOTE}` : base;
+  }
+  return dashRead.cluster === 'clean'
+    ? 'Dashboard read: cluster lit, no warning lights shown.'
+    : dashRead.cluster === 'unlit'
+    ? 'The instrument cluster is photographed but unlit — the vehicle is a non-runner, so warning-lamp and airbag state cannot be read from it.'
+    : 'No dashboard photograph in the listing.';
+}
 // Inherit the lamp-detect lesson: cautious wording default OFF; the flag always fires, only the
 // wording strength is toggled once the false-positive guard has proven out.
 const TELLTALE_CONFIDENT_WORDING = false;
@@ -861,7 +883,7 @@ TELLTALES — a CLOSED list; emit ONLY these exact tokens in the "telltales" arr
   BATTERY_12V         — 12V charging-system lamp (the ordinary battery symbol) — this is NOT an EV/HV signal; use it so you never misread the 12V symbol as an EV warning
   TPMS                — tyre pressure warning
   OTHER_TELLTALE      — any lit amber/red warning not in this list, OR a warning lit but unreadable
-Rules: cluster "warning" MUST have at least one telltale token; cluster "clean" MUST have an empty telltales array. Only lit AMBER or RED telltales count. A normal EV "READY" / "ready to drive" indicator is NOT a warning (it is a healthy state) — do not emit any token for it. Informational text messages (e.g. a park-assist sensor message) → OTHER_TELLTALE. Empty array when cluster is no-photo, unlit or clean.
+Rules: cluster "warning" MUST have at least one telltale token; cluster "clean" MUST have an empty telltales array. Only lit AMBER or RED telltales count. A lit RED brake symbol — a "!" or "P" in a circle, or the word BRAKE — is ABS_BRAKE even on a parked car where it may only mean the parking brake is on: emit it, do not skip it (the report explains the parking-brake possibility to the buyer). A normal EV "READY" / "ready to drive" indicator is NOT a warning (it is a healthy state) — do not emit any token for it. Informational text messages (e.g. a park-assist sensor message) → OTHER_TELLTALE. Empty array when cluster is no-photo, unlit or clean.
 
 HV MARKINGS — one boolean:
 Set hvMarkings true ONLY on unambiguous high-voltage evidence anywhere in the photos: thick ORANGE HV cabling / conduit / connectors in the engine bay or underbody, or an HV / "HIGH VOLTAGE" warning label or sticker. Ordinary orange objects (trim, reflectors, wiring that is not clearly HV conduit) do NOT count. When in doubt, false.
@@ -5180,13 +5202,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // batch 75 §2a: distinguish "no cluster photograph at all" from "cluster photographed but unlit".
     // The read declining a dark cluster is CORRECT (you cannot read telltales off it) — but "not
     // visible" reads as a missed photo. "Unlit because the car is a non-runner" is true and useful.
-    const _dashLine = dashRead.cluster === 'warning'
-      ? `Dashboard read: warning light(s) shown — ${dashRead.telltales.map(t => TELLTALE_LABELS[t] || t).join(', ')}`
-      : dashRead.cluster === 'clean'
-      ? 'Dashboard read: cluster lit, no warning lights shown.'
-      : dashRead.cluster === 'unlit'
-      ? 'The instrument cluster is photographed but unlit — the vehicle is a non-runner, so warning-lamp and airbag state cannot be read from it.'
-      : 'No dashboard photograph in the listing.';
+    const _dashLine = buildDashLine(dashRead);
     assessment._dashLine = _dashLine;
 
     // Assemble code-owned Airbags line from _airbagState (overwrites any model-authored field).
