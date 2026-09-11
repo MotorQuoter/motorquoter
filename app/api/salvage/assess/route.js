@@ -776,6 +776,8 @@ async function runLampDetection(images, onExhaust) {
 
 For EACH front headlamp position (both corners), determine whether a headlamp unit is physically present in the aperture or the mount is empty. A displaced bumper can expose an empty recess that looks occupied — judge whether an actual lens/reflector/lamp body is present, not just that the recess is visible. Report per corner. Describe each corner by its relation to the body damage (e.g. 'the corner with the major impact damage' / 'the undamaged corner') or as left/right as viewed — do NOT use offside/nearside. Also state the lamp TYPE if determinable (halogen / HID / LED-adaptive).
 
+LAMP TYPE — judge the HEADLAMP, not the daytime-running light. The type is the type of the MAIN-BEAM / DIPPED-BEAM unit: the lens and the projector or reflector behind it that throws the driving light. It is NOT the daytime-running light (DRL) — the thin strip, ring, bar or "eyebrow" of light above, below or around the headlamp. Most cars built since about 2012 have an LED running light even when the headlamp itself is halogen, so an LED running strip tells you nothing about the headlamp. Say "led" only when the main/dipped unit itself is visibly LED — LED projector module(s) or rows of LED elements in the main light chamber. Say "halogen" or "hid" only when the main unit itself shows it. If the running light is the only thing you can read and the main unit's type cannot be told, the type is "indeterminate" — that is the correct answer, not a failure.
+
 Respond with a JSON array only — no markdown, no explanation, nothing else:
 [
   {
@@ -946,7 +948,10 @@ const STICKER_LEGIBLE = STICKER_ENUM.filter(s => s !== '' && s !== 'UNREADABLE')
 // read (windscreenLabel frames) and the attribution probe's frame selection (aspect zones).
 // Isolated from the money pipeline; fails to { ok:false, frames:[] } so every consumer takes its
 // full-set fallback (silence is a defect, never a silent skip).
-const FRAME_ZONE_ENUM = ['front', 'rear', 'nearside', 'offside', 'roof', 'interior', 'detail'];
+// batch 118 task 2: 'flank' = a side close-up whose side cannot be told. Admitted so a close-up can say
+// "this is the side of the car" without being forced to guess nearside/offside (side is the read's
+// weakest call). It never names a side, so the struck-side probe (P2) deliberately does not match it.
+const FRAME_ZONE_ENUM = ['front', 'rear', 'nearside', 'offside', 'flank', 'roof', 'interior', 'detail'];
 
 async function runFrameZoneId(images, onExhaust) {
   const emptyFail = { ok: false, frames: [] };
@@ -957,7 +962,8 @@ async function runFrameZoneId(images, onExhaust) {
     console.log(`[FRAME ZONE] firing over ${n} frame(s) source=haiku-1024px`);
     const prompt = `Each image is one photo of a salvage vehicle, numbered 0 to ${n - 1} in the order given.
 For EACH photo, report which aspects of the vehicle it shows and whether the windscreen lot label is visible.
-- zones: which aspects of the vehicle the photo shows. Use only these words: front, rear, nearside, offside, roof, interior, detail. A photo may show more than one — a three-quarter shot showing the front and one side is ["front","nearside"]. Use "detail" for a close-up of one part or area that does not frame a whole aspect (a single wheel, a panel edge, a VIN plate). Use "interior" for cabin or dashboard shots.
+- zones: which aspects of the vehicle the photo shows. Use only these words: front, rear, nearside, offside, flank, roof, interior, detail. A photo may show more than one — a three-quarter shot showing the front and one side is ["front","nearside"]. Use "detail" for a close-up of one part or area that does not frame a whole aspect (a single wheel, a panel edge, a VIN plate). Use "interior" for cabin or dashboard shots.
+- A "detail" close-up must ALSO say which part of the car it is a close-up of, whenever the photo shows enough to tell: ["detail","front"] for a close-up on the front end (bumper, grille, headlamp, bonnet edge), ["detail","rear"] on the rear end (rear bumper, tail lamp, boot), ["detail","nearside"] or ["detail","offside"] on a side (doors, wings, sills, mirrors, wheels, quarters) when you can tell which side, ["detail","flank"] on a side when you cannot tell which side, ["detail","roof"], ["detail","interior"]. Use "flank" only in this way, alongside "detail". Only when the close-up genuinely does not show which part of the car it is (a VIN plate, a bare bolt, an unrecognisable crop) is it ["detail"] alone.
 - windscreenLabel: true only when the printed white lot-number label and/or grease-pen lot number on the windscreen glass is visible in that photo; false otherwise.
 Return a raw JSON object only, no other text:
 { "frames": [ { "i": <photo index>, "zones": ["<zone words>"], "windscreenLabel": true|false } ] }`;
@@ -1087,8 +1093,12 @@ function attribFlagWording(partName, grade, isMissing) {
 }
 
 // Panel zone → frame-zone aspect words. underside / anything unmapped → null → full set.
+// batch 118 task 2: a close-up now carries its aspect (["detail","front"] …), so it already matches the
+// words below through zones.some(). The one addition is 'flank' — a side close-up whose side the frame
+// read could not tell — which belongs with the flank panels. A bare ["detail"] still matches nothing:
+// the frame read could not say what it shows, so it is not offered to any panel's probe.
 const PROBE_ZONE_MAP = {
-  front: ['front'], rear: ['rear'], 'flank-damaged-side': ['nearside', 'offside'],
+  front: ['front'], rear: ['rear'], 'flank-damaged-side': ['nearside', 'offside', 'flank'],
   roof: ['roof'], interior: ['interior'],
 };
 // Frame selection from the always-run frame-zone pass. Every fallback names itself in `source`
@@ -1113,7 +1123,7 @@ function selectProbeFrames(frameZones, panelZone) {
 //      inference (Q3). A pooled rear quarter falls through to P3.
 //   3. everything else → zone-map → full-set fallback (selectProbeFrames), UNCHANGED.
 const P2_FRONT_FLANK = new Set([PANEL.FRONT_WING, PANEL.FRONT_DOOR]);
-function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
+export function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
   if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
     const idx = cp._probeViews.slice(0, 35);
     if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin instance set (${idx.length} frames)`);
@@ -1527,7 +1537,12 @@ For each damage-relevant part you can assess in this photo, output one line in t
 
 PART: <PANEL_ID> | iv:<true|false|na|missing> | sev:<SEVERE|MODERATE|MINOR|-> | z:<front|rear|flank-damaged-side|roof|underside|interior>
 
-ONE LINE PER PART — with ONE EXCEPTION. AIRBAG is counted per BAG, not per part: a photo showing two deployed bags gets TWO PART: AIRBAG lines. See the AIRBAG entry in the vocabulary below. Every other identifier keeps one line per photo.
+ONE LINE PER PHYSICAL INSTANCE. Most photos show at most one of each part, so most parts get exactly one line. But some parts exist more than once on a car — two headlamps, two fog lamps, two door mirrors, several door windows, four wheels, four tyres, several airbags — and one photo can show more than one of them.
+COUNT FIRST, THEN WRITE. For each identifier, count the physically distinct instances of it that are actually in THIS photograph, then write one line for EACH instance, each with its own iv and sev. When you write more than one line for the same identifier, number them with a final field | inst:1, | inst:2, and so on (up to 4). AIRBAG lines name the bag's position with | pos: instead of a number — see the AIRBAG entry below.
+  Example — a front photo with one smashed headlamp and one intact headlamp gets TWO lines, not one line for the pair:
+    PART: HEADLAMP | iv:true | sev:SEVERE | z:front | inst:1
+    PART: HEADLAMP | iv:false | sev:- | z:front | inst:2
+Counting is not inferring. An instance counts only if you can actually see it in this photo. Never add a second instance because cars are symmetrical, or because one of a pair is damaged — and never leave out a second instance that is plainly there. If you cannot tell whether what you see is one instance or two, write one line.
 
 <PANEL_ID> must be one identifier from the closed vocabulary below, written exactly as shown (SCREAMING_SNAKE_CASE). If a part you observe does not fit any identifier, use OTHER.
 
@@ -1586,9 +1601,12 @@ STRUCTURAL FLAG — never costed; always flagged for inspection:
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
   AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover) — DEPLOYED bag only, NOT an intact airbag or a dash warning light. Genuine non-airbag interior damage still uses OTHER.
-                    AIRBAG IS COUNTED PER BAG, NOT PER PHOTO. This is the one exception to one-line-per-part.
+                    AIRBAG follows the instance rule above: ONE LINE PER DEPLOYED BAG, and each line names the bag's position.
                     Before writing any AIRBAG line, look over the WHOLE cabin in this photograph and count the deployed
                     bags you can actually see — steering wheel boss, dashboard top, both roof rails, seat bolsters.
+                    A deployed bag does not always hang. A PASSENGER bag usually bursts UP out of the top of the dashboard
+                    and then lies COLLAPSED ACROSS THE DASH TOP — a pale, crumpled fabric sheet over a torn-open flap in the
+                    dash. That is a deployed bag, not debris or packaging, and it gets its own line.
                     Then write ONE LINE FOR EACH BAG YOU COUNTED, appending that bag's POSITION as a final field:
                       | pos:<driver|passenger|curtain-left|curtain-right|unknown>
                       driver       — bag out of the STEERING WHEEL boss
@@ -1641,6 +1659,15 @@ BONNET is the horizontal hood skin between the wings. Damage on the vertical fen
 Grade BONNET iv:true ONLY if the horizontal hood SKIN itself is creased, dented, or buckled in THIS photo. A bonnet that is unlatched, sitting proud, misaligned, or showing a disturbed shut-line gap — but whose skin is intact — is DISPLACED, not damaged: an alignment consequence of structural/latch-area impact behind it. Grade it iv:false (the refit resolves with the structural repair, not a panel replacement). Do not grade a displaced-but-intact bonnet as a damaged panel.
 --- END BONNET: WING-EDGE & DISPLACEMENT ---
 
+--- CLOSE-UPS: NAME A FRONT OR REAR PANEL ONLY WHEN THE PHOTO SETTLES IT ---
+A close-up that does not show a whole side or end of the car is easy to misplace: a buckled front wing beside a door looks much like a rear quarter beside a door. Before you name a front or rear panel in a close-up — FRONT_WING or REAR_QUARTER, FRONT_DOOR or REAR_DOOR, FRONT_BUMPER or REAR_BUMPER, HEADLAMP or REAR_LAMP — find what in THIS photo settles which end of the car you are looking at:
+  - the DOOR MIRROR is mounted at the FRONT edge of the FRONT door, so a panel directly on the mirror's side of that door is the FRONT_WING, never a REAR_QUARTER;
+  - a headlamp, fog lamp, grille, bonnet edge or windscreen base means the front; a tail lamp, boot lid or rear screen means the rear;
+  - the steering wheel or dashboard seen through the glass means the front seats, so that door is a FRONT_DOOR;
+  - a REAR_QUARTER sits BEHIND the rearmost door and over the REAR wheel; a FRONT_WING sits AHEAD of the front door and over the FRONT wheel.
+A filler or charging flap is NOT an anchor — plug-in cars often have a charging flap on a front wing. If nothing in the photo settles which end of the car a panel belongs to, write that panel's line with iv:na rather than guess the name. A wrong name puts the damage on a panel that has none.
+--- END CLOSE-UPS ---
+
 The distinction between iv:false and iv:na is critical. iv:false is a positive statement you have seen the part and it is undamaged. iv:na means you could not assess it. Never use iv:false for a part you cannot clearly see — that case is always iv:na.
 
 --- RESOLVABILITY THRESHOLD (tunable — this clause only) ---
@@ -1662,7 +1689,7 @@ HV: <visible|absent|na>
   na      : cannot determine from this view (the common case).
 
 Do NOT write any prose, summary, cost, or commentary. Return ONLY PART: lines and the one HV: line.
-Do NOT use the words "offside", "nearside", "left", or "right" anywhere — WHEEL and TYRE are position-blind by design; for paired parts (headlamps, door mirrors) report once with the PANEL_ID and no position qualifier.
+Do NOT use the words "offside", "nearside", "left", or "right" anywhere — WHEEL and TYRE are position-blind by design; for paired parts (headlamps, door mirrors) never name a side — when both are in this photo, write one line each and number them inst:1 and inst:2, as the instance rule above says.
 If no damage-relevant parts are visible in this photo, still emit the HV: line — the sticker observation is independent of panel damage.`;
 
 
@@ -1728,10 +1755,18 @@ async function runPerViewAssess(image, idx, onExhaust) {
       // batch-107 report as evidence of "a single row, pos:driver" when its format string could not
       // print a position at all; a log that cannot show a field must never be read as showing it.
       const posLabel = cp.srsPosition ? ` pos=${cp.srsPosition}` : '';
-      console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}${posLabel}`);
+      const instLabel = cp.instance ? ` inst=${cp.instance}` : '';   // batch 118 — same rule: a field the parser set is printed
+      console.log(`[PER-VIEW][${idx}] panel=${cp.panelId} iv=${ivLabel} zone=${cp.zone}${instLabel}${posLabel}`);
     });
     if (enriched.length === 0) console.log(`[PER-VIEW][${idx}] 0 valid enum IDs from this view — no records contributed`);
-    return { costedParts: enriched, idx, hvLabelSeen };
+    // batch 118 task 1 — one VOTE per panel per photo (the contract every vote consumer is built on);
+    // the full instance rows ride alongside for the consumers that count instances (SRS positions).
+    const { votes, multi } = collapseInstances(enriched);
+    for (const m of multi) {
+      const ivLabel = m.kept.independentlyVisible === true ? 'true' : m.kept.independentlyVisible === false ? 'false' : m.kept.independentlyVisible === 'missing' ? 'missing' : 'na';
+      console.log(`[INSTANCE][${idx}] ${m.panelId} ×${m.count} instances → 1 vote (worst: iv=${ivLabel}${m.kept.severity ? ` sev=${m.kept.severity}` : ''})`);
+    }
+    return { costedParts: votes, instanceParts: enriched, idx, hvLabelSeen };
   } catch (err) {
     console.warn(`[PER-VIEW][${idx}] error:`, err.message);
     return { costedParts: [], idx, hvLabelSeen: false };
@@ -2463,12 +2498,12 @@ export function parsePartVerdicts(blockText) {
     // PART: name | iv:X | z:Y | ph:Z  (ph optional)
     const pm = t.match(
       new RegExp(
-        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*(?:\\|\\s*sev:(SEVERE|MODERATE|MINOR|-)\\s*)?\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?(?:\\s*\\|\\s*pos:(driver|passenger|curtain-left|curtain-right|unknown))?\\s*$`,
+        `^PART:\\s+(.+?)\\s*\\|\\s*iv:(true|false|na|missing)\\s*(?:\\|\\s*sev:(SEVERE|MODERATE|MINOR|-)\\s*)?\\|\\s*z:(${ZONES})(?:\\s*\\|\\s*ph:(low|mid|high))?(?:\\s*\\|\\s*inst:([1-4]))?(?:\\s*\\|\\s*pos:(driver|passenger|curtain-left|curtain-right|unknown))?\\s*$`,
         'i'
       )
     );
     if (pm) {
-      const [, rawId, ivRaw, sevRaw, zone, phRaw, posRaw] = pm;
+      const [, rawId, ivRaw, sevRaw, zone, phRaw, instRaw, posRaw] = pm;
       const panelId  = rawId.trim();
       const partName = PANEL_DISPLAY[panelId] ?? panelId;
       costedParts.push({
@@ -2481,6 +2516,8 @@ export function parsePartVerdicts(blockText) {
         // batch 107 task 3 — AIRBAG only; null on every other panel. This is a BAG position, never a
         // vehicle side for damage, so the side-scrub discipline does not apply to it.
         srsPosition:          posRaw ? posRaw.toLowerCase() : null,
+        // batch 118 task 1 — which instance, when a photo shows more than one of this part (inst:1..4).
+        instance:             instRaw ? Number(instRaw) : null,
       });
       continue;
     }
@@ -2702,6 +2739,40 @@ function analyseAirbagPaste(pasteRaw) {
 // driver bag are three damaged votes and ONE bag. Only DISTINCT POSITIONS may raise the tier.
 // 'unknown' is deliberately NOT a position: it confirms a bag without placing it, so it can never
 // contribute to a count. Two views that both say 'unknown' remain one unplaced bag.
+// batch 118 task 1 — ONE VOTE PER PANEL PER PHOTO, however many instances the photo showed.
+// The per-view read now writes one line per physical INSTANCE (two headlamps in a front shot, two bags
+// in a cabin shot). Every vote consumer downstream — amalgamate, the correspondence/G instance pass,
+// pvVotes, the lamp and wheel logic — was built on one row per panel per view, and a second row there
+// would be read as a second VOTE (a smashed lamp and an intact lamp in one frame would become a
+// "disagree"). So the instance rows are collapsed to ONE vote per panel per view, keeping the WORST
+// instance — "is this panel damaged in this photo?", the question that vote has always answered.
+// The full instance rows are kept alongside (instanceParts) for the consumers that COUNT instances;
+// today that is the SRS position count only. EXPORTED so validate-perview-parse pins the shipped
+// function, never a copy.
+const INSTANCE_RANK = (cp) => {
+  if (cp.independentlyVisible === true) return 10 + ({ SEVERE: 3, MODERATE: 2, MINOR: 1 }[cp.severity] ?? 1);
+  if (cp.independentlyVisible === 'missing') return 3;
+  if (cp.independentlyVisible === false) return 2;
+  return 1;   // na
+};
+export function collapseInstances(costedParts) {
+  const byPanel = new Map();
+  for (const cp of costedParts || []) {
+    const k = cp?.panelId;
+    if (!byPanel.has(k)) byPanel.set(k, []);
+    byPanel.get(k).push(cp);
+  }
+  const votes = [];
+  const multi = [];
+  for (const [panelId, rows] of byPanel) {
+    let kept = rows[0];
+    for (const r of rows) if (INSTANCE_RANK(r) > INSTANCE_RANK(kept)) kept = r;   // first wins on a tie
+    votes.push(kept);
+    if (rows.length > 1) multi.push({ panelId, count: rows.length, kept });
+  }
+  return { votes, multi };
+}
+
 export function srsPositionsFromPerView(perViewCostedParts) {
   const positions = new Set();
   for (const cp of perViewCostedParts || []) {
@@ -3430,13 +3501,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       (() => {
         if (!bregoData) return 'Live market valuation data: UNAVAILABLE — proceed with assessment but flag exit value as low confidence.';
         const fmt = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
-        const monthYear = new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+        // batch 118 task 3 — NO date in the prompt. `(${monthYear})` used to sit in the header below, fed
+        // by the only clock read in this route: it reached no buyer surface (the "Live data · <month>"
+        // the buyer sees is built by the page and the PDF), but it made every captured cassette's Call 1
+        // go stale at midnight on the 1st with no code change at all. Ruled: take the date out.
         // Map new source codes to strings the engine's mileage-source rules already know
         const engineSrc = brMileageSource === 'listing_odometer' ? 'copart_listed'
           : (brMileageSource === 'age_estimate' || brMileageSource === 'age_anomaly') ? 'default_fallback'
           : brMileageSource;
         const lines = [
-          `Live market valuation data (${monthYear}):`,
+          'Live market valuation data:',
           `- Retail low (poor condition): ${fmt(bregoData.retail_low_valuation)}`,
           `- Retail average (average condition): ${fmt(bregoData.retail_average_valuation)}`,
           `- Retail high (excellent condition): ${fmt(bregoData.retail_high_valuation)}`,
@@ -4697,7 +4771,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const _srsPaste = analyseAirbagPaste(enrichedVd.rawCopartPaste);
     // batch 107 task 3 — POSITIONS from the raw per-view reads (amalgamate pools by panelId, which
     // would collapse two bags into one row and lose exactly the distinction we need).
-    const _srsPositions = srsPositionsFromPerView(perViewResults.flatMap(r => r.costedParts || []));
+    // batch 118 task 1: read the INSTANCE rows — the vote rows are collapsed to one per panel per photo,
+    // which would keep one bag of two from the same frame. Distinct positions only, as before.
+    const _srsPositions = srsPositionsFromPerView(perViewResults.flatMap(r => r.instanceParts || r.costedParts || []));
     const srsT = srsTierFromSignals(_deploymentByEnum, _srsPaste, _srsPositions);
 
     // IN-PLAY gate — §3 THIRD-DOOR FIX (Vincent, 29 Aug). Previously this gate opened on

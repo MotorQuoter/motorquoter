@@ -29,6 +29,7 @@ const AIRBAG_OBJ = (over = {}) => ({
   severity: 'SEVERE',
   partHeight: null,
   srsPosition: 'passenger',
+  instance: null,   // batch 118 — the inst field; null unless the line carries | inst:N
   ...over,
 });
 
@@ -52,7 +53,7 @@ const MATCHING = [
   ['a non-AIRBAG panel — pos is AIRBAG-only, null everywhere else',
    'PART: FRONT_BUMPER | iv:true | sev:MODERATE | z:front',
    { panelId: 'FRONT_BUMPER', partName: 'Front bumper', zone: 'front', independentlyVisible: true,
-     severity: 'MODERATE', partHeight: null, srsPosition: null }],
+     severity: 'MODERATE', partHeight: null, srsPosition: null, instance: null }],
 ];
 
 for (const [name, line, expected] of MATCHING) {
@@ -206,4 +207,87 @@ test('a block of only blank lines reports nothing — padding is not lost eviden
 test('unmatched lines are reported TRIMMED, matching what the caller prints', () => {
   const r = parsePartVerdicts('      not a part line      ');
   assert.deepEqual(r.unmatched, ['not a part line']);
+});
+
+// ── 4. batch 118 — the instance concept: N rows for N instances, ONE vote per panel per photo ───────
+// The grammar gains exactly one optional field, `| inst:1..4`, between ph and pos. The six refused
+// variants above are untouched (still refused). The collapse is what keeps every vote consumer on the
+// one-row-per-panel-per-view contract it was built on; the SRS count reads the instance rows.
+import { collapseInstances, srsPositionsFromPerView, srsTierFromSignals, PER_VIEW_PROMPT } from '@/app/api/salvage/assess/route.js';
+
+test('INSTANCE grammar: two headlamps in one photo → two records, numbered, nothing unmatched', () => {
+  const r = parsePartVerdicts([
+    'PART: HEADLAMP | iv:true | sev:SEVERE | z:front | inst:1',
+    'PART: HEADLAMP | iv:false | sev:- | z:front | inst:2',
+  ].join('\n'));
+  assert.deepEqual(r.unmatched, []);
+  assert.deepEqual(r.costedParts.map((c) => [c.panelId, c.independentlyVisible, c.instance]), [['HEADLAMP', true, 1], ['HEADLAMP', false, 2]]);
+});
+test('INSTANCE grammar: inst sits in contract order (after ph, before pos); inst:5 is refused (max 4)', () => {
+  assert.equal(parsePartVerdicts('PART: WHEEL | iv:true | sev:MINOR | z:flank-damaged-side | ph:low | inst:2').costedParts[0].instance, 2);
+  const r5 = parsePartVerdicts('PART: WHEEL | iv:true | sev:MINOR | z:flank-damaged-side | inst:5');
+  assert.deepEqual(r5.costedParts, []);
+  assert.equal(r5.unmatched.length, 1);
+});
+test('COLLAPSE: a single row per panel is returned unchanged (today\'s contract, byte-identical)', () => {
+  const rows = parsePartVerdicts('PART: BONNET | iv:true | sev:SEVERE | z:front\nPART: GRILLE | iv:false | sev:- | z:front').costedParts;
+  const { votes, multi } = collapseInstances(rows);
+  assert.deepEqual(votes, rows);
+  assert.deepEqual(multi, []);
+});
+test('COLLAPSE: a smashed lamp + an intact lamp in one frame is ONE damaged vote, never a "disagree"', () => {
+  const rows = parsePartVerdicts('PART: HEADLAMP | iv:false | sev:- | z:front | inst:1\nPART: HEADLAMP | iv:true | sev:SEVERE | z:front | inst:2').costedParts;
+  const { votes, multi } = collapseInstances(rows);
+  assert.equal(votes.length, 1);
+  assert.equal(votes[0].independentlyVisible, true);
+  assert.equal(votes[0].severity, 'SEVERE');
+  assert.deepEqual(multi.map((m) => [m.panelId, m.count]), [['HEADLAMP', 2]]);
+});
+test('COLLAPSE ranking: damaged (by severity) > missing > clean > na', () => {
+  const mk = (iv, sev) => ({ panelId: 'WHEEL', independentlyVisible: iv, severity: sev });
+  assert.equal(collapseInstances([mk(null), mk(false)]).votes[0].independentlyVisible, false);
+  assert.equal(collapseInstances([mk(false), mk('missing')]).votes[0].independentlyVisible, 'missing');
+  assert.equal(collapseInstances([mk('missing'), mk(true, 'MINOR')]).votes[0].independentlyVisible, true);
+  assert.equal(collapseInstances([mk(true, 'MINOR'), mk(true, 'MODERATE')]).votes[0].severity, 'MODERATE');
+});
+test('SRS: two bags in ONE frame → one AIRBAG vote, but BOTH positions reach the tier → T2', () => {
+  const rows = parsePartVerdicts('PART: AIRBAG | iv:true | sev:SEVERE | z:interior | pos:driver\nPART: AIRBAG | iv:true | sev:SEVERE | z:interior | pos:passenger').costedParts;
+  const view = { costedParts: collapseInstances(rows).votes, instanceParts: rows };
+  assert.equal(view.costedParts.filter((c) => c.panelId === 'AIRBAG').length, 1, 'one vote per photo');
+  const pos = srsPositionsFromPerView([view].flatMap((r) => r.instanceParts || r.costedParts));
+  assert.deepEqual([...pos].sort(), ['driver', 'passenger']);
+  assert.equal(srsTierFromSignals(true, { deployed: false }, pos).tier, 2);
+  // … and reading the VOTE rows instead would lose the passenger bag — the route must read instanceParts.
+  assert.deepEqual([...srsPositionsFromPerView(view.costedParts)], ['driver']);
+});
+test('OVER-COUNT GUARD (batch 107, unchanged): one bag seen in three frames is still ONE position → T1', () => {
+  const one = parsePartVerdicts('PART: AIRBAG | iv:true | sev:SEVERE | z:interior | pos:driver').costedParts;
+  const pos = srsPositionsFromPerView([...one, ...one, ...one]);
+  assert.equal(srsTierFromSignals(true, { deployed: false }, pos).tier, 1);
+});
+test('ROUTE: the SRS count reads the instance rows, not the collapsed votes', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  assert.match(src, /srsPositionsFromPerView\(perViewResults\.flatMap\(r => r\.instanceParts \|\| r\.costedParts \|\| \[\]\)\)/);
+  assert.match(src, /return \{ costedParts: votes, instanceParts: enriched, idx, hvLabelSeen \};/);
+});
+test('PROMPT: the instance rule replaced the airbag-only exception (one concept, not a third airbag wording)', () => {
+  assert.ok(PER_VIEW_PROMPT.includes('ONE LINE PER PHYSICAL INSTANCE.'));
+  assert.ok(PER_VIEW_PROMPT.includes('COUNT FIRST, THEN WRITE.'));
+  assert.ok(!PER_VIEW_PROMPT.includes('with ONE EXCEPTION'), 'the old exception wording is gone');
+  assert.ok(!PER_VIEW_PROMPT.includes('This is the one exception to one-line-per-part'));
+  assert.ok(!PER_VIEW_PROMPT.includes('report once with the PANEL_ID and no position qualifier'), 'the paired-parts line no longer contradicts the rule');
+  assert.ok(PER_VIEW_PROMPT.includes('Counting is not inferring.'), 'the over-count discipline is in the general rule');
+  assert.ok(PER_VIEW_PROMPT.includes('lies COLLAPSED ACROSS THE DASH TOP'), 'the passenger-bag look AMZ3790 missed');
+});
+test('PROMPT: a close-up names a front/rear panel only when the photo settles it (batch 118 task 2 / P4)', () => {
+  assert.ok(PER_VIEW_PROMPT.includes('--- CLOSE-UPS: NAME A FRONT OR REAR PANEL ONLY WHEN THE PHOTO SETTLES IT ---'));
+  assert.ok(PER_VIEW_PROMPT.includes('the DOOR MIRROR is mounted at the FRONT edge of the FRONT door'));
+  assert.ok(PER_VIEW_PROMPT.includes('A filler or charging flap is NOT an anchor'));
+  assert.ok(PER_VIEW_PROMPT.includes('write that panel\'s line with iv:na rather than guess the name'));
+});
+test('PROMPT hygiene: the per-view prompt still bans side words outside the named exceptions', () => {
+  // The instance rule must not reintroduce "left"/"right"/"offside"/"nearside" as instructions to the model.
+  const body = PER_VIEW_PROMPT.replace(/curtain-left|curtain-right|LEFT of the cabin|the RIGHT\)|left rear barn door|right rear barn door|left side panel|left bed wall|right side panel|right bed wall|left or right as THIS photo is viewed|"offside", "nearside", "left", or "right"|left, right|left leaf|right leaf|BARN_DOOR_L|BARN_DOOR_R|BED_SIDE_L|BED_SIDE_R/g, '');
+  assert.ok(!/\b(offside|nearside)\b/i.test(body));
 });
