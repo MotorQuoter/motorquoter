@@ -25,7 +25,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { reconcileParts, applyVisibilityGate, sumPartsRealistic } from '@/lib/parts.mjs';
+import { reconcileParts, applyVisibilityGate, sumPartsRealistic, classifyLampMoneyRows } from '@/lib/parts.mjs';
 import { buildDamageCards } from '@/lib/damageCards.mjs';
 import { computeLampResult } from '@/app/api/salvage/assess/route.js';
 
@@ -242,4 +242,76 @@ test('CARDS: the inserted half does NOT claim it was absent from the photographs
       'the pair is inferred from impact span, not from a lamp missing from a frame');
     assert.match(c.note, /both headlamps are costed/i);
   }
+});
+
+// ── BATCH 110 TASK 1 — THE [LAMP MONEY] DIAGNOSTIC MUST TELL THE TRUTH ABOUT THE PAIR ───────────────
+// The first live lot after 109C (AMZ3790, 11 Sep) logged "tier2-anomaly (INVARIANT BROKEN: >1 mandated
+// lamp row on a path where that is structurally impossible)" about the two lamps 109C costs by design.
+// The fix is a TRUE line, not a quiet one: the pair still logs its row count, and every other >1 shape
+// still warns. Driven by the real chain's gated output, not by hand-built rows, wherever the real chain
+// can reach the case.
+const OLD_STALE = 'INVARIANT BROKEN: >1 mandated lamp row on a path where that is structurally impossible';
+const mRow = (extra = {}) => ({ name: 'Headlamp', action: 'replace', oem: null, used: 350, _lampMandated: true, _band: 350, ...extra });
+
+for (const vrm of ['AMZ3790', 'SA26KVT', 'SF69YBB']) {
+  const L = load(vrm)._lampResult;
+  for (const [shape, parts] of [
+    ['model priced 2', [modelLamp(240), modelLamp(240), LABOUR]],
+    ['model priced 1', [modelLamp(240), LABOUR]],
+    ['model priced 0', [LABOUR]],
+  ]) {
+    test(`LAMP MONEY LINE: ${vrm} / ${shape} — the pair logs as expected, with its count, never as a breach`, () => {
+      const o = runChain(parts, L);
+      const c = classifyLampMoneyRows(o.gated, L, L.spanSource);
+      assert.ok(c, 'two rows in the money must still produce a line — not silenced');
+      assert.equal(c.level, 'log', 'the designed pair is not a warning');
+      assert.match(c.line, /^\[LAMP MONEY\]\[PAIR\] 2 lamp rows in parts_sum/, 'the line must report the count');
+      assert.ok(!/INVARIANT BROKEN/.test(c.line), `the pair was called a breach: ${c.line}`);
+    });
+  }
+}
+
+test('LAMP MONEY LINE: A1 on a pair (iv != true) — no lamp in the money, so no >1 line', () => {
+  const L = load('SA26KVT')._lampResult;
+  const o = runChain([modelLamp(240), LABOUR], L, 'na');
+  assert.equal(classifyLampMoneyRows(o.gated, L, L.spanSource), null);
+});
+
+test('LAMP MONEY LINE: a lampCount 1 lot with one lamp says nothing extra, exactly as before', () => {
+  const L = load('AK75RDX')._lampResult;
+  const o = runChain([modelLamp(240), LABOUR], L);
+  assert.equal(classifyLampMoneyRows(o.gated, L, L.spanSource), null);
+});
+
+// The breaches the real chain cannot currently produce — hand-built, because that is the point: they
+// are the shapes the invariant exists to catch. Each must still WARN and still say INVARIANT BROKEN.
+test('LAMP MONEY LINE: tier-2 lampCount 1 with 2 mandated rows is STILL a breach', () => {
+  const c = classifyLampMoneyRows([mRow(), mRow()], { tier2Fired: true, lampCount: 1 }, 'single_corner');
+  assert.equal(c.level, 'warn');
+  assert.match(c.line, /INVARIANT BROKEN: 2 mandated lamp rows on a lampCount=1 path/);
+});
+
+test('LAMP MONEY LINE: tier-2 lampCount 2 with 3 mandated rows is STILL a breach', () => {
+  const c = classifyLampMoneyRows([mRow({ _lampPair: true }), mRow({ _lampPair: true }), mRow({ _lampPair: true })],
+    { tier2Fired: true, lampCount: 2 }, 'full_width');
+  assert.equal(c.level, 'warn');
+  assert.match(c.line, /INVARIANT BROKEN: 3 mandated lamp rows on a lampCount=2 path/);
+});
+
+test('LAMP MONEY LINE: tier-2 lampCount 2 with 2 rows NOT stamped as the 109C pair is STILL a breach', () => {
+  const c = classifyLampMoneyRows([mRow({ _lampPair: true }), mRow()], { tier2Fired: true, lampCount: 2 }, 'full_width');
+  assert.equal(c.level, 'warn');
+  assert.match(c.line, /INVARIANT BROKEN/);
+});
+
+test('LAMP MONEY LINE: the non-tier-2 orphan-collapse text is byte-identical to S5-1', () => {
+  const c = classifyLampMoneyRows([mRow(), mRow()], null, 'no-lamp-result');
+  assert.equal(c.level, 'warn');
+  assert.equal(c.line, '[LAMP MONEY][ORPHAN COLLAPSE] 2 lamp rows in parts_sum — orphan-collapse (non-tier2 path — S5-2 target); span_source=no-lamp-result.');
+});
+
+test('LAMP MONEY LINE: route.js is wired to the classifier and the stale sentence is gone', () => {
+  const src = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  assert.match(src, /classifyLampMoneyRows\(gatedParts, lampResult, lamp_span_source\)/);
+  assert.ok(!src.includes(OLD_STALE), 'the pre-109C invariant sentence is still in route.js');
 });

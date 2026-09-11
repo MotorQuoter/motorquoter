@@ -25,7 +25,7 @@ import {
 } from '@/lib/coreSlots';
 import {
   isLampLine, normName, sumPartsRealistic, reconcileParts,
-  applyVisibilityGate, finalizeLampInstrumentation,
+  applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -5389,12 +5389,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     }
     console.log(`[PARTS] repair=£${parts_sum} lamp_inserted=${lamp_inserted} lamps=${lamp_count} band_each=£${lampResult?.lampAllowance ?? 0} lamp_delta=£${lamp_delta}`);
     console.log(`[LAMP MONEY] rows_in_money=${lamp_money_rows} span_source=${lamp_span_source} orphan_collapse=${orphan_collapse} (lamp_count intent=${lamp_count})`);
-    if (lamp_money_rows > 1) {
-      const _branch = orphan_collapse
-        ? 'orphan-collapse (non-tier2 path — S5-2 target)'
-        : 'tier2-anomaly (INVARIANT BROKEN: >1 mandated lamp row on a path where that is structurally impossible)';
-      console.warn(`[LAMP MONEY][ORPHAN COLLAPSE] ${lamp_money_rows} lamp rows in parts_sum — ${_branch}; span_source=${lamp_span_source}.`);
-    }
+    // >1 lamp row: the 109C full-width pair logs as expected; every other shape still warns (lib/parts.mjs).
+    const _lampMoneyLine = classifyLampMoneyRows(gatedParts, lampResult, lamp_span_source);
+    if (_lampMoneyLine) console[_lampMoneyLine.level](_lampMoneyLine.line);
 
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
     // avoiding contradiction with already-confirmed wheel damage in the checklist.
