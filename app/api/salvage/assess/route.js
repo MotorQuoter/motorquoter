@@ -2109,7 +2109,8 @@ function ledgerPreamble(pvResult) {
   );
 }
 
-function selectStruckCornerVerdict(corners) {
+// EXPORTED (batch 113) so validate-headlamp-pair selects the struck corner with the real function.
+export function selectStruckCornerVerdict(corners) {
   if (!Array.isArray(corners) || corners.length === 0) return null;
   // A 'missing' verdict is the strongest signal — prefer it
   const missingCorner = corners.find(c => c.verdict === 'missing');
@@ -2126,7 +2127,8 @@ function selectStruckCornerVerdict(corners) {
   return null; // ambiguous — fall back to cannot_determine
 }
 
-function deriveLampType(vd) {
+// EXPORTED (batch 113) so validate-headlamp-pair computes each lot's spec type with the real function.
+export function deriveLampType(vd) {
   const make     = (vd.make  || '').toLowerCase().replace(/[-\s]/g, '');
   const model    = (vd.model || '').toLowerCase();
   const year     = parseInt(vd.year, 10) || 0;
@@ -2250,28 +2252,48 @@ function deriveLampType(vd) {
 // Assumed-LED disclosure — single owner of the wording. Emitted as prose by computeLampResult on the
 // tier-2 assumed path, and as an inspection flag on the tier-1 orphan clamp (post-gate, below) — the
 // disclosure follows the assumption wherever an assumed-LED band arises, not any one trigger path.
-const LAMP_ASSUMED_DISCLOSURE = 'Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
+// batch 113: "assumed" now means NEITHER the photographs NOR the spec gave a type (see resolveLampBand), so
+// the sentence names both sources. Before 113 it said only "the vehicle spec", which was true but told the
+// buyer nothing about the photographs — and on the orphan path the photographs were never consulted.
+const LAMP_ASSUMED_DISCLOSURE = 'Lamp type could not be confirmed from the vehicle spec or the listing photographs, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
 
-// Single owner of the spec→type→band resolution. Spec-table type OWNS the band when concrete; when
-// indeterminate, the HIGHER of any vision detection / LED default is used (never under-budget).
-// Consumed by computeLampResult (with detection) and by the request-scope specLampBand computation for
-// the tier-1 orphan clamp (detection null). Discarded detection is logged so the swing is visible.
-function resolveLampBand(specLampType, detectionLampType = null) {
-  const LAMP_RANK        = { halogen: 1, hid: 2, led: 3 };
-  const specAssumed      = !HEADLAMP_BANDS[specLampType];
-  const resolvedSpecType = specAssumed ? HEADLAMP_BAND_DEFAULT : specLampType;
-  const resolvedDetType  = (detectionLampType && HEADLAMP_BANDS[detectionLampType]) ? detectionLampType : null;
-  let resolvedType;
-  if (!specAssumed) {
-    resolvedType = resolvedSpecType;                       // spec concrete → spec wins, detection ignored
-    if (resolvedDetType && resolvedDetType !== resolvedSpecType) {
-      console.log(`[LAMP] detection=${resolvedDetType} discarded — spec-table ${resolvedSpecType} concrete (spec wins)`);
-    }
-  } else {
-    resolvedType = (resolvedDetType && (LAMP_RANK[resolvedDetType] ?? 0) > (LAMP_RANK[resolvedSpecType] ?? 0))
-      ? resolvedDetType : resolvedSpecType;                // spec indeterminate → HIGHER of detection / LED default
+// ── Single owner of the type→band resolution — batch 113, VINCENT, 11 Sep: "Let the photo set the band
+// with the user having the option to correct it." PRECEDENCE, INVERTED:
+//   1. the PHOTOGRAPH's type (lamp-detect) sets the band whenever it resolves one;
+//   2. the spec type (deriveLampType) is the fallback when the photograph cannot tell;
+//   3. HEADLAMP_BAND_DEFAULT (LED) only when NEITHER resolves — and only then is the type "assumed".
+// Why: the lamp price tracks technology and generation, which TRIM decides; deriveLampType guesses from
+// make/model/year and the photograph is the one source that looks. Before 113 the spec won when concrete
+// and detection could only lift an indeterminate spec above LED — which, LED being the top band, meant
+// detection could never move a penny (proven over 25 combinations in batch 110).
+// A photo/spec disagreement is LOGGED with both sides and the winner — never a silent override.
+// detectionLampType is normalised (trim + lower-case) and must be a HEADLAMP_BANDS key; anything else
+// ("indeterminate", an off-enum word) counts as "the photograph could not tell".
+// EXPORTED so validate-headlamp-pair pins the precedence on the real function.
+export function resolveLampBand(specLampType, detectionLampType = null) {
+  const norm     = t => (typeof t === 'string' ? t.trim().toLowerCase() : null);
+  const photo    = HEADLAMP_BANDS[norm(detectionLampType)] ? norm(detectionLampType) : null;
+  const spec     = HEADLAMP_BANDS[specLampType] ? specLampType : null;
+  const resolvedType   = photo ?? spec ?? HEADLAMP_BAND_DEFAULT;
+  const lampTypeSource = photo ? 'photo' : spec ? 'spec' : 'default';
+  if (photo && spec && photo !== spec) {
+    console.log(`[LAMP][TYPE] photograph=${photo} (£${HEADLAMP_BANDS[photo]}) vs spec=${spec} (£${HEADLAMP_BANDS[spec]}) — PHOTOGRAPH WINS (batch 113 ruling)`);
   }
-  return { resolvedType, bandValue: HEADLAMP_BANDS[resolvedType], lampTypeAssumed: specAssumed && !resolvedDetType };
+  return { resolvedType, bandValue: HEADLAMP_BANDS[resolvedType], lampTypeAssumed: lampTypeSource === 'default', lampTypeSource };
+}
+
+// batch 113 TASK 0 finding: the struck corner is often the one with NO lamp in it — lamp-detect then reads
+// its type as "indeterminate" (AMZ3790, YH23NVW) while the other corner of the same car plainly shows the
+// type. Both corners carry the same technology, so the photograph's type is the struck corner's when it
+// resolves one, else the other corner's. Corners resolving DIFFERENT types is logged; the struck corner wins.
+// EXPORTED so validate-headlamp-pair pins it on the real function.
+export function photoLampType(corners, struckCorner) {
+  if (!Array.isArray(corners) || corners.length === 0) return null;
+  const typeOf = c => (typeof c?.lamp_type === 'string' ? c.lamp_type.trim().toLowerCase() : null);
+  const concrete = corners.map(typeOf).filter(t => HEADLAMP_BANDS[t]);
+  if (new Set(concrete).size > 1) console.warn(`[LAMP][TYPE] corners disagree on lamp type: ${JSON.stringify(corners.map(c => c?.lamp_type))} — struck corner preferred`);
+  const struck = typeOf(struckCorner);
+  return HEADLAMP_BANDS[struck] ? struck : (concrete[0] ?? null);
 }
 
 const DAMAGE_SPAN_ENUM = ['single_corner', 'full_width'];
@@ -2303,7 +2325,7 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
   // Band selection is owned by resolveLampBand (single owner): spec-table type wins when concrete;
   // when indeterminate, the HIGHER of detection / LED default. Detection oscillates run-to-run and
   // may never override a concrete spec upward.
-  const { resolvedType, bandValue, lampTypeAssumed } = resolveLampBand(lampType, detectionLampType);
+  const { resolvedType, bandValue, lampTypeAssumed, lampTypeSource } = resolveLampBand(lampType, detectionLampType);
 
   // Lamp count from geometry: full-width frontal implies both lamps implicated
   const lampCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
@@ -2317,7 +2339,7 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
   const tier1Line = 'Struck front corner — confirm a serviceable headlamp on inspection.';
 
   if (!apertureExposed) {
-    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampAllowance: 0, lampCount: 1, spanSource };
+    return { tier: 1, tier2Fired: false, struckSide: side, tier1Line, lampType: resolvedType, lampTypeAssumed, lampTypeSource, lampAllowance: 0, lampCount: 1, spanSource };
   }
 
   // Verdict branch: toggle gates confident 'missing' wording; detection is authoritative otherwise
@@ -2358,7 +2380,7 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
     const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
       ? `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — appears present but serviceability unconfirmed; precautionary replacement costed at £${bandValue} (${resolvedType}).`);
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampTypeSource, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   if (effectiveVerdict === 'missing') {
@@ -2367,7 +2389,7 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
     const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
       ? `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}, assumed).`
       : `Struck front corner headlamp — missing; replacement costed at £${bandValue} (${resolvedType}).`);
-    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
+    return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampTypeSource, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
   }
 
   // cannot_determine — default path and toggle-OFF 'missing'
@@ -2378,7 +2400,7 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
   const costDriverEntry = pairCostDriver ?? (lampTypeAssumed
     ? `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}, assumed).`
     : `Struck front corner headlamp — replacement costed at £${bandValue} (${resolvedType}).`);
-  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
+  return { tier: 2, tier2Fired: true, struckSide: side, tier1Line, verdictLine, costDriverEntry, checklistEntry, checklistEntry2nd, lampType: resolvedType, lampTypeAssumed, lampTypeSource, lampAllowance: bandValue, lampCount, detectionVerdict, effectiveVerdict, spanSource };
 }
 
 // ── Parts Breakdown helpers ──────────────────────────────────────────────────
@@ -3805,6 +3827,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Join lamp detection (ran in parallel with Claude calls)
     const lampDetectionRaw = await lampDetectionPromise;
     const detectedCorner   = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
+    // batch 113 — the photograph's lamp TYPE: the struck corner's if it resolves one, else the other corner's.
+    const photoType        = photoLampType(lampDetectionRaw, detectedCorner);
     console.log('[LAMP DETECT]', detectedCorner   // batch 89: lamp detection runs on every lot now
       ? `struck corner: verdict=${detectedCorner.verdict} lamp_type=${detectedCorner.lamp_type} evidence="${(detectedCorner.evidence || '').slice(0, 80)}"`
       : lampDetectionRaw ? 'no struck corner identified in response' : 'call skipped or failed');
@@ -3884,11 +3908,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       lampResult = computeLampResult(
         lampObs.struckSide, lampObs.apertureExposed, derivedLampType,
         detectedCorner?.verdict   || null,
-        detectedCorner?.lamp_type || null,
+        photoType,
         lampObs.damageSpan        || 'full_width',
         lampObs._spanDefaulted    === true
       );
-      console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} assumed=${lampResult.lampTypeAssumed}`);
+      console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
     }
 
     // Item 15 — enforce prose-ban on absolute side labels before any buyer-facing field is parsed.
@@ -4422,11 +4446,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Spec-table lamp band, computed at request scope regardless of tier / lampObs — the tier-1 orphan
     // clamp (reconcileParts) needs a band even when the lamp machinery never fired (undisplaced front).
-    // Detection is null here: the orphan path has no lamp-detect read; spec-table type (LED default when
-    // indeterminate) owns it. Single owner of the resolution: resolveLampBand (shared with computeLampResult).
+    // batch 113: this used to pass detection as null on the premise that "the orphan path has no lamp-detect
+    // read". That premise has been false since batch 89 — lamp-detect runs on every lot and is joined above —
+    // so the orphan band now follows the same ruled precedence as the tier-2 band: photograph, then spec, then
+    // the LED default. Single owner of the resolution: resolveLampBand (shared with computeLampResult).
     const _specLampType = deriveLampType(enrichedVd);
-    const { bandValue: specLampBand, lampTypeAssumed: specLampAssumed } = resolveLampBand(_specLampType, null);
-    console.log(`[LAMP][SPEC-BAND] type=${_specLampType || 'indeterminate'} band=£${specLampBand} assumed=${specLampAssumed}`);
+    const { bandValue: specLampBand, lampTypeAssumed: specLampAssumed, lampTypeSource: _orphanTypeSource } = resolveLampBand(_specLampType, photoType);
+    console.log(`[LAMP][SPEC-BAND] type=${_specLampType || 'indeterminate'} photo=${photoType ?? 'none'} → source=${_orphanTypeSource} band=£${specLampBand} assumed=${specLampAssumed}`);
 
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed, HEADLAMP_BANDS[HEADLAMP_BAND_DEFAULT]);
 

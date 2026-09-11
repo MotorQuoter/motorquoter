@@ -31,7 +31,10 @@ import {
   assembleVdsParts, tier2LampDisclosureFlag, LAMP_SURPLUS_LIMIT_REASON,
 } from '@/lib/parts.mjs';
 import { buildDamageCards } from '@/lib/damageCards.mjs';
-import { computeLampResult } from '@/app/api/salvage/assess/route.js';
+import {
+  computeLampResult, resolveLampBand, photoLampType, deriveLampType, selectStruckCornerVerdict,
+} from '@/app/api/salvage/assess/route.js';
+import { normaliseLot } from '@/lib/normaliseLot.js';
 
 const FIX = 'fixtures';
 const load = v => (j => j.assessment || j)(JSON.parse(readFileSync(`${FIX}/${v}/baseline-assessment.json`, 'utf8')));
@@ -428,7 +431,9 @@ test('TASK 2: lampCount 2 on an assumed lamp type still carries the assumed-LED 
 });
 
 // Captured from 0794382 BEFORE the change — the literal shipped count-1 strings.
-const DISC = 'Lamp type could not be confirmed from the vehicle spec, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
+// batch 113 changed ONE thing in these pins, deliberately: the disclosure now names both sources ("the vehicle spec
+// or the listing photographs"), because "assumed" now means neither told us. The rest of each string is unchanged.
+const DISC = 'Lamp type could not be confirmed from the vehicle spec or the listing photographs, so the higher LED/adaptive band has been used to avoid under-budgeting — confirm the actual lamp type and unit cost on inspection; a halogen unit would be materially cheaper.';
 const PRESENT1 = 'Struck front corner headlamp — the headlamp on the struck corner appears present; however, on a displaced-bumper impact the aperture is unreliable and serviceability cannot be confirmed from photos. Replacement costed at £350 (led) as a precautionary allowance.';
 const CANNOT1  = 'Struck front corner headlamp — on a displaced-bumper front-corner impact the headlamp is treated as a replacement; presence and serviceability cannot be confirmed from the photos. Replacement costed at £350 (led).';
 for (const [v, spec, expected] of [
@@ -778,4 +783,138 @@ test('TASK 4 CORPUS: still theoretical — no stored pair lot is _perViewClear o
   for (const v of lots().filter(v => load(v)._lampResult?.lampCount === 2)) {
     assert.ok(lampRows(load(v)._reconciledParts).some(p => p._lampMandated), v);
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// BATCH 113 — Vincent, 11 Sep 2026: "Let the photo set the band with the user having the option to
+// correct it." The photograph's type sets the band; the spec is the fallback; LED only when neither.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ── resolveLampBand — THE PRECEDENCE, INVERTED ───────────────────────────────────────────────────
+const BAND = { halogen: 150, hid: 250, led: 350 };
+for (const spec of ['halogen', 'hid', 'led', 'indeterminate', null]) {
+  for (const photo of ['halogen', 'hid', 'led', 'indeterminate', null]) {
+    test(`113 PRECEDENCE: spec=${spec} photo=${photo}`, () => {
+      const r = resolveLampBand(spec, photo);
+      const want = BAND[photo] ? photo : BAND[spec] ? spec : 'led';
+      assert.equal(r.resolvedType, want, 'photo, then spec, then the LED default');
+      assert.equal(r.bandValue, BAND[want]);
+      assert.equal(r.lampTypeSource, BAND[photo] ? 'photo' : BAND[spec] ? 'spec' : 'default');
+      assert.equal(r.lampTypeAssumed, !BAND[photo] && !BAND[spec], 'assumed ONLY when neither source resolves');
+    });
+  }
+}
+
+test('113 PRECEDENCE: the photograph can now move the band DOWN as well as up (the pre-113 code never could)', () => {
+  assert.equal(resolveLampBand('led', 'halogen').bandValue, 150);
+  assert.equal(resolveLampBand('halogen', 'led').bandValue, 350);
+  assert.equal(resolveLampBand(null, 'hid').bandValue, 250);
+});
+
+test('113 NORMALISATION: detection type is trimmed + lower-cased; off-enum words count as "could not tell"', () => {
+  assert.equal(resolveLampBand(null, ' LED ').lampTypeSource, 'photo');
+  for (const w of ['xenon', 'matrix', 'laser', '', 'unknown']) {
+    assert.equal(resolveLampBand('halogen', w).resolvedType, 'halogen', `"${w}" must fall back to the spec`);
+  }
+});
+
+// ── photoLampType — the type comes from the corner that SHOWS it ─────────────────────────────────
+test('113 PHOTO TYPE: the struck corner wins when it resolves a type', () => {
+  const c = [{ verdict: 'missing', lamp_type: 'hid' }, { verdict: 'present', lamp_type: 'led' }];
+  assert.equal(photoLampType(c, c[0]), 'hid');
+});
+
+test('113 PHOTO TYPE: a missing struck corner reads "indeterminate" — the other corner supplies the type', () => {
+  const c = [{ verdict: 'missing', lamp_type: 'indeterminate' }, { verdict: 'present', lamp_type: 'led' }];
+  assert.equal(photoLampType(c, c[0]), 'led');
+});
+
+test('113 PHOTO TYPE: nothing resolved → null; empty / absent → null', () => {
+  assert.equal(photoLampType([{ lamp_type: 'indeterminate' }, { lamp_type: 'indeterminate' }], null), null);
+  assert.equal(photoLampType([], null), null);
+  assert.equal(photoLampType(null, null), null);
+});
+
+// ── THE CORPUS, from the recorded lamp-detect responses (they still replay on all 12 lots that have one)
+const cassetteLampDetect = v => {
+  for (const arr of Object.values(JSON.parse(readFileSync(`${FIX}/${v}/model-cassette.json`, 'utf8')))) for (const s of arr) {
+    let j; try { j = JSON.parse(s); } catch { continue; }
+    const t = (j.content || []).find(b => b.type === 'text')?.text || '';
+    if (/corner_descriptor/.test(t)) return JSON.parse(t.match(/\[[\s\S]*\]/)[0]);
+  }
+  return null;
+};
+const fixtureVd = v => normaliseLot(JSON.parse(readFileSync(`${FIX}/${v}/fixture.json`, 'utf8')).vehicleDetails || {});
+const struckOf = corners => selectStruckCornerVerdict(corners);   // the real engine function
+
+const MOVERS_113 = { SF69YBB: { before: 150, after: 350 } };   // the ONLY lot whose band moves
+for (const v of lots()) {
+  const corners = cassetteLampDetect(v);
+  if (!corners) {
+    test(`113 CORPUS ${v}: no recorded lamp-detect response — the photograph cannot set this lot's band`, () => {
+      assert.ok(['EN23NJX', 'FE68AOP'].includes(v), `${v} was expected to carry a lamp-detect response`);
+    });
+    continue;
+  }
+  test(`113 CORPUS ${v}: band before → after the inversion`, () => {
+    const spec = deriveLampType(fixtureVd(v));
+    const photo = photoLampType(corners, struckOf(corners));
+    const beforeType = BAND[spec] ? spec : 'led';        // pre-113: concrete spec wins; else LED (detection could never exceed LED)
+    const after = resolveLampBand(spec, photo);
+    const expect = MOVERS_113[v] ?? { before: BAND[beforeType], after: BAND[beforeType] };
+    assert.equal(BAND[beforeType], expect.before, 'pre-113 band');
+    assert.equal(after.bandValue, expect.after, 'post-113 band');
+    assert.equal(after.lampTypeSource, 'photo', `${v}: the photograph resolved a type on every lot that has a read`);
+  });
+}
+
+test('113 CORPUS: every concrete type the photograph read on the corpus is LED — it has never been shown a halogen or HID lamp', () => {
+  const seen = new Set();
+  for (const v of lots()) for (const c of (cassetteLampDetect(v) || [])) if (BAND[c.lamp_type]) seen.add(c.lamp_type);
+  assert.deepEqual([...seen], ['led']);
+});
+
+test('113 CORPUS: SF69YBB (Civic, spec halogen, photo LED on both corners) moves by +£200 per lamp; as a pair, +£400', () => {
+  const L0 = load('SF69YBB')._lampResult;
+  const r = computeLampResult('central', true, deriveLampType(fixtureVd('SF69YBB')), 'present', photoLampType(cassetteLampDetect('SF69YBB'), null), 'full_width', false);
+  assert.equal(L0.lampAllowance, 150, 'guard: stored pre-113 band');
+  assert.equal(r.lampAllowance, 350);
+  assert.equal(r.lampTypeSource, 'photo');
+  const before = runChain([modelLamp(180), modelLamp(180), LABOUR], L0).sum;
+  const after = runChain([modelLamp(180), modelLamp(180), LABOUR], r).sum;
+  assert.equal(after - before, 400);
+});
+
+test('113 CORPUS: AMZ3790 + YH23NVW — struck lamp missing, type read from the intact corner → photo-sourced LED, NOT assumed', () => {
+  for (const v of ['AMZ3790', 'YH23NVW']) {
+    const corners = cassetteLampDetect(v);
+    const r = computeLampResult('central', true, deriveLampType(fixtureVd(v)), 'missing', photoLampType(corners, struckOf(corners)), 'full_width', false);
+    assert.equal(r.lampTypeSource, 'photo', v);
+    assert.equal(r.lampTypeAssumed, false, `${v}: the photograph showed LED — nothing is assumed`);
+    assert.equal(r.lampAllowance, 350, `${v}: band unchanged`);
+  }
+});
+
+test('113 DISCLOSURE: fires only when NEITHER source told us, and now names both sources', () => {
+  const none = computeLampResult('central', true, null, 'cannot_determine', null, 'full_width', false);
+  const photo = computeLampResult('central', true, null, 'cannot_determine', 'led', 'full_width', false);
+  const o1 = runChain([modelLamp(240), LABOUR], none);
+  const o2 = runChain([modelLamp(240), LABOUR], photo);
+  assert.ok(tier2LampDisclosureFlag(none, o1.gated, [], DISCLOSURE));
+  assert.equal(tier2LampDisclosureFlag(photo, o2.gated, [], DISCLOSURE), null, 'the photograph told us — no "assumed" note');
+  assert.match(DISCLOSURE, /could not be confirmed from the vehicle spec or the listing photographs/);
+});
+
+test('113 ORPHAN: the tier-1 orphan band follows the same precedence (photograph first)', () => {
+  const { bandValue, lampTypeAssumed } = resolveLampBand('indeterminate', 'halogen');
+  const r = reconcileParts([modelLamp(240), LABOUR], null, [], 0, null, bandValue, lampTypeAssumed, 350);
+  assert.equal(r.parts.find(p => p._lampMandated).used, 150, 'a halogen-read orphan lamp clamps to the halogen band');
+  assert.ok(!r.parts.find(p => p._lampMandated)._orphanAssumedDisclosure, 'and is not "assumed"');
+});
+
+test('113 WIRING: route.js feeds the photograph\'s type to BOTH band resolutions', () => {
+  assert.match(ROUTE_SRC, /const photoType\s+= photoLampType\(lampDetectionRaw, detectedCorner\);/);
+  assert.match(ROUTE_SRC, /detectedCorner\?\.verdict\s+\|\| null,\s*\n\s*photoType,/);
+  assert.match(ROUTE_SRC, /resolveLampBand\(_specLampType, photoType\)/);
+  assert.ok(!/resolveLampBand\(_specLampType, null\)/.test(ROUTE_SRC), 'the orphan path must not pass detection as null any more');
 });
