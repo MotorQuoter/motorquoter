@@ -430,12 +430,12 @@ not-visible structure gets nothing (batch 106).
 
 | # | Item | § | State |
 |---|---|---|---|
-| 1 | **Welded panels: does a REPAIR carry a part cost?** | §1 | ✅ **RULED 14 Sep — NO. Repair is labour only. And welded parts price at NEW, never s/h.** Unbuilt |
-| 2 | **Welded panels: should the grade own their action?** | §2 | ✅ **RULED 14 Sep — YES, same as bolt-ons.** Unbuilt |
+| 1 | **Welded panels: does a REPAIR carry a part cost?** | §1 | ✅ **RULED 14 Sep — NO. Repair is labour only. And welded parts price at NEW, never s/h.** ✅ **BUILT batch 127** (`applyGradeOwnsAction`, `lib/labour.mjs`). ⚠️ CC build choice, not a ruling: a welded SEVERE row with no `oem` on it keeps its figure and is marked `_weldedNoNewPrice` rather than being priced at £0 |
+| 2 | **Welded panels: should the grade own their action?** | §2 | ✅ **RULED 14 Sep — YES, same as bolt-ons.** ✅ **BUILT batch 127** (same owner). £0-rule rows (`_zeroRule`) still excluded, as for bolt-ons |
 | 3 | **The labour range is displayed nowhere** | §6 | ⚖️ **RULED 14 Sep — BUILD IT.** Unbuilt |
 | 4 | **The second-hand column is displayed nowhere** and mis-treats repaired panels | §4 | ✅ **RULED 14 Sep — FIX IT (strip repaired panels) THEN SHOW IT.** Display-only. Build with item 3 |
 | 5 | **The sanity envelope** | §7 | ✅ **BINNED 14 Sep.** Replaced by the economic warning — recon first |
-| 6 | **An ungraded body panel defaults to MODERATE and keeps its part** — the batch-116 duplication survives on that path | §1 | 🔴 **Only live money leak here.** Frequency and cause unmeasured |
+| 6 | **An ungraded body panel defaults to MODERATE and keeps its part** | §1 | ✅ **RULED 14 Sep — THE Q4 PROMOTION SETS A GRADE (SEVERE).** Kills the ungraded state rather than arguing what it means. ✅ **BUILT batch 127** (`promoteFlaggedQuarter`, `lib/labour.mjs`) — a promoted quarter is a welded REPLACE at NEW. ⚠️ Proven by a synthetic unit fixture only: no stored or replayable lot promotes a quarter |
 | 7 | **The two copies of this spec differ** | header | ✅ **CLOSED 14 Sep — merged into this file, tracked by git** |
 
 ---

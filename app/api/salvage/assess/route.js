@@ -36,7 +36,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -5392,23 +5392,21 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
       // Q4 (flagged→costed): the flagged £0 quarter gets its band-default part cost + welded labour, flag
       // RETAINED. FRONT_STRUCTURE needs no per-part promotion — its money is the structural allowance below.
+      // batch 127 (Vincent, 14 Sep — spec open item 6): the promotion SETS A GRADE, SEVERE, so it can no longer
+      // produce an ungraded row; applyGradeOwnsAction below prices it as a welded REPLACE at NEW. One owner in
+      // lib/labour.mjs (unit-proven in validate-labour — no stored or replayable fixture promotes a quarter).
       const costedIds = new Set(gatedParts.filter(p => !isLabour(p.name) && p.panelId).map(p => p.panelId));
-      for (const f of (coreObs.flaggedParts || [])) {
-        if (f.panelId === PANEL.REAR_QUARTER && !costedIds.has(PANEL.REAR_QUARTER)) {
-          const entry = bandKey ? PANEL_PRICE_TABLE[PANEL.REAR_QUARTER]?.[bandKey] : null;
-          if (entry) {
-            gatedParts.push({ panelId: PANEL.REAR_QUARTER, name: PANEL_DISPLAY[PANEL.REAR_QUARTER], action: 'replace', oem: entry.oem, used: entry.used, _tableMandated: true, _q4Promoted: true });
-            costedIds.add(PANEL.REAR_QUARTER);
-            if (!zoneByPanel.has(PANEL.REAR_QUARTER)) zoneByPanel.set(PANEL.REAR_QUARTER, f.zone || 'rear');
-            console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default (used £${entry.used}); flag retained`);
-          }
-        }
-      }
+      const _q4 = promoteFlaggedQuarter({
+        gatedParts, flaggedParts: coreObs.flaggedParts, costedIds, sevByPanel, zoneByPanel,
+        entry: bandKey ? PANEL_PRICE_TABLE[PANEL.REAR_QUARTER]?.[bandKey] : null, name: PANEL_DISPLAY[PANEL.REAR_QUARTER],
+      });
+      if (_q4) console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default, grade ${_q4.row && sevByPanel.get(PANEL.REAR_QUARTER)} (was ${_q4.gradeWas ?? 'ungraded'}) oem £${_q4.row.oem} used £${_q4.row.used}; flag retained`);
 
       // batch 116 (Vincent, 11 Sep: "Fix this duplication of parts and repair") — the GRADE owns repair vs
       // replace on a bolt-on body panel, and a MINOR/MODERATE repair carries NO part cost (spec §1: MODERATE is
-      // £700 all-in; "PART cost separate" is on SEVERE only). Runs before bodyPanels so labour sees the grade-
-      // owned action; lib/labour.mjs owns the rule and its exclusions (welded three, _zeroRule, ungraded).
+      // £700 all-in; "PART cost separate" is on SEVERE only). batch 127 (14 Sep): the welded three follow the same
+      // owner — repair buys no panel, replace is priced at NEW (oem). Runs before bodyPanels so labour sees the
+      // grade-owned action; lib/labour.mjs owns the rule and its exclusions (_zeroRule, ungraded).
       {
         const _gradeChanges = applyGradeOwnsAction(gatedParts, sevByPanel);
         for (const c of _gradeChanges) console.log(`[GRADE→ACTION] ${c.panelId} ${c.grade}: ${c.from} → ${c.to}`);

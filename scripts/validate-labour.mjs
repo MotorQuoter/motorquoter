@@ -198,10 +198,68 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   applyGradeOwnsAction(modRepair, new Map([['REAR_DOOR', 'MODERATE']]));
   ok('MODERATE already worded "repair" (FE68AOP shape) → its £250 part still goes', (modRepair[0].used ?? modRepair[0].oem ?? 0) === 0);
 
+  // batch 127 — the welded three follow the grade (Vincent 14 Sep, spec §1/§2): repair = labour only, no panel;
+  // replace = a new panel, priced at NEW (oem), never used. Pinned against the SPEC. (Supersedes the batch-116
+  // "WELDED is NOT touched" assertion, which recorded the spec being silent — it is no longer silent.)
   for (const pid of ['REAR_QUARTER', 'SILL', 'ROOF']) {
-    const w = [{ panelId: pid, name: pid, action: 'repair', oem: 400, used: 220 }];
-    applyGradeOwnsAction(w, new Map([[pid, 'MODERATE']]));
-    ok(`WELDED ${pid} is NOT touched (spec keys welded on repair/replace, silent on part cost)`, w[0].used === 220 && w[0].action === 'repair' && !w[0]._repairNoPart);
+    for (const g of ['MINOR', 'MODERATE']) {
+      const w = [{ panelId: pid, name: pid, action: 'replace', oem: 400, used: 220 }];
+      applyGradeOwnsAction(w, new Map([[pid, g]]));
+      ok(`WELDED ${pid} ${g} → repair, labour only, NO panel bought (the model's "replace" moves no money)`,
+         w[0].action === 'repair' && (w[0].used ?? w[0].oem ?? 0) === 0 && w[0]._repairNoPart === true && w[0]._modelPart?.used === 220);
+    }
+    const s = [{ panelId: pid, name: pid, action: 'repair', oem: 400, used: 220 }];
+    applyGradeOwnsAction(s, new Map([[pid, 'SEVERE']]));
+    ok(`WELDED ${pid} SEVERE → replace at NEW: money reads oem £400, never used £220`,
+       s[0].action === 'replace' && (s[0].used ?? s[0].oem ?? 0) === 400 && s[0]._weldedAtNew?.used === 220 && s[0]._modelAction === 'repair');
+  }
+  {
+    // SF69YBB's live shape: a _gOwned quarter, SEVERE, replace, Executive band 320/175 → +£145.
+    const sf = [{ panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', oem: 320, used: 175, _tableMandated: true, _gOwned: true }];
+    const ch = applyGradeOwnsAction(sf, new Map([['REAR_QUARTER', 'SEVERE']]));
+    eq('SF69YBB quarter: £175 used → £320 new (+£145)', (sf[0].used ?? sf[0].oem ?? 0), 320);
+    ok('SF69YBB quarter: one change reported, action unchanged (the G path already took it from the grade)', ch.length === 1 && sf[0].action === 'replace' && !sf[0]._modelAction);
+    const again = applyGradeOwnsAction(sf, new Map([['REAR_QUARTER', 'SEVERE']]));
+    ok('idempotent: a welded replace already at NEW is not changed twice', again.length === 0 && sf[0].oem === 320);
+    const noOem = [{ panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', oem: null, used: 175 }];
+    applyGradeOwnsAction(noOem, new Map([['REAR_QUARTER', 'SEVERE']]));
+    ok('welded SEVERE with no new price on the row keeps its figure (never priced at £0) and is marked', noOem[0].used === 175 && noOem[0]._weldedNoNewPrice === true);
+    const wz = [{ panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'repair', oem: null, used: 175, _zeroRule: 'F' }];
+    applyGradeOwnsAction(wz, new Map([['REAR_QUARTER', 'MINOR']]));
+    ok('welded £0-rule row (_zeroRule F) is NOT touched', wz[0].used === 175 && !wz[0]._repairNoPart);
+    const wu = [{ panelId: 'SILL', name: 'Sill', action: 'replace', oem: 140, used: 75 }];
+    applyGradeOwnsAction(wu, new Map());
+    ok('welded row with NO grade is left alone', wu[0].used === 75 && wu[0].action === 'replace');
+  }
+  {
+    // batch 127 — ruling 4: THE Q4 PROMOTION SETS A GRADE (SEVERE). No stored or replayable fixture promotes a
+    // quarter (_q4Promoted = 0 in every run, batch 126), so this synthetic fixture is the only proof of the path.
+    const { promoteFlaggedQuarter, Q4_PROMOTED_GRADE } = await import('../lib/labour.mjs');
+    eq('Q4 promoted grade is SEVERE', Q4_PROMOTED_GRADE, 'SEVERE');
+    const rows = [{ panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 365, used: 200 }];
+    const flags = [{ panelId: 'REAR_QUARTER', zone: 'rear', weight: 'medium', reason: 'not visible in any photo' }];
+    const sev = new Map([['FRONT_BUMPER', 'SEVERE']]);
+    const zones = new Map([['FRONT_BUMPER', 'front']]);
+    const costedIds = new Set(['FRONT_BUMPER']);
+    const p = promoteFlaggedQuarter({ gatedParts: rows, flaggedParts: flags, costedIds, sevByPanel: sev, zoneByPanel: zones, entry: { oem: 320, used: 175 }, name: 'Rear quarter panel' });
+    ok('Q4: the flagged quarter is promoted, marked _q4Promoted', !!p && rows.length === 2 && rows[1]._q4Promoted === true);
+    eq('Q4: the promotion SETS the grade — no ungraded row', sev.get('REAR_QUARTER'), 'SEVERE');
+    ok('Q4: every body-panel row now holds a grade', rows.every((r) => sev.has(r.panelId)));
+    eq('Q4: zone taken from the flag', zones.get('REAR_QUARTER'), 'rear');
+    applyGradeOwnsAction(rows, sev);
+    eq('Q4: priced as a welded REPLACE at NEW — money £320, not the £175 used', (rows[1].used ?? rows[1].oem ?? 0), 320);
+    ok('Q4: action replace, a new panel is bought (not a £0 repair)', rows[1].action === 'replace' && !rows[1]._repairNoPart);
+    const lab = computeLabour({ bodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: sev.get('REAR_QUARTER'), action: rows[1].action }] });
+    eq('Q4: welded replace labour £800 × 1.25 (not the old MODERATE default path)', lab.panelWorkMoney, 1000);
+    const pre = new Map([['REAR_QUARTER', 'MINOR']]);
+    const p2 = promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(), sevByPanel: pre, zoneByPanel: new Map(), entry: { oem: 320, used: 175 }, name: 'Rear quarter panel' });
+    ok('Q4: a grade already held for the quarter is overridden to SEVERE and reported', p2?.gradeWas === 'MINOR' && pre.get('REAR_QUARTER') === 'SEVERE');
+    ok('Q4: no band entry → nothing promoted', promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(), sevByPanel: new Map(), zoneByPanel: new Map(), entry: null, name: 'x' }) === null);
+    ok('Q4: an already-costed quarter is not promoted twice', promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(['REAR_QUARTER']), sevByPanel: new Map(), zoneByPanel: new Map(), entry: { oem: 320, used: 175 }, name: 'x' }) === null);
+    const { readFileSync } = await import('node:fs');
+    const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+    ok('route: the Q4 promotion goes through the owner, before the grade rule', route.indexOf('promoteFlaggedQuarter({') > 0 && route.indexOf('promoteFlaggedQuarter({') < route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)'));
+    ok('route: the old inline ungraded push is gone', !/gatedParts\.push\(\{ panelId: PANEL\.REAR_QUARTER/.test(route));
   }
 
   const zr = [{ panelId: 'FRONT_WING', name: 'Front wing', action: 'repair', oem: null, used: 120, _zeroRule: 'F' }];
