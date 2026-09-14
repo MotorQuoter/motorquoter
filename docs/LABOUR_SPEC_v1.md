@@ -16,10 +16,17 @@ Every ruling had to be hand-written into two places and one of them was unversio
   lives only in a batch report is how eleven days of drift happened.
 
 📌 **Verified at merge: no figure disagreed between the two copies.** The build copy's
-§5 had been correctly amended by CC (batch 117 amendment 2). They differed only by
-ADDITION — §9/§10/§11 existed only in the build copy; the 11 Sep annotations, the near
-miss, the count correction and the open list existed only in the project copy. All are
-below.
+§5 had been correctly amended by CC (batch 117 amendment 2). §9/§10/§11 existed only in
+the build copy; the 11 Sep annotations, the near miss, the count correction and the open
+list existed only in the project copy. All are below.
+
+⚠️ **CORRECTION, batch 126.** This header first claimed the copies *"differed only by
+ADDITION"*. **That is FALSE line-for-line** — CC diffed them and found lines present only
+in the old build copy. ✅ **No figure still in force is missing** — verified: base table
+200/700/600 · welded 800/800, 800/700, 1,500/1,000 · SRS 300/600/1,000 · −15/+25 · the
+£500 floor · £170. **What was dropped was superseded content and colour**, chiefly the
+original pre-revision welded figures (sill £600, roof £1,200) and the flat-band flag
+wording. 📌 **The dropped-line table is in `_cc/handoff.md` under batch 126 TASK 0.**
 
 **Every figure is Vincent's.** ⛔ **One line is marked COWORK READING — an inference
 from his answers, not a quote.**

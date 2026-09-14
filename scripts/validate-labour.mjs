@@ -1,4 +1,4 @@
-// validate-labour.mjs — locks lib/labour.mjs to _cc/LABOUR_SPEC_v1_31Aug2026.md (batch 92/95).
+// validate-labour.mjs — locks lib/labour.mjs to docs/LABOUR_SPEC_v1.md (batch 92/95).
 // £0, pure. Every figure is Vincent's, quoted in the spec. Run: node scripts/validate-labour.mjs
 import {
   PANEL_WORK, WELDED_LABOUR, weldedClass, panelLabour, flattenPanelWork,

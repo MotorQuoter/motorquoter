@@ -5377,7 +5377,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     }
 
     // ── §11 CODE-OWNED LABOUR (batch 92/95) — replaces the model-authored labour + computeLabourRatio ──
-    // Authority: _cc/LABOUR_SPEC_v1_31Aug2026.md §9-11. The model's "Labour & paint" aggregate is DELETED
+    // Authority: docs/LABOUR_SPEC_v1.md §9-11. The model's "Labour & paint" aggregate is DELETED
     // and rebuilt from code: parts_sum = part costs + panel work (NEW+PAINTED column top) + structural
     // allowance (≥2 named tells, band top, NOT re-ranged) + SRS fitting rider. The SECOND-HAND column is
     // DISPLAY ONLY and never drives the bid. Runs AFTER fog seeding and BEFORE parts_sum.
