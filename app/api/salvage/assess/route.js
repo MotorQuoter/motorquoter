@@ -36,7 +36,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsFitting, srsDeploymentNote, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -4897,16 +4897,17 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         srsInjected = true;
         const srsFlagDropped = suppressAirbagFlags(); // collapse the raw amalgamate flag INTO the canonical signal
         console.log(`[SRS_INJECT] tier=T${srsT.tier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) branch=${srsT.branch} countResolved=${srsT.countResolved} collapsed-airbag-flags=${srsFlagDropped}`);
-        if (!srsT.countResolved) {
-          // Deployment certain, count unresolvable → the costed T1 floor is paired with an
-          // inspect-for-extent flag (NOT a "confirm whether deployed" flag — deployment is certain).
-          coreObs.flaggedParts.push({
-            panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high',
-            reason: 'SRS airbags deployed — at least one bag confirmed; confirm full extent (driver / passenger / curtain / side) on inspection to finalise cost.',
-            _srsExtentFloor: true,
-          });
-          console.log('[SRS_TIER] T1 CONFIDENT FLOOR — deployment certain, count unresolvable → SRS_AIRBAG_T1 cost + inspect-for-extent flag');
-        }
+        // batch 129 (Vincent, 14 Sep — spec §10 SRS ruling): the engine does NOT count bags. EVERY costed deployment
+        // is flagged — not only an unresolved count — and the count is never claimed. The band figure is stated as
+        // an approximate FROM figure (kit + fitting), the collateral is named but not costed, and "must be checked"
+        // is Vincent's word. Tier, band and the found-position raise are UNCHANGED, so no money moves here.
+        const _srsFit = srsFitting(`T${srsT.tier}`);
+        coreObs.flaggedParts.push({
+          panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high',
+          reason: srsDeploymentNote({ kit: srsEntry.used, fitting: _srsFit }),
+          _srsExtentFloor: true,
+        });
+        console.log(`[SRS_TIER] deployment flagged, count not claimed — from £${srsEntry.used + _srsFit} (kit £${srsEntry.used} + fitting £${_srsFit}) tier=T${srsT.tier} countResolved=${srsT.countResolved}`);
       }
     } else if (_srsGateOpen && _srsPaste.intact) {
       // Gate open, no deployment evidence, and the paste EXPLICITLY states airbags intact/undeployed
@@ -5273,7 +5274,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // verdict that would contradict it. Otherwise (no SRS cost/flag) the cluster-telltale text is
     // byte-for-byte unchanged — a genuinely undeployed lot still reads its real cluster verdict.
     assessment['Airbags'] = srsInjected
-      ? 'Airbag deployment is detailed in the repair breakdown (SRS airbag kit) and Red Flags above — confirm full extent on inspection.'
+      ? 'Airbags deployed - the replacement is shown as a from-figure in the repair breakdown (SRS airbag kit and fitting). The number and location of the bags must be checked before bidding.'   // batch 129: no count claimed, Vincent's "must be checked"
       : srsDeferred
       ? 'Airbag deployment could not be fully confirmed from the listing — see Red Flags; confirm SRS status and extent on inspection.'
       : dashRead.airbag === 'warning-lit'

@@ -1015,7 +1015,7 @@ export default function SalvageSuccessPage() {
                               <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p._structFloor ? 'jig/geometry' : p.action}</td>
                               <td style={{ ...colSt('right'), ...strikeSt }}>{fmtP(c.oem)}</td>
                               <td style={{ ...colSt('right', c.sh != null), ...strikeSt }}>{fmtP(c.sh)}</td>
-                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{p._structFloor ? `from ${fmtP(c.repair)}` : fmtP(c.repair)}</td>
+                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{(p._structFloor || p._srsTier || p._srsFitting) && c.repair != null ? `from ${fmtP(c.repair)}` : fmtP(c.repair)}</td>
                             </tr>
                           ); })}
                           {addedRows.map((a, i) => (
@@ -1221,7 +1221,7 @@ export default function SalvageSuccessPage() {
                                 {c.severity ? <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 6 }}>{c.severity}</span> : null}
                               </span>
                               <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                {c._structFloor ? `from ${g(c.cost)}` : (c.cost ? g(c.cost) : '£0')}<span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>{c.action ? ` · ${c.action}` : ''}</span>
+                                {(c._structFloor || c._fromFigure) ? `from ${g(c.cost)}` : (c.cost ? g(c.cost) : '£0')}<span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>{c.action ? ` · ${c.action}` : ''}</span>
                               </span>
                             </div>
                             {c.note ? <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginTop: 2 }}>{c.note}</div> : null}

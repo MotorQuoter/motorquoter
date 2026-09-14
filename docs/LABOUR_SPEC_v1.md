@@ -436,6 +436,46 @@ parts_sum = part costs
 1. **REPAIRED quarter = £800**, same as replace. *"Not much difference."*
 2. **FLAGGED-BUT-UNCOSTED structural/quarter panels ARE NOW COSTED** at the band default,
    still flagged, buyer strikes. **Vincent: yes.** 🎯 **The fail-safe rule applied — a cost
+### ⚖️ RULED 14 SEPTEMBER 2026 — HOW SRS IS PRESENTED. ✅ BUILT batch 129
+
+> **Vincent, 14 Sep: *"Airbags out, please check, replacement from £500 depending on number
+> and location."*** — and on the wording: ***"must be checked reads better."***
+
+1. ⛔ **The engine does NOT count bags.** Modern cars carry up to ten plus pretensioners; a
+   Copart sales shoot cannot support a count. **Deployment is flagged; the count is not
+   claimed.** Built: the inspection flag now fires on **every** costed deployment (before
+   batch 129 it fired only when the count was unresolved, which let a T2/T3 lot read as a
+   settled count), and its old wording — *"at least one bag confirmed; confirm full extent
+   (driver / passenger / curtain / side)"* — is gone.
+2. **The band table is UNCHANGED and NOT re-anchored.** Its figure is presented as an
+   **approximate "from" estimate**, never a computed cost.
+   ⚖️ **Vincent, 14 Sep (batch 129): the from-figure is KIT + FITTING** — band `used` plus the
+   tier's fitting rider. The lowest possible is Economy T1 £225 + £300 = **£525** — his
+   "from £500". ⚖️ **And both SRS rows in the Parts Breakdown read "from £X"**, the same
+   precedent as the £500 jig floor (screen + PDF; also the damage card, Visible Damage
+   Summary and Key Cost Drivers for the kit).
+3. **The collateral is NAMED, not costed** — headlining, seat covers, dashboard, door cards,
+   seatbelt pretensioners. ⛔ **No attempt is made to cost any of it.**
+4. **The found-position raise STAYS — one-way ratchet.** A positively evidenced position
+   raises the band; nothing lowers it (`validate-srs-tier`).
+5. 🔴 **"MUST BE CHECKED", not "please check".**
+
+**The buyer-facing sentence** (one owner, `srsDeploymentNote` in `lib/labour.mjs`; hyphen,
+not a dash, because the PDF is Latin-1), approved by Vincent 14 Sep:
+
+> Airbags deployed - replacement from £{kit + fitting} (kit and fitting), depending on the
+> number and location of the bags. The headlining, seat covers, dashboard, door cards and
+> seatbelt pretensioners may also need replacing and are not costed. This must be checked
+> before bidding.
+
+💷 **No money moves.** Tier, band, fitting rider and `parts_sum` are unchanged; this is
+presentation only.
+
+⚖️ **OPEN for Vincent (not built, not changed):** T3 is defined as *"the lot (fronts +
+curtains/side)"*, and the code gives T3 to a curtain alone. On HMZ8034 a curtain and a
+seat-mounted bag fired with **both front bags intact**, and billed T3 (£1,880 kit + £1,000
+fitting). Whether curtain-without-fronts should reach T3 money is unruled.
+
    he can see and delete is safe; a hole in the total makes him bid too high.**
 3. Structural allowance band = BODY TYPE (table in §5). ⚠️ **Superseded — see §5.**
 
