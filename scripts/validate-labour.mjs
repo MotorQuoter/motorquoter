@@ -93,13 +93,73 @@ import { assembleColumns } from '../lib/labour.mjs';
   ok('columns: money drives off the HIGHER (new+painted) column', c.newPainted.money > c.secondHand.money);
 }
 {
-  // all bolt-on, two moderate same zone: new+painted flattens (1050), second-hand additive (2×170=340)
+  // batch 127 (spec open item 4, Vincent 14 Sep): two MODERATE bolt-ons REPAIRED get no new panel, so there is no
+  // £170 to fit. Each keeps its painted repair figure, flattened like any painted work. (Supersedes the old
+  // "second-hand PW = 340" assertion — that WAS the defect: £170 of fitting on panels nobody replaces.)
   const c = assembleColumns([
     { panelId: 'FRONT_DOOR', zone: 'front', severity: 'MODERATE', action: 'repair' },
     { panelId: 'BONNET',     zone: 'front', severity: 'MODERATE', action: 'repair' },
   ]);
-  eq('columns bolt-on: new+painted PW = 1050', c.panelWorkNewPainted, 1050);
-  eq('columns bolt-on: second-hand PW = 340', c.panelWorkSecondHand, 340);
+  eq('columns bolt-on repaired: new+painted PW = 1050', c.panelWorkNewPainted, 1050);
+  eq('columns bolt-on repaired: second-hand PW = 1050 (painted repairs flattened — NOT 2 × £170)', c.panelWorkSecondHand, 1050);
+}
+{
+  // replaced bolt-ons ARE sourced finished, £170 each, additive
+  const c = assembleColumns([
+    { panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'replace' },
+    { panelId: 'BONNET',       zone: 'front', severity: 'SEVERE', action: 'replace' },
+  ]);
+  eq('columns bolt-on replaced: new+painted PW = 900 (600 + 300)', c.panelWorkNewPainted, 900);
+  eq('columns bolt-on replaced: second-hand PW = 340 (2 × £170 sourced finished)', c.panelWorkSecondHand, 340);
+}
+{
+  // AMZ3790's live shape (batch 126 HEAD): bumper + bonnet SEVERE replace (front), door MODERATE repair + wing SEVERE
+  // replace (flank). The money column is untouched; the second-hand column stops fitting a £170 door nobody buys.
+  const amz = [
+    { panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'replace' },
+    { panelId: 'BONNET', zone: 'front', severity: 'SEVERE', action: 'replace' },
+    { panelId: 'FRONT_DOOR', zone: 'flank-damaged-side', severity: 'MODERATE', action: 'repair' },
+    { panelId: 'FRONT_WING', zone: 'flank-damaged-side', severity: 'SEVERE', action: 'replace' },
+  ];
+  const c = assembleColumns(amz);
+  eq('AMZ3790: new+painted range UNCHANGED (money) 1615–2375', c.newPainted, { low: 1615, high: 2375, money: 2375 });
+  eq('AMZ3790: second-hand PW = door £700 painted + 3 × £170 = 1210 (was 680)', c.panelWorkSecondHand, 1210);
+  eq('AMZ3790: second-hand range 1029–1513 (was 578–850)', c.secondHand, { low: 1029, high: 1513, money: 1513 });
+  eq('AMZ3790: computeLabour money still 2375 — the fix is display only', computeLabour({ bodyPanels: amz }).panelWorkMoney, 2375);
+
+  const { labourDisplayLines, LABOUR_RANGE_ADDENDUM } = await import('../lib/labour.mjs');
+  const d = labourDisplayLines(c);
+  eq('display: the approved range sub-line', d.range, 'Estimate £1,615 - £2,375 · the total uses the top');
+  eq('display: the second-hand sub-line', d.secondHand, 'With second-hand colour-matched panels: £1,029 - £1,513 · for comparison, not in the total');
+  eq('display: the approved addendum, verbatim', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the top of that range. If your repairer quotes less, remove the line and add their figure.');
+  ok('display: all three lines are Latin-1 (the PDF drops anything else)', [d.range, d.secondHand, d.addendum].every((s) => !/[^\x00-\xFF]/.test(s)));
+  ok('display: no columns (a pre-batch-92 report) → no lines', labourDisplayLines(null) === null && labourDisplayLines({}) === null);
+
+  // Through the edit layer — the one path both surfaces read.
+  const { applyEdits } = await import('../lib/ledgerEdits.mjs');
+  const assessment = {
+    _reconciledParts: [
+      { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 290, used: 160 },
+      { panelId: 'FRONT_DOOR', name: 'Front door', action: 'repair', oem: null, used: null, _repairNoPart: true },
+      { panelId: 'FRONT_WING', name: 'Front wing', action: 'replace', oem: 175, used: 95 },
+      { name: 'Labour & paint (new & painted)', action: '—', oem: 2375, used: null, _codeLabour: true },
+    ],
+    _partsReconciliation: { parts_sum: 2630 },
+    _labourBodyPanels: amz.filter((p) => p.panelId !== 'BONNET'),
+    _labourTellCount: 0,
+    _labourColumns: c,
+  };
+  const e0 = applyEdits(assessment, null);
+  eq('edit layer, no edits: the stored range', e0.labourDisplay?.range, 'Estimate £1,615 - £2,375 · the total uses the top');
+  const doorKey = e0.rows.find((r) => r.panelId === 'FRONT_DOOR')._rowKey;
+  const e1 = applyEdits(assessment, { stamp: e0.stamp, strikes: [doorKey] });
+  const lab1 = e1.rows.find((r) => r._codeLabour);
+  ok('edit layer, door struck: the range is RE-DERIVED from the recomputed panel work, and its top IS the row figure',
+     e1.labourDisplay?.range === `Estimate £${(lab1.oem * 0.85 / 1.25).toLocaleString('en-GB')} - £${lab1.oem.toLocaleString('en-GB')} · the total uses the top`);
+  eq('edit layer, door struck: recomputed range line', e1.labourDisplay?.range, 'Estimate £1,020 - £1,500 · the total uses the top');
+  const labKey = e0.rows.find((r) => r._codeLabour)._rowKey;
+  const e2 = applyEdits(assessment, { stamp: e0.stamp, strikes: [labKey] });
+  ok('edit layer, labour line struck: no range and no addendum (the claim would be false)', e2.labourDisplay === null);
 }
 
 // body-panel classification + full computeLabour

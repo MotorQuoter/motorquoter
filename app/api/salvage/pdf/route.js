@@ -752,6 +752,16 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       // Struck line: a rule through the row, and the figures greyed — the line stays visible, never removed.
       if (struck) { doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.3); doc.line(MARGIN, y - 1.1, xRepair + COL_REPAIR, y - 1.1); }
       y += 5;
+      // batch 127 — the labour range + second-hand comparison under the labour row (same owner as the screen,
+      // via edited.labourDisplay). Display only; hidden when the labour line is struck.
+      if (p._codeLabour && !struck && edited.labourDisplay) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(120, 120, 120);
+        for (const ln of [edited.labourDisplay.range, edited.labourDisplay.secondHand].filter(Boolean)) {
+          checkPage(4);
+          doc.text(str(ln), MARGIN + 2, y - 1);
+          y += 3.2;
+        }
+      }
       doc.setFont('helvetica', 'normal'); doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1);
       doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
     }
@@ -822,6 +832,14 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.text('New', xOem + COL_OEM, y, { align: 'right' });
       doc.text('S/H', xRepair + COL_REPAIR, y, { align: 'right' });
       y += 3;
+    }
+    // batch 127 — the §6 addendum under the parts table (same owner and wording as the screen). Shown only while
+    // the labour line is in the total. Latin-1 via str().
+    if (edited.labourDisplay && pdfParts.some((p) => p._codeLabour && !p._struck)) {
+      y += 2;
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(110, 110, 110);
+      for (const ln of doc.splitTextToSize(str(edited.labourDisplay.addendum), CONTENT_W)) { checkPage(4); doc.text(ln, MARGIN, y); y += 3.4; }
+      doc.setFont('helvetica', 'normal');
     }
     y += 3;
     doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.15);

@@ -297,6 +297,32 @@ opposite of what this section instructs, and it presents an estimate as a point 
 top-of-range**, so **no downstream consumer becomes range-aware.** The display is
 additive; the money does not change.
 
+### ✅ THE WORDING — APPROVED BY VINCENT, 14 September 2026
+
+**Sub-line under the labour row (screen and PDF):**
+
+> Estimate £{low} – £{top} · the total uses the top
+
+**Addendum under the parts table (screen and PDF):**
+
+> **Labour & paint is an estimate, shown as a range. The repair total, margins and bid
+> ceilings all use the top of that range. If your repairer quotes less, remove the line
+> and add their figure.**
+
+📌 *"Remove the line and add their figure"* is deliberate — the edit layer supports strike
+and add-a-line, **not** edit-in-place, so the wording promises nothing it cannot do.
+
+⛔ **The repair banner and the margin table get NO range.** They state the single figure
+that IS the money; a range there would make the headline look optional.
+
+⚠️ **The tension, recorded rather than discovered later:** telling the buyer the total
+uses the top tells him it is deliberately high, and some will deduct and bid more — the
+direction that costs him. **Accepted**: §6 rules the range is shown, and the edit layer is
+how he corrects it against a real quote.
+
+⛔ **NOT ranged** (spec §6): the £500 structural floor, the SRS fitting rider, the
+structural allowance.
+
 ## 7. ❌ THE SANITY ENVELOPE — BINNED 14 SEPTEMBER 2026
 
 **The envelope was a size-banded plausibility check** (small/medium £1,200 s/h · £2,000
@@ -432,8 +458,8 @@ not-visible structure gets nothing (batch 106).
 |---|---|---|---|
 | 1 | **Welded panels: does a REPAIR carry a part cost?** | §1 | ✅ **RULED 14 Sep — NO. Repair is labour only. And welded parts price at NEW, never s/h.** ✅ **BUILT batch 127** (`applyGradeOwnsAction`, `lib/labour.mjs`). ⚠️ CC build choice, not a ruling: a welded SEVERE row with no `oem` on it keeps its figure and is marked `_weldedNoNewPrice` rather than being priced at £0 |
 | 2 | **Welded panels: should the grade own their action?** | §2 | ✅ **RULED 14 Sep — YES, same as bolt-ons.** ✅ **BUILT batch 127** (same owner). £0-rule rows (`_zeroRule`) still excluded, as for bolt-ons |
-| 3 | **The labour range is displayed nowhere** | §6 | ⚖️ **RULED 14 Sep — BUILD IT.** Unbuilt |
-| 4 | **The second-hand column is displayed nowhere** and mis-treats repaired panels | §4 | ✅ **RULED 14 Sep — FIX IT (strip repaired panels) THEN SHOW IT.** Display-only. Build with item 3 |
+| 3 | **The labour range is displayed nowhere** | §6 | ⚖️ **RULED 14 Sep — BUILD IT.** ✅ **BUILT batch 127** — sub-line under the labour row + addendum under the parts table, screen and PDF; banner and margin table unchanged. One owner: `labourDisplayLines` / `LABOUR_RANGE_ADDENDUM` (`lib/labour.mjs`), read through `applyEdits` so a struck body panel re-derives the range; hidden when the labour line itself is struck. 📌 Rendered with a **hyphen** (`Estimate £1,615 - £2,375 · the total uses the top`), not the en dash quoted in §6: the PDF is Latin-1 only and the brief specified the hyphen. Money byte-identical (batch 127 proof) |
+| 4 | **The second-hand column is displayed nowhere** and mis-treats repaired panels | §4 | ✅ **RULED 14 Sep — FIX IT (strip repaired panels) THEN SHOW IT.** Display-only. ✅ **BUILT batch 127.** ⚖️ **Vincent, 14 Sep, on what "strip" means:** a REPAIRED bolt-on gets no £170 fit, but **keeps its painted repair figure** (the repair still happens on the second-hand route) and flattens with the other painted work; only a REPLACED bolt-on is sourced finished at £170. AMZ3790: £578–£850 → **£1,029–£1,513**. ⚖️ **Wording, Vincent 14 Sep:** a second sub-line under the labour row — `With second-hand colour-matched panels: £{low} - £{top} · for comparison, not in the total`. Nothing in the money reads the column (verified) |
 | 5 | **The sanity envelope** | §7 | ✅ **BINNED 14 Sep.** Replaced by the economic warning — recon first |
 | 6 | **An ungraded body panel defaults to MODERATE and keeps its part** | §1 | ✅ **RULED 14 Sep — THE Q4 PROMOTION SETS A GRADE (SEVERE).** Kills the ungraded state rather than arguing what it means. ✅ **BUILT batch 127** (`promoteFlaggedQuarter`, `lib/labour.mjs`) — a promoted quarter is a welded REPLACE at NEW. ⚠️ Proven by a synthetic unit fixture only: no stored or replayable lot promotes a quarter |
 | 7 | **The two copies of this spec differ** | header | ✅ **CLOSED 14 Sep — merged into this file, tracked by git** |

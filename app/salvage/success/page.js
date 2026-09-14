@@ -984,6 +984,15 @@ export default function SalvageSuccessPage() {
                                   </button>
                                 )}
                                 {p.name}
+                                {/* batch 127 — the labour range and the second-hand comparison (spec §6 + item 4, wording approved
+                                    by Vincent 14 Sep). Display only: one owner (lib/labour.mjs) via the edit view, so a struck
+                                    body panel re-derives it. Hidden when the buyer struck the labour line itself. */}
+                                {p._codeLabour && !struck && edited?.labourDisplay && (
+                                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, textDecoration: 'none', fontWeight: 400 }}>
+                                    <div>{edited.labourDisplay.range}</div>
+                                    {edited.labourDisplay.secondHand && <div style={{ marginTop: 1 }}>{edited.labourDisplay.secondHand}</div>}
+                                  </div>
+                                )}
                                 {/* batch 114 — the lamp-type picklist, once, on the first costed headlamp row: where the
                                     engine's type came from, and (in edit mode) the buyer's correction. Lot-level: both
                                     headlamps of one car share one technology, so one choice re-prices every lamp row. */}
@@ -1064,6 +1073,13 @@ export default function SalvageSuccessPage() {
                           )}
                         </tbody>
                       </table>
+                      {/* batch 127 — the §6 addendum under the parts table (wording approved by Vincent 14 Sep). One owner
+                          (lib/labour.mjs) via the edit view; shown only while the labour line is in the total. */}
+                      {edited?.labourDisplay && parts.some(p => p._codeLabour && !p._struck) && (
+                        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 6, lineHeight: 1.5 }}>
+                          {edited.labourDisplay.addendum}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
