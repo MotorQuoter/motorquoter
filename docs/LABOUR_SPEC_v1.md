@@ -418,24 +418,6 @@ and not inside the Labour & paint aggregate.
 and was corrected in batch 125. **The conclusion here was always right; only the footnote
 was wrong.**
 
-## 11. WHAT THE MONEY IS
-
-```
-parts_sum = part costs
-          + panel work (NEW+PAINTED column, top of its range)
-          + structural allowance (its own band top, NOT re-ranged)
-          + SRS fitting rider where applicable
-```
-
-**The SECOND-HAND column is DISPLAY ONLY and never drives the bid.**
-
----
-
-## 📌 RULED 31 AUGUST — the three that were open
-
-1. **REPAIRED quarter = £800**, same as replace. *"Not much difference."*
-2. **FLAGGED-BUT-UNCOSTED structural/quarter panels ARE NOW COSTED** at the band default,
-   still flagged, buyer strikes. **Vincent: yes.** 🎯 **The fail-safe rule applied — a cost
 ### ⚖️ RULED 14 SEPTEMBER 2026 — HOW SRS IS PRESENTED. ✅ BUILT batch 129
 
 > **Vincent, 14 Sep: *"Airbags out, please check, replacement from £500 depending on number
@@ -476,6 +458,24 @@ curtains/side)"*, and the code gives T3 to a curtain alone. On HMZ8034 a curtain
 seat-mounted bag fired with **both front bags intact**, and billed T3 (£1,880 kit + £1,000
 fitting). Whether curtain-without-fronts should reach T3 money is unruled.
 
+## 11. WHAT THE MONEY IS
+
+```
+parts_sum = part costs
+          + panel work (NEW+PAINTED column, top of its range)
+          + structural allowance (its own band top, NOT re-ranged)
+          + SRS fitting rider where applicable
+```
+
+**The SECOND-HAND column is DISPLAY ONLY and never drives the bid.**
+
+---
+
+## 📌 RULED 31 AUGUST — the three that were open
+
+1. **REPAIRED quarter = £800**, same as replace. *"Not much difference."*
+2. **FLAGGED-BUT-UNCOSTED structural/quarter panels ARE NOW COSTED** at the band default,
+   still flagged, buyer strikes. **Vincent: yes.** 🎯 **The fail-safe rule applied — a cost
    he can see and delete is safe; a hole in the total makes him bid too high.**
 3. Structural allowance band = BODY TYPE (table in §5). ⚠️ **Superseded — see §5.**
 
