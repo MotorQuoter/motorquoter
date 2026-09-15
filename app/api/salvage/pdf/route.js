@@ -748,7 +748,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.setFont('helvetica', (!struck && c.sh != null) ? 'bold' : 'normal');
       doc.text(str(fmtPP(c.sh)),     xSh + COL_SH,         y, { align: 'right' });
       doc.setFont('helvetica', (!struck && c.repair != null) ? 'bold' : 'normal');
-      doc.text(str((p._structFloor || p._srsTier || p._srsFitting) && c.repair != null ? `from ${fmtPP(c.repair)}` : fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
+      doc.text(str((p._structFloor || p._srsFloor) && c.repair != null ? `from ${fmtPP(c.repair)}` : fmtPP(c.repair)), xRepair + COL_REPAIR, y, { align: 'right' });
       // Struck line: a rule through the row, and the figures greyed — the line stays visible, never removed.
       if (struck) { doc.setDrawColor(150, 150, 150); doc.setLineWidth(0.3); doc.line(MARGIN, y - 1.1, xRepair + COL_REPAIR, y - 1.1); }
       y += 5;

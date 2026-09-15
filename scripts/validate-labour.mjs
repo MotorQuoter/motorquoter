@@ -426,44 +426,60 @@ console.log('\n11. batch 117 task 6 — the jig floor states its ceiling (Vincen
   eq('NO money moves: the floor row still sums £500', sumPartsRealistic([floor]), 500);
 }
 
-console.log('\n12. batch 129 — the SRS ruling on the page (Vincent 14 Sep: "replacement from £500 depending on number and location" · "must be checked")');
+console.log('\n12. batch 130 — SRS is ONE flat £500 floor (Vincent 14 Sep: "Airbags out, must be checked, replacement from £500 depending on number and location" · "Yes £500 is counted in the repair with the note") — supersedes 129\'s tier-derived from-figure');
 {
-  const { srsDeploymentNote, SRS_COLLATERAL, isFromFigureRow, srsFitting: fit } = await import('../lib/labour.mjs');
+  const { srsDeploymentNote, SRS_COLLATERAL, SRS_FLOOR_GBP, isFromFigureRow } = await import('../lib/labour.mjs');
   const { assembleVdsParts, assembleKcdParts, sumPartsRealistic } = await import('../lib/parts.mjs');
   const { buildDamageCards } = await import('../lib/damageCards.mjs');
   const { readFileSync } = await import('node:fs');
 
-  const amz = srsDeploymentNote({ kit: 310, fitting: fit('T1') });
-  eq('sentence, verbatim as approved (AMZ3790 shape: Mid-range T1 kit £310 + fitting £300)', amz,
-     'Airbags deployed - replacement from £610 (kit and fitting), depending on the number and location of the bags. The headlining, seat covers, dashboard, door cards and seatbelt pretensioners may also need replacing and are not costed. This must be checked before bidding.');
-  ok('from-figure is KIT + FITTING (SA26KVT shape: Prestige T2 £1,175 + £600 = £1,775)', srsDeploymentNote({ kit: 1175, fitting: fit('T2') }).includes('from £1,775 (kit and fitting)'));
-  ok('the lowest possible from-figure is Economy T1 £225 + £300 = £525 — Vincent\'s "from £500"', srsDeploymentNote({ kit: 225, fitting: fit('T1') }).includes('from £525'));
-  ok('"must be checked", never "please check"', /must be checked/.test(amz) && !/please check/i.test(amz));
-  ok('the COUNT is never claimed (no "at least one", no bag positions, no number of bags)', !/at least one|driver|passenger|curtain|\bside\b|\bone bag|\btwo bags|\b\d+ bags/i.test(amz));
+  eq('THE FIGURE: one flat £500', SRS_FLOOR_GBP, 500);
+  const note = srsDeploymentNote();
+  eq('sentence, verbatim — the approved wording with the flat £500', note,
+     'Airbags deployed - replacement from £500 (kit and fitting), depending on the number and location of the bags. The headlining, seat covers, dashboard, door cards and seatbelt pretensioners may also need replacing and are not costed. This must be checked before bidding.');
+  ok('no tier, no band, no kit reaches the sentence — it takes no input (the HMZ8034 "from £2,880" cannot recur)',
+     srsDeploymentNote.length === 0 && srsDeploymentNote({ kit: 1880, fitting: 1000 }) === note && !/2,880|1,775|610\b/.test(note));
+  ok('"must be checked", never "please check"', /must be checked/.test(note) && !/please check/i.test(note));
+  ok('the COUNT is never claimed (no "at least one", no bag positions, no number of bags)', !/at least one|driver|passenger|curtain|\bside\b|\bone bag|\btwo bags|\b\d+ bags/i.test(note));
   ok('the collateral is NAMED — headlining, seat covers, dashboard, door cards, pretensioners — and says it is not costed',
      ['headlining', 'seat covers', 'dashboard', 'door cards', 'pretensioners'].every((w) => SRS_COLLATERAL.includes(w)) && /not costed/.test(SRS_COLLATERAL));
-  ok('Latin-1 only (the PDF flag renderer drops en/em dashes)', !/[^\x00-\xFF]/.test(amz));
+  ok('Latin-1 only (the PDF flag renderer drops en/em dashes)', !/[^\x00-\xFF]/.test(note));
 
-  const kitRow = { panelId: 'SRS_AIRBAG', name: 'SRS airbag kit (deployed)', action: 'replace', oem: 565, used: 310, _tableMandated: true, _gOwned: true, _srsTier: 1 };
-  const fitRow = { name: 'SRS fitting', action: '—', oem: 300, used: null, _srsFitting: true };
+  const floorRow = { panelId: 'SRS_AIRBAG', name: 'SRS airbag kit (deployed)', action: 'replace', oem: null, used: 500, _tableMandated: true, _gOwned: true, _srsFloor: true };
   const bumper = { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 290, used: 160 };
-  ok('from-figure rows: the SRS kit, the SRS fitting and the £500 jig floor — nothing else', isFromFigureRow(kitRow) && isFromFigureRow(fitRow) && isFromFigureRow({ _structFloor: true }) && !isFromFigureRow(bumper));
-  eq('NO money moves: kit £310 + fitting £300 still sum into the total', sumPartsRealistic([kitRow, fitRow, bumper]), 770);
-  eq('VDS: the kit reads as a from-figure', assembleVdsParts([], [kitRow, bumper]).find((b) => b.panelId === 'SRS_AIRBAG').prose, 'Replace — from £310.');
-  eq('VDS: every other row unchanged', assembleVdsParts([], [kitRow, bumper]).find((b) => b.panelId === 'FRONT_BUMPER').prose, 'Replace — £160.');
-  eq('KCD: the kit reads as a from-figure', assembleKcdParts([kitRow, bumper]).find((d) => d.panelId === 'SRS_AIRBAG').prose, 'SRS airbag kit (deployed) — replace: from £310');
-  ok('KCD: no internal marker leaks onto the driver object', !('_from' in assembleKcdParts([kitRow])[0]));
-  const card = buildDamageCards({ gatedParts: [kitRow, bumper], costedParts: [], flaggedParts: [], allowanceParts: [] }).find((c) => c.panelId === 'SRS_AIRBAG');
-  ok('damage card: the kit card carries _fromFigure (rendered "from £310" on screen and PDF)', card?._fromFigure === true && card.cost === 310);
+  ok('from-figure rows: the £500 SRS floor and the £500 jig floor — nothing else', isFromFigureRow(floorRow) && isFromFigureRow({ _structFloor: true }) && !isFromFigureRow(bumper));
+  ok('batch 129 markers no longer print "from" (129 never shipped — a stored report renders as main does)', !isFromFigureRow({ _srsTier: 1 }) && !isFromFigureRow({ _srsFitting: true }));
+  eq('IN THE TOTAL, ONCE: floor £500 + bumper £160, nothing else for SRS', sumPartsRealistic([floorRow, bumper]), 660);
+  eq('VDS: the SRS row reads "from £500"', assembleVdsParts([], [floorRow, bumper]).find((b) => b.panelId === 'SRS_AIRBAG').prose, 'Replace — from £500.');
+  eq('VDS: every other row unchanged', assembleVdsParts([], [floorRow, bumper]).find((b) => b.panelId === 'FRONT_BUMPER').prose, 'Replace — £160.');
+  eq('KCD: the SRS row reads "from £500"', assembleKcdParts([floorRow, bumper]).find((d) => d.panelId === 'SRS_AIRBAG').prose, 'SRS airbag kit (deployed) — replace: from £500');
+  ok('KCD: no internal marker leaks onto the driver object', !('_from' in assembleKcdParts([floorRow])[0]));
+  const card = buildDamageCards({ gatedParts: [floorRow, bumper], costedParts: [], flaggedParts: [], allowanceParts: [] }).find((c) => c.panelId === 'SRS_AIRBAG');
+  ok('damage card: the SRS card carries _fromFigure, cost £500 (rendered "from £500" on screen and PDF)', card?._fromFigure === true && card.cost === 500);
 
+  // NO DOUBLE COUNT, NO ORPHANED RIDER — the route's own reconcile expression, run over the injected row.
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
-  ok('route: every costed deployment is flagged — the flag is no longer gated on an unresolved count', !/if \(!srsT\.countResolved\) \{/.test(route) && route.includes('reason: srsDeploymentNote({ kit: srsEntry.used, fitting: _srsFit })'));
+  const blockStart = route.indexOf('if (_srsGateOpen && srsT.deploymentConfirmed) {');
+  const block = route.slice(blockStart, route.indexOf('} else if (_srsGateOpen && _srsPaste.intact) {', blockStart));
+  ok('route: the deployment block exists and is found', blockStart > 0 && block.length > 200);
+  ok('route: ONE SRS row is pushed, at the flat floor, marked _srsFloor', (block.match(/gatedParts\.push\(/g) || []).length === 1 && block.includes('used:    SRS_FLOOR_GBP,') && block.includes('_srsFloor: true,'));
+  ok('route: NO band lookup, NO tier price, NO fitting in the deployment block', !/bandKey|PANEL_PRICE_TABLE|srsEntry|srsFitting\(|_srsTier:/.test(block));
+  ok('route: no row anywhere is given _srsTier (the rider can never re-attach)', !/_srsTier:\s/.test(route));
+  ok('route: the reconcile still keys the rider on _srsTier (named dead code, batch 130 — Vincent rules on removal)', route.includes("gatedParts.find(p => p.panelId === 'SRS_AIRBAG' && p._srsTier)"));
+  {
+    const { computeLabour: cl } = await import('../lib/labour.mjs');
+    const gated = [floorRow, bumper];
+    const srsRow = gated.find(p => p.panelId === 'SRS_AIRBAG' && p._srsTier);   // the route's expression, verbatim
+    const lab = cl({ bodyPanels: [], structuralTellCount: 0, srsTier: srsRow ? `T${srsRow._srsTier}` : null });
+    ok('NO ORPHANED RIDER: the reconcile finds no tier on the floor row → rider £0 → no "SRS fitting" row is pushed', srsRow === undefined && lab.srsFitting === 0);
+  }
+  ok('route: the flag reads the flat sentence', block.includes('reason: srsDeploymentNote(),'));
   ok('route: the old count-claiming sentence is gone from source', !route.includes('at least one bag confirmed'));
   ok('route: the Airbags field says "must be checked" and claims no count', /The number and location of the bags must be checked before bidding\./.test(route) && !route.includes('confirm full extent on inspection'));
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
   const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
-  ok('screen + PDF: the table row prints "from" for both SRS rows', [page, pdf].every((s) => s.includes('(p._structFloor || p._srsTier || p._srsFitting) && c.repair != null ? `from ')));
-  ok('screen + PDF: the damage card prints "from" for the kit card', [page, pdf].every((s) => s.includes('(c._structFloor || c._fromFigure) ? `from ${g(c.cost)}`')));
+  ok('screen + PDF: the table row prints "from" for the two floors only', [page, pdf].every((s) => s.includes('(p._structFloor || p._srsFloor) && c.repair != null ? `from ') && !s.includes('p._srsTier') && !s.includes('p._srsFitting) &&')));
+  ok('screen + PDF: the damage card prints "from" for a floor card', [page, pdf].every((s) => s.includes('(c._structFloor || c._fromFigure) ? `from ${g(c.cost)}`')));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);

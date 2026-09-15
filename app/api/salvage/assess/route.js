@@ -36,7 +36,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsFitting, srsDeploymentNote, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -4824,7 +4824,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     //   TIER    = srsTierFromSignals: paste explicitly names curtain/side → T3; names driver AND
     //             passenger → T2; deployment confirmed but count unresolvable → T1 CONFIDENT FLOOR
     //             (never £0) + inspect-for-extent flag. £900/T2 must be EARNED by ≥2-bag evidence,
-    //             never floored blind. Band lookup + SRS_AIRBAG_T{n} rows UNCHANGED.
+    //             never floored blind. ⚠️ batch 130: the tier is READ AND LOGGED ONLY — it sets no figure.
+    //             The money is ONE flat £500 floor for any deployment (spec §10); no band lookup.
     const SRS_ROW_RE = /\bair\s?bags?\b|\bsrs\b|supplementary restraint|restraint system/i;
     // Strip the model's free-text airbag row(s) from the repair total (mirror G-inject); returns count.
     const stripModelAirbagRows = () => {
@@ -4875,40 +4876,35 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     console.log(`[SRS_TIER] gateOpen=${_srsGateOpen} (interiorVision=${_srsInteriorVision} deploymentConfirmed=${srsT.deploymentConfirmed}; label no longer opens the gate) enumDeployed=${_deploymentByEnum} (votes=${_airbagVotes?.damaged ?? 0} amalgFlag=${_airbagEnumFlag}) paste={deployed:${_srsPaste.deployed},intact:${_srsPaste.intact},curtainSide:${_srsPaste.curtainSide},bothFront:${_srsPaste.bothFront}} positions=[${[..._srsPositions].join(',') || 'none'}] → tier=${srsT.tier ? 'T' + srsT.tier : 'none'} confident=${srsT.confident} countResolved=${srsT.countResolved} branch=${srsT.branch}`);
 
     if (_srsGateOpen && srsT.deploymentConfirmed) {
-      // Deployment CERTAIN (enum and/or paste). Cost the tier — T1 is a confident FLOOR, never £0.
-      const srsEntry = bandKey ? PANEL_PRICE_TABLE[`SRS_AIRBAG_T${srsT.tier}`]?.[bandKey] : null;
-      if (!srsEntry) {
-        // No band → no table price for ANY panel (Q2 fallback). Retain the model's airbag treatment
-        // AND the real amalgamate AIRBAG flag (not suppressed) as the honest buyer signal.
-        console.log(`[SRS_TIER] tier=T${srsT.tier} confident but ${bandKey ? `no table entry for band "${bandKey}"` : 'no band (no Brego trade valuation)'} — model airbag treatment + amalgamate flag retained (band-independent fallback, as all panels)`);
-      } else {
-        const srsStripped = stripModelAirbagRows();
-        console.log(`[SRS_STRIP] removed ${srsStripped} model airbag row(s) from repair total`);
-        gatedParts.push({
-          panelId: 'SRS_AIRBAG', // injection-only sentinel, distinct from PANEL.OTHER
-          name:    'SRS airbag kit (deployed)',
-          action:  'replace',
-          oem:     srsEntry.oem,
-          used:    srsEntry.used,
-          _tableMandated: true,
-          _gOwned:  true,
-          _srsTier: srsT.tier,   // batch 95 §10: read by the labour reconcile to add the tiered fitting rider
-        });
-        srsInjected = true;
-        const srsFlagDropped = suppressAirbagFlags(); // collapse the raw amalgamate flag INTO the canonical signal
-        console.log(`[SRS_INJECT] tier=T${srsT.tier} band=${bandKey} used=£${srsEntry.used} (oem=£${srsEntry.oem}) branch=${srsT.branch} countResolved=${srsT.countResolved} collapsed-airbag-flags=${srsFlagDropped}`);
-        // batch 129 (Vincent, 14 Sep — spec §10 SRS ruling): the engine does NOT count bags. EVERY costed deployment
-        // is flagged — not only an unresolved count — and the count is never claimed. The band figure is stated as
-        // an approximate FROM figure (kit + fitting), the collateral is named but not costed, and "must be checked"
-        // is Vincent's word. Tier, band and the found-position raise are UNCHANGED, so no money moves here.
-        const _srsFit = srsFitting(`T${srsT.tier}`);
-        coreObs.flaggedParts.push({
-          panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high',
-          reason: srsDeploymentNote({ kit: srsEntry.used, fitting: _srsFit }),
-          _srsExtentFloor: true,
-        });
-        console.log(`[SRS_TIER] deployment flagged, count not claimed — from £${srsEntry.used + _srsFit} (kit £${srsEntry.used} + fitting £${_srsFit}) tier=T${srsT.tier} countResolved=${srsT.countResolved}`);
-      }
+      // Deployment CERTAIN (enum and/or paste). batch 130 (Vincent, 14 Sep — spec §10): ONE flat £500 FLOOR for ANY
+      // deployment, whatever the tier — no band lookup, no tier, no fitting rider in the money. This one row replaces
+      // batch 95's tiered kit row AND its fitting rider. It carries _srsFloor, NOT _srsTier, so the labour reconcile
+      // below finds no tier and adds no rider (validate-labour pins both). The tier is still read and logged above —
+      // it sets no figure. Same shape as the jig floor (spec §5): the floor in the total, the words carry the rest.
+      // No band is needed for a flat figure, so the old no-band fallback (model airbag row retained) is gone.
+      const srsStripped = stripModelAirbagRows();
+      console.log(`[SRS_STRIP] removed ${srsStripped} model airbag row(s) from repair total`);
+      gatedParts.push({
+        panelId: 'SRS_AIRBAG', // injection-only sentinel, distinct from PANEL.OTHER
+        name:    'SRS airbag kit (deployed)',
+        action:  'replace',
+        oem:     null,
+        used:    SRS_FLOOR_GBP,
+        _tableMandated: true,
+        _gOwned:  true,
+        _srsFloor: true,   // batch 130: the flat floor — renders "from £500"; never read for money beyond `used`
+      });
+      srsInjected = true;
+      const srsFlagDropped = suppressAirbagFlags(); // collapse the raw amalgamate flag INTO the canonical signal
+      console.log(`[SRS_INJECT] flat floor £${SRS_FLOOR_GBP} — tier read T${srsT.tier} sets no figure; branch=${srsT.branch} countResolved=${srsT.countResolved} collapsed-airbag-flags=${srsFlagDropped}`);
+      // batch 129, kept by 130: EVERY costed deployment is flagged and the count is never claimed. Number and location
+      // live in these words, never in the figure; the collateral is named, not costed; "must be checked".
+      coreObs.flaggedParts.push({
+        panelId: PANEL.AIRBAG, partName: PANEL_DISPLAY[PANEL.AIRBAG], zone: 'interior', weight: 'high',
+        reason: srsDeploymentNote(),
+        _srsExtentFloor: true,
+      });
+      console.log(`[SRS_TIER] deployment flagged, count not claimed — from £${SRS_FLOOR_GBP} (flat floor, in the total)`);
     } else if (_srsGateOpen && _srsPaste.intact) {
       // Gate open, no deployment evidence, and the paste EXPLICITLY states airbags intact/undeployed
       // → genuine no-deployment read → no cost, no flag.
@@ -5440,6 +5436,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         + (flagObs(PANEL.SIDE_STRUCTURE) ? 1 : 0)
         + (bonnetTell ? 1 : 0);
 
+      // batch 130: DEAD — no row carries _srsTier since the flat £500 floor (spec §10), so srsTier is always null and
+      // the SRS fitting push below never fires. Left in place, not deleted: Vincent rules on removal.
       const srsRow  = gatedParts.find(p => p.panelId === 'SRS_AIRBAG' && p._srsTier);
       const srsTier = srsRow ? `T${srsRow._srsTier}` : null;
 

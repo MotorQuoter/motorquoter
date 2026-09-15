@@ -398,6 +398,9 @@ own. It cannot be built on the current signal:**
 
 ### SRS AIRBAG — THE ONE EXCEPTION. Fitting ON TOP of the kit.
 
+⛔ **Superseded for money by the FINAL 14 Sep ruling below (batch 130): SRS is one flat £500
+floor.** The tiers and riders in this table set no figure; kept as the record.
+
 | tier | deployment | fitting £ |
 |---|---|---|
 | **T1** | driver's bag only | **£300** |
@@ -418,54 +421,66 @@ and not inside the Labour & paint aggregate.
 and was corrected in batch 125. **The conclusion here was always right; only the footnote
 was wrong.**
 
-### ⚖️ RULED 14 SEPTEMBER 2026 — HOW SRS IS PRESENTED. ✅ BUILT batch 129
+### ⚖️ RULED 14 SEPTEMBER 2026 (FINAL) — SRS IS ONE FLAT £500 FLOOR. ✅ BUILT batch 130
 
-> **Vincent, 14 Sep: *"Airbags out, please check, replacement from £500 depending on number
-> and location."*** — and on the wording: ***"must be checked reads better."***
+> **Vincent, 14 Sep: *"Airbags out, must be checked, replacement from £500 depending on number
+> and location."*** · ***"Yes £500 is counted in the repair with the note."***
 
-1. ⛔ **The engine does NOT count bags.** Modern cars carry up to ten plus pretensioners; a
-   Copart sales shoot cannot support a count. **Deployment is flagged; the count is not
-   claimed.** Built: the inspection flag now fires on **every** costed deployment (before
-   batch 129 it fired only when the count was unresolved, which let a T2/T3 lot read as a
-   settled count), and its old wording — *"at least one bag confirmed; confirm full extent
-   (driver / passenger / curtain / side)"* — is gone.
-2. **The band table is UNCHANGED and NOT re-anchored.** Its figure is presented as an
-   **approximate "from" estimate**, never a computed cost.
-   ⚖️ **Vincent, 14 Sep (batch 129): the from-figure is KIT + FITTING** — band `used` plus the
-   tier's fitting rider. The lowest possible is Economy T1 £225 + £300 = **£525** — his
-   "from £500". ⚖️ **And both SRS rows in the Parts Breakdown read "from £X"**, the same
-   precedent as the £500 jig floor (screen + PDF; also the damage card, Visible Damage
-   Summary and Key Cost Drivers for the kit).
-3. **The collateral is NAMED, not costed** — headlining, seat covers, dashboard, door cards,
-   seatbelt pretensioners. ⛔ **No attempt is made to cost any of it.**
-4. **The found-position raise STAYS — one-way ratchet.** A positively evidenced position
-   raises the band; nothing lowers it (`validate-srs-tier`).
-5. 🔴 **"MUST BE CHECKED", not "please check".**
+⛔ **SUPERSEDES batch 129's tier-derived "from" figure** (band kit `used` + the tier's fitting
+rider, printed with "from" in front). On HMZ8034 that rendered **"from £2,880"** (T3 kit
+£1,880 + fitting £1,000). *Vincent: "From £2,880 is very wrong. Did I not suggest £500?"*
+🎯 **A "from" figure derived from the tier is not a floor — it is a ceiling wearing a floor's
+label.** The bottom of the whole table is Economy T1 £225 + £300 = £525, so **£500 is the true
+floor of the product.**
 
-**The buyer-facing sentence** (one owner, `srsDeploymentNote` in `lib/labour.mjs`; hyphen,
-not a dash, because the PDF is Latin-1), approved by Vincent 14 Sep:
+1. 🔴 **ONE flat figure: £500, for ANY deployment, whatever the tier.** No band lookup, no
+   vehicle band, no tier in the figure. ⛔ **Do not interpolate, scale or band it.**
+2. 🔴 **£500 goes IN the repair total**, with the note.
+3. **It REPLACES the tier-derived money — the kit row AND the fitting rider.** Built as ONE
+   row, `SRS airbag kit (deployed)`: `used` £500, `oem` blank, marker `_srsFloor`, printed
+   **"from £500"** in the Parts Breakdown (screen + PDF), the damage card, the Visible Damage
+   Summary and Key Cost Drivers — the £500 jig-floor precedent. No `SRS fitting` row is added.
+4. **Number and location live in the WORDS, never in the figure.** ⛔ The engine does NOT
+   count bags. The inspection flag fires on **every** costed deployment and never claims a
+   count (built batch 129, kept).
+5. 🔴 **"MUST BE CHECKED"**, not "please check".
+6. **The collateral is NAMED, not costed** — headlining, seat covers, dashboard, door cards,
+   seatbelt pretensioners.
 
-> Airbags deployed - replacement from £{kit + fitting} (kit and fitting), depending on the
-> number and location of the bags. The headlining, seat covers, dashboard, door cards and
-> seatbelt pretensioners may also need replacing and are not costed. This must be checked
-> before bidding.
+📌 **Same shape as the structural floor (§5):** a defensible floor in the total, the real range
+carried in the sentence the buyer reads.
 
-💷 **No money moves.** Tier, band, fitting rider and `parts_sum` are unchanged; this is
-presentation only.
+**The buyer-facing sentence** (one owner, `srsDeploymentNote()` in `lib/labour.mjs`; it takes
+no input, so no tier or band can reach it; hyphen, not a dash, because the PDF is Latin-1):
 
-⚖️ **OPEN for Vincent (not built, not changed):** T3 is defined as *"the lot (fronts +
-curtains/side)"*, and the code gives T3 to a curtain alone. On HMZ8034 a curtain and a
-seat-mounted bag fired with **both front bags intact**, and billed T3 (£1,880 kit + £1,000
-fitting). Whether curtain-without-fronts should reach T3 money is unruled.
+> Airbags deployed - replacement from £500 (kit and fitting), depending on the number and
+> location of the bags. The headlining, seat covers, dashboard, door cards and seatbelt
+> pretensioners may also need replacing and are not costed. This must be checked before
+> bidding.
+
+💷 **THE MONEY MOVES DOWN — the under-billing direction, ruled by Vincent.** SRS in the total:
+AMZ3790 £610 → **£500** · SA26KVT £1,775 → **£500** · HMZ8034 (live) £2,880 → **£500** ·
+SF69YBB £0 (no deployment).
+⚠️ **No band is needed for a flat figure**, so a deployment on a lot with no Brego band now
+also costs £500; before, the model's own airbag row stood. No corpus lot takes that path.
+
+📌 **THE TIER MACHINERY SETS NO FIGURE — kept, not deleted; Vincent rules on removal.**
+`srsTierFromSignals` and `srsPositionsFromPerView` are still read and logged;
+`SRS_AIRBAG_T1/T2/T3` and the T1/T2/T3 fitting table above have no money consumer;
+`validate-srs-tier` still locks the over-count guard.
+✅ **CLOSED by this ruling:** whether curtain-without-fronts should reach T3, and the
+found-position raise — neither can move money once the tier sets no figure.
 
 ## 11. WHAT THE MONEY IS
 
 ```
-parts_sum = part costs
+parts_sum = part costs (including the flat £500 SRS floor where deployed)
           + panel work (NEW+PAINTED column, top of its range)
           + structural allowance (its own band top, NOT re-ranged)
-          + SRS fitting rider where applicable
 ```
+
+⚠️ **Batch 130: the SRS fitting rider no longer enters the money** — the £500 floor replaces
+the kit and the rider together (§10).
 
 **The SECOND-HAND column is DISPLAY ONLY and never drives the bid.**
 
