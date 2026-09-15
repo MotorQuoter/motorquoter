@@ -482,5 +482,61 @@ console.log('\n12. batch 130 — SRS is ONE flat £500 floor (Vincent 14 Sep: "A
   ok('screen + PDF: the damage card prints "from" for a floor card', [page, pdf].every((s) => s.includes('(c._structFloor || c._fromFigure) ? `from ${g(c.cost)}`')));
 }
 
+console.log('\n13. batch 130 — Q4 does NOT promote on a losing vote (Vincent 14 Sep: "One damaged read against three is not a genuine disagreement. Flag it, do not cost it.")');
+{
+  const { promoteFlaggedQuarter, isLosingQuarterVote } = await import('../lib/labour.mjs');
+  const { sumPartsRealistic, buildBuyerFlags } = await import('../lib/parts.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const { readFileSync } = await import('node:fs');
+  const ENTRY = { oem: 500, used: 275 };
+  const DISAGREE = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
+  const run = (pvVotes, flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: DISAGREE, _amalgDisagree: true }) => {
+    const rows = [{ panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 365, used: 200 }];
+    const flags = [flag];
+    const sev = new Map([['FRONT_BUMPER', 'SEVERE']]);
+    const out = promoteFlaggedQuarter({ gatedParts: rows, flaggedParts: flags, costedIds: new Set(['FRONT_BUMPER']), sevByPanel: sev, zoneByPanel: new Map(), entry: ENTRY, name: 'Rear quarter panel', pvVotes });
+    return { out, rows, flags, sev };
+  };
+
+  // 🎯 HMZ8034, the stored _pvVotes verbatim (Cowork read the live row, 14 Sep). Live-only — a synthetic lock, not a replay.
+  const HMZ = { REAR_QUARTER: { views: 4, clean: 2, damaged: 1, severeVotes: 1, branch: 'disagree', resolving: 3, notVisible: 0 } };
+  const h = run(HMZ);
+  ok('HMZ8034 (1 damaged v 2 clean): declined — no quarter row is costed', h.out?.row === null && !!h.out?.declined && h.rows.length === 1 && !h.rows.some((r) => r.panelId === 'REAR_QUARTER'));
+  ok('HMZ8034: no grade is set, so the quarter earns no panel-work labour', !h.sev.has('REAR_QUARTER'));
+  eq('HMZ8034: the money is the bumper alone', sumPartsRealistic(h.rows), 200);
+  ok('HMZ8034: the flag is NOT removed — it stays in the flags', h.flags.length === 1 && h.flags[0]._amalgDisagree === true && h.flags[0].reason === DISAGREE);
+  const cards = buildDamageCards({ gatedParts: h.rows, costedParts: [], flaggedParts: h.flags, allowanceParts: [] });
+  const rq = cards.find((c) => c.part === 'Rear quarter panel');
+  ok('HMZ8034: the quarter stays in the damage breakdown at £0 (a Related card carrying the disagreement)', rq?.origin === 'Related' && rq.cost === 0 && rq.note === DISAGREE);
+
+  // The boundary: damaged >= clean promotes (a tie is still a genuine disagreement).
+  ok('TIE (2 v 2) still promotes', run({ REAR_QUARTER: { damaged: 2, clean: 2 } }).out?.row?._q4Promoted === true);
+  ok('damaged wins (2 v 1) promotes', run({ REAR_QUARTER: { damaged: 2, clean: 1 } }).out?.row?._q4Promoted === true);
+  ok('AMZ3790 stored-baseline shape (1 v 4) is declined', run({ REAR_QUARTER: { damaged: 1, clean: 4 } }).out?.declined != null);
+  ok('YH23NVW 30-Aug single-MINOR shape (1 v 3, _amalgSingleMinor flag) is declined — Ruling 2 no-cost now holds on Q4 too',
+     run({ REAR_QUARTER: { damaged: 1, clean: 3 } }, { panelId: 'REAR_QUARTER', zone: 'rear', weight: 'low', reason: 'one photo', _amalgSingleMinor: true }).out?.declined != null);
+  ok('no vote entry at all → nothing to weigh → promotes as before (the batch 127 not-visible fixture)', run(null).out?.row?._q4Promoted === true && run({}).out?.row?._q4Promoted === true);
+  ok('not-visible (0 v 0) is not a losing vote → promotes as before', run({ REAR_QUARTER: { damaged: 0, clean: 0, notVisible: 3 } }).out?.row?._q4Promoted === true);
+  ok('G-split instance key REAR_QUARTER#1 losing (1 v 3) → declined', run({ 'REAR_QUARTER#1': { damaged: 1, clean: 3 } }).out?.declined != null);
+  ok('declined only when EVERY quarter entry loses — #1 losing + #2 winning promotes', run({ 'REAR_QUARTER#1': { damaged: 1, clean: 3 }, 'REAR_QUARTER#2': { damaged: 2, clean: 0 } }).out?.row?._q4Promoted === true);
+  ok('other panels\' votes are never read (a losing FRONT_DOOR vote does not decline the quarter)', run({ FRONT_DOOR: { damaged: 1, clean: 3 } }).out?.row?._q4Promoted === true);
+  ok('isLosingQuarterVote is strict less-than', isLosingQuarterVote({ REAR_QUARTER: { damaged: 1, clean: 2 } }) && !isLosingQuarterVote({ REAR_QUARTER: { damaged: 2, clean: 2 } }));
+
+  // The Inspection Flags list reads _flaggedParts + _preGateParts, never the ledger — so declining the cost cannot change
+  // what the buyer's flag list shows. (Pinned as it stands: a disagree flag on a panel the main call never listed is hidden
+  // there by the existing, ruled filter, costed or not — the damage card above is where it stays visible.)
+  const flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: DISAGREE, _amalgDisagree: true };
+  const pre = [{ panelId: 'FRONT_BUMPER', name: 'Front bumper' }];
+  const promotedA = { _flaggedParts: [flag], _preGateParts: pre, _reconciledParts: [{ panelId: 'REAR_QUARTER', used: null, oem: 500, _q4Promoted: true }] };
+  const declinedA = { _flaggedParts: [flag], _preGateParts: pre, _reconciledParts: [] };
+  eq('buyer flag list is identical whether Q4 promotes or declines (the filter never reads the ledger)', buildBuyerFlags(promotedA), buildBuyerFlags(declinedA));
+  const preWithQ = [...pre, { panelId: 'REAR_QUARTER', name: 'Rear quarter panel' }];
+  ok('…and where the main call listed the quarter, its flag reaches the buyer list', buildBuyerFlags({ _flaggedParts: [flag], _preGateParts: preWithQ }).some((f) => f.panelId === 'REAR_QUARTER'));
+
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  ok('route: the Q4 promotion receives the per-view votes', /promoteFlaggedQuarter\(\{[\s\S]{0,400}pvVotes: assessment\._pvVotes,[\s\S]{0,20}\}\)/.test(route));
+  ok('route: _pvVotes is assigned BEFORE the Q4 promotion reads it', route.indexOf('assessment._pvVotes  = pvResult.pvVotesMap') > 0 && route.indexOf('assessment._pvVotes  = pvResult.pvVotesMap') < route.indexOf('promoteFlaggedQuarter({'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

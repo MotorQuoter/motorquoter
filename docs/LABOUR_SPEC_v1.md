@@ -492,6 +492,31 @@ the kit and the rider together (§10).
 2. **FLAGGED-BUT-UNCOSTED structural/quarter panels ARE NOW COSTED** at the band default,
    still flagged, buyer strikes. **Vincent: yes.** 🎯 **The fail-safe rule applied — a cost
    he can see and delete is safe; a hole in the total makes him bid too high.**
+
+   ⚖️ **NARROWED 14 SEPTEMBER 2026 — Q4 DOES NOT PROMOTE ON A LOSING VOTE. ✅ BUILT batch 130**
+   > **Vincent: *"One damaged read against three is not a genuine disagreement. Flag it, do
+   > not cost it."***
+
+   **HMZ8034:** `_pvVotes.REAR_QUARTER` = 4 views, **1 damaged, 2 clean** (`branch: disagree`).
+   Flagged honestly, then `_q4Promoted` costed it at the band default anyway (£500, at new
+   since batch 127). **Vincent confirmed by eye from the photographs that the quarter is
+   SOUND** — the engine's own majority agreed; a policy rule overrode both. ⛔ Not a
+   perception defect.
+
+   **THE RULE: promote only when `damaged >= clean`. Where `damaged < clean`, flag only — no
+   cost.** A tie is still a genuine disagreement and still promotes.
+   📌 **This NARROWS the fail-safe above; it does not repeal it.** *"A cost he can see and
+   delete is safe; a hole in the total makes him bid too high"* still governs every genuine
+   disagreement. ⚠️ **Under-billing direction — ruled by Vincent.**
+
+   **Built** (`isLosingQuarterVote` + `promoteFlaggedQuarter`, `lib/labour.mjs`). CC build
+   choices, not rulings: every `_pvVotes` entry keyed `REAR_QUARTER` or `REAR_QUARTER#n` is
+   read, and the quarter is declined only when **every** entry is a losing vote; a flag with
+   **no** vote entry (nothing to weigh) promotes as before. **The declined quarter keeps its
+   flag and stays in the damage breakdown as a £0 card** — it leaves the money, not the
+   report. ⚠️ The buyer's Inspection Flags list is unchanged by this rule: it never reads the
+   ledger, and it already hides a disagree flag on a panel the main call never listed
+   (`buildBuyerFlags`, ruled 4f), costed or not.
 3. Structural allowance band = BODY TYPE (table in §5). ⚠️ **Superseded — see §5.**
 
 ## 📌 THE COUNT CORRECTION — CC's, accepted
@@ -516,7 +541,7 @@ not-visible structure gets nothing (batch 106).
 | 3 | **The labour range is displayed nowhere** | §6 | ⚖️ **RULED 14 Sep — BUILD IT.** ✅ **BUILT batch 127** — sub-line under the labour row + addendum under the parts table, screen and PDF; banner and margin table unchanged. One owner: `labourDisplayLines` / `LABOUR_RANGE_ADDENDUM` (`lib/labour.mjs`), read through `applyEdits` so a struck body panel re-derives the range; hidden when the labour line itself is struck. 📌 Rendered with a **hyphen** (`Estimate £1,615 - £2,375 · the total uses the top`), not the en dash quoted in §6: the PDF is Latin-1 only and the brief specified the hyphen. Money byte-identical (batch 127 proof) |
 | 4 | **The second-hand column is displayed nowhere** and mis-treats repaired panels | §4 | ✅ **RULED 14 Sep — FIX IT (strip repaired panels) THEN SHOW IT.** Display-only. ✅ **BUILT batch 127.** ⚖️ **Vincent, 14 Sep, on what "strip" means:** a REPAIRED bolt-on gets no £170 fit, but **keeps its painted repair figure** (the repair still happens on the second-hand route) and flattens with the other painted work; only a REPLACED bolt-on is sourced finished at £170. AMZ3790: £578–£850 → **£1,029–£1,513**. ⚖️ **Wording, Vincent 14 Sep:** a second sub-line under the labour row — `With second-hand colour-matched panels: £{low} - £{top} · for comparison, not in the total`. Nothing in the money reads the column (verified) |
 | 5 | **The sanity envelope** | §7 | ✅ **BINNED 14 Sep.** Replaced by the economic warning — recon first |
-| 6 | **An ungraded body panel defaults to MODERATE and keeps its part** | §1 | ✅ **RULED 14 Sep — THE Q4 PROMOTION SETS A GRADE (SEVERE).** Kills the ungraded state rather than arguing what it means. ✅ **BUILT batch 127** (`promoteFlaggedQuarter`, `lib/labour.mjs`) — a promoted quarter is a welded REPLACE at NEW. ⚠️ Proven by a synthetic unit fixture only: no stored or replayable lot promotes a quarter |
+| 6 | **An ungraded body panel defaults to MODERATE and keeps its part** | §1 | ✅ **RULED 14 Sep — THE Q4 PROMOTION SETS A GRADE (SEVERE).** Kills the ungraded state rather than arguing what it means. ✅ **BUILT batch 127** (`promoteFlaggedQuarter`, `lib/labour.mjs`) — a promoted quarter is a welded REPLACE at NEW. ⚠️ Proven by a synthetic unit fixture only: no stored or replayable lot promotes a quarter. ⚖️ **NARROWED 14 Sep — NO PROMOTION ON A LOSING VOTE** (`damaged < clean` → flag only, £0; a tie still promotes). ✅ **BUILT batch 130** (`isLosingQuarterVote`, `lib/labour.mjs`) — see the 31 Aug ruling 2 block. HMZ8034 (live-only, 1 damaged v 2 clean) is the worked example; locked by a synthetic fixture, not a replay |
 | 7 | **The two copies of this spec differ** | header | ✅ **CLOSED 14 Sep — merged into this file, tracked by git** |
 
 ---

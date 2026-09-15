@@ -5393,11 +5393,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // produce an ungraded row; applyGradeOwnsAction below prices it as a welded REPLACE at NEW. One owner in
       // lib/labour.mjs (unit-proven in validate-labour — no stored or replayable fixture promotes a quarter).
       const costedIds = new Set(gatedParts.filter(p => !isLabour(p.name) && p.panelId).map(p => p.panelId));
+      // batch 130 (Vincent, 14 Sep): NOT on a losing vote — where every REAR_QUARTER vote entry has damaged < clean the
+      // flag stays and nothing is costed ("One damaged read against three is not a genuine disagreement").
       const _q4 = promoteFlaggedQuarter({
         gatedParts, flaggedParts: coreObs.flaggedParts, costedIds, sevByPanel, zoneByPanel,
         entry: bandKey ? PANEL_PRICE_TABLE[PANEL.REAR_QUARTER]?.[bandKey] : null, name: PANEL_DISPLAY[PANEL.REAR_QUARTER],
+        pvVotes: assessment._pvVotes,
       });
-      if (_q4) console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default, grade ${_q4.row && sevByPanel.get(PANEL.REAR_QUARTER)} (was ${_q4.gradeWas ?? 'ungraded'}) oem £${_q4.row.oem} used £${_q4.row.used}; flag retained`);
+      if (_q4?.row) console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default, grade ${sevByPanel.get(PANEL.REAR_QUARTER)} (was ${_q4.gradeWas ?? 'ungraded'}) oem £${_q4.row.oem} used £${_q4.row.used}; flag retained`);
+      else if (_q4?.declined) console.log(`[Q4 DECLINED] flagged REAR_QUARTER NOT costed — losing vote (damaged < clean) ${JSON.stringify(_q4.declined)}; flag retained, £0 (batch 130)`);
 
       // batch 116 (Vincent, 11 Sep: "Fix this duplication of parts and repair") — the GRADE owns repair vs
       // replace on a bolt-on body panel, and a MINOR/MODERATE repair carries NO part cost (spec §1: MODERATE is
