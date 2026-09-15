@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import TrustpilotReviewCollector from '@/app/components/TrustpilotReviewCollector';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { parseVdsParts, buildBuyerFlags } from '@/lib/parts.mjs';
+import { partsTableCells } from '@/lib/labour.mjs';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import {
   applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE,
@@ -951,15 +952,10 @@ export default function SalvageSuccessPage() {
                     ? parts.filter(p => !p._struck).reduce((acc, p) => acc + (p.oem ?? p.used ?? 0), 0)
                       + addedRows.reduce((acc, a) => acc + (Number(a.amount) || 0), 0)
                     : null;
-                  // Three cost columns. replace → OEM + S/H. repair → OEM (all-OEM "New" comparison, when the model
-                  // gave a replace price) + Repair cost. labour/other → Repair cost only. The repair-row OEM now
-                  // reconciles with the New total (oemTotal = oem ?? used per row); S/H side and totals untouched.
-                  const costCells = (p) => {
-                    const act = (p.action || '').toLowerCase();
-                    if (act === 'replace') return { oem: p.oem ?? null, sh: p.used ?? null, repair: null };
-                    if (act === 'repair')  return { oem: p.oem ?? null, sh: null, repair: p.used ?? p.oem ?? null };
-                    return { oem: null, sh: null, repair: p.used ?? p.oem ?? null };
-                  };
+                  // Three cost columns — ONE owner, shared with the PDF (batch 131, lib/labour.mjs partsTableCells):
+                  // replace → OEM + S/H · repair → OEM + Repair cost · labour/other → Repair cost · a FLOOR row (the £500
+                  // jig and SRS floors) → Repair cost, printed "from". Totals untouched.
+                  const costCells = partsTableCells;
                   return (
                     <div className="field-row">
                       <div className="field-key">Parts Breakdown</div>
@@ -1015,7 +1011,7 @@ export default function SalvageSuccessPage() {
                               <td style={{ ...colSt('center'), color: 'var(--text-dim)', fontSize: 11, ...strikeSt }}>{p._structFloor ? 'jig/geometry' : p.action}</td>
                               <td style={{ ...colSt('right'), ...strikeSt }}>{fmtP(c.oem)}</td>
                               <td style={{ ...colSt('right', c.sh != null), ...strikeSt }}>{fmtP(c.sh)}</td>
-                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{(p._structFloor || p._srsFloor) && c.repair != null ? `from ${fmtP(c.repair)}` : fmtP(c.repair)}</td>
+                              <td style={{ ...colSt('right', c.repair != null), ...strikeSt }}>{c.from && c.repair != null ? `from ${fmtP(c.repair)}` : fmtP(c.repair)}</td>
                             </tr>
                           ); })}
                           {addedRows.map((a, i) => (

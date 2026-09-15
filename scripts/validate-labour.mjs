@@ -478,7 +478,9 @@ console.log('\n12. batch 130 — SRS is ONE flat £500 floor (Vincent 14 Sep: "A
   ok('route: the Airbags field says "must be checked" and claims no count', /The number and location of the bags must be checked before bidding\./.test(route) && !route.includes('confirm full extent on inspection'));
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
   const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
-  ok('screen + PDF: the table row prints "from" for the two floors only', [page, pdf].every((s) => s.includes('(p._structFloor || p._srsFloor) && c.repair != null ? `from ') && !s.includes('p._srsTier') && !s.includes('p._srsFitting) &&')));
+  // batch 131: the cells (and "from") come from ONE owner, lib/labour.mjs partsTableCells — a real-PDF render lock lives in
+  // scripts/validate-from-floor.mjs (it fails on any bare "£500").
+  ok('screen + PDF: the table row prints "from" for the two floors only, off the one owner', [page, pdf].every((s) => s.includes('const costCells = partsTableCells;') && s.includes('c.from && c.repair != null ? `from ') && !s.includes('p._srsTier') && !s.includes('p._srsFitting) &&')));
   ok('screen + PDF: the damage card prints "from" for a floor card', [page, pdf].every((s) => s.includes('(c._structFloor || c._fromFigure) ? `from ${g(c.cost)}`')));
 }
 
