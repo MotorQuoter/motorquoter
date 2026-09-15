@@ -320,8 +320,8 @@ uses the top tells him it is deliberately high, and some will deduct and bid mor
 direction that costs him. **Accepted**: §6 rules the range is shown, and the edit layer is
 how he corrects it against a real quote.
 
-⛔ **NOT ranged** (spec §6): the £500 structural floor, the SRS fitting rider, the
-structural allowance.
+⛔ **NOT ranged** (spec §6): the £500 structural floor, the £500 SRS floor (batch 130 —
+it replaced the SRS fitting rider, §10), the structural allowance.
 
 ## 7. ❌ THE SANITY ENVELOPE — BINNED 14 SEPTEMBER 2026
 
