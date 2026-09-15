@@ -118,5 +118,85 @@ console.log('\n7. IE branch + render wiring');
   ok('PDF shows the honest failure verdict for ie_valuation', pdf.includes("}, 'ie_valuation')"));
 }
 
+// ── 8. batch 138 item 3 — a PAID salvage report that fails to save is refunded automatically, once ─────────────────
+// £0: the Stripe client is a fake (the helper takes it as an argument); nothing reaches Stripe.
+console.log('\n8. Salvage: a paid report that fails to save is refunded automatically — idempotent, promo/free never refunded');
+{
+  const { refundSalvageCharge, settleFailedSave, SALVAGE_REFUND_ITEM, SAVE_FAILED_REFUNDED_MESSAGE, saveFailedRefundFailedMessage } =
+    await import('../lib/salvageRefund.mjs');
+  const fakeStripe = (store = [], { throwOnCreate = false } = {}) => {
+    const calls = { list: 0, create: [] };
+    return {
+      calls,
+      refunds: {
+        list: async (p) => { calls.list++; return { data: store.filter((r) => r.payment_intent === p.payment_intent) }; },
+        create: async (p) => {
+          calls.create.push(p);
+          if (throwOnCreate) throw new Error('card_declined: refund not permitted');
+          const r = { id: `re_fake_${calls.create.length}`, amount: p.amount, payment_intent: p.payment_intent, metadata: p.metadata, status: 'succeeded' };
+          store.push(r);
+          return r;
+        },
+      },
+    };
+  };
+  const logs = [];
+  const log = (l) => logs.push(l);
+  let resets = 0;
+  const resetStatus = async () => { resets++; };
+
+  // Paid, first failure → one refund for the whole charge, tagged, the approved message.
+  const store = [];
+  const s1 = fakeStripe(store);
+  const o1 = await settleFailedSave({ promoToken: null, salvageId: 'sess-1', paymentIntentId: 'pi_1', chargeAmount: 899, stripe: s1, resetStatus, log });
+  assert('paid save failure → refunded', o1.refundStatus, 'refunded');
+  ok('the status is reset (the buyer is not left in processing)', resets === 1);
+  ok('exactly one Stripe refund, for the full charge (899p), on the right payment intent', s1.calls.create.length === 1 && s1.calls.create[0].amount === 899 && s1.calls.create[0].payment_intent === 'pi_1');
+  ok('the refund carries metadata item + reason + salvage id', s1.calls.create[0].metadata.item === SALVAGE_REFUND_ITEM && s1.calls.create[0].metadata.reason === 'save-failed' && s1.calls.create[0].metadata.salvage_id === 'sess-1');
+  ok('logged as [ASSESSMENT SAVE FAILED][REFUNDED]', logs.some((l) => l.startsWith('[ASSESSMENT SAVE FAILED][REFUNDED] salvageId=sess-1 refundId=re_fake_1 idempotent=false')));
+  assert('the buyer is told they were refunded (approved wording)', o1.message, SAVE_FAILED_REFUNDED_MESSAGE);
+  ok('not the generic path', o1.generic === false);
+
+  // The same charge again (a retry that fails to save again) → NEVER refunded twice.
+  const s2 = fakeStripe(store);
+  const o2 = await refundSalvageCharge(s2, { paymentIntentId: 'pi_1', chargeAmount: 899, salvageId: 'sess-1', reason: 'save-failed' });
+  ok('second attempt on the same payment intent → idempotent, no second refund created', o2.status === 'refunded' && o2.idempotent === true && s2.calls.create.length === 0 && o2.refundId === 're_fake_1');
+  // An earlier 529 refund on the same intent also counts (one charge, one refund, whatever the reason).
+  const s3 = fakeStripe([{ id: 're_529', amount: 899, payment_intent: 'pi_2', status: 'succeeded', metadata: {} }]);
+  const o3 = await refundSalvageCharge(s3, { paymentIntentId: 'pi_2', chargeAmount: 899, salvageId: 'sess-2', reason: 'save-failed' });
+  ok('a charge already refunded by the 529 path is not refunded again', o3.status === 'refunded' && o3.idempotent === true && s3.calls.create.length === 0);
+
+  // Promo / free report → no refund, no Stripe, the generic path (status reset to promo_redeemed in the route catch).
+  const s4 = fakeStripe([]);
+  resets = 0;
+  const o4 = await settleFailedSave({ promoToken: 'promo-abc', salvageId: 'sess-3', paymentIntentId: null, chargeAmount: null, stripe: s4, resetStatus, log });
+  ok('promo / free report → no refund, no Stripe call, generic path', o4.generic === true && o4.refundStatus === 'no_charge' && s4.calls.list === 0 && s4.calls.create.length === 0 && resets === 0);
+
+  // Stripe refuses → refund_failed, the approved "contact support" message with the reference.
+  logs.length = 0;
+  const s5 = fakeStripe([], { throwOnCreate: true });
+  const o5 = await settleFailedSave({ promoToken: null, salvageId: 'sess-4', paymentIntentId: 'pi_5', chargeAmount: 899, stripe: s5, resetStatus, log });
+  ok('refund refused → refund_failed, message names support and the reference', o5.refundStatus === 'refund_failed' && o5.message === saveFailedRefundFailedMessage('pi_5') && o5.message.includes('support@motorquoter.app') && o5.message.includes('(Reference: pi_5)'));
+  ok('refund refused → logged [ASSESSMENT SAVE FAILED][REFUND FAILED]', logs.some((l) => l.startsWith('[ASSESSMENT SAVE FAILED][REFUND FAILED] salvageId=sess-4')));
+
+  // Paid but the payment intent was never captured → no Stripe call, refund_failed (manual reconciliation).
+  const s6 = fakeStripe([]);
+  const o6 = await refundSalvageCharge(s6, { paymentIntentId: null, chargeAmount: 899, salvageId: 'sess-5' });
+  ok('no payment intent captured → refund_failed, Stripe untouched', o6.status === 'refund_failed' && s6.calls.list === 0 && s6.calls.create.length === 0);
+
+  // Route wiring (source, comments stripped).
+  const assess = readFileSync(join(ROOT, 'app/api/salvage/assess/route.js'), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const iLoud = assess.indexOf('[ASSESSMENT SAVE FAILED] salvageId=');
+  const iSettle = assess.indexOf('await settleFailedSave({', iLoud);
+  const iGeneric = assess.indexOf("if (outcome.generic) throw new Error('Assessment failed');", iSettle);
+  const iPaid500 = assess.indexOf('return NextResponse.json({ error: outcome.message, refundStatus: outcome.refundStatus }, { status: 500 });', iGeneric);
+  const iReport = assess.indexOf('return NextResponse.json({ assessment, vehicleDetails: enrichedVd,', iPaid500);
+  ok('assess route: a failed save goes through settleFailedSave', iLoud > 0 && iSettle > iLoud);
+  ok('assess route: promo / free → generic throw; paid → 500 with the refund message — both before the report is returned', iGeneric > iSettle && iPaid500 > iGeneric && iReport > iPaid500);
+  ok('assess route: the paid status reset matches the catch (failed, only while processing)', /resetStatus: \(\) => supabase\.from\('salvage_sessions'\)\.update\(\{ status: 'failed' \}\)\.eq\('id', salvageId\)\.eq\('status', 'processing'\)/.test(assess));
+  ok('assess route: the 529/overload abort refunds through the SAME helper (refundSalvageCharge)', /refundSalvageCharge\([\s\S]{0,200}reason: 'overloaded'/.test(assess));
+  ok('assess route: no bare stripe refunds.create left (one idempotent path)', !/refunds\.create\(/.test(assess));
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

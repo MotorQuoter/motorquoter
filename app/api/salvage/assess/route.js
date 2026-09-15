@@ -9,6 +9,7 @@ import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 import { feeRowsAtPredictedBids } from '@/lib/predictedBidFees.mjs';   // batch 138 item 1
+import { settleFailedSave, refundSalvageCharge } from '@/lib/salvageRefund.mjs';   // batch 138 item 3
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
@@ -3300,14 +3301,15 @@ export async function GET(request) {
         refundStatus = 'refund_failed';
         abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away.";
       } else if (paymentIntentId && chargeAmount) {
-        try {
-          const stripeInst = new Stripe(process.env.STRIPE_SECRET_KEY);
-          const refund = await stripeInst.refunds.create({ payment_intent: paymentIntentId, amount: chargeAmount });
-          console.log(`[529 ABORT] refund issued refundId=${refund.id} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
+        // batch 138 item 3: the 529 abort and the failed-save path share ONE idempotent refund helper — a charge already
+        // refunded (by either path) is never refunded again. Buyer messages below are unchanged.
+        const refund = await refundSalvageCharge(new Stripe(process.env.STRIPE_SECRET_KEY), { paymentIntentId, chargeAmount, salvageId, reason: 'overloaded' });
+        if (refund.status === 'refunded') {
+          console.log(`[529 ABORT] refund issued refundId=${refund.refundId} idempotent=${refund.idempotent} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
           refundStatus = 'refunded';
           abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.";
-        } catch (refErr) {
-          console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refErr.message);
+        } else {
+          console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refund.error);
           refundStatus = 'refund_failed';
           abortMessage = `Our servers are experiencing high demand right now and your assessment couldn't be completed. We were unable to process your refund automatically — please contact support@motorquoter.app and we'll refund you straight away. (Reference: ${paymentIntentId}).`;
         }
@@ -3335,7 +3337,17 @@ export async function GET(request) {
     const saved = await saveAssessedSession(supabase, salvageId, { status: 'assessed', assessment, vehicle_details: enrichedVd });
     if (!saved.ok) {
       console.error(`[ASSESSMENT SAVE FAILED] salvageId=${salvageId} rows=${saved.rows} error=${JSON.stringify(saved.error)} — the report was NOT stored and is NOT returned to the buyer`);
-      throw new Error('Assessment failed');
+      // batch 138 item 3 (Vincent, 15 Sep: yes): a PAID report that failed to save is refunded automatically — the same
+      // idempotent helper the 529 abort uses (never refunds a charge twice) — and the buyer is told so (approved wording,
+      // lib/salvageRefund.mjs). Promo / free report: nothing was charged → no refund; throw into the catch below exactly
+      // as before (status reset to promo_redeemed, "Assessment failed").
+      const outcome = await settleFailedSave({
+        promoToken, salvageId, paymentIntentId, chargeAmount,
+        stripe: promoToken ? null : new Stripe(process.env.STRIPE_SECRET_KEY),
+        resetStatus: () => supabase.from('salvage_sessions').update({ status: 'failed' }).eq('id', salvageId).eq('status', 'processing'),
+      });
+      if (outcome.generic) throw new Error('Assessment failed');
+      return NextResponse.json({ error: outcome.message, refundStatus: outcome.refundStatus }, { status: 500 });
     }
 
     return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
