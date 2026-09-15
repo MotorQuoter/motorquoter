@@ -1,6 +1,7 @@
 // Unit tests for lib/investmentBlock.mjs — deterministic, no network.
 // Run: node scripts/validate-investment-block.mjs
-import { buildInvestmentBlock, FLIP_MARGIN_PCT, DISMANTLING_ALLOWANCE } from '../lib/investmentBlock.mjs';
+import * as IB from '../lib/investmentBlock.mjs';
+import { buildInvestmentBlock, DISMANTLING_ALLOWANCE } from '../lib/investmentBlock.mjs';
 import { estimatePartOut } from '../lib/partOut.mjs';
 
 let passed = 0, failed = 0;
@@ -32,14 +33,24 @@ eq('partOut band-consistent', A.partOut, { low: estimatePartOut(6000).low, high:
 eq('asIsSalvage basis', A.asIsSalvage.basis, 'breakeven-band');
 eq('asIsSalvage band around break-even', { low: A.asIsSalvage.low, mid: A.asIsSalvage.mid, high: A.asIsSalvage.high }, { low: 1600, mid: 1800, high: 2000 });
 eq('rebuild = break-even hammer', A.bidCeilings.rebuild.value, 1800);
-// flip: resale=mid 1800; 1800 - 15% - £100 fees = 1800 - 270 - 100 = 1430
-eq('flip ceiling', A.bidCeilings.flip.value, Math.round(1800 - 1800 * FLIP_MARGIN_PCT - 100));
+// batch 134 (Vincent, 15 Sep — INFORM, DO NOT DECIDE): flip is a ZERO-MARGIN break-even. resale=mid 1800 − £100 fees = 1700
+eq('flip ceiling = resale − fees, zero margin', A.bidCeilings.flip.value, 1800 - 100);
 // partsOut: recovery = part-out low (band-derived) − £200 dismantling − £100 fees
 eq('partsOut ceiling', A.bidCeilings.partsOut.value, Math.round(estimatePartOut(6000).low - DISMANTLING_ALLOWANCE - 100));
 ok('ordering asIsClean.mid > afterRepair > partOut.high', A.asIsClean.mid > A.afterRepairValue && A.afterRepairValue > A.partOut.high);
 ok('rebuild ≈ break-even (spec check)', A.bidCeilings.rebuild.value === 1800);
 eq('confidence passthrough', A.confidence, 'Medium');
-eq('assumptions surfaced', A.assumptions.flipMarginPct, FLIP_MARGIN_PCT);
+
+// ── batch 134 — the flipper's margin is GONE, not set to zero somewhere it could come back ─────
+console.log('\n=== batch 134: no baked-in flip margin ===\n');
+ok('FLIP_MARGIN_PCT is no longer exported', !('FLIP_MARGIN_PCT' in IB));
+ok('assumptions no longer carry a flip margin', !('flipMarginPct' in A.assumptions));
+eq('flip wording states zero margin and leaves the profit to the buyer', A.bidCeilings.flip.assumption, 'Buy, no repair, resell as salvage ≈ £1800; less buyer fees — zero margin. Take off the profit you want.');
+ok('no "%" margin wording survives on any ceiling', !Object.values(A.bidCeilings).some((c) => c && /%\s*margin/i.test(c.assumption)));
+{
+  const { readFileSync } = await import('node:fs');
+  ok('lib source carries no 15% / FLIP_MARGIN constant', !/FLIP_MARGIN_PCT|0\.15/.test(readFileSync('lib/investmentBlock.mjs', 'utf8')));
+}
 
 // ── Case B: SalvageGuide present → its predicted-bid range wins ────────────────
 console.log('\n=== Case B: SalvageGuide predicted-bid range ===\n');
@@ -56,8 +67,8 @@ const B = buildInvestmentBlock({
 });
 eq('asIsSalvage basis = salvageguide', B.asIsSalvage.basis, 'salvageguide');
 eq('asIsSalvage from SG range', { low: B.asIsSalvage.low, mid: B.asIsSalvage.mid, high: B.asIsSalvage.high }, { low: 1200, mid: 1500, high: 1900 });
-// flip resale = SG mid 1500 → 1500 - 225 - 100 = 1175
-eq('flip uses SG mid', B.bidCeilings.flip.value, Math.round(1500 - 1500 * FLIP_MARGIN_PCT - 100));
+// flip resale = SG mid 1500 → 1500 − £100 fees = 1400 (zero margin, batch 134)
+eq('flip uses SG mid, zero margin', B.bidCeilings.flip.value, 1500 - 100);
 
 // ── Case C: no feeStackFn → flip/partsOut null, block still returned ───────────
 console.log('\n=== Case C: no feeStackFn ===\n');
