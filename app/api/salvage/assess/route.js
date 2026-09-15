@@ -997,9 +997,10 @@ export const DASH_BRAKE_PARKING_NOTE = 'A red brake lamp is also lit by an appli
 // UNCHANGED for every state (batch 118) so the brake note is pinned on the shipped function; the only
 // addition is that note, appended when ABS_BRAKE is in a warning read.
 // batch 136 task F: a FAILED dashboard read never prints "No dashboard photograph in the listing." — the photograph may
-// well be there; the check did not complete. Code-owned wording (PROPOSED — Vincent approves buyer wording). No dashes.
+// well be there; the check did not complete. Code-owned wording, APPROVED by Vincent (batch 138 item 4). No dashes.
+// batch 139 W3 (Vincent: "Leave that out — the photos will show airbags out."): the Airbags-field variant is deleted — on a
+// failed read the Airbags field says nothing (see the Airbags assembly below).
 export const DASH_READ_FAILED_LINE = 'The dashboard check could not be completed, so the warning lights were not read. Check the dashboard on inspection.';
-export const DASH_READ_FAILED_AIRBAGS = 'The dashboard check could not be completed, so the airbag warning light was not read. Confirm airbag state on inspection.';
 export function buildDashLine(dashRead) {
   if (dashRead.readFailed === true) return DASH_READ_FAILED_LINE;
   if (dashRead.cluster === 'warning') {
@@ -5542,7 +5543,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       : dashRead.airbag === 'not-lit'
       ? 'No airbag warning light shown on the cluster; no deployed bags visible in the cabin shots. Confirm on inspection.'
       : dashRead.readFailed === true
-      ? DASH_READ_FAILED_AIRBAGS          // batch 136 F: a failed read is not "no dashboard photograph"
+      ? ''   // batch 139 W3 (ruled "say nothing"): a failed read leaves the field EMPTY — never the failed-read line, and never
+             // the no-photo fallback below (batch 136 F: a failed read is not "no dashboard photograph")
       : dashRead.cluster === 'unlit'
       ? 'The instrument cluster is photographed but unlit (non-runner) — airbag warning state cannot be read from it. Confirm on inspection.'
       : 'No dashboard photograph in the listing — airbag state could not be confirmed. Confirm on inspection.';

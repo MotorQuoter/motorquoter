@@ -274,7 +274,8 @@ console.log('\nE. batch 136 task E — the final assessment save and the re-run 
 
 console.log('\nF. batch 136 task F — a failed dashboard read never prints "No dashboard photograph in the listing."');
 {
-  const { buildDashLine, DASH_READ_FAILED_LINE, DASH_READ_FAILED_AIRBAGS } = await import('../app/api/salvage/assess/route.js');
+  const routeMod = await import('../app/api/salvage/assess/route.js');
+  const { buildDashLine, DASH_READ_FAILED_LINE } = routeMod;
   const rt = route.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
   ok('STORED SHAPE: HV25ODX\'s dash read succeeded (warning) — its stored line is the warning line, unchanged', A._dashState === 'warning' && buildDashLine({ cluster: 'warning', telltales: ['ENGINE_MIL', 'AIRBAG_SRS', 'OTHER_TELLTALE'] }) === A._dashLine);
   const failed = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false, readFailed: true };
@@ -282,14 +283,36 @@ console.log('\nF. batch 136 task F — a failed dashboard read never prints "No 
   ok('the same lot with a FAILED read → says the check could not be completed', line === DASH_READ_FAILED_LINE && /could not be completed/.test(line));
   ok('…and never "No dashboard photograph in the listing."', !/No dashboard photograph/.test(line));
   ok('a genuine no-photo read (not failed) still says there is no dashboard photograph', buildDashLine({ cluster: 'no-photo', telltales: [] }) === 'No dashboard photograph in the listing.');
-  ok('the failure lines carry no dashes (the PDF strips them)', !/[—–]/.test(DASH_READ_FAILED_LINE + DASH_READ_FAILED_AIRBAGS));
+  ok('the approved failure line carries no dashes (the PDF strips them)', !/[—–]/.test(DASH_READ_FAILED_LINE));
+  ok('the approved general dashboard line is unchanged (batch 138 item 4)', DASH_READ_FAILED_LINE === 'The dashboard check could not be completed, so the warning lights were not read. Check the dashboard on inspection.');
   const floor = rt.match(/const FLOOR = \{[^}]*\};/)?.[0] ?? '';
   ok('every FLOOR return (exhausted / API error / max_tokens / refusal / no JSON / threw) is marked readFailed', floor.includes('readFailed: true') && (rt.match(/return FLOOR;/g) || []).length === 6);
   ok('FLOOR keeps cluster "no-photo" — a failed read is never "clean" (EV verdict / telltale gates unchanged)', floor.includes("cluster: 'no-photo'"));
   ok('an off-enum cluster answer is a failed read', rt.includes("readFailed: !clusterOnEnum") && rt.includes("const cluster = clusterOnEnum ? parsed.cluster : 'no-photo';"));
   const iAir = rt.indexOf("assessment['Airbags'] = srsInjected");
   const air = rt.slice(iAir, rt.indexOf(';', rt.indexOf("'No dashboard photograph in the listing — airbag state", iAir)));
-  ok('Airbags field: a failed read says so, ahead of the "No dashboard photograph" fallback', iAir > 0 && air.indexOf('dashRead.readFailed === true') > 0 && air.indexOf('DASH_READ_FAILED_AIRBAGS') < air.indexOf("'No dashboard photograph in the listing"));
+  // batch 139 W3 (Vincent: "Leave that out — the photos will show airbags out."; ruled "say nothing"): a failed read leaves
+  // the Airbags field EMPTY — no failed-read airbag line, and never the no-photo fallback (batch 136 F).
+  ok('W3: the failed-read airbag line is gone (no DASH_READ_FAILED_AIRBAGS export, no "airbag warning light was not read" text)',
+    !('DASH_READ_FAILED_AIRBAGS' in routeMod) && !rt.includes('DASH_READ_FAILED_AIRBAGS') && !rt.includes('airbag warning light was not read'));
+  ok('W3: on a failed read the Airbags field is empty, ahead of the "No dashboard photograph" fallback',
+    iAir > 0 && /: dashRead\.readFailed === true\s*\n\s*\? ''/.test(air) && air.search(/dashRead\.readFailed === true/) < air.indexOf("'No dashboard photograph in the listing"));
+  ok('W3: the SRS-injected / SRS-deferred / lamp-lit / lamp-not-lit lines still come first', air.indexOf('srsDeferred') < air.indexOf('dashRead.readFailed === true') && air.indexOf("dashRead.airbag === 'not-lit'") < air.indexOf('dashRead.readFailed === true'));
+  {
+    const pdfSrc = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+    ok('W3: the PDF prints the Airbags block only when the field has text', pdfSrc.includes("if (assessment['Airbags']) fieldBlock('Airbags', assessment['Airbags']);"));
+    const zl = (await import('node:zlib')).default;
+    const { buildAssessmentPdf } = await import('../app/api/salvage/pdf/route.js');
+    const B = String.fromCharCode(92);
+    const pdfTxt = (bytes) => { const buf = Buffer.from(bytes); const o = []; let i = 0; while (true) { const s0 = buf.indexOf('stream', i); if (s0 < 0) break; const e = buf.indexOf('endstream', s0); if (e < 0) break; let st = s0 + 6; if (buf[st] === 13) st++; if (buf[st] === 10) st++; let t; try { t = zl.inflateSync(buf.subarray(st, e)).toString('latin1'); } catch { t = buf.subarray(st, e).toString('latin1'); } let d = 0, cur = '', esc = false; for (const ch of t) { if (d === 0) { if (ch === '(') { d = 1; cur = ''; } continue; } if (esc) { cur += ch; esc = false; continue; } if (ch === B) { esc = true; continue; } if (ch === '(') { d++; cur += ch; continue; } if (ch === ')') { d--; if (d === 0) o.push(cur); else cur += ch; continue; } cur += ch; } i = e + 9; } return o.join(' | '); };
+    const lg = console.log, wn = console.warn; console.log = () => {}; console.warn = () => {};
+    const failedRead = pdfTxt(buildAssessmentPdf({ ...A, Airbags: '', _dashReadFailed: true, _dashLine: DASH_READ_FAILED_LINE }, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', null, null));
+    const stored = pdfTxt(buildAssessmentPdf(A, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', null, null));
+    console.log = lg; console.warn = wn;
+    ok('W3 PDF (HV25ODX, failed read): no Airbags block, no "Not available" in its place, no failed-read airbag text', !/AIRBAGS|Airbags \|/.test(failedRead) && !failedRead.includes('airbag warning light was not read'));
+    ok('W3 PDF (HV25ODX, failed read): the approved general dashboard line still prints', failedRead.includes('The dashboard check could not be completed, so the warning lights were not read.'));
+    ok('W3 PDF (HV25ODX as stored — SRS-injected Airbags text): the Airbags block still prints', /Airbags deployed/.test(stored));
+  }
   ok('the failure is stored on the assessment (_dashReadFailed) and logged', rt.includes('assessment._dashReadFailed = dashRead.readFailed === true;') && rt.includes('readFailed=${dashRead.readFailed === true}'));
 }
 

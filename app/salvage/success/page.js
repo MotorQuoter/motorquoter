@@ -1661,7 +1661,7 @@ export default function SalvageSuccessPage() {
                       ['Primary Damage', savedLot.vehicleDetails?.primaryDamage, vehicleDetails?.primaryDamage],
                       ['Repair', savedLot.assessment?._partsReconciliation?.parts_sum ? `£${Number(savedLot.assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}` : '-', assessment?._partsReconciliation?.parts_sum ? `£${Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}` : '-'],
                       ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
-                      ['Airbags', savedLot.assessment?.['Airbags']?.split('.')[0] + '.', assessment?.['Airbags']?.split('.')[0] + '.'],
+                      ['Airbags', savedLot.assessment?.['Airbags'] ? savedLot.assessment['Airbags'].split('.')[0] + '.' : '—', assessment?.['Airbags'] ? assessment['Airbags'].split('.')[0] + '.' : '—'],
                       ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],
                       ['Action', savedLot.assessment?.['Recommended Action']?.split('.')[0] + '.', assessment?.['Recommended Action']?.split('.')[0] + '.'],
                     ].map(([field, val1, val2]) => (

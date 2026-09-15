@@ -913,7 +913,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   if (assessment._dashLine) fieldBlock('Dashboard', assessment._dashLine);
   fieldBlock('Red Flags',                   assessment['Red Flags']);
   fieldBlock('Alternative Damage Scenario', assessment['Alternative Damage Scenario']);
-  fieldBlock('Airbags',                     assessment['Airbags']);
+  // batch 139 W3: an empty Airbags field (a failed dash read) prints nothing — fieldBlock would print "Not available".
+  if (assessment['Airbags']) fieldBlock('Airbags', assessment['Airbags']);
 
   // Fix 5: keep existing colour logic for Confidence Level
   const confLevel = str(assessment['Confidence Level']);
