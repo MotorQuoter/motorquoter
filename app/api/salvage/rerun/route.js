@@ -51,10 +51,30 @@ export async function POST(request) {
   const update = { assessment: null, status: 'pending', rerun_count: currentCount + 1 };
   if (data.assessment != null) update.prior_assessment = data.assessment;
 
-  await supabase
-    .from('salvage_sessions')
-    .update(update)
-    .eq('id', salvage_id);
+  // batch 136 task E: the re-run save is CHECKED. Before this batch the result was never read — a failed write still
+  // answered { success: true } and sent the buyer to the re-run form against a session that had not been reset.
+  const saved = await startRerunUpdate(supabase, salvage_id, update);
+  if (!saved.ok) {
+    console.error(`[RERUN SAVE FAILED] salvageId=${salvage_id} rows=${saved.rows} error=${JSON.stringify(saved.error)} — the session was NOT reset; the stored report is unchanged`);
+    return NextResponse.json({ error: 'Re-run failed' }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
+}
+
+// Performs the re-run reset and reports whether it was stored: ok only when there was no error AND a row came back.
+// `.select('id')` makes a write that matched no row visible (an update matching nothing is not an error in PostgREST);
+// a network throw is caught and reported the same way.
+export async function startRerunUpdate(supabase, salvageId, update) {
+  try {
+    const { data, error } = await supabase
+      .from('salvage_sessions')
+      .update(update)
+      .eq('id', salvageId)
+      .select('id');
+    const rows = Array.isArray(data) ? data.length : 0;
+    return { ok: !error && rows > 0, rows, error: error ?? null };
+  } catch (err) {
+    return { ok: false, rows: 0, error: { message: err?.message ?? String(err) } };
+  }
 }

@@ -267,6 +267,23 @@ export function finaliseOneAutoRec(rec, meta, result) {
   return rec;
 }
 
+// batch 136 task E: write the assessed session and report whether it was STORED — ok only when there was no error AND
+// a row came back. `.select('id')` makes a write that matched no row visible (an update matching nothing is not an
+// error in PostgREST); a network throw is caught and reported the same way.
+export async function saveAssessedSession(supabase, salvageId, row) {
+  try {
+    const { data, error } = await supabase
+      .from('salvage_sessions')
+      .update(row)
+      .eq('id', salvageId)
+      .select('id');
+    const rows = Array.isArray(data) ? data.length : 0;
+    return { ok: !error && rows > 0, rows, error: error ?? null };
+  } catch (err) {
+    return { ok: false, rows: 0, error: { message: err?.message ?? String(err) } };
+  }
+}
+
 function catLetter(s) {
   if (!s) return null;
   const t = s.trim().toLowerCase();
@@ -3243,10 +3260,15 @@ export async function GET(request) {
     // the session — on vehicle_details (enrichedVd._oneAutoCalls) and on the assessment the report reads.
     assessment._oneAutoCalls = enrichedVd._oneAutoCalls ?? [];
 
-    await supabase
-      .from('salvage_sessions')
-      .update({ status: 'assessed', assessment, vehicle_details: enrichedVd })
-      .eq('id', salvageId);
+    // batch 136 task E: the final save is CHECKED. Before this batch its result was never read — a failed write still
+    // returned the report, so the buyer saw a report that was never stored (and a re-run or reload would find none).
+    // A failed save is loud and throws into the catch below: status reset (promo → promo_redeemed, else failed) and a
+    // 500 — the report is NOT returned.
+    const saved = await saveAssessedSession(supabase, salvageId, { status: 'assessed', assessment, vehicle_details: enrichedVd });
+    if (!saved.ok) {
+      console.error(`[ASSESSMENT SAVE FAILED] salvageId=${salvageId} rows=${saved.rows} error=${JSON.stringify(saved.error)} — the report was NOT stored and is NOT returned to the buyer`);
+      throw new Error('Assessment failed');
+    }
 
     return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
 

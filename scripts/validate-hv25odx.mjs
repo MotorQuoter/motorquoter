@@ -220,5 +220,52 @@ console.log('\nD3. batch 136 task D3 — a missing valuation is said plainly, sc
   ok('PDF with a valuation: the sentence is NOT printed (the table is)', !withVal.includes('No market valuation was returned') && /Retail/.test(withVal));
 }
 
+console.log('\nE. batch 136 task E — the final assessment save and the re-run save are checked; an unstored report is never shown');
+{
+  const { saveAssessedSession } = await import('../app/api/salvage/assess/route.js');
+  const { startRerunUpdate } = await import('../app/api/salvage/rerun/route.js');
+  // A fake Supabase client with the exact chain the two saves use: from().update().eq().select().
+  const fakeDb = (result, seen = {}) => ({ from: (t) => { seen.table = t; return { update: (row) => { seen.row = row; return { eq: (k, v) => { seen.eq = [k, v]; return { select: async (cols) => { seen.select = cols; if (result instanceof Error) throw result; return result; } }; } }; } }; } });
+  const row = { status: 'assessed', assessment: A, vehicle_details: H.vehicle_details };
+  let seen = {};
+  let r = await saveAssessedSession(fakeDb({ data: [{ id: 's1' }], error: null }, seen), 's1', row);
+  ok('final save: a stored HV25ODX report → ok (table salvage_sessions, keyed by id, the full assessment written)', r.ok === true && seen.table === 'salvage_sessions' && seen.eq[0] === 'id' && seen.eq[1] === 's1' && seen.row.assessment === A && seen.select === 'id');
+  r = await saveAssessedSession(fakeDb({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }), 's1', row);
+  ok('final save: a database error → NOT ok, error kept for the log', r.ok === false && r.error?.code === '57014');
+  r = await saveAssessedSession(fakeDb({ data: [], error: null }), 's1', row);
+  ok('final save: an update that matched no row → NOT ok (not silently "saved")', r.ok === false && r.rows === 0);
+  r = await saveAssessedSession(fakeDb(new Error('fetch failed')), 's1', row);
+  ok('final save: a network throw → NOT ok, message kept', r.ok === false && /fetch failed/.test(r.error?.message));
+  r = await startRerunUpdate(fakeDb({ data: [{ id: 's1' }], error: null }), 's1', { assessment: null, status: 'pending', rerun_count: 1, prior_assessment: A });
+  ok('re-run save: stored → ok', r.ok === true);
+  r = await startRerunUpdate(fakeDb({ data: null, error: { message: 'permission denied' } }), 's1', {});
+  ok('re-run save: a database error → NOT ok', r.ok === false);
+  r = await startRerunUpdate(fakeDb({ data: [], error: null }), 's1', {});
+  ok('re-run save: no row matched → NOT ok', r.ok === false);
+
+  // Handler wiring (source): the failure branch sits BEFORE the success response, and neither response is reachable on failure.
+  const strip = (s) => s.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const rt = strip(route);
+  const iSave = rt.indexOf('const saved = await saveAssessedSession(supabase, salvageId, {');
+  const iLoud = rt.indexOf('[ASSESSMENT SAVE FAILED]', iSave);
+  const iThrow = rt.indexOf("throw new Error('Assessment failed');", iSave);
+  const iReturn = rt.indexOf('return NextResponse.json({ assessment, vehicleDetails: enrichedVd,', iSave);
+  ok('assess: the final save goes through the checked helper', iSave > 0);
+  ok('assess: a failed save logs [ASSESSMENT SAVE FAILED] and throws before the report is returned', iLoud > iSave && iThrow > iLoud && iReturn > iThrow);
+  ok('assess: no unchecked `await supabase.from(\'salvage_sessions\').update({ status: \'assessed\'` remains', !/await supabase\s*\.from\('salvage_sessions'\)\s*\.update\(\{ status: 'assessed'/.test(rt));
+  const iCatch = rt.indexOf('} catch (err) {', iThrow);
+  const catchBody = rt.slice(iCatch, rt.indexOf("return NextResponse.json({ error: err.message || 'Assessment failed' }, { status: 500 });", iCatch) + 90);
+  ok('assess: the throw lands in the existing catch — status reset (promo → promo_redeemed, else failed) and a 500, no report', iCatch > iThrow && catchBody.includes("status: 'promo_redeemed'") && catchBody.includes("status: 'failed'") && catchBody.includes('{ status: 500 }'));
+  const rerun = strip(readFileSync('app/api/salvage/rerun/route.js', 'utf8'));
+  const jFail = rerun.indexOf('[RERUN SAVE FAILED]');
+  const j500 = rerun.indexOf("return NextResponse.json({ error: 'Re-run failed' }, { status: 500 });");
+  const jOk = rerun.indexOf('return NextResponse.json({ success: true });');
+  ok('re-run: a failed save logs [RERUN SAVE FAILED] and answers 500 before { success: true }', jFail > 0 && j500 > jFail && jOk > j500);
+  ok('re-run: prior_assessment is still preserved in the same write (batch 103)', rerun.includes('if (data.assessment != null) update.prior_assessment = data.assessment;') && rerun.includes('startRerunUpdate(supabase, salvage_id, update)'));
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  ok('client: a non-OK assess answer throws before any report state is set', /if \(!res\.ok\) \{\s*throw new Error\(data\?\.error \|\| `Assessment failed \(\$\{res\.status\}\)`\);\s*\}\s*setAssessment\(data\.assessment\);/.test(page));
+  ok('client: a non-OK re-run answer shows the error and does not navigate to the re-run form', /throw new Error\(body\.error \|\| 'Re-run failed'\);\s*\}[\s\S]{0,400}router\.push\(`\/salvage\?rerun=/.test(page));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
