@@ -24,10 +24,10 @@ import {
   buildSlot, buildGroup, assembleCoreSlots,
 } from '@/lib/coreSlots';
 import {
-  isLampLine, normName, sumPartsRealistic, reconcileParts,
+  normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -5673,85 +5673,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // Seed buyer-flag items onto the checklist after all curated/deterministic items.
-    // De-dupe rules:
-    // Rule 1: WHEEL/TYRE/DISPLACED_WHEEL → always suppress (wheel-net covers all corners).
-    // Rule 2: lamp panels when tier2Fired → suppress (curated lamp entries cover the aperture).
-    // Rule 3 (concept-based): structural panels (FRONT/REAR/SIDE_STRUCTURE) → suppress only
-    //   when their specific curated concern is ACTUALLY PRESENT in this lot's checklist text —
-    //   verified per-lot with detection keywords, never assumed. Falls through to seed when
-    //   the concern is absent (e.g. a lot where the model omitted the chassis-leg item).
-    //   Detection keywords are keyed by panelId (stable), not by display partName (drift-prone).
-    // Fallback: verbatim normName phrase-match for all remaining non-structural panels.
+    // Seed buyer-flag items onto the checklist after all curated/deterministic items. The seeding rules (de-dupe rules,
+    // item wording, batch 131's airbag line, batch 132's declined-quarter line) live in ONE place,
+    // lib/parts.mjs seedChecklistFromFlags — moved there in batch 132, logic unchanged, so a validator can drive it.
     {
-      const STRUCTURAL_CONCERN_KEYWORDS = new Map([
-        [PANEL.FRONT_STRUCTURE, ['chassis']],
-        [PANEL.REAR_STRUCTURE,  ['longitudinal', 'boot floor']],
-        [PANEL.SIDE_STRUCTURE,  ['inner sill', 'b-pillar', 'c-pillar']],
-      ]);
-
       const buyerFlags = buildBuyerFlags(assessment);
       if (buyerFlags.length > 0) {
-        let checklistText = (assessment['WhatsApp Inspection Checklist'] || '').trim();
+        const checklistText = (assessment['WhatsApp Inspection Checklist'] || '').trim();
         if (checklistText) {
-          // Single counter initialised once — do not re-parse the text on every append.
-          let nextItem = (checklistText.match(/^\d+[.)]/mg) || []).length + 1;
-          for (const flag of buyerFlags) {
-            const part = (flag.partName || '').trim();
-            if (!part) continue;
-            // Rule 1: wheel/tyre/displaced-wheel → wheel-net covers unconditionally
-            if (/\b(?:wheel|tyre|tire|rim|alloy)\b/i.test(part)) {
-              console.log(`[SEED] skip "${part}" reason=wheelnet`);
-              continue;
-            }
-            // Rule 2: lamp panels when tier2Fired → curated lamp entries cover the aperture (checklistEntry, restored batch 114
-            // on every tier-2 lot since batch 115, costed or A1-shelved; checklistEntry2nd on a pair).
-            if (isLampLine(part) && lampResult?.tier2Fired) {
-              console.log(`[SEED] skip "${part}" reason=lamp-tier2`);
-              continue;
-            }
-            // Rule 3: concept-map — structural panels keyed by panelId
-            const clLower = checklistText.toLowerCase(); // recomputed per iteration so appended items accrue
-            const pid = flag.panelId || null;
-            if (pid && STRUCTURAL_CONCERN_KEYWORDS.has(pid)) {
-              const keywords = STRUCTURAL_CONCERN_KEYWORDS.get(pid);
-              if (keywords.some(kw => clLower.includes(kw))) {
-                console.log(`[SEED] skip "${part}" reason=concept-map:${pid}`);
-                continue;
-              }
-              // Concern absent from this lot's checklist — fall through and seed.
-            } else {
-              // Fallback: verbatim phrase-match for non-structural panels
-              if (clLower.includes(normName(part).toLowerCase())) {
-                console.log(`[SEED] skip "${part}" reason=phrase-match`);
-                continue;
-              }
-            }
-            let seedItem;
-            if (flag._amalgDisagree) {
-              seedItem = `Show ${part} close-up — condition could not be resolved across views in the listing photos.`;
-            } else if (flag._amalgNotVisible) {
-              seedItem = `Show ${part} close-up — not resolved by the engine's read; condition unconfirmed.`;
-            } else if (flag._gateGenerated) {
-              seedItem = `Show ${part} close-up — could not be confirmed by the engine's read.`;
-            } else if (flag._srsExtentFloor) {
-              // batch 131 (Vincent, 15 Sep — option (a)): the AIRBAG line only, keyed on the SRS flag's marker. "Must be
-              // checked" is his word; the number and location of the bags live in the words, never the figure. Every
-              // other high-weight flag keeps the generic line below. Em dash as every sibling line: the PDF's str() maps
-              // it to a hyphen ("close-up - the number …"), it does not drop it.
-              seedItem = `Show ${part} close-up — the number and location of the bags must be checked before bidding.`;
-            } else if (flag.weight === 'high') {
-              seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;
-            } else if (flag.weight === 'low') {
-              seedItem = `Show ${part} close-up — confirm the cosmetic damage extent.`;
-            } else {
-              seedItem = `Show ${part} close-up — condition could not be confirmed by the engine's read.`;
-            }
-            checklistText += `\n${nextItem}. ${seedItem}`;
-            console.log(`[SEED] add "${part}" as item ${nextItem}`);
-            nextItem++;
-          }
-          assessment['WhatsApp Inspection Checklist'] = checklistText;
+          assessment['WhatsApp Inspection Checklist'] = seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired });
         } else {
           console.warn('[SEED] checklist empty — flag items not seeded');
         }

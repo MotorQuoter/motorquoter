@@ -506,10 +506,12 @@ console.log('\n13. batch 130 — Q4 does NOT promote on a losing vote (Vincent 1
   ok('HMZ8034 (1 damaged v 2 clean): declined — no quarter row is costed', h.out?.row === null && !!h.out?.declined && h.rows.length === 1 && !h.rows.some((r) => r.panelId === 'REAR_QUARTER'));
   ok('HMZ8034: no grade is set, so the quarter earns no panel-work labour', !h.sev.has('REAR_QUARTER'));
   eq('HMZ8034: the money is the bumper alone', sumPartsRealistic(h.rows), 200);
-  ok('HMZ8034: the flag is NOT removed — it stays in the flags', h.flags.length === 1 && h.flags[0]._amalgDisagree === true && h.flags[0].reason === DISAGREE);
+  // batch 132: the decline now marks the flag (_q4Declined) and its reason becomes the buyer sentence — see section 15.
+  const { Q4_DECLINED_REASON } = await import('../lib/labour.mjs');
+  ok('HMZ8034: the flag is NOT removed — it stays in the flags (batch 132: marked, buyer sentence)', h.flags.length === 1 && h.flags[0]._amalgDisagree === true && h.flags[0]._q4Declined === true && h.flags[0].reason === Q4_DECLINED_REASON);
   const cards = buildDamageCards({ gatedParts: h.rows, costedParts: [], flaggedParts: h.flags, allowanceParts: [] });
   const rq = cards.find((c) => c.part === 'Rear quarter panel');
-  ok('HMZ8034: the quarter stays in the damage breakdown at £0 (a Related card carrying the disagreement)', rq?.origin === 'Related' && rq.cost === 0 && rq.note === DISAGREE);
+  ok('HMZ8034: the quarter stays in the damage breakdown at £0 (a Related card carrying the batch 132 sentence)', rq?.origin === 'Related' && rq.cost === 0 && rq.note === Q4_DECLINED_REASON);
 
   // The boundary: damaged >= clean promotes (a tie is still a genuine disagreement).
   ok('TIE (2 v 2) still promotes', run({ REAR_QUARTER: { damaged: 2, clean: 2 } }).out?.row?._q4Promoted === true);
@@ -524,9 +526,9 @@ console.log('\n13. batch 130 — Q4 does NOT promote on a losing vote (Vincent 1
   ok('other panels\' votes are never read (a losing FRONT_DOOR vote does not decline the quarter)', run({ FRONT_DOOR: { damaged: 1, clean: 3 } }).out?.row?._q4Promoted === true);
   ok('isLosingQuarterVote is strict less-than', isLosingQuarterVote({ REAR_QUARTER: { damaged: 1, clean: 2 } }) && !isLosingQuarterVote({ REAR_QUARTER: { damaged: 2, clean: 2 } }));
 
-  // The Inspection Flags list reads _flaggedParts + _preGateParts, never the ledger — so declining the cost cannot change
-  // what the buyer's flag list shows. (Pinned as it stands: a disagree flag on a panel the main call never listed is hidden
-  // there by the existing, ruled filter, costed or not — the damage card above is where it stays visible.)
+  // The Inspection Flags list reads _flaggedParts + _preGateParts, never the ledger. Pinned here for UNMARKED flags (the
+  // 4f filter hides a disagree flag on a panel the main call never listed, costed or not). batch 132: a flag the Q4
+  // decline MARKS (_q4Declined) is carved out of that filter and reaches the list and the checklist — section 15.
   const flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: DISAGREE, _amalgDisagree: true };
   const pre = [{ panelId: 'FRONT_BUMPER', name: 'Front bumper' }];
   const promotedA = { _flaggedParts: [flag], _preGateParts: pre, _reconciledParts: [{ panelId: 'REAR_QUARTER', used: null, oem: 500, _q4Promoted: true }] };
@@ -544,15 +546,86 @@ console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Se
 {
   const { readFileSync } = await import('node:fs');
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  // batch 132: the seeding moved (logic unchanged) to lib/parts.mjs seedChecklistFromFlags — the pins follow it.
+  const seedSrc = readFileSync('lib/parts.mjs', 'utf8');
   const SRS_LINE = 'seedItem = `Show ${part} close-up — the number and location of the bags must be checked before bidding.`;';
   const GENERIC = "seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;";
-  ok('route: a targeted branch keyed on the SRS flag marker (_srsExtentFloor) seeds Vincent\'s wording', route.includes('} else if (flag._srsExtentFloor) {') && route.includes(SRS_LINE));
-  ok('route: the SRS branch sits BEFORE the generic high-weight branch (so the airbag never falls to it)', route.indexOf('} else if (flag._srsExtentFloor) {') > 0 && route.indexOf('} else if (flag._srsExtentFloor) {') < route.indexOf("} else if (flag.weight === 'high') {"));
-  ok('route: the generic high-weight line is UNCHANGED for every other part', route.includes(GENERIC));
+  ok('seed: a targeted branch keyed on the SRS flag marker (_srsExtentFloor) seeds Vincent\'s wording', seedSrc.includes('} else if (flag._srsExtentFloor) {') && seedSrc.includes(SRS_LINE));
+  ok('seed: the SRS branch sits BEFORE the generic high-weight branch (so the airbag never falls to it)', seedSrc.indexOf('} else if (flag._srsExtentFloor) {') > 0 && seedSrc.indexOf('} else if (flag._srsExtentFloor) {') < seedSrc.indexOf("} else if (flag.weight === 'high') {"));
+  ok('seed: the generic high-weight line is UNCHANGED for every other part', seedSrc.includes(GENERIC));
+  ok('route: seeds through the one owner and keeps no inline copy', route.includes('seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired })') && !route.includes('seedItem ='));
   ok('route: the SRS flag carries the marker the branch keys on', route.includes('reason: srsDeploymentNote(),') && /reason: srsDeploymentNote\(\),\s*_srsExtentFloor: true,/.test(route));
   const rendered = 'Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.';
   ok('rendered for the airbag part, verbatim as Vincent chose', SRS_LINE.replace('${part}', 'SRS airbag (deployed)').includes(rendered));
   ok('"must be checked", never "confirm condition" / "please check"', /must be checked/.test(rendered) && !/confirm condition|please check/i.test(rendered));
+}
+
+console.log('\n15. batch 132 — the quarter Q4 DECLINES reaches the buyer: flag list AND checklist (Vincent 15 Sep: "It should be in the check list.")');
+{
+  const { promoteFlaggedQuarter, Q4_DECLINED_REASON, Q4_DECLINED_CHECKLIST_ITEM } = await import('../lib/labour.mjs');
+  const { buildBuyerFlags, seedChecklistFromFlags } = await import('../lib/parts.mjs');
+  const { buildDamageCards } = await import('../lib/damageCards.mjs');
+  const { readFileSync } = await import('node:fs');
+  const ENTRY = { oem: 500, used: 275 };
+  const items = (t) => String(t || '').split('\n').map((l) => l.replace(/^\d+[.)]\s*/, '')).filter(Boolean);
+  const decline = (flags, pvVotes, costed = []) => promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(costed), sevByPanel: new Map(), zoneByPanel: new Map(), entry: ENTRY, name: 'Rear quarter panel', pvVotes });
+
+  eq('checklist item, verbatim as Cowork wrote it', Q4_DECLINED_CHECKLIST_ITEM, 'Show rear quarter close-up — the photos disagree on this panel; it is not costed and must be checked before bidding.');
+  ok('flag reason says the photos disagree, it is not costed, and it must be checked', /photos disagree/.test(Q4_DECLINED_REASON) && /not costed/.test(Q4_DECLINED_REASON) && /must be checked/.test(Q4_DECLINED_REASON));
+  ok('flag reason is Latin-1 with a hyphen (PDF flag reasons are printed without the dash mapping)', !/[^\x00-\xFF]/.test(Q4_DECLINED_REASON));
+
+  // 🎯 HMZ8034 shape (live-only; its stored _pvVotes verbatim) — a synthetic lock, not a replay.
+  {
+    const HMZ = { REAR_QUARTER: { views: 4, clean: 2, damaged: 1, severeVotes: 1, branch: 'disagree', resolving: 3, notVisible: 0 } };
+    const flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: 'per-view disagreement — …', _amalgDisagree: true };
+    const other = { panelId: 'WINDSCREEN', partName: 'Windscreen', zone: 'front', weight: 'medium', reason: 'per-view disagreement — …', _amalgDisagree: true };
+    const out = decline([flag, other], HMZ);
+    ok('HMZ8034: declined, and the ONE owner marks the quarter flag', out?.row === null && out.marked === 1 && flag._q4Declined === true && flag.reason === Q4_DECLINED_REASON);
+    ok('HMZ8034: a different panel\'s disagree flag is NOT marked', other._q4Declined === undefined);
+    const a = { _flaggedParts: [flag, other], _preGateParts: [{ panelId: 'FRONT_BUMPER', name: 'Front bumper' }] };   // main call never listed the quarter
+    const buyer = buildBuyerFlags(a);
+    ok('HMZ8034: the declined quarter IS in the buyer flag list (4f carve-out)', buyer.some((f) => f.panelId === 'REAR_QUARTER'));
+    ok('HMZ8034: the unmarked windscreen disagree flag STAYS HIDDEN by 4f', !buyer.some((f) => f.panelId === 'WINDSCREEN') && a._suppressedFlags.some((s) => s.panelId === 'WINDSCREEN') && !a._suppressedFlags.some((s) => s.panelId === 'REAR_QUARTER'));
+    const cl = seedChecklistFromFlags('1. Show the bonnet shut line.', buyer, { lampTier2Fired: false });
+    ok('HMZ8034: the checklist carries the declined-quarter item exactly once', items(cl).filter((i) => i === Q4_DECLINED_CHECKLIST_ITEM).length === 1);
+    ok('re-seeding does not duplicate it', items(seedChecklistFromFlags(cl, buyer)).filter((i) => i === Q4_DECLINED_CHECKLIST_ITEM).length === 1);
+    ok('seeded even when the model\'s checklist already names the "Rear quarter panel" (phrase-match does not apply)', items(seedChecklistFromFlags('1. Show the rear quarter panel and sill line.', buyer)).includes(Q4_DECLINED_CHECKLIST_ITEM));
+    const card = buildDamageCards({ gatedParts: [], costedParts: [], flaggedParts: [flag], allowanceParts: [] }).find((c) => c.part === 'Rear quarter panel');
+    ok('damage breakdown: still a £0 Related card, now carrying the buyer sentence', card?.origin === 'Related' && card.cost === 0 && card.note === Q4_DECLINED_REASON);
+  }
+  {
+    // A quarter that is NOT declined (tie → promoted) gets no mark, and a 4f-hidden quarter flag with no decline stays hidden.
+    const flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: 'x', _amalgDisagree: true };
+    const rows = [];
+    const out = promoteFlaggedQuarter({ gatedParts: rows, flaggedParts: [flag], costedIds: new Set(), sevByPanel: new Map(), zoneByPanel: new Map(), entry: ENTRY, name: 'Rear quarter panel', pvVotes: { REAR_QUARTER: { damaged: 2, clean: 2 } } });
+    ok('TIE: promoted, flag NOT marked', out?.row?._q4Promoted === true && flag._q4Declined === undefined);
+    const unmarked = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: 'x', _amalgDisagree: true };
+    const a = { _flaggedParts: [unmarked], _preGateParts: [{ panelId: 'FRONT_BUMPER' }] };
+    ok('an UNMARKED disagree quarter flag (no decline) stays hidden by 4f', buildBuyerFlags(a).length === 0 && a._suppressedFlags.length === 1);
+  }
+
+  // The REAL stored shapes: AMZ3790/baseline (1 v 4) and EA17HDN/30Aug-main (1 v 3) — both had the quarter flag hidden by 4f.
+  for (const f of ['fixtures/AMZ3790/baseline-assessment.json', 'fixtures/EA17HDN/assessment-30Aug-main.json']) {
+    const stored = JSON.parse(readFileSync(f, 'utf8'));
+    const beforeA = { ...stored, _flaggedParts: structuredClone(stored._flaggedParts) };
+    const beforeBuyer = buildBuyerFlags(beforeA);
+    const beforeSuppressed = beforeA._suppressedFlags;
+    const afterFlags = structuredClone(stored._flaggedParts);
+    const costed = (stored._reconciledParts || []).map((r) => r.panelId).filter(Boolean);
+    const out = decline(afterFlags, stored._pvVotes, costed);
+    const afterA = { ...stored, _flaggedParts: afterFlags };
+    const afterBuyer = buildBuyerFlags(afterA);
+    const tag = f.split('/').slice(1).join('/');
+    console.log(`    ${tag}: votes ${JSON.stringify(stored._pvVotes.REAR_QUARTER)} · suppressed before ${JSON.stringify(beforeSuppressed.map((s) => s.panelId))} → after ${JSON.stringify(afterA._suppressedFlags.map((s) => s.panelId))}`);
+    ok(`${tag}: the stored quarter flag WAS hidden by 4f before`, beforeSuppressed.some((s) => s.panelId === 'REAR_QUARTER') && !beforeBuyer.some((x) => x.panelId === 'REAR_QUARTER'));
+    ok(`${tag}: Q4 declines it on the stored votes and marks it`, out?.declined != null && out.marked >= 1);
+    ok(`${tag}: after — the quarter is in the buyer flag list`, afterBuyer.some((x) => x.panelId === 'REAR_QUARTER'));
+    ok(`${tag}: after — EVERY other 4f-suppressed flag is still suppressed, unchanged`, JSON.stringify(afterA._suppressedFlags) === JSON.stringify(beforeSuppressed.filter((s) => s.panelId !== 'REAR_QUARTER')));
+    const clBefore = items(seedChecklistFromFlags(String(stored['WhatsApp Inspection Checklist'] || '').trim(), beforeBuyer));
+    const clAfter = items(seedChecklistFromFlags(String(stored['WhatsApp Inspection Checklist'] || '').trim(), afterBuyer));
+    ok(`${tag}: after — the checklist gains exactly the declined-quarter item, every other item unchanged`,
+       clAfter.filter((i) => i === Q4_DECLINED_CHECKLIST_ITEM).length === 1 && JSON.stringify(clAfter.filter((i) => i !== Q4_DECLINED_CHECKLIST_ITEM)) === JSON.stringify(clBefore));
+  }
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);

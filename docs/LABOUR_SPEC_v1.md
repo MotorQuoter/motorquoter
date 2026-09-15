@@ -514,9 +514,42 @@ the kit and the rider together (§10).
    read, and the quarter is declined only when **every** entry is a losing vote; a flag with
    **no** vote entry (nothing to weigh) promotes as before. **The declined quarter keeps its
    flag and stays in the damage breakdown as a £0 card** — it leaves the money, not the
-   report. ⚠️ The buyer's Inspection Flags list is unchanged by this rule: it never reads the
-   ledger, and it already hides a disagree flag on a panel the main call never listed
-   (`buildBuyerFlags`, ruled 4f), costed or not.
+   report.
+
+   ⚖️ **RULED 15 SEPTEMBER 2026 — THE DECLINED QUARTER IS FLAGGED TO THE BUYER AND ON THE
+   CHECKLIST. ✅ BUILT batch 132** — *Vincent: "It should be in the check list."*
+   Before batch 132 the buyer met a declined quarter only as a £0 Related damage card: it has
+   no model row in `_preGateParts`, so the 4f filter (`buildBuyerFlags`) hid its flag, and the
+   checklist is seeded from that same filtered list.
+   - **One owner of the mark:** the decline in `promoteFlaggedQuarter` stamps `_q4Declined` on
+     the quarter's vote-derived flags (disagree / single-MINOR). The filter and the checklist
+     read the mark; neither re-derives the vote test.
+   - **Carve-out, not repeal:** a `_q4Declined` flag is exempt from the 4f filter. Every other
+     flag the filter hid still hides.
+   - **The flag reads:** *"The photos disagree on this panel - it is not costed and must be
+     checked before bidding."* (hyphen: the PDF prints flag reasons without its dash mapping).
+   - **The checklist item reads:** *"Show rear quarter close-up — the photos disagree on this
+     panel; it is not costed and must be checked before bidding."* It is seeded even where the
+     model's own checklist already mentions the quarter (the phrase-match de-dupe does not
+     apply to it), once.
+   - 💷 **No money moves.**
+
+   ⚖️ **RULED 15 SEPTEMBER 2026 — THE LOSING-VOTE RULE IS NOT EXTENDED TO OTHER PANELS. DO NOT
+   RE-PROPOSE.** Batch 131 proposed applying the Q4 boundary to every panel (the gate's
+   `_disagreeCosted` rows). Vincent checked the four panels against the photographs:
+
+   | lot | panel | votes | Vincent, by eye |
+   |---|---|---|---|
+   | AMZ3790 | FRONT_DOOR | 1d / 3c | **OK — sound** |
+   | AK75RDX | FRONT_DOOR | 1d / 3c | **damaged** |
+   | EA17HDN | DOOR_MIRROR | 1d / 4c | **broken** (frame 13: glass and cap gone) |
+   | URZ7545 | WINDSCREEN | 1d / 4c | **broken by the airbag** |
+
+   **Three of four losing votes were REAL damage** — the count is low because only one
+   close-up shows it. The every-panel rule would have removed £925 of real damage to remove one
+   £500 phantom. **DROPPED.** A disputed non-quarter panel stays costed under `_disagreeCosted`
+   with the disagreement note, for the buyer to strike. Code-owned rows (fog pair, headlamp
+   band, probe-kept rows) and a total label for the floors were also ruled: no change.
 3. Structural allowance band = BODY TYPE (table in §5). ⚠️ **Superseded — see §5.**
 
 ## 📌 THE COUNT CORRECTION — CC's, accepted
