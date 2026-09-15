@@ -540,5 +540,20 @@ console.log('\n13. batch 130 — Q4 does NOT promote on a losing vote (Vincent 1
   ok('route: _pvVotes is assigned BEFORE the Q4 promotion reads it', route.indexOf('assessment._pvVotes  = pvResult.pvVotesMap') > 0 && route.indexOf('assessment._pvVotes  = pvResult.pvVotesMap') < route.indexOf('promoteFlaggedQuarter({'));
 }
 
+console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Sep, option (a): "must be checked"; every other line unchanged)');
+{
+  const { readFileSync } = await import('node:fs');
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  const SRS_LINE = 'seedItem = `Show ${part} close-up — the number and location of the bags must be checked before bidding.`;';
+  const GENERIC = "seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;";
+  ok('route: a targeted branch keyed on the SRS flag marker (_srsExtentFloor) seeds Vincent\'s wording', route.includes('} else if (flag._srsExtentFloor) {') && route.includes(SRS_LINE));
+  ok('route: the SRS branch sits BEFORE the generic high-weight branch (so the airbag never falls to it)', route.indexOf('} else if (flag._srsExtentFloor) {') > 0 && route.indexOf('} else if (flag._srsExtentFloor) {') < route.indexOf("} else if (flag.weight === 'high') {"));
+  ok('route: the generic high-weight line is UNCHANGED for every other part', route.includes(GENERIC));
+  ok('route: the SRS flag carries the marker the branch keys on', route.includes('reason: srsDeploymentNote(),') && /reason: srsDeploymentNote\(\),\s*_srsExtentFloor: true,/.test(route));
+  const rendered = 'Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.';
+  ok('rendered for the airbag part, verbatim as Vincent chose', SRS_LINE.replace('${part}', 'SRS airbag (deployed)').includes(rendered));
+  ok('"must be checked", never "confirm condition" / "please check"', /must be checked/.test(rendered) && !/confirm condition|please check/i.test(rendered));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -112,6 +112,15 @@ const mk = (rows) => ({
   ok('NEGATIVE CONTROL: a £500 in the S/H column (the 130 defect shape) IS caught by the detector', bareChunks(chunks).includes('£500'));
 }
 
+console.log('\n3b. batch 131 task 2 — the airbag checklist line on the REAL PDF (the em dash must not vanish)');
+{
+  const chunks = pdfChunks(buildAssessmentPdf(mk([bumper, srsRow, labour]), vd, 'GB', 'TEST131', '15/09/2026', null, null));
+  const line = chunks.find((c) => c.includes('the number and location of the bags must be checked before bidding'));
+  console.log(`    PDF checklist chunk: ${JSON.stringify(line ?? null)}`);
+  ok('the PDF prints the line with a hyphen where the screen has the em dash ("close-up - the number …")', !!line && line.includes('Show SRS airbag (deployed) close-up - the number and location of the bags must be checked before bidding.'));
+  ok('no word was lost to the dash ("close-up the number" would mean the dash was dropped)', !!line && !line.includes('close-up the number') && !line.includes('close-up  the number'));
+}
+
 console.log('\n4. the PDF route takes its cells from the owner too');
 {
   const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');

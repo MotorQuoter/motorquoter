@@ -5734,6 +5734,12 @@ export async function runAssessment({ images, vd, market, roiTier }) {
               seedItem = `Show ${part} close-up — not resolved by the engine's read; condition unconfirmed.`;
             } else if (flag._gateGenerated) {
               seedItem = `Show ${part} close-up — could not be confirmed by the engine's read.`;
+            } else if (flag._srsExtentFloor) {
+              // batch 131 (Vincent, 15 Sep — option (a)): the AIRBAG line only, keyed on the SRS flag's marker. "Must be
+              // checked" is his word; the number and location of the bags live in the words, never the figure. Every
+              // other high-weight flag keeps the generic line below. Em dash as every sibling line: the PDF's str() maps
+              // it to a hyphen ("close-up - the number …"), it does not drop it.
+              seedItem = `Show ${part} close-up — the number and location of the bags must be checked before bidding.`;
             } else if (flag.weight === 'high') {
               seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;
             } else if (flag.weight === 'low') {
