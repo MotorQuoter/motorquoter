@@ -89,7 +89,9 @@ console.log('\n3. Brego answered → Cazana never called (route wiring)');
   ok('a Brego answer is stamped _source "Brego"; the Cazana branch is the else', c.includes("bregoData = { ...brResult, _source: 'Brego', _mileageSource: brMileageSource, _mileageUsed: brMileage };") && c.includes('} else if (czResult) {'));
   ok('the exit value reads exitBaseOf (Brego trade-low / Cazana trade)', c.includes('const _exitBase = exitBaseOf(bregoData);') && c.includes('computeExitFromBand(\n        _exitBase.value,'));
   ok('the Brego exit line is byte-identical to before', c.includes(': `\\n\\nExit: £${exitFmt} — ${step} position, ${pct}% of trade-low £${baseFmt} (${catLabel} band)`'));
-  ok('the Cazana exit line names Cazana', c.includes('% of Cazana trade valuation £${baseFmt} (${catLabel} band)'));
+  // batch 139 W1 (Vincent: "no mention of valuation supplier"): the exit line and the model's valuation header carry no supplier name.
+  ok('the Cazana exit line names no supplier (batch 139 W1)', c.includes('% of trade valuation £${baseFmt} (${catLabel} band)') && !c.includes('% of Cazana trade valuation'));
+  ok('the Cazana valuation reaches the model as live data, with no supplier name in its header (batch 139 W1)', c.includes("bregoData._source === 'Cazana' ? [\n          'Live market valuation data (one trade figure only") && !c.includes('supplier: Cazana'));
   ok('the stored assessment carries _valuationSource', c.includes('assessment._valuationSource = bregoData?._source ?? null;'));
   ok('the price band still reads trade_average_valuation (Cazana maps onto it)', c.includes('derivePriceBand(enrichedVd.bregoValuation?.trade_average_valuation ?? null)'));
   const rep = readFileSync('scripts/replay.mjs', 'utf8');
@@ -110,10 +112,10 @@ console.log('\n4. Brego 204 AND Cazana 204 → no valuation; the D3 sentence; lo
 }
 
 // ── 5. The buyer sees the supplier — screen and a real PDF render ─────────────────────────────────────────────────────
-console.log('\n5. Supplier shown to the buyer — screen and PDF');
+console.log('\n5. No valuation supplier named to the buyer — screen and PDF (batch 139 W1; the source stays stored)');
 {
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
-  ok('screen: the valuation subtitle names the supplier (stored pre-137 → Brego)', page.includes("Live data · {bregoData._source || 'Brego'} · {monthYear}"));
+  ok('screen: the valuation subtitle names no supplier (batch 139 W1)', page.includes('Live data · {monthYear} ·') && !page.includes("bregoData._source || 'Brego'"));
   if (existsSync('fixtures/HV25ODX/stored-shapes.json')) {
     const H = JSON.parse(readFileSync('fixtures/HV25ODX/stored-shapes.json', 'utf8'));
     const { buildAssessmentPdf } = await import('../app/api/salvage/pdf/route.js');
@@ -125,10 +127,10 @@ console.log('\n5. Supplier shown to the buyer — screen and PDF');
       text(buildAssessmentPdf(H.assessment, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', null, null)),
       text(buildAssessmentPdf(H.assessment, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', { retail_low_valuation: 1, retail_average_valuation: 2, retail_high_valuation: 3, trade_low_valuation: 4, trade_average_valuation: 5, trade_high_valuation: 6, _mileageSource: 'copart_listed', _mileageUsed: 53544 }, null)),
     ]);
-    ok('PDF with a Cazana valuation: "Valuation supplier: Cazana"', withCaz.includes('Valuation supplier: Cazana'));
+    ok('PDF with a Cazana valuation: no supplier name printed (batch 139 W1)', !withCaz.includes('Valuation supplier') && !withCaz.includes('Cazana'));
     ok('PDF with a Cazana valuation: trade average £10,220 shown, trade low/high "N/A" (nothing invented)', /Trade \| N\/A \| £10,220 \| N\/A/.test(withCaz));
     ok('PDF with a Cazana valuation: no no-valuation note', !withCaz.includes('No market valuation was returned'));
-    ok('PDF with a stored pre-137 Brego valuation: "Valuation supplier: Brego"', withBrego.includes('Valuation supplier: Brego'));
+    ok('PDF with a stored pre-137 Brego valuation: no supplier line (batch 139 W1)', !withBrego.includes('Valuation supplier'));
     ok('PDF with no valuation (both empty): the one-sentence note, no supplier line', noVal.includes('No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown.') && !noVal.includes('Valuation supplier'));
   }
 }

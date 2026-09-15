@@ -449,8 +449,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     sectionTitle(`Live Market Valuation (${monthYear})`);
     checkPage(36);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
-    // batch 137: the buyer sees which supplier the valuation came from (stored pre-137 valuations are Brego).
-    doc.text(`Valuation supplier: ${bregoData._source || 'Brego'}`, MARGIN, y); y += 4;
+    // batch 139 W1 (Vincent, 15 Sep: "no mention of valuation supplier"): the batch 137 "Valuation supplier" line is
+    // removed. The supplier stays stored internally (bregoValuation._source / assessment._valuationSource).
     doc.text(`Mileage: ${Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles (source: ${srcLabel})`, MARGIN, y); y += 5;
     const COL = CONTENT_W / 4;
     const headers = ['', 'Low', 'Average', 'High'];

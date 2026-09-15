@@ -3826,7 +3826,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // batch 137: a Cazana valuation is described as what it is (one trade figure, a market average). The Brego lines
         // below are unchanged, so every Brego lot's prompt — and every captured cassette — is byte-identical.
         const lines = bregoData._source === 'Cazana' ? [
-          'Live market valuation data (supplier: Cazana — it gives ONE trade figure, a market average; there is no trade low or trade high):',
+          'Live market valuation data (one trade figure only — a market average; there is no trade low or trade high):',   // batch 139 W1: no supplier name, so the model cannot repeat one into the report
           `- Retail low: ${fmt(bregoData.retail_low_valuation)}`,
           `- Retail average: ${fmt(bregoData.retail_average_valuation)}`,
           `- Retail high: ${fmt(bregoData.retail_high_valuation)}`,
@@ -5990,7 +5990,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const baseFmt     = Number(_exitBase.value).toLocaleString('en-GB');
       const exitFmt     = Number(exit).toLocaleString('en-GB');
       assessment['Realistic Exit Value'] = (assessment['Realistic Exit Value'] || '').trimEnd() + (_exitBase.source === 'Cazana'
-        ? `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of Cazana trade valuation £${baseFmt} (${catLabel} band)`
+        ? `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of trade valuation £${baseFmt} (${catLabel} band)`   // batch 139 W1: no supplier name
         : `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of trade-low £${baseFmt} (${catLabel} band)`);
       assessment._exitValue = exitValue;
       console.log(`[EXIT BAND] cat=${catLabel} step=${step} pct=${pct}% base=${_exitBase.source}.${_exitBase.field}=£${_exitBase.value} → exit=£${exitValue}`);
