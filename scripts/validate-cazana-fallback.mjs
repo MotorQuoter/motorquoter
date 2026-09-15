@@ -140,8 +140,11 @@ console.log('\n6. Cost record');
 {
   const { MENU_COSTS } = await import('../config/menuCosts.mjs');
   const c = MENU_COSTS.cazana_valuation;
-  ok('cazana_valuation is recorded; account rate unknown (grossCost null — a list price is never a grossCost)', !!c && c.grossCost === null && c.basis === 'unknown');
-  ok('published list price recorded ex-VAT: PAYG 70p / Business 45p / Enterprise 29p', c.listPriceExVat.payg === 0.70 && c.listPriceExVat.business === 0.45 && c.listPriceExVat.enterprise === 0.29);
+  // batch 140 W5 (Vincent, 15 Sep: the One Auto account is PAYG).
+  ok('cazana_valuation = £0.84 gross on the PAYG plan (basis: Vincent\'s plan confirmation, not an invoice)', !!c && c.grossCost === 0.84 && c.basis === 'plan-confirmed' && c.plan === 'PAYG');
+  ok('£0.84 = the PAYG list £0.70 ex-VAT × 1.20', c.listPriceExVat === 0.70 && Math.round(c.listPriceExVat * 1.20 * 100) / 100 === c.grossCost);
+  const menuSrc = readFileSync('config/pricing.js', 'utf8');
+  ok('not a menu item — no price, margin gate or displayed figure reads it', !menuSrc.includes('cazana_valuation'));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} cazana-fallback: ${pass} passed, ${fail} failed`);

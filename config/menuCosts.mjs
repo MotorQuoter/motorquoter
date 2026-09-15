@@ -7,6 +7,8 @@
 //     'account-rate' — from the One Auto account rate card (behind login). Permits enabled:true.
 //     'free'         — no supplier call at all (DVSA / DVLA / computed), definitively £0. Permits.
 //     'unknown'      — cost not known. BLOCKS enabled:true (quarantine). This caught ie_history at £15.
+//     'plan-confirmed' — Vincent confirmed the account's plan (One Auto PAYG, 15 Sep 2026); the figure is that plan's
+//                      published per-call rate ×1.20. Not an invoice, not the rate card. Used for cazana_valuation only.
 //     'invoiced'     — reserved; a real per-call CHARGE was read. NOT used yet — One Auto publish no
 //                      per-call statement (all 18 invoices are unitemised £30 top-ups). Do not mark
 //                      anything invoiced until a charge is actually read (overstating is rule-1's exact
@@ -30,10 +32,10 @@ export const MENU_COSTS = {
   salvage_predictor:  { grossCost: 0.71,  basis: 'account-rate' },                                  // salvageguide/bidpredictionfromvrm (disabled)
   // batch 137 — salvage assessment's FALLBACK valuation: percayso/currentvaluationfromvrm (Cazana). Not a menu item: an
   // extra cost ONLY on lots Brego cannot value (Brego first; a 204 "no content" is non-chargeable per One Auto's status
-  // table). Our account rate is NOT read (behind Vincent's login), so grossCost stays null and basis 'unknown' — a list
-  // price is never a grossCost. Published list (oneautoapi.com/service/percayso-valuation-vrm/, 15 Sep 2026), ex-VAT per
-  // call: PAYG 70p · Business 45p · Enterprise 29p → at PAYG £0.84 gross (×1.20).
-  cazana_valuation:   { grossCost: null,  basis: 'unknown', listPriceExVat: { payg: 0.70, business: 0.45, enterprise: 0.29 } },
+  // table). batch 140 W5: Vincent confirmed the One Auto account is PAYG (15 Sep 2026) — so the cost is the PAYG rate,
+  // £0.70 per call ex-VAT (oneautoapi.com/service/percayso-valuation-vrm/, read 15 Sep 2026) × 1.20 = £0.84 gross. Basis is
+  // that plan confirmation, NOT an invoice.
+  cazana_valuation:   { grossCost: 0.84,  basis: 'plan-confirmed', plan: 'PAYG', listPriceExVat: 0.70 },
   mot:                { grossCost: 0,     basis: 'free' },                                          // DVSA
   mileage_detail:     { grossCost: 0,     basis: 'free' },                                          // DVSA (computed)
   road_tax:           { grossCost: 0,     basis: 'free' },                                          // computed from DVLA
