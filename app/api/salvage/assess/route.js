@@ -196,10 +196,13 @@ function parseAssessment(text) {
 // Brego call left one log line (`MISS->fetch`) and nothing else; the cause is unrecoverable (batch 135). This helper
 // performs one One Auto call and fills `rec` with what happened: httpStatus, errorBody (≤300 chars, anything key-like
 // redacted — One Auto error bodies do not carry our key, this is belt-and-braces), durationMs, attempts, outcome.
-// RETRY POLICY (Brego only, `retries: 2` → up to 3 attempts, backoff 400ms then 1200ms): retry on a network throw, HTTP
-// 5xx, HTTP 429, or a 2xx whose body is empty / not JSON — the transient shapes. NO retry on any other 4xx or on a
-// well-formed 2xx that carries an error / no result: those are deterministic answers, and a retry would only buy another
-// paid call for the same answer. Other One Auto calls are recorded but not retried (the ruling names Brego).
+// RETRY POLICY (Brego only, `retries: 2` → up to 3 attempts, backoff 400ms then 1200ms): retry ONLY on a network throw,
+// HTTP 5xx or HTTP 429 — the transient shapes (batch 136 D1 note: "Retry only on network errors / 5xx / 429, never on
+// 204"). NO retry on any other 4xx, on a 2xx with an empty / non-JSON body, or on a well-formed 2xx that carries an error
+// / no result: those are answers, and a retry would only buy another paid call for the same answer.
+// HTTP 204 No Content is recorded explicitly as outcome `no-data` — the supplier answered "I have nothing for this
+// vehicle", distinct from an error (HV25ODX: Brego valuationfromvrm 204, not charged — Vincent's One Auto audit export).
+// Other One Auto calls are recorded but not retried (the ruling names Brego).
 const ONE_AUTO_BODY_MAX = 300;
 const ONE_AUTO_BACKOFF_MS = [400, 1200];
 export function redactOneAutoBody(text) {
@@ -223,13 +226,15 @@ export async function oneAutoFetch(rec, url, headers, parse, { retries = 0, fetc
         rec.errorBody = redactOneAutoBody(text);
         rec.outcome = 'http-error';
         transient = r.status >= 500 || r.status === 429;
+      } else if (r.status === 204) {
+        rec.errorBody = text ? redactOneAutoBody(text) : null;
+        rec.outcome = 'no-data';              // 204 No Content: the supplier has nothing for this vehicle — never retried
       } else {
         let raw;
         try { raw = text ? JSON.parse(text) : null; } catch { raw = undefined; }
         if (raw === undefined || raw === null) {
           rec.errorBody = redactOneAutoBody(text);
-          rec.outcome = raw === undefined ? 'unparseable' : 'empty';
-          transient = true;
+          rec.outcome = raw === undefined ? 'unparseable' : 'empty';   // an answer, not a transient — not retried
         } else {
           const result = parse(raw);
           if (result != null) { rec.outcome = 'ok'; rec.errorBody = null; rec.durationMs = Date.now() - t0; return result; }

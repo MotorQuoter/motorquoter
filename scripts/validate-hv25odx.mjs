@@ -155,8 +155,22 @@ console.log('\nD1. batch 136 task D1 — every One Auto call is recorded; a fail
   out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(new Error('ECONNRESET'), new Error('ECONNRESET'), new Error('ECONNRESET')) });
   ok('network throw ×3 → 3 attempts, outcome threw, message recorded', out === null && rec.attempts === 3 && rec.outcome === 'threw' && /ECONNRESET/.test(rec.errorBody));
   rec = {};
-  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(429, 'slow down'), resp(200, ''), resp(200, '{"result":{"x":1}}')) });
-  ok('429 and an empty 200 body are transient → retried until the value comes back (3 attempts)', out?.x === 1 && rec.attempts === 3);
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(429, 'slow down'), resp(502, 'Bad Gateway'), resp(200, '{"result":{"x":1}}')) });
+  ok('429 and 5xx are transient → retried until the value comes back (3 attempts)', out?.x === 1 && rec.attempts === 3);
+  // D1 note: "record 204 explicitly as no-data (distinct from an error). Retry only on network errors / 5xx / 429,
+  // never on 204." HV25ODX's real answer (Vincent's One Auto audit export): brego/valuationfromvrm status 204.
+  rec = {};
+  let calls = 0;
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: async () => { calls++; return calls === 1 ? resp(204, '') : resp(200, '{"result":{"x":1}}'); } });
+  ok('HV25ODX shape — 204 No Content → outcome "no-data", NOT retried (1 call, 1 attempt), status 204 kept, no error body', out === null && calls === 1 && rec.attempts === 1 && rec.outcome === 'no-data' && rec.httpStatus === 204 && rec.errorBody === null);
+  ok('"no-data" is distinct from an error outcome', rec.outcome !== 'http-error' && rec.outcome !== 'threw');
+  rec = {}; calls = 0;
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: async () => { calls++; return calls === 1 ? resp(200, '') : resp(200, '{"result":{"x":1}}'); } });
+  ok('an empty 200 body is recorded ("empty") and NOT retried', out === null && calls === 1 && rec.outcome === 'empty');
+  rec = {}; calls = 0;
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: async () => { calls++; return calls === 1 ? resp(200, '<html>') : resp(200, '{"result":{"x":1}}'); } });
+  ok('a non-JSON 200 body is recorded ("unparseable") and NOT retried', out === null && calls === 1 && rec.outcome === 'unparseable' && rec.errorBody === '<html>');
+  ok('route: no retry path treats an empty / non-JSON 2xx as transient', !/rec\.outcome = raw === undefined \? 'unparseable' : 'empty';\s*\n\s*transient = true;/.test(route));
   rec = {};
   out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(200, '{"success":false,"error":"no valuation available"}'), resp(200, '{"result":{"x":1}}')) });
   ok('a well-formed "no result" answer is NOT retried (another paid call would give the same answer)', out === null && rec.attempts === 1 && rec.outcome === 'no-result' && /no valuation available/.test(rec.errorBody));
