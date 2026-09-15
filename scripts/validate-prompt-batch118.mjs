@@ -40,13 +40,17 @@ const fz = {
 };
 const flankPanel = { panelId: 'SILL', zone: 'flank-damaged-side' };
 const frontPanel = { panelId: 'BONNET', zone: 'front' };
-const sel = (cp, side, front) => selectProbeFramesForPanel(cp, fz, side, front);
+const sel = (cp, front) => selectProbeFramesForPanel(cp, fz, front);
 ok('a flank panel\'s probe now receives side close-ups (20 with a side, 21 without)', JSON.stringify(sel(flankPanel).indices) === JSON.stringify([0, 20, 21]));
 ok('a front panel\'s probe receives the front close-up (7)', JSON.stringify(sel(frontPanel).indices) === JSON.stringify([0, 7]));
 ok('a bare ["detail"] frame reaches NO probe (the read could not say what it shows)', ![sel(flankPanel), sel(frontPanel)].some((r) => r.indices.includes(22)));
-const p2 = sel({ panelId: 'FRONT_WING', zone: 'flank-damaged-side' }, 'offside', true);
-ok('struck-side probe (P2) takes the offside close-up but NOT the side-unknown "flank" one', p2.source.startsWith('struck-side:offside') && p2.indices.includes(20) && !p2.indices.includes(21));
-const corr = selectProbeFramesForPanel({ panelId: 'FRONT_WING', zone: 'flank-damaged-side', _gOwned: true, _probeViews: [0, 1, 6] }, fz, 'offside', true);
+// batch 136 task A (the side ban): a front-flank panel on a front impact takes the FRONT-tagged frames — its front
+// neighbours' set — never frames chosen by a left/right read. struckSide is no longer an input at all.
+const p2 = sel({ panelId: 'FRONT_WING', zone: 'flank-damaged-side' }, true);
+ok('front-flank probe (P2) takes the FRONT-tagged frames, the same set as a front panel (batch 136 A)', p2.source.startsWith('front-flank:') && JSON.stringify(p2.indices) === JSON.stringify(sel(frontPanel).indices));
+ok('…and never the side-only close-ups (20 offside, 21 flank)', !p2.indices.includes(20) && !p2.indices.includes(21));
+ok('the selector takes no side argument (cp, frameZones, frontImpact)', selectProbeFramesForPanel.length === 3 && !/selectProbeFramesForPanel\(cp, _frameZones, lampObs\?\.struckSide/.test(src));
+const corr = selectProbeFramesForPanel({ panelId: 'FRONT_WING', zone: 'flank-damaged-side', _gOwned: true, _probeViews: [0, 1, 6] }, fz, true);
 ok('a correspondence-owned instance still takes its OWN frames (the zone tag does not override it)', corr.source === 'corr-instance:[0,1,6]');
 
 console.log('\n4. TASK 5 — option D (Vincent, 11 Sep): count the red brake lamp, state the parking-brake limit');

@@ -1187,27 +1187,24 @@ function selectProbeFrames(frameZones, panelZone) {
 // Attribution-probe frame targeting (C2). Precedence — each branch names itself in `source`
 // (silence is a defect). Flank panels only; all other panels fall through to selectProbeFrames
 // UNCHANGED, so front/rear/roof/interior targeting is byte-identical to before C2:
-//   1. correspondence-split flank instance (_gOwned) → its OWN member frames (side-correct by
-//      construction) — kills the flank both-sides blindness (E3) with no side inference.
-//   2. pooled front-flank panel on a FRONT impact + determinate struckSide → frame-zone frames on
-//      that side. struckSide is a front-impact datum (plate-relative-to-lights), so P2 is gated to
-//      front-flank panels on an aperture-exposed (front) impact and never drives rear-corner side
-//      inference (Q3). A pooled rear quarter falls through to P3.
+//   1. correspondence-split flank instance (_gOwned) → its OWN member frames — kills the flank
+//      both-sides blindness (E3) with no side inference.
+//   2. pooled front-flank panel (front wing / front door) on a FRONT impact → the FRONT-TAGGED frames, the same
+//      set its front neighbours are probed on. ⛔ batch 136 task A (the side ban, permanent): this branch used to
+//      pick the frames tagged with the model's `struckSide` — a LEFT/RIGHT read, banned from deciding anything. On
+//      HV25ODX it sent a 4-of-4-damaged front wing to a rear three-quarter and a spare wheel (frames [2,10]) while
+//      every front neighbour was probed on [0,1,8,12]. It is never selected by side again; struckSide is not an input.
 //   3. everything else → zone-map → full-set fallback (selectProbeFrames), UNCHANGED.
 const P2_FRONT_FLANK = new Set([PANEL.FRONT_WING, PANEL.FRONT_DOOR]);
-export function selectProbeFramesForPanel(cp, frameZones, struckSide, frontImpact) {
+export function selectProbeFramesForPanel(cp, frameZones, frontImpact) {
   if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
     const idx = cp._probeViews.slice(0, 35);
     if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin instance set (${idx.length} frames)`);
     return { indices: idx, source: `corr-instance:[${idx.join(',')}]` };
   }
-  if (frontImpact && P2_FRONT_FLANK.has(cp.panelId) && cp.zone === 'flank-damaged-side'
-      && (struckSide === 'offside' || struckSide === 'nearside') && frameZones.ok) {
-    const idx = frameZones.frames.filter(f => f.zones.includes(struckSide)).map(f => f.i).slice(0, 35);
-    if (idx.length) {
-      if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin struck-side set (${idx.length} frames)`);
-      return { indices: idx, source: `struck-side:${struckSide}:[${idx.join(',')}]` };
-    }
+  if (frontImpact && P2_FRONT_FLANK.has(cp.panelId) && cp.zone === 'flank-damaged-side' && frameZones.ok) {
+    const front = selectProbeFrames(frameZones, 'front');
+    if (front.indices) return { indices: front.indices, source: `front-flank:${front.source}` };
   }
   return selectProbeFrames(frameZones, cp.zone);
 }
@@ -4534,7 +4531,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           return { cp, grade, missing: _missing, frames: 'exempt', frameSource: 'exempt-lamp', r: null, exempt: 'exempt-lamp' };
         }
         const claimWording = _missing ? PROBE_MISSING_WORDING : PROBE_SEVERITY_WORDING[grade];
-        const { indices, source } = selectProbeFramesForPanel(cp, _frameZones, lampObs?.struckSide, lampObs?.apertureExposed === true);
+        const { indices, source } = selectProbeFramesForPanel(cp, _frameZones, lampObs?.apertureExposed === true);   // batch 136 A: no side input
         const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], claimWording, _missing, () => _exhaustedCalls.add('attribution-probe'));
         return { cp, grade, missing: _missing, frames: indices ? indices : 'full-set', frameSource: source, r };
       }));
