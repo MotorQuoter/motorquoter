@@ -24,21 +24,6 @@ const PAGE_W = 210;
 const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
-const ASSESSMENT_FIELDS = [
-  'Visible Damage Summary',
-  'Parts Breakdown',
-  'Key Cost Drivers',
-  'Red Flags',
-  'Alternative Damage Scenario',
-  'Airbags',
-  'Confidence Level',
-  'Bidder Note',
-  'Recommended Action',
-  'Realistic Exit Value',
-  'Margin Calculation',
-  'WhatsApp Inspection Checklist',
-];
-
 function stripMd(text) {
   if (!text) return '';
   return text
@@ -51,54 +36,11 @@ function stripMd(text) {
     .trim();
 }
 
-function parseFromRaw(rawText) {
-  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-  const clean = rawText
-    .replace(/\*{1,3}/g, '')
-    .replace(/^\s*[-=_]{3,}\s*$/gm, '');
-
-  const positions = [];
-  for (const field of ASSESSMENT_FIELDS) {
-    const patterns = [
-      new RegExp('^#{1,6}\\s*' + esc(field) + '\\s*$', 'im'),
-      new RegExp('^\\s*' + esc(field) + '\\s*:', 'im'),
-    ];
-    for (const rx of patterns) {
-      const m = clean.match(rx);
-      if (m !== null) {
-        positions.push({ field, start: m.index, afterColon: m.index + m[0].length });
-        break;
-      }
-    }
-  }
-  positions.sort((a, b) => a.start - b.start);
-
-  const result = {};
-  for (let i = 0; i < positions.length; i++) {
-    const { field, afterColon } = positions[i];
-    const end = i + 1 < positions.length ? positions[i + 1].start : clean.length;
-    result[field] = clean.slice(afterColon, end).trim();
-  }
-  return result;
-}
-
+// batch 136 task C5 (one owner, screen and PDF agree): the PDF renders the STORED fields only — exactly what the screen
+// renders. This used to refill any empty field by re-parsing assessment._raw, which bypassed the claim binder and the
+// side scrub and REPRINTED sentences the binder had deliberately removed (HV25ODX's dropped Visible Damage Summary;
+// SD72HXH's Bidder Note and summary). The screen never does that (its raw dump is gone too, C1); neither does the PDF.
 function resolveFields(assessment) {
-  const hasAllFields = ['Visible Damage Summary', 'Key Cost Drivers', 'Red Flags', 'Airbags', 'Confidence Level', 'Realistic Exit Value']
-    .every(f => assessment[f] && String(assessment[f]).trim().length > 2);
-  if (hasAllFields) return assessment;
-  if (assessment._raw) {
-    const parsed = parseFromRaw(assessment._raw);
-    const merged = { ...assessment };
-    for (const field of ASSESSMENT_FIELDS) {
-      if (!merged[field] || String(merged[field]).trim().length < 2) {
-        if (parsed[field] && String(parsed[field]).trim().length > 2) {
-          merged[field] = parsed[field];
-        }
-      }
-    }
-    return merged;
-  }
   return assessment;
 }
 

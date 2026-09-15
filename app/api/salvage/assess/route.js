@@ -5885,9 +5885,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         ['Recommended Action', 'speculation'],                                     // 4f C-3: full set
       ]) {
         if (!assessment[field]) continue;
-        const { text, dropped } = bindClaimClasses(assessment[field], _claimCtx, mode);
+        const { text, dropped, keptWhole } = bindClaimClasses(assessment[field], _claimCtx, mode);
         for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.class, reason: d.reason });
         if (dropped.length) console.log(`[CLAIM BIND] ${field}: dropped ${dropped.length} sentence(s) [${dropped.map(d => d.class).join(', ')}]`);
+        // batch 136 task C2: a checker never blanks a section. When every sentence would have gone, the binder keeps the
+        // field whole — say so loudly, and record what it would have dropped (keptToAvoidBlank) for review.
+        if (keptWhole?.length) {
+          for (const d of keptWhole) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.class, reason: d.reason, keptToAvoidBlank: true });
+          console.error(`[CLAIM BIND] ${field}: EVERY sentence contradicted the ledger — field KEPT WHOLE, not blanked (batch 136 C2) [${keptWhole.map(d => d.class).join(', ')}]`);
+        }
         assessment[field] = text;
       }
     }

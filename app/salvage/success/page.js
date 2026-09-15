@@ -1586,15 +1586,10 @@ export default function SalvageSuccessPage() {
               </div>
             )}
 
-            {/* If raw text didn't parse cleanly, show full response */}
-            {!assessment['Visible Damage Summary'] && assessment._raw && (
-              <div className="section">
-                <div className="section-title">Assessment</div>
-                <div className="section-body">
-                  <div className="field-val" style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{assessment._raw}</div>
-                </div>
-              </div>
-            )}
+            {/* batch 136 task C1 (permanent: code owns every buyer-facing word): the raw model response NEVER renders.
+                This block used to dump the whole of assessment._raw — Part Verdicts, the model's own prices, "Option B" —
+                whenever the Visible Damage Summary was empty (HV25ODX 15 Sep; SD72HXH 11 Sep on production). An empty
+                section is now simply omitted; the PDF follows the same rule (no refill from _raw). */}
 
             {status === 'success' && assessment && !showComparison && (
               <div className="compare-bar">
