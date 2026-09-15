@@ -3811,7 +3811,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         return `Salvage auction register records for this vehicle (${records.length} found):\n${lines}`;
       })(),
       (() => {
-        if (!bregoData) return 'Live market valuation data: UNAVAILABLE — proceed with assessment but flag exit value as low confidence.';
+        // batch 139 (batch 138 item 5, G17 — Vincent: yes): with no valuation (Brego and Cazana both empty) the code computes
+        // no exit value and no margin, so the model must not describe one. Same wording as config/assessmentEngine.js.
+        if (!bregoData) return 'Live market valuation data: UNAVAILABLE — state that live market valuation was not retrieved, do not describe an exit value or a margin, and set Confidence Level: Low.';
         const fmt = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : 'N/A';
         // batch 118 task 3 — NO date in the prompt. `(${monthYear})` used to sit in the header below, fed
         // by the only clock read in this route: it reached no buyer surface (the "Live data · <month>"

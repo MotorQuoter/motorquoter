@@ -335,5 +335,20 @@ console.log('\n138.1 batch 138 item 1 — no valuation: Copart fees at SalvageGu
   ok('PDF (both absent): only the note — no fee rows', bothAbsent.includes('No market valuation was returned') && !bothAbsent.includes('SalvageGuide predicted bid ('));
 }
 
+console.log('\n139 (batch 138 item 5, G17) — no valuation: the model is told not to describe an exit value or a margin');
+{
+  const engine = readFileSync('config/assessmentEngine.js', 'utf8');
+  const rt = route.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const RULED = 'If live market valuation data is marked UNAVAILABLE, state that live market valuation was not retrieved, do not describe an exit value or a margin, and set Confidence Level: Low.';
+  ok('engine prompt carries the ruled sentence verbatim', engine.includes(RULED));
+  ok('engine prompt no longer asks for "a wider margin range" (or any "wider margin")', !/wider margin/i.test(engine));
+  ok('engine prompt no longer says "state explicitly … produce a wider margin range"', !engine.includes('state explicitly that live market valuation was not retrieved'));
+  const BODY = "if (!bregoData) return 'Live market valuation data: UNAVAILABLE — state that live market valuation was not retrieved, do not describe an exit value or a margin, and set Confidence Level: Low.';";
+  ok('route: the no-valuation prompt body says the same thing (Brego and Cazana both empty)', rt.includes(BODY));
+  ok('route: the old "flag exit value as low confidence" body is gone', !rt.includes('proceed with assessment but flag exit value as low confidence'));
+  ok('route: UNAVAILABLE is sent ONLY when there is no valuation at all — a Cazana valuation sets bregoData first', rt.indexOf('} else if (czResult) {') > 0 && rt.indexOf('} else if (czResult) {') < rt.indexOf(BODY) && (rt.match(/UNAVAILABLE —/g) || []).length === 1);
+  ok('route: a Cazana valuation is presented to the model as live market valuation data', rt.includes("bregoData._source === 'Cazana' ? [\n          'Live market valuation data ("));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
