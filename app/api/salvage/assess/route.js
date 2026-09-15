@@ -9,7 +9,7 @@ import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 import { feeRowsAtPredictedBids } from '@/lib/predictedBidFees.mjs';   // batch 138 item 1
-import { settleFailedSave, refundSalvageCharge } from '@/lib/salvageRefund.mjs';   // batch 138 item 3
+import { settleFailedSave, refundSalvageCharge, chargeRefunded, REFUNDED_SESSION_MESSAGE } from '@/lib/salvageRefund.mjs';   // batch 138 item 3 · batch 140 W4
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
@@ -3223,6 +3223,22 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
     }
 
+    // batch 140 W4 (Vincent: "yes block."): a salvage charge that has been refunded — by the failed-save path, the 529 abort,
+    // or by hand — never runs an assessment again. Refused HERE, server-side (not only a hidden retry button): after a stored
+    // report would have been returned, before any image fetch, processing claim or model call. Stripe's refunds list is the
+    // record (the same one the idempotent refund helper reads), so no new DB field is needed. If Stripe cannot be read the
+    // run is ALLOWED and logged — a paying customer is never blocked by a failed check. Promo / free sessions carry no charge.
+    if (!promoToken && paymentIntentId && chargeAmount) {
+      const refundCheck = await chargeRefunded(new Stripe(process.env.STRIPE_SECRET_KEY), paymentIntentId, chargeAmount);
+      if (refundCheck.refunded) {
+        console.warn(`[REFUNDED SESSION] salvageId=${salvageId} paymentIntentId=${paymentIntentId} refunded=${refundCheck.refundedAmount} of ${chargeAmount} — assessment refused: a refunded charge never runs again`);
+        return NextResponse.json({ refunded: true, error: REFUNDED_SESSION_MESSAGE }, { status: 409 });
+      }
+      if (refundCheck.error) {
+        console.error(`[REFUND CHECK FAILED] salvageId=${salvageId} paymentIntentId=${paymentIntentId} error=${JSON.stringify(refundCheck.error)} — run allowed`);
+      }
+    }
+
     // Need to run assessment — fetch full session including images
     const { data: session, error: fetchError } = await supabase
       .from('salvage_sessions')
@@ -3308,7 +3324,9 @@ export async function GET(request) {
         if (refund.status === 'refunded') {
           console.log(`[529 ABORT] refund issued refundId=${refund.refundId} idempotent=${refund.idempotent} paymentIntentId=${paymentIntentId} amount=${chargeAmount}`);
           refundStatus = 'refunded';
-          abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days. Please try again in a few minutes.";
+          // batch 140 W4: "Please try again in a few minutes." removed — a refunded session can no longer run (the screen adds
+          // "A new assessment is a new purchase." and a New Assessment button instead of Try Again).
+          abortMessage = "Our servers are experiencing high demand right now and your assessment couldn't be completed. Your payment has been automatically refunded and should return to your account within a few working days.";
         } else {
           console.error(`[529 ABORT] refund FAILED paymentIntentId=${paymentIntentId}`, refund.error);
           refundStatus = 'refund_failed';

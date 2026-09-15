@@ -136,6 +136,7 @@ export default function SalvageSuccessPage() {
   const [bregoData, setBregoData] = useState(null);
   const [rerunLimitReached, setRerunLimitReached] = useState(false);
   const [overloadedMessage, setOverloadedMessage] = useState('');
+  const [refunded, setRefunded] = useState(false);   // batch 140 W4: a refunded charge is never offered a retry
   const [bodyTypeSelect, setBodyTypeSelect] = useState('');
   const [bookingLine, setBookingLine] = useState(null);   // 4f C-6 booking reminder (computed off-render — impure now/log)
   const [bookingState, setBookingState] = useState(null);       // booking window state for the CURRENT lot (off-render)
@@ -206,10 +207,13 @@ export default function SalvageSuccessPage() {
       const data = ct.includes('application/json') ? await res.json() : null;
       if (data?.aborted) {
         setOverloadedMessage(data.message || '');
+        setRefunded(data.refundStatus === 'refunded');   // batch 140 W4
         setStatus('overloaded');
         return;
       }
       if (!res.ok) {
+        // batch 140 W4: refunded by this failure (failed save) or on an earlier attempt (server refusal) → no retry offered.
+        setRefunded(data?.refunded === true || data?.refundStatus === 'refunded');
         throw new Error(data?.error || `Assessment failed (${res.status})`);
       }
       setAssessment(data.assessment);
@@ -595,9 +599,18 @@ export default function SalvageSuccessPage() {
             <div className="error-box">
               <div className="error-title">High Demand</div>
               <div className="error-msg">{overloadedMessage}</div>
-              <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
-                Try Again
-              </button>
+              {refunded ? (
+                <>
+                  <div className="error-msg">A new assessment is a new purchase.</div>
+                  <button className="btn-retry" onClick={() => router.push('/salvage')}>
+                    + New Assessment
+                  </button>
+                </>
+              ) : (
+                <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
+                  Try Again
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -634,9 +647,18 @@ export default function SalvageSuccessPage() {
                 <>
                   <div className="error-title">Assessment Failed</div>
                   <div className="error-msg">{errorMsg || 'Something went wrong. Your payment has been taken — click Retry to try again.'}</div>
-                  <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
-                    Retry Assessment
-                  </button>
+                  {refunded ? (
+                    <>
+                      <div className="error-msg">A new assessment is a new purchase.</div>
+                      <button className="btn-retry" onClick={() => router.push('/salvage')}>
+                        + New Assessment
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn-retry" onClick={() => { setStatus('loading'); setMsgIdx(0); runAssessment(); }}>
+                      Retry Assessment
+                    </button>
+                  )}
                 </>
               )}
             </div>

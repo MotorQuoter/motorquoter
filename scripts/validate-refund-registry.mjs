@@ -198,5 +198,73 @@ console.log('\n8. Salvage: a paid report that fails to save is refunded automati
   ok('assess route: no bare stripe refunds.create left (one idempotent path)', !/refunds\.create\(/.test(assess));
 }
 
+// ── 9. batch 140 W4 — a refunded salvage charge never runs an assessment again (both refund paths) ─────────────────
+// £0: fake Stripe. The refund is first issued by the real helpers (failed save / 529), then the read-only check is asked.
+console.log('\n9. Salvage: once refunded (failed save OR 529), the session is refused server-side and no retry is offered');
+{
+  const { settleFailedSave, refundSalvageCharge, chargeRefunded, REFUNDED_SESSION_MESSAGE } = await import('../lib/salvageRefund.mjs');
+  const fakeStripe = (store = [], { throwOnList = false } = {}) => {
+    const calls = { list: 0, create: 0 };
+    return {
+      calls,
+      refunds: {
+        list: async (p) => { calls.list++; if (throwOnList) throw new Error('stripe unavailable'); return { data: store.filter((r) => r.payment_intent === p.payment_intent) }; },
+        create: async (p) => { calls.create++; const r = { id: `re_${store.length + 1}`, amount: p.amount, payment_intent: p.payment_intent, metadata: p.metadata, status: 'succeeded' }; store.push(r); return r; },
+      },
+    };
+  };
+
+  // Path 1 — failed save refunded → the next attempt is refused.
+  const store1 = [];
+  await settleFailedSave({ promoToken: null, salvageId: 's-save', paymentIntentId: 'pi_save', chargeAmount: 899, stripe: fakeStripe(store1), resetStatus: async () => {}, log: () => {} });
+  const s1 = fakeStripe(store1);
+  const c1 = await chargeRefunded(s1, 'pi_save', 899);
+  ok('failed-save refund → the charge reads as refunded (the retry is refused)', c1.refunded === true && c1.refundedAmount === 899);
+  ok('the check is read-only — it never creates a refund', s1.calls.create === 0 && s1.calls.list === 1);
+
+  // Path 2 — 529 abort refunded → the next attempt is refused.
+  const store2 = [];
+  await refundSalvageCharge(fakeStripe(store2), { paymentIntentId: 'pi_529', chargeAmount: 899, salvageId: 's-529', reason: 'overloaded' });
+  const c2 = await chargeRefunded(fakeStripe(store2), 'pi_529', 899);
+  ok('529 refund → the charge reads as refunded (the retry is refused)', c2.refunded === true && store2[0].metadata.reason === 'overloaded');
+
+  // A refund made by hand (no metadata) also counts.
+  ok('a manual full refund (no metadata) also blocks', (await chargeRefunded(fakeStripe([{ id: 're_m', amount: 899, payment_intent: 'pi_m', status: 'succeeded' }]), 'pi_m', 899)).refunded === true);
+
+  // Not refunded → the run goes ahead (money does not move on any non-refunded path).
+  ok('no refund on the intent → not refunded (the run is allowed)', (await chargeRefunded(fakeStripe([]), 'pi_none', 899)).refunded === false);
+  ok('a partial refund below the charge → not refunded', (await chargeRefunded(fakeStripe([{ id: 're_p', amount: 300, payment_intent: 'pi_p', status: 'succeeded' }]), 'pi_p', 899)).refunded === false);
+  ok('a failed / cancelled refund does not count', (await chargeRefunded(fakeStripe([{ id: 're_f', amount: 899, payment_intent: 'pi_f', status: 'failed' }, { id: 're_c', amount: 899, payment_intent: 'pi_f', status: 'canceled' }]), 'pi_f', 899)).refunded === false);
+  const sErr = fakeStripe([], { throwOnList: true });
+  const cErr = await chargeRefunded(sErr, 'pi_err', 899);
+  ok('Stripe unreadable → refunded:false with the error (the route allows the run and logs it)', cErr.refunded === false && /stripe unavailable/.test(cErr.error));
+  const sNone = fakeStripe([]);
+  ok('no payment intent (promo / free) → not refunded, Stripe untouched', (await chargeRefunded(sNone, null, null)).refunded === false && sNone.calls.list === 0);
+  assert('the refusal message', REFUNDED_SESSION_MESSAGE, "The payment for this assessment has been refunded, so it can't be run again.");
+
+  // Route wiring (source, comments stripped).
+  const assess = readFileSync(join(ROOT, 'app/api/salvage/assess/route.js'), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const iStored = assess.indexOf('if (check?.assessment) {');
+  const iGuard = assess.indexOf('if (!promoToken && paymentIntentId && chargeAmount) {', iStored);
+  const iCheck = assess.indexOf('const refundCheck = await chargeRefunded(new Stripe(process.env.STRIPE_SECRET_KEY), paymentIntentId, chargeAmount);', iGuard);
+  const iRefuse = assess.indexOf('return NextResponse.json({ refunded: true, error: REFUNDED_SESSION_MESSAGE }, { status: 409 });', iCheck);
+  const iFetch = assess.indexOf("const { data: session, error: fetchError } = await supabase", iRefuse);
+  const iClaim = assess.indexOf("const sessionUpdate = { status: 'processing' };", iFetch);
+  const iRun = assess.indexOf('await runAssessment({ images, vd, market, roiTier })', iClaim);
+  ok('assess route: refused server-side — after a stored report is returned, before image fetch, processing claim and the model run',
+    iStored > 0 && iGuard > iStored && iCheck > iGuard && iRefuse > iCheck && iFetch > iRefuse && iClaim > iFetch && iRun > iClaim);
+  ok('assess route: a failed check allows the run and logs [REFUND CHECK FAILED]', assess.includes('[REFUND CHECK FAILED]') && assess.includes('— run allowed'));
+  ok('assess route: the 529 refunded message no longer invites a retry', !assess.includes('should return to your account within a few working days. Please try again'));
+
+  // Screen wiring.
+  const page = readFileSync(join(ROOT, 'app/salvage/success/page.js'), 'utf8');
+  ok('screen: the refunded flag is set from a 529 abort and from a refunded error response',
+    page.includes("setRefunded(data.refundStatus === 'refunded');") && page.includes("setRefunded(data?.refunded === true || data?.refundStatus === 'refunded');"));
+  ok('screen (High Demand): refunded → "A new assessment is a new purchase." + New Assessment; Try Again only when NOT refunded',
+    /\{refunded \? \(\s*<>\s*<div className="error-msg">A new assessment is a new purchase\.<\/div>[\s\S]{0,260}\+ New Assessment[\s\S]{0,120}\) : \([\s\S]{0,200}Try Again/.test(page));
+  ok('screen (Assessment Failed): refunded → the same; Retry Assessment only when NOT refunded',
+    /\{refunded \? \(\s*<>\s*<div className="error-msg">A new assessment is a new purchase\.<\/div>[\s\S]{0,300}\+ New Assessment[\s\S]{0,140}\) : \([\s\S]{0,220}Retry Assessment/.test(page));
+}
+
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

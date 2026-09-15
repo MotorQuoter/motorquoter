@@ -268,7 +268,7 @@ console.log('\nE. batch 136 task E — the final assessment save and the re-run 
   ok('re-run: a failed save logs [RERUN SAVE FAILED] and answers 500 before { success: true }', jFail > 0 && j500 > jFail && jOk > j500);
   ok('re-run: prior_assessment is still preserved in the same write (batch 103)', rerun.includes('if (data.assessment != null) update.prior_assessment = data.assessment;') && rerun.includes('startRerunUpdate(supabase, salvage_id, update)'));
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
-  ok('client: a non-OK assess answer throws before any report state is set', /if \(!res\.ok\) \{\s*throw new Error\(data\?\.error \|\| `Assessment failed \(\$\{res\.status\}\)`\);\s*\}\s*setAssessment\(data\.assessment\);/.test(page));
+  ok('client: a non-OK assess answer throws before any report state is set', /if \(!res\.ok\) \{[\s\S]{0,400}?throw new Error\(data\?\.error \|\| `Assessment failed \(\$\{res\.status\}\)`\);\s*\}\s*setAssessment\(data\.assessment\);/.test(page));
   ok('client: a non-OK re-run answer shows the error and does not navigate to the re-run form', /throw new Error\(body\.error \|\| 'Re-run failed'\);\s*\}[\s\S]{0,400}router\.push\(`\/salvage\?rerun=/.test(page));
 }
 
