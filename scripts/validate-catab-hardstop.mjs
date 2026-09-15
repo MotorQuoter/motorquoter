@@ -49,7 +49,9 @@ ok('gate computes _catAB from the recorded category',         /const _catAB = ca
 ok('gate nulls the whole-vehicle exit value',                 /if \(_catAB\)[\s\S]{0,600}assessment\._exitValue\s*=\s*null/.test(src));
 ok('gate nulls the margin ladder',                            /if \(_catAB\)[\s\S]{0,600}assessment\._marginScenarios\s*=\s*null/.test(src));
 ok('gate states the stop in Realistic Exit Value',            /if \(_catAB\)[\s\S]{0,400}assessment\['Realistic Exit Value'\]\s*=\s*_stop/.test(src));
-ok('exit-band computation is guarded on !_catAB',             /if \(!_catAB && bregoData\?\.trade_low_valuation\)/.test(src));
+// batch 137: the exit base is now exitBaseOf(bregoData) (Brego trade-low, or Cazana's trade figure when Brego had none) —
+// the guard on !_catAB is the thing this pin protects, and it is unchanged.
+ok('exit-band computation is guarded on !_catAB',             /const _exitBase = exitBaseOf\(bregoData\);\s*\n\s*if \(!_catAB && _exitBase\)/.test(src));
 ok('margin computation is guarded on !_catAB',                /if \(!_catAB && feeStackFn && parts_sum > 0 && exitValue != null\)/.test(src));
 ok('SalvageGuide cross-check is guarded on !_catAB',          /if \(!_catAB && enrichedVd\.salvageGuide\)/.test(src));
 ok('investment block is guarded on !_catAB',                  /batch 71 FIX 1[\s\S]{0,120}if \(!_catAB\) try \{/.test(src));

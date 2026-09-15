@@ -449,6 +449,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     sectionTitle(`Live Market Valuation (${monthYear})`);
     checkPage(36);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+    // batch 137: the buyer sees which supplier the valuation came from (stored pre-137 valuations are Brego).
+    doc.text(`Valuation supplier: ${bregoData._source || 'Brego'}`, MARGIN, y); y += 4;
     doc.text(`Mileage: ${Number(bregoData._mileageUsed).toLocaleString('en-GB')} miles (source: ${srcLabel})`, MARGIN, y); y += 5;
     const COL = CONTENT_W / 4;
     const headers = ['', 'Low', 'Average', 'High'];

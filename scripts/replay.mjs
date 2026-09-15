@@ -41,6 +41,7 @@ function loadEnv() {
 function makeFixtureProvider(paid) {
   const map = {
     BREGO_GB: paid.bregoValuation, BREGO_ROI: paid.bregoValuation,
+    CAZANA_GB: paid.cazanaValuation ?? null,   // batch 137 fallback — only reached when BREGO_GB replays null
     SALVAGEGUIDE: paid.salvageGuide, SALVAGEHISTORY: paid.salvageHistory,
     MARKETDEMAND: null, PRICEGUIDE: null, HPICHECK: null,
   };

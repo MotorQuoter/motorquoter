@@ -267,6 +267,63 @@ export function finaliseOneAutoRec(rec, meta, result) {
   return rec;
 }
 
+// ── batch 137 — Cazana is the fallback valuation when Brego has none ───────────────────────────────────────────────────
+// Vincent, 15 Sep: "We have 2 valuation sources switched on in OneAuto — Brego and Cazana — so if Brego fails we fall back
+// on Cazana." Brego FIRST; Cazana is called ONLY when Brego returned nothing (204 / empty / failed after retries) — never
+// both on a lot Brego answered. Endpoint, parameters and response fields are One Auto's DOCUMENTED shape
+// (swagger.oneautoapi.com/complete.json → GET /percayso/currentvaluationfromvrm/; oneautoapi.com/service/percayso-valuation-vrm/):
+//   params  vehicle_registration_mark (required) · current_mileage (integer, optional) · valuation_date (optional, unused)
+//   result  retail_low/average/high_valuation (inc VAT) · trade_valuation ("market average trade valuation") ·
+//           retail_valuation_independent · retail_valuation_supermarket · days_to_sell · is_current_mileage_estimated · …
+// Cazana gives ONE trade figure. Mapping (Vincent ruled, 15 Sep, batch 137 TASK-0): trade_valuation stands in for Brego's
+// trade_average_valuation (price band) AND is the exit-value base in place of Brego's trade_low_valuation. It is never
+// relabelled a trade low — the table shows it as the trade average, and the exit line names Cazana.
+export const CAZANA_VALUATION_ENDPOINT = 'percayso/currentvaluationfromvrm/';
+export function valuationFromCazana(result) {
+  if (!result || typeof result !== 'object') return null;
+  const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) ? null : Number(v);
+  const trade = num(result.trade_valuation);
+  if (trade == null) return null;   // no trade figure → not a usable valuation (batch 137: never convert retail to trade)
+  return {
+    _source: 'Cazana',
+    retail_low_valuation: num(result.retail_low_valuation),
+    retail_average_valuation: num(result.retail_average_valuation),
+    retail_high_valuation: num(result.retail_high_valuation),
+    trade_low_valuation: null,          // Cazana has none — shown as "—", never filled
+    trade_average_valuation: trade,
+    trade_high_valuation: null,         // Cazana has none
+    retail_valuation_independent: num(result.retail_valuation_independent),
+    retail_valuation_supermarket: num(result.retail_valuation_supermarket),
+    days_to_sell: num(result.days_to_sell),
+    is_current_mileage_estimated: result.is_current_mileage_estimated === true,
+  };
+}
+// The figure the exit value is computed from, and where it came from. Brego (or a stored pre-137 valuation with no
+// _source): trade_low_valuation, exactly as before. Cazana: its single trade_valuation (ruled).
+export function exitBaseOf(valuation) {
+  if (!valuation) return null;
+  if (valuation._source === 'Cazana') {
+    const v = Number(valuation.trade_average_valuation);
+    return Number.isFinite(v) && v > 0 ? { value: v, source: 'Cazana', field: 'trade_valuation' } : null;
+  }
+  const v = Number(valuation.trade_low_valuation);
+  return valuation.trade_low_valuation && Number.isFinite(v) ? { value: v, source: 'Brego', field: 'trade_low_valuation' } : null;
+}
+// One Cazana valuation call through the SAME cache seam (own callType, mileage in the key) and the SAME recording and
+// retry policy as Brego (batch 136 D1: 204 → no-data, never retried; retry only on a throw / 5xx / 429). A response with
+// no trade figure is recorded as no-result and returns null.
+export async function fetchCazanaValuation({ vrm, mileage, base, headers, cache = withOneAutoCache, fetchImpl = fetch, sleep } = {}) {
+  const rec = { label: 'CAZANA_GB', endpoint: CAZANA_VALUATION_ENDPOINT }, meta = {};
+  const miles = Number.isFinite(Number(mileage)) && mileage !== null && mileage !== '' ? String(Math.round(Number(mileage))) : undefined;
+  const p = new URLSearchParams({ vehicle_registration_mark: vrm });
+  if (miles) p.set('current_mileage', miles);
+  const pick = (raw) => { const r = raw?.result ?? raw; return (r && !r.error && valuationFromCazana(r)) ? r : null; };
+  const result = await cache('CAZANA_GB', vrm, { current_mileage: miles },
+    () => oneAutoFetch(rec, `${base}/${CAZANA_VALUATION_ENDPOINT}?${p.toString()}`, headers, pick, { retries: 2, fetchImpl, sleep }), meta);
+  finaliseOneAutoRec(rec, meta, result);
+  return { result, rec };
+}
+
 // batch 136 task E: write the assessed session and report whether it was STORED — ok only when there was no error AND
 // a row came back. `.select('id')` makes a write that matched no row visible (an update matching nothing is not an
 // error in PostgREST); a network throw is caught and reported the same way.
@@ -2817,7 +2874,7 @@ function catABHardStopLetter(categoryStr) {
   return (c === 'a' || c === 'b') ? c : null;
 }
 
-function computeExitFromBand(tradeLow, categoryStr, bandText) {
+export function computeExitFromBand(tradeLow, categoryStr, bandText) {
   const cat = catLetter(categoryStr || '');
   const band = cat === 'n' ? 'n' : 's'; // unknown → Cat S (conservative)
   const rawStep = parseExitBandStep(bandText);
@@ -3586,14 +3643,32 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         console.error(`[BREGO FAILED] no valuation for ${cleanVrmB} — outcome=${brRec.outcome ?? 'none'} http=${brRec.httpStatus ?? '-'} attempts=${brRec.attempts ?? 0} ms=${brRec.durationMs ?? '-'} cache=${brRec.cache ?? '-'}${brRec.errorBody ? ` body=${JSON.stringify(brRec.errorBody)}` : ''}`);
       }
 
+      // batch 137: Cazana ONLY when Brego returned nothing. A lot Brego answered never reaches this call.
+      let czResult = null;
+      if (!brResult) {
+        const cz = await fetchCazanaValuation({ vrm: cleanVrmB, mileage: brMileage, base: oneAutoBase, headers: hdrs });
+        czResult = cz.result;
+        enrichedVd._oneAutoCalls.push(cz.rec);
+        if (!czResult) {
+          console.error(`[VALUATION FAILED] Brego and Cazana both returned no valuation for ${cleanVrmB} — cazana outcome=${cz.rec.outcome ?? 'none'} http=${cz.rec.httpStatus ?? '-'} attempts=${cz.rec.attempts ?? 0} cache=${cz.rec.cache ?? '-'}${cz.rec.errorBody ? ` body=${JSON.stringify(cz.rec.errorBody)}` : ''}`);
+        }
+      }
+
       if (shResult) {
         tagSelfReference(shResult, enrichedVd);
         enrichedVd.salvageHistory = shResult;
       }
 
       if (brResult) {
-        bregoData = { ...brResult, _mileageSource: brMileageSource, _mileageUsed: brMileage };
+        bregoData = { ...brResult, _source: 'Brego', _mileageSource: brMileageSource, _mileageUsed: brMileage };
         enrichedVd.bregoValuation = bregoData;
+      } else if (czResult) {
+        // batch 137: the valuation the report uses keeps its historic key (bregoValuation — every surface reads it) and
+        // says which supplier it came from in _source. Cazana's own answer is stored as returned in cazanaValuation.
+        enrichedVd.cazanaValuation = czResult;
+        bregoData = { ...valuationFromCazana(czResult), _mileageSource: brMileageSource, _mileageUsed: brMileage };
+        enrichedVd.bregoValuation = bregoData;
+        console.log(`[VALUATION] source=Cazana trade=£${bregoData.trade_average_valuation} retailAvg=£${bregoData.retail_average_valuation ?? '-'} (Brego had none)`);
       }
 
       if (sgResult) enrichedVd.salvageGuide = sgResult;
@@ -3733,7 +3808,17 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         const engineSrc = brMileageSource === 'listing_odometer' ? 'copart_listed'
           : (brMileageSource === 'age_estimate' || brMileageSource === 'age_anomaly') ? 'default_fallback'
           : brMileageSource;
-        const lines = [
+        // batch 137: a Cazana valuation is described as what it is (one trade figure, a market average). The Brego lines
+        // below are unchanged, so every Brego lot's prompt — and every captured cassette — is byte-identical.
+        const lines = bregoData._source === 'Cazana' ? [
+          'Live market valuation data (supplier: Cazana — it gives ONE trade figure, a market average; there is no trade low or trade high):',
+          `- Retail low: ${fmt(bregoData.retail_low_valuation)}`,
+          `- Retail average: ${fmt(bregoData.retail_average_valuation)}`,
+          `- Retail high: ${fmt(bregoData.retail_high_valuation)}`,
+          `- Trade (market average): ${fmt(bregoData.trade_average_valuation)}`,
+          `- Mileage used for valuation: ${bregoData._mileageUsed} miles`,
+          `- Mileage source: ${engineSrc}`,
+        ] : [
           'Live market valuation data:',
           `- Retail low (poor condition): ${fmt(bregoData.retail_low_valuation)}`,
           `- Retail average (average condition): ${fmt(bregoData.retail_average_valuation)}`,
@@ -4755,7 +4840,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     const bandKey = derivePriceBand(enrichedVd.bregoValuation?.trade_average_valuation ?? null);
     if (bandKey) {
-      console.log(`[PRICE TABLE] band=${bandKey} (trade_avg=£${enrichedVd.bregoValuation.trade_average_valuation})`);
+      console.log(`[PRICE TABLE] band=${bandKey} (trade_avg=£${enrichedVd.bregoValuation.trade_average_valuation} source=${enrichedVd.bregoValuation._source ?? 'Brego'})`);
     } else {
       console.log('[PRICE TABLE] no trade_average_valuation — all panels retain model figures (Q2 fallback)');
     }
@@ -5875,22 +5960,27 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Code-owned exit value: trade-low × band percentage keyed by category + model's 5-step position
     let exitValue = null;
-    if (!_catAB && bregoData?.trade_low_valuation) {
+    // batch 137: every stored valuation says which supplier it came from. Brego: the exit base is trade-low, exactly as
+    // before. Cazana (only when Brego had none): its single trade_valuation is the base (Vincent ruled, 15 Sep).
+    assessment._valuationSource = bregoData?._source ?? null;
+    const _exitBase = exitBaseOf(bregoData);
+    if (!_catAB && _exitBase) {
       const { exit, band, step, pct } = computeExitFromBand(
-        bregoData.trade_low_valuation,
+        _exitBase.value,
         enrichedVd.category || '',
         assessment['Exit Band Position'] || ''
       );
       exitValue = exit;
       const catLabel    = band === 'n' ? 'Cat N' : 'Cat S';
-      const tradeLowFmt = Number(bregoData.trade_low_valuation).toLocaleString('en-GB');
+      const baseFmt     = Number(_exitBase.value).toLocaleString('en-GB');
       const exitFmt     = Number(exit).toLocaleString('en-GB');
-      assessment['Realistic Exit Value'] = (assessment['Realistic Exit Value'] || '').trimEnd() +
-        `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of trade-low £${tradeLowFmt} (${catLabel} band)`;
+      assessment['Realistic Exit Value'] = (assessment['Realistic Exit Value'] || '').trimEnd() + (_exitBase.source === 'Cazana'
+        ? `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of Cazana trade valuation £${baseFmt} (${catLabel} band)`
+        : `\n\nExit: £${exitFmt} — ${step} position, ${pct}% of trade-low £${baseFmt} (${catLabel} band)`);
       assessment._exitValue = exitValue;
-      console.log(`[EXIT BAND] cat=${catLabel} step=${step} pct=${pct}% tradeLow=£${bregoData.trade_low_valuation} → exit=£${exitValue}`);
+      console.log(`[EXIT BAND] cat=${catLabel} step=${step} pct=${pct}% base=${_exitBase.source}.${_exitBase.field}=£${_exitBase.value} → exit=£${exitValue}`);
     } else {
-      console.warn('[EXIT BAND] no trade_low_valuation — exit value unavailable, margin skipped');
+      console.warn(`[EXIT BAND] no exit base (source=${bregoData?._source ?? 'none'}) — exit value unavailable, margin skipped`);
     }
 
     const lotIsVatQualifying = enrichedVd.vatOnSale === 'Yes';

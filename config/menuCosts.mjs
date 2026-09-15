@@ -28,6 +28,12 @@ export const MENU_COSTS = {
   previous_adverts:   { grossCost: 0.59,  basis: 'account-rate' },                                  // percayso/previousadvertsfromvrm
   owner_history:      { grossCost: 0.24,  basis: 'account-rate', sharedWith: ['full_history'] },    // ukvehicledata/... — £0 with full_history
   salvage_predictor:  { grossCost: 0.71,  basis: 'account-rate' },                                  // salvageguide/bidpredictionfromvrm (disabled)
+  // batch 137 — salvage assessment's FALLBACK valuation: percayso/currentvaluationfromvrm (Cazana). Not a menu item: an
+  // extra cost ONLY on lots Brego cannot value (Brego first; a 204 "no content" is non-chargeable per One Auto's status
+  // table). Our account rate is NOT read (behind Vincent's login), so grossCost stays null and basis 'unknown' — a list
+  // price is never a grossCost. Published list (oneautoapi.com/service/percayso-valuation-vrm/, 15 Sep 2026), ex-VAT per
+  // call: PAYG 70p · Business 45p · Enterprise 29p → at PAYG £0.84 gross (×1.20).
+  cazana_valuation:   { grossCost: null,  basis: 'unknown', listPriceExVat: { payg: 0.70, business: 0.45, enterprise: 0.29 } },
   mot:                { grossCost: 0,     basis: 'free' },                                          // DVSA
   mileage_detail:     { grossCost: 0,     basis: 'free' },                                          // DVSA (computed)
   road_tax:           { grossCost: 0,     basis: 'free' },                                          // computed from DVLA

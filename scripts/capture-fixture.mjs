@@ -29,7 +29,7 @@ function loadEnv() {
 // The paid-provider outputs that must be replayed as fixtures (never re-fetched). These live on
 // vehicle_details in the stored row; the harness's fixture provider returns them for the matching
 // withOneAutoCache(callType, vrm) call.
-const PAID_FIXTURE_KEYS = ['bregoValuation', 'salvageGuide', 'motHistory', 'salvageHistory', 'estimatedRetail'];
+const PAID_FIXTURE_KEYS = ['bregoValuation', 'cazanaValuation', 'salvageGuide', 'motHistory', 'salvageHistory', 'estimatedRetail'];
 
 async function main() {
   const arg = process.argv[2];
