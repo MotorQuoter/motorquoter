@@ -42,5 +42,39 @@ console.log('\nA. batch 136 task A — the probe never chooses photos by left/ri
   ok('not a front impact → the unchanged zone map (both sides + flank, never one side)', notFront.source.startsWith('frame-zone:') && notFront.indices.includes(2) && notFront.indices.includes(3));
 }
 
+console.log('\nB. batch 136 task B — "cannot determine" never deletes money (permanent ruling, 1 Sep)');
+{
+  const { probeVerdictAction, attribUnconfirmedWording, PROBE_CONTRADICTS } = await import('../app/api/salvage/assess/route.js');
+  // Every verdict the probe can return, both branches: [verdict, missing, BEFORE (batch 135 behaviour), AFTER].
+  const table = [
+    ['consistent-with-claim', false, 'kept', 'kept'],
+    ['no-damage-visible', false, 'floored', 'floored'],
+    ['minor-cosmetic', false, 'floored', 'floored'],
+    ['cannot-determine', false, 'floored', 'unconfirmed-kept'],
+    ['something-off-enum', false, 'floored', 'unconfirmed-kept'],   // coerced to cannot-determine by runAttributionProbe
+    ['absent', true, 'kept', 'kept'],
+    ['area-destroyed', true, 'kept', 'kept'],
+    ['present-and-intact', true, 'floored', 'floored'],
+    ['minor-cosmetic-only', true, 'floored', 'floored'],
+    ['cannot-determine', true, 'floored', 'unconfirmed-kept'],
+  ];
+  for (const [v, missing, before, after] of table) {
+    eq(`verdict ${v} (${missing ? 'missing' : 'damaged'} branch): was ${before} → now`, probeVerdictAction(v, missing), after);
+  }
+  ok('only POSITIVE contradictions may floor', JSON.stringify(PROBE_CONTRADICTS) === JSON.stringify({ damaged: ['no-damage-visible', 'minor-cosmetic'], missing: ['present-and-intact', 'minor-cosmetic-only'] }));
+
+  const storedWing = A._attributionProbe.panels.find((p) => p.panelId === 'FRONT_WING');
+  eq('HV25ODX: the stored wing verdict (cannot-determine) now KEEPS the wing costed', probeVerdictAction(storedWing.verdict, false), 'unconfirmed-kept');
+  const modelRow = A._preGateParts.find((p) => p.panelId === 'FRONT_WING');
+  ok('HV25ODX: the wing the probe would have deleted is the model\'s £110 replace row', modelRow?.action === 'replace' && modelRow.used === 110);
+  const note = attribUnconfirmedWording('Front wing', false);
+  eq('buyer note, verbatim', note, 'A second photo check could not confirm the damage to the Front wing - it is included in the repair total. Inspect it, and strike the line if it proves sound.');
+  ok('the note says it is IN the total and that the buyer can strike it', /included in the repair total/.test(note) && /strike the line/.test(note));
+  ok('the note is Latin-1 with no dash (PDF flag reasons skip the dash mapping)', !/[^\x00-\xFF]/.test(note) && !/[—–]/.test(note) && !/[^\x00-\xFF]/.test(attribUnconfirmedWording('Grille', true)));
+  ok('route: the probe loop decides through the one owner', route.includes('probeVerdictAction(r.verdict, missing)'));
+  ok('route: an unconfirmed-kept panel stays independently visible and gets the note flag', route.includes('_attribUnconfirmed: true') && route.includes('reason:   attribUnconfirmedWording(PANEL_DISPLAY[cp.panelId], missing)'));
+  ok('route: the old "a reached verdict floors" rule is gone from the comment', !route.includes('cannot-determine is shared with the damaged enum and floors in both'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

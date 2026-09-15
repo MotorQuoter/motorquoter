@@ -1212,8 +1212,35 @@ export function selectProbeFramesForPanel(cp, frameZones, frontImpact) {
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
 // Missing-branch verdict vocabulary. Mapping is INVERTED vs the damaged branch: absent /
 // area-destroyed CONFIRM a missing claim (keep); present-and-intact / minor-cosmetic-only
-// CONTRADICT it (floor). cannot-determine is shared with the damaged enum and floors in both.
+// CONTRADICT it (floor). cannot-determine is shared with the damaged enum.
 const PROBE_MISSING_VERDICT_ENUM = ['absent', 'area-destroyed', 'present-and-intact', 'minor-cosmetic-only', 'cannot-determine'];
+
+// ── batch 136 task B — "CANNOT DETERMINE" NEVER DELETES MONEY (permanent ruling, 1 Sep) ──────────────────────────────
+// "Where the engine cannot reliably determine something that moves money — cost it, state the limit plainly, and let
+// the buyer strike the line; never delete money to avoid the problem." Before this batch a cannot-determine verdict
+// (and any off-enum answer, coerced to cannot-determine) FLOORED the panel: on HV25ODX the probe said it could not see
+// the front wing and a panel 4 of 4 per-view reads called damaged left the total. ONE owner of what each verdict does:
+//   confirms the claim            → 'kept'             (unchanged)
+//   POSITIVELY contradicts it     → 'floored'          (unchanged — the only verdicts that may remove money)
+//   cannot-determine / off-enum   → 'unconfirmed-kept' (NEW: stays costed, a buyer note says the second check could
+//                                                       not confirm it, the buyer strikes the line)
+// An infrastructure failure (null result → 'probe-error') was already KEPT and is unchanged.
+export const PROBE_CONTRADICTS = Object.freeze({
+  damaged: Object.freeze(['no-damage-visible', 'minor-cosmetic']),
+  missing: Object.freeze(['present-and-intact', 'minor-cosmetic-only']),
+});
+export function probeVerdictAction(verdict, missing) {
+  if (missing ? (verdict === 'absent' || verdict === 'area-destroyed') : verdict === 'consistent-with-claim') return 'kept';
+  if ((missing ? PROBE_CONTRADICTS.missing : PROBE_CONTRADICTS.damaged).includes(verdict)) return 'floored';
+  return 'unconfirmed-kept';
+}
+// The buyer note on an unconfirmed-kept panel. Latin-1 with a hyphen: the PDF prints flag reasons without its dash
+// mapping, so an em dash would be dropped.
+export function attribUnconfirmedWording(partName, isMissing) {
+  return isMissing
+    ? `A second photo check could not confirm that the ${partName} is missing - it is included in the repair total. Inspect it, and strike the line if it is present and sound.`
+    : `A second photo check could not confirm the damage to the ${partName} - it is included in the repair total. Inspect it, and strike the line if it proves sound.`;
+}
 
 // One probe call. Returns { verdict, note } when the model reached a verdict (off-enum coerces to
 // 'cannot-determine' — a reached verdict floors). Returns null ONLY on infrastructure failure
@@ -4547,12 +4574,23 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           action = 'exempt-rad';                                   // telemetry only, no mutation
         } else if (r === null) {
           action = 'probe-error';                                 // infra-failure → KEEP
-        } else if (missing
-            ? (r.verdict === 'absent' || r.verdict === 'area-destroyed')   // inverted: absence confirms
-            : (r.verdict === 'consistent-with-claim')) {
+        } else if (probeVerdictAction(r.verdict, missing) === 'kept') {
           action = 'kept';
+        } else if (probeVerdictAction(r.verdict, missing) === 'unconfirmed-kept') {
+          // batch 136 task B: cannot-determine never deletes money. The panel STAYS costed (iv unchanged) and the buyer
+          // is told the second check could not confirm it, so he can strike the line.
+          coreObs.flaggedParts.push({
+            panelId:  cp.panelId,
+            partName: PANEL_DISPLAY[cp.panelId],
+            zone:     cp.zone,
+            weight:   'medium',
+            reason:   attribUnconfirmedWording(PANEL_DISPLAY[cp.panelId], missing),
+            _attribUnconfirmed: true,
+          });
+          action = 'unconfirmed-kept';
         } else {
-          // FLOOR — mirror the zone-floor flag push EXACTLY (:3748-3755); only the marker differs.
+          // FLOOR — only a verdict that POSITIVELY contradicts the claim (PROBE_CONTRADICTS). Mirror the zone-floor flag
+          // push EXACTLY (:3748-3755); only the marker differs.
           cp.independentlyVisible = false;
           cp._attribFloored = true;
           coreObs.flaggedParts.push({
