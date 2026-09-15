@@ -101,8 +101,10 @@ console.log('\n4. Call sites pass params; the legacy (callType, reg, fetchFn) ov
   assertTrue('D1 ruling: primary_damage_desc appears NOWHERE in the SALVAGEGUIDE call',
     !sgCall.includes('primary_damage_desc'));
   // A param-free caller left in legacy form proves the overload is exercised in real code.
+  // batch 136 D1: the caller now hands its fetch to oneAutoFetch (`() => oneAutoFetch(…)`) and passes a meta object in
+  // the legacy slot 4 — still the legacy param-free shape (a FUNCTION in slot 3), which is what this pin exists to prove.
   assertTrue('a legacy param-free caller (SALVAGEHISTORY) is untouched',
-    assess.includes("withOneAutoCache('SALVAGEHISTORY', cleanVrmB, async () =>"));
+    assess.includes("withOneAutoCache('SALVAGEHISTORY', cleanVrmB, () =>"));
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────────

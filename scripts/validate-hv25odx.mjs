@@ -134,5 +134,56 @@ console.log('\nC. batch 136 task C — the buyer never sees raw model text, and 
   ok('C5: …and prints no model working (Part Verdicts / PART: lines / "Option B")', !/Part Verdicts|PART: FRONT_WING|Option B/.test(txt));
 }
 
+console.log('\nD1. batch 136 task D1 — every One Auto call is recorded; a failed Brego is retried and logged as a failure');
+{
+  const { oneAutoFetch, finaliseOneAutoRec, redactOneAutoBody } = await import('../app/api/salvage/assess/route.js');
+  ok('STORED SHAPE: HV25ODX had no valuation', H.bregoValuation === null);
+  ok('STORED SHAPE: its log carried ONLY "MISS->fetch" for Brego — no status, no body, no reason', H.logLines.filter((l) => l.includes('BREGO_GB')).length === 1 && H.logLines.some((l) => l.includes('BREGO_GB:HV25ODX:7bcff6f2336f MISS->fetch')));
+
+  const noSleep = { sleep: async () => {} };
+  const resp = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => body });
+  const seq = (...rs) => { let i = 0; return async () => { const r = rs[Math.min(i++, rs.length - 1)]; if (r instanceof Error) throw r; return r; }; };
+  const pick = (raw) => { const result = raw?.result ?? raw; return (result && !result.error) ? result : null; };
+
+  let rec = {};
+  let out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(503, 'Service Unavailable'), resp(200, '{"result":{"trade_low_valuation":9000}}')) });
+  ok('503 then 200 → retried, value returned, 2 attempts recorded, status 200', out?.trade_low_valuation === 9000 && rec.attempts === 2 && rec.httpStatus === 200 && rec.outcome === 'ok');
+  rec = {};
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(404, '{"error":"VRM not found"}')) });
+  ok('404 → NOT retried (deterministic), status + body recorded', out === null && rec.attempts === 1 && rec.httpStatus === 404 && rec.outcome === 'http-error' && rec.errorBody === '{"error":"VRM not found"}');
+  rec = {};
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(new Error('ECONNRESET'), new Error('ECONNRESET'), new Error('ECONNRESET')) });
+  ok('network throw ×3 → 3 attempts, outcome threw, message recorded', out === null && rec.attempts === 3 && rec.outcome === 'threw' && /ECONNRESET/.test(rec.errorBody));
+  rec = {};
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(429, 'slow down'), resp(200, ''), resp(200, '{"result":{"x":1}}')) });
+  ok('429 and an empty 200 body are transient → retried until the value comes back (3 attempts)', out?.x === 1 && rec.attempts === 3);
+  rec = {};
+  out = await oneAutoFetch(rec, 'u', {}, pick, { retries: 2, ...noSleep, fetchImpl: seq(resp(200, '{"success":false,"error":"no valuation available"}'), resp(200, '{"result":{"x":1}}')) });
+  ok('a well-formed "no result" answer is NOT retried (another paid call would give the same answer)', out === null && rec.attempts === 1 && rec.outcome === 'no-result' && /no valuation available/.test(rec.errorBody));
+  rec = {};
+  out = await oneAutoFetch(rec, 'u', {}, pick, { fetchImpl: seq(resp(500, 'boom')) });
+  ok('non-Brego calls (retries 0) are recorded but not retried', out === null && rec.attempts === 1 && rec.httpStatus === 500);
+  ok('error bodies never carry a key', !/sk-|abc123/.test(redactOneAutoBody('{"x-api-key":"abc123","authorization":"Bearer sk-live-999"}')) && redactOneAutoBody('x'.repeat(900)).length === 300);
+  const hit = finaliseOneAutoRec({ label: 'SALVAGEHISTORY', httpStatus: 200, attempts: 1 }, { cache: 'hit', cacheKey: 'SALVAGEHISTORY:HV25ODX' }, { ok: 1 });
+  ok('a cache HIT is recorded as a hit, with NO http status (none was made)', hit.outcome === 'cache-hit' && hit.httpStatus === null && hit.attempts === 0 && hit.cacheKey === 'SALVAGEHISTORY:HV25ODX');
+
+  const { withOneAutoCache, __setOneAutoReplayProvider } = await import('../lib/oneautoCache.js');
+  __setOneAutoReplayProvider(() => null);
+  const meta = {};
+  await withOneAutoCache('BREGO_GB', 'HV25ODX', { current_mileage: 53544 }, async () => null, meta);
+  __setOneAutoReplayProvider(null);
+  ok('withOneAutoCache fills the meta object (param shape, slot 5)', meta.cache === 'replay');
+  const meta2 = {};
+  __setOneAutoReplayProvider(() => null);
+  await withOneAutoCache('SALVAGEHISTORY', 'HV25ODX', async () => null, meta2);
+  __setOneAutoReplayProvider(null);
+  ok('…and on the legacy shape (slot 4)', meta2.cache === 'replay');
+
+  ok('route: no One Auto fetch still throws away status and body (`r.ok ? JSON.parse`)', !/const raw = r\.ok \? JSON\.parse\(await r\.text\(\) \|\| 'null'\) : null;/.test(route));
+  ok('route: GB Brego and ROI Brego are both retried (retries: 2)', (route.match(/\{ retries: 2 \}/g) || []).length === 2);
+  ok('route: a failed Brego is logged loudly as [BREGO FAILED]', (route.match(/\[BREGO FAILED\]/g) || []).length >= 2);
+  ok('route: the call records are stored on the session (vehicle_details) and on the assessment', route.includes('(enrichedVd._oneAutoCalls ||= []).push(') && route.includes('assessment._oneAutoCalls = enrichedVd._oneAutoCalls ?? [];'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

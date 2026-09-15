@@ -191,6 +191,77 @@ function parseAssessment(text) {
   return result;
 }
 
+// ── batch 136 task D1 — EVERY One Auto call is recorded; a failed valuation is a FAILURE, never a silent null ───────────
+// Before this batch each One Auto fetch did `r.ok ? JSON.parse(…) : null` and threw the status and body away. HV25ODX's
+// Brego call left one log line (`MISS->fetch`) and nothing else; the cause is unrecoverable (batch 135). This helper
+// performs one One Auto call and fills `rec` with what happened: httpStatus, errorBody (≤300 chars, anything key-like
+// redacted — One Auto error bodies do not carry our key, this is belt-and-braces), durationMs, attempts, outcome.
+// RETRY POLICY (Brego only, `retries: 2` → up to 3 attempts, backoff 400ms then 1200ms): retry on a network throw, HTTP
+// 5xx, HTTP 429, or a 2xx whose body is empty / not JSON — the transient shapes. NO retry on any other 4xx or on a
+// well-formed 2xx that carries an error / no result: those are deterministic answers, and a retry would only buy another
+// paid call for the same answer. Other One Auto calls are recorded but not retried (the ruling names Brego).
+const ONE_AUTO_BODY_MAX = 300;
+const ONE_AUTO_BACKOFF_MS = [400, 1200];
+export function redactOneAutoBody(text) {
+  return String(text ?? '')
+    .replace(/\bbearer\s+[^\s"',}]+/gi, 'Bearer [redacted]')                          // the token AFTER "Bearer" (not just the word)
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, '[redacted]')                                 // any sk- style secret, wherever it sits
+    .replace(/(x-api-key|api[_-]?key|authorization)(["'\s:=]+)(?!Bearer \[redacted\])[^\s"',}]+/gi, '$1$2[redacted]')
+    .slice(0, ONE_AUTO_BODY_MAX);
+}
+export async function oneAutoFetch(rec, url, headers, parse, { retries = 0, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const t0 = Date.now();
+  rec.attempts = 0;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    rec.attempts = attempt + 1;
+    let transient = false;
+    try {
+      const r = await fetchImpl(url, { headers });
+      rec.httpStatus = r.status;
+      const text = await r.text();
+      if (!r.ok) {
+        rec.errorBody = redactOneAutoBody(text);
+        rec.outcome = 'http-error';
+        transient = r.status >= 500 || r.status === 429;
+      } else {
+        let raw;
+        try { raw = text ? JSON.parse(text) : null; } catch { raw = undefined; }
+        if (raw === undefined || raw === null) {
+          rec.errorBody = redactOneAutoBody(text);
+          rec.outcome = raw === undefined ? 'unparseable' : 'empty';
+          transient = true;
+        } else {
+          const result = parse(raw);
+          if (result != null) { rec.outcome = 'ok'; rec.errorBody = null; rec.durationMs = Date.now() - t0; return result; }
+          rec.errorBody = redactOneAutoBody(text);
+          rec.outcome = 'no-result';          // well-formed answer with an error / nothing usable — deterministic, no retry
+        }
+      }
+    } catch (err) {
+      rec.httpStatus = rec.httpStatus ?? null;
+      rec.errorBody = redactOneAutoBody(err?.message);
+      rec.outcome = 'threw';
+      transient = true;
+    }
+    if (!transient || attempt === retries) break;
+    await sleep(ONE_AUTO_BACKOFF_MS[Math.min(attempt, ONE_AUTO_BACKOFF_MS.length - 1)]);
+  }
+  rec.durationMs = Date.now() - t0;
+  return null;
+}
+// After withOneAutoCache resolves: fold its cache outcome into the record and log one line per call.
+export function finaliseOneAutoRec(rec, meta, result) {
+  rec.cache = meta.cache ?? null;                     // replay | hit | miss | stale-served | miss-null
+  rec.cacheKey = meta.cacheKey ?? null;
+  if (meta.cache === 'hit' || meta.cache === 'replay' || meta.cache === 'stale-served') {
+    rec.outcome = meta.cache === 'hit' ? 'cache-hit' : meta.cache;   // no live call → no HTTP status to record
+    rec.httpStatus = null; rec.errorBody = null; rec.attempts = 0; rec.durationMs = null;
+  }
+  rec.returned = result != null;
+  console.log(`[ONEAUTO CALL] ${rec.label} outcome=${rec.outcome ?? 'none'} http=${rec.httpStatus ?? '-'} attempts=${rec.attempts ?? 0} ms=${rec.durationMs ?? '-'} cache=${rec.cache ?? '-'}${rec.errorBody ? ` body=${JSON.stringify(rec.errorBody)}` : ''}`);
+  return rec;
+}
+
 function catLetter(s) {
   if (!s) return null;
   const t = s.trim().toLowerCase();
@@ -3163,6 +3234,9 @@ export async function GET(request) {
     // (web + PDF) can mark a free_report without a second query. Source of truth stays
     // salvage_sessions.payment_kind; this is a denormalised copy, like the other assessment._ stamps.
     assessment._payment_kind = session.payment_kind ?? null;
+    // batch 136 D1: every One Auto call's record (status / error body / duration / attempts / cache outcome) is stored on
+    // the session — on vehicle_details (enrichedVd._oneAutoCalls) and on the assessment the report reads.
+    assessment._oneAutoCalls = enrichedVd._oneAutoCalls ?? [];
 
     await supabase
       .from('salvage_sessions')
@@ -3243,37 +3317,46 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const isPro = ['roi_pro', 'roi_history'].includes(roiTier);
       const isHistory = roiTier === 'roi_history';
 
+      // batch 136 D1: every IE One Auto call is recorded too; the ROI Brego valuation is retried like the GB one.
+      const ieH = { 'x-api-key': oneAutoKey };
+      const ieRec = (label, endpoint) => ({ rec: { label, endpoint }, meta: {} });
+      const roiBr = ieRec('BREGO_ROI', 'brego/valuationfromvrm/v2'), roiMd = ieRec('MARKETDEMAND', 'percayso/marketdemandfromvrm');
+      const roiPg = ieRec('PRICEGUIDE', 'cartell/priceguide'), roiHp = ieRec('HPICHECK', 'cartell/hpicheck/v1');
       const [bregoResult, demandResult, cpgResult, hpiResult] = await Promise.all([
-        withOneAutoCache('BREGO_ROI', cleanVrm, async () => {
-          const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          if (!raw) return null;
-          const result = raw?.success === true ? (raw.result ?? raw) : (raw?.result ?? null);
-          return (result && !result.error) ? result : null;
-        }),
-        withOneAutoCache('MARKETDEMAND', cleanVrm, async () => {
-          const r = await fetch(`${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          const result = raw?.result ?? (raw?.success ? raw : null);
-          return (result && !result.error) ? result : null;
-        }),
+        withOneAutoCache('BREGO_ROI', cleanVrm, () =>
+          oneAutoFetch(roiBr.rec, `${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrm}`, ieH, (raw) => {
+            const result = raw?.success === true ? (raw.result ?? raw) : (raw?.result ?? null);
+            return (result && !result.error) ? result : null;
+          }, { retries: 2 }), roiBr.meta),
+        withOneAutoCache('MARKETDEMAND', cleanVrm, () =>
+          oneAutoFetch(roiMd.rec, `${oneAutoBase}/percayso/marketdemandfromvrm/?vrm=${cleanVrm}`, ieH, (raw) => {
+            const result = raw?.result ?? (raw?.success ? raw : null);
+            return (result && !result.error) ? result : null;
+          }), roiMd.meta),
         isPro
-          ? withOneAutoCache('PRICEGUIDE', cleanVrm, async () => {
-              const r = await fetch(`${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
-              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-              const result = raw?.result ?? raw;
-              return (result && !result.error) ? result : null;
-            })
+          ? withOneAutoCache('PRICEGUIDE', cleanVrm, () =>
+              oneAutoFetch(roiPg.rec, `${oneAutoBase}/cartell/priceguide/?vehicle_registration_mark=${cleanVrm}`, ieH, (raw) => {
+                const result = raw?.result ?? raw;
+                return (result && !result.error) ? result : null;
+              }), roiPg.meta)
           : Promise.resolve(null),
         isHistory
-          ? withOneAutoCache('HPICHECK', cleanVrm, async () => {
-              const r = await fetch(`${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, { headers: { 'x-api-key': oneAutoKey } });
-              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-              const result = raw?.result ?? raw;
-              return (result && !result.error) ? result : null;
-            })
+          ? withOneAutoCache('HPICHECK', cleanVrm, () =>
+              oneAutoFetch(roiHp.rec, `${oneAutoBase}/cartell/hpicheck/v1?vehicle_registration_mark=${cleanVrm}`, ieH, (raw) => {
+                const result = raw?.result ?? raw;
+                return (result && !result.error) ? result : null;
+              }), roiHp.meta)
           : Promise.resolve(null),
       ]);
+      (enrichedVd._oneAutoCalls ||= []).push(
+        finaliseOneAutoRec(roiBr.rec, roiBr.meta, bregoResult),
+        finaliseOneAutoRec(roiMd.rec, roiMd.meta, demandResult),
+        ...(isPro ? [finaliseOneAutoRec(roiPg.rec, roiPg.meta, cpgResult)] : []),
+        ...(isHistory ? [finaliseOneAutoRec(roiHp.rec, roiHp.meta, hpiResult)] : []),
+      );
+      if (!bregoResult) {
+        console.error(`[BREGO FAILED] no ROI valuation for ${cleanVrm} — outcome=${roiBr.rec.outcome ?? 'none'} http=${roiBr.rec.httpStatus ?? '-'} attempts=${roiBr.rec.attempts ?? 0} cache=${roiBr.rec.cache ?? '-'}${roiBr.rec.errorBody ? ` body=${JSON.stringify(roiBr.rec.errorBody)}` : ''}`);
+      }
 
       if (bregoResult) roiData.valuation = bregoResult;
       if (demandResult) roiData.marketDemand = demandResult;
@@ -3417,20 +3500,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const cleanVrmB = enrichedVd.vrm.replace(/\s+/g, '').toUpperCase();
       const hdrs = { 'x-api-key': process.env.ONE_AUTO_API_KEY };
 
+      // batch 136 D1: every call below records status / body / duration / attempts / cache outcome (oneAutoFetch).
+      const _pickResult = (raw) => { const result = raw?.result ?? raw; return (result && !result.error) ? result : null; };
+      const shRec = { label: 'SALVAGEHISTORY', endpoint: 'carguide/salvagecheck/v2' }, shMeta = {};
+      const brRec = { label: 'BREGO_GB', endpoint: 'brego/valuationfromvrm/v2' }, brMeta = {};
+      const sgRec = { label: 'SALVAGEGUIDE', endpoint: 'salvageguide/bidpredictionfromvrm' }, sgMeta = {};
       const [shResult, brResult, sgResult] = await Promise.all([
-        withOneAutoCache('SALVAGEHISTORY', cleanVrmB, async () => {
-          const r = await fetch(`${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, { headers: hdrs });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          const result = raw?.result ?? raw;
-          return (result && !result.error) ? result : null;
-        }),
+        withOneAutoCache('SALVAGEHISTORY', cleanVrmB, () =>
+          oneAutoFetch(shRec, `${oneAutoBase}/carguide/salvagecheck/v2?vehicle_registration_mark=${cleanVrmB}`, hdrs, _pickResult), shMeta),
         // Finding 7: current_mileage varies the valuation → it must be in the cache key.
-        withOneAutoCache('BREGO_GB', cleanVrmB, { current_mileage: brMileage }, async () => {
-          const r = await fetch(`${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, { headers: hdrs });
-          const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-          const result = raw?.result ?? raw;
-          return (result && !result.error) ? result : null;
-        }),
+        // batch 136 D1: Brego is RETRIED on transient failure (policy at oneAutoFetch).
+        withOneAutoCache('BREGO_GB', cleanVrmB, { current_mileage: brMileage }, () =>
+          oneAutoFetch(brRec, `${oneAutoBase}/brego/valuationfromvrm/v2?vehicle_registration_mark=${cleanVrmB}&current_mileage=${brMileage}`, hdrs, _pickResult, { retries: 2 }), brMeta),
         // SalvageGuide Bid Predictor — labelled market cross-check. Data-layer only; salvage_category
         // is a DATA param (never enters the model's context — category-blindness is unaffected).
         // Fail-safe: any error / missing category / no numbers → null → the block is simply omitted.
@@ -3446,17 +3527,27 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             'SALVAGEGUIDE', cleanVrmB,
             { salvage_category: sgCat, current_mileage: sgMileage },
             async () => {
-              if (!sgCat) return null; // category required by the endpoint; skip cleanly if absent
+              if (!sgCat) { sgRec.outcome = 'skipped-no-category'; return null; } // category required by the endpoint; skip cleanly if absent
               const p = new URLSearchParams({ vehicle_registration_mark: cleanVrmB, salvage_category: sgCat });
               if (sgMileage) p.set('current_mileage', sgMileage);
-              const r = await fetch(`${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, { headers: hdrs });
-              const raw = r.ok ? JSON.parse(await r.text() || 'null') : null;
-              const result = raw?.result ?? raw;
-              return (result && !result.error) ? result : null;
-            }
+              return oneAutoFetch(sgRec, `${oneAutoBase}/salvageguide/bidpredictionfromvrm/?${p.toString()}`, hdrs, _pickResult);
+            },
+            sgMeta,
           );
         })(),
       ]);
+
+      // batch 136 D1: record every call on the session (enrichedVd._oneAutoCalls → stored with vehicle_details and copied
+      // onto the assessment at save) and in the log. A Brego call that came back empty and was not served from cache is a
+      // FAILURE, logged loudly — never a silent null.
+      (enrichedVd._oneAutoCalls ||= []).push(
+        finaliseOneAutoRec(shRec, shMeta, shResult),
+        finaliseOneAutoRec(brRec, brMeta, brResult),
+        finaliseOneAutoRec(sgRec, sgMeta, sgResult),
+      );
+      if (!brResult) {
+        console.error(`[BREGO FAILED] no valuation for ${cleanVrmB} — outcome=${brRec.outcome ?? 'none'} http=${brRec.httpStatus ?? '-'} attempts=${brRec.attempts ?? 0} ms=${brRec.durationMs ?? '-'} cache=${brRec.cache ?? '-'}${brRec.errorBody ? ` body=${JSON.stringify(brRec.errorBody)}` : ''}`);
+      }
 
       if (shResult) {
         tagSelfReference(shResult, enrichedVd);
