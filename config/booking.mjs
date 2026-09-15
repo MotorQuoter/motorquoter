@@ -10,18 +10,21 @@ export const WINDOW_CLOSED_WARNING = "Inspection booking window closed — sale 
 // Code-owned bid directive (rendered at the head of the Recommended Action section when a
 // HIGH-weight inspection flag is present). The model no longer authors a bid directive (Commit 1);
 // this is its single owner. Wording may be amended by the wording-markup pass.
-export const CAT_S_DIRECTIVE = "Do not bid on this lot without independently verifying the key unknowns above — this is a high-risk lot without further information.";
+// batch 134 (Vincent, 15 Sep — "INFORM, DO NOT DECIDE"): the Cat S "Do not bid on this lot…" directive is REMOVED.
+// It was advice, not a fact. Every case that returned it (Cat S, an absent category, an unrecognised letter) now
+// returns null and no Bid Directive renders. The Cat N / Cat U text below is UNCHANGED — the brief stops short of it
+// and Vincent rules on it separately. The Cat A/B legal hard stop is a different path (assess route
+// catABHardStopLetter) and is untouched.
 export const CAT_NU_DIRECTIVE = "The key unknowns above should be independently verified before bidding — lower structural risk than a Cat S, but they remain unquantified downside.";
 
-// Category letter → bid directive. Worst case wins: only a confidently-N or -U category softens;
-// Cat S, an unrecognised letter (A/B/C/D historic), or an absent category all get the strong
-// directive. Format branches mirror the assess route's catLetter (cat/category X · X repairable ·
-// bare X) but extend to 'u' — catLetter omits U, this must recognise it (Cat U → NU, ruled intended).
+// Category letter → bid directive, or null for no directive. Format branches mirror the assess route's catLetter
+// (cat/category X · X repairable · bare X) but extend to 'u' — catLetter omits U, this must recognise it (Cat U → NU,
+// ruled intended). Callers render the Bid Directive only when this returns a string.
 export function categoryDirective(categoryRaw) {
   const t = String(categoryRaw || '').trim().toLowerCase();
   const m = t.match(/^cat(?:egory)?\s+([snu])\b/) || t.match(/^([snu])\s+repairable/) || t.match(/^([snu])$/);
   const letter = m ? m[1] : null;
-  return (letter === 'n' || letter === 'u') ? CAT_NU_DIRECTIVE : CAT_S_DIRECTIVE;
+  return (letter === 'n' || letter === 'u') ? CAT_NU_DIRECTIVE : null;
 }
 
 // Sale-passed reject strings (Commit 4). Returned as the 4xx error body when a lot's auction has

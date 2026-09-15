@@ -2,7 +2,7 @@
 // asserting the CANONICAL output forms match what the Copart-path consumers expect.
 // Run: node scripts/validate-iaa-parser.mjs
 import { normaliseLot } from '../lib/normaliseLot.js';
-import { categoryDirective, CAT_S_DIRECTIVE, CAT_NU_DIRECTIVE } from '../config/booking.mjs';
+import { categoryDirective, CAT_NU_DIRECTIVE } from '../config/booking.mjs';
 
 // Mirrors route.js catLetter — the exit-band / SalvageGuide category consumer.
 function catLetter(s) {
@@ -54,7 +54,7 @@ const vd = normaliseLot({ auctionSource: 'iaa', rawCopartPaste: SAMPLE });
 
 eq('category → Copart canonical', vd.category, 'S REPAIRABLE STRUCTURAL');
 ok('catLetter(category) === "s"', catLetter(vd.category) === 's');
-eq('categoryDirective routes to CAT_S', categoryDirective(vd.category), CAT_S_DIRECTIVE);
+eq('categoryDirective: Cat S → no directive (batch 134, "Do not bid" removed)', categoryDirective(vd.category), null);
 eq('odometer bare comma form', vd.odometer, '62,955');
 eq('odometerQualifier kept separately', vd.odometerQualifier, 'Unverified');
 eq('keys', vd.keys, 'Yes');

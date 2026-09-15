@@ -1,7 +1,8 @@
 // Unit tests for lib/bookingLine.mjs — booking window state machine + code-owned checklist warning.
 // Run: node scripts/validate-booking-line.mjs   (expect "N passed, 0 failed")
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '../lib/bookingLine.mjs';
-import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_S_DIRECTIVE, CAT_NU_DIRECTIVE, categoryDirective, SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '../config/booking.mjs';
+import * as BOOKING from '../config/booking.mjs';
+import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_NU_DIRECTIVE, categoryDirective, SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '../config/booking.mjs';
 
 let pass = 0, fail = 0;
 const H = 3600 * 1000;
@@ -39,17 +40,26 @@ console.log('\n── bookingHeaderSuffix (collapsed to open/deadline case) ─�
 check("returns the open/deadline suffix",        bookingHeaderSuffix() === 'book 48hrs before sale');
 check("no state dependence (ignores any arg)",   bookingHeaderSuffix('past-generic') === 'book 48hrs before sale' && bookingHeaderSuffix('window-closed') === 'book 48hrs before sale');
 
-console.log('\n── categoryDirective (worst case wins; recognises Cat U, unlike catLetter) ──');
-check("'S' → CAT_S",              categoryDirective('S') === CAT_S_DIRECTIVE);
-check("'Cat S' → CAT_S",          categoryDirective('Cat S') === CAT_S_DIRECTIVE);
-check("'S Repairable' → CAT_S",   categoryDirective('S Repairable') === CAT_S_DIRECTIVE);
+console.log('\n── categoryDirective (batch 134: the Cat S "Do not bid" directive is REMOVED — null, no Bid Directive; Cat N/U unchanged) ──');
+check("'S' → no directive (null)",              categoryDirective('S') === null);
+check("'Cat S' → no directive (null)",          categoryDirective('Cat S') === null);
+check("'S Repairable' → no directive (null)",   categoryDirective('S Repairable') === null);
+check("HV25ODX 'S REPAIRABLE STRUCTURAL' → no directive (null)", categoryDirective('S REPAIRABLE STRUCTURAL') === null);
 check("'N' → CAT_NU",             categoryDirective('N') === CAT_NU_DIRECTIVE);
 check("'Category N' → CAT_NU",    categoryDirective('Category N') === CAT_NU_DIRECTIVE);
 check("'N Repairable' → CAT_NU",  categoryDirective('N Repairable') === CAT_NU_DIRECTIVE);
 check("'U' → CAT_NU",             categoryDirective('U') === CAT_NU_DIRECTIVE);
 check("'Cat U' → CAT_NU",         categoryDirective('Cat U') === CAT_NU_DIRECTIVE);
-check("absent → CAT_S (worst case)",        categoryDirective('') === CAT_S_DIRECTIVE && categoryDirective(null) === CAT_S_DIRECTIVE);
-check("unrecognised 'C' → CAT_S (worst case)", categoryDirective('C') === CAT_S_DIRECTIVE);
+check("absent → no directive (null)",        categoryDirective('') === null && categoryDirective(null) === null);
+check("unrecognised 'C' / 'A' / 'B' → no directive (null)", categoryDirective('C') === null && categoryDirective('A') === null && categoryDirective('B') === null);
+check('the "Do not bid on this lot" text no longer exists anywhere in the booking config', !('CAT_S_DIRECTIVE' in BOOKING) && !Object.values(BOOKING).some((v) => typeof v === 'string' && /Do not bid on this lot/i.test(v)));
+{
+  const { readFileSync } = await import('node:fs');
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  check('screen: the Bid Directive renders only when categoryDirective returns a string', page.includes("some(f => f.weight === 'high') && categoryDirective(vehicleDetails?.category) && ("));
+  check('PDF: the Bid Directive renders only when categoryDirective returns a string', pdf.includes("if (pdfFlags.some(f => f.weight === 'high') && categoryDirective(vd.category)) {"));
+}
 
 console.log('\n── sale-passed reject strings (Commit 4) ──');
 const _rejects = [SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE];

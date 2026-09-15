@@ -1117,7 +1117,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // Code-owned bid directive (Commit 3) — head of the Recommended Action section, rendered only
   // when a HIGH-weight inspection flag is present; string selected by salvage category. See
   // config/booking.mjs. Matches the web surface.
-  if (pdfFlags.some(f => f.weight === 'high')) {
+  // batch 134: null where no directive applies (the Cat S "Do not bid" text is removed) → no Bid Directive block.
+  if (pdfFlags.some(f => f.weight === 'high') && categoryDirective(vd.category)) {
     fieldBlock('Bid Directive', categoryDirective(vd.category), { color: [160, 0, 0], bold: true });
   }
   // Surface the plain-English tier label (shared copy with the web via config/recommendedAction)

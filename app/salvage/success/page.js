@@ -1516,7 +1516,9 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
-                {withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited).some(f => f.weight === 'high') && (
+                {/* batch 134: categoryDirective returns null where no directive applies (the Cat S "Do not bid" text is
+                    removed — Vincent, "inform, do not decide"), and then no Bid Directive renders. */}
+                {withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited).some(f => f.weight === 'high') && categoryDirective(vehicleDetails?.category) && (
                   <div className="field-row">
                     <div className="field-key">Bid Directive</div>
                     <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>{categoryDirective(vehicleDetails?.category)}</div>
