@@ -13,7 +13,7 @@ import {
 } from '@/lib/ledgerEdits.mjs';
 import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
-import { categoryDirective } from '@/config/booking.mjs';
+import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -1344,7 +1344,7 @@ export default function SalvageSuccessPage() {
                   return (
                     <div className="field-row">
                       <div className="field-key">Live Market Valuation</div>
-                      <div className="field-val" style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Unavailable — engine used wider confidence range</div>
+                      <div className="field-val" style={{ color: 'var(--text-dim)' }}>{NO_VALUATION_NOTE}</div>
                     </div>
                   );
                 })()}

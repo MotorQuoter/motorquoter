@@ -185,5 +185,26 @@ console.log('\nD1. batch 136 task D1 — every One Auto call is recorded; a fail
   ok('route: the call records are stored on the session (vehicle_details) and on the assessment', route.includes('(enrichedVd._oneAutoCalls ||= []).push(') && route.includes('assessment._oneAutoCalls = enrichedVd._oneAutoCalls ?? [];'));
 }
 
+console.log('\nD3. batch 136 task D3 — a missing valuation is said plainly, screen AND PDF');
+{
+  const { NO_VALUATION_NOTE } = await import('../config/booking.mjs');
+  eq('the sentence, verbatim as the brief gives it', NO_VALUATION_NOTE, 'No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown. The repair estimate above is complete.');
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  ok('screen: the false "engine used wider confidence range" line is gone', !page.includes('engine used wider confidence range'));
+  ok('screen: the no-valuation branch renders the one-owner sentence', page.includes('{NO_VALUATION_NOTE}') && page.includes("NO_VALUATION_NOTE") && /import \{[^}]*NO_VALUATION_NOTE[^}]*\} from '@\/config\/booking\.mjs'/.test(page));
+  ok('PDF: the valuation section has an else branch using the same sentence', pdf.includes('str(NO_VALUATION_NOTE)') && /import \{[^}]*NO_VALUATION_NOTE[^}]*\} from '@\/config\/booking\.mjs'/.test(pdf));
+  const zlib = (await import('node:zlib')).default;
+  const { buildAssessmentPdf } = await import('../app/api/salvage/pdf/route.js');
+  const bs = String.fromCharCode(92);
+  const chunks = (bytes) => { const buf = Buffer.from(bytes); const o = []; let i = 0; while (true) { const s0 = buf.indexOf('stream', i); if (s0 < 0) break; const e = buf.indexOf('endstream', s0); if (e < 0) break; let st = s0 + 6; if (buf[st] === 13) st++; if (buf[st] === 10) st++; let t; try { t = zlib.inflateSync(buf.subarray(st, e)).toString('latin1'); } catch { t = buf.subarray(st, e).toString('latin1'); } let d = 0, cur = '', esc = false; for (const ch of t) { if (d === 0) { if (ch === '(') { d = 1; cur = ''; } continue; } if (esc) { cur += ch; esc = false; continue; } if (ch === bs) { esc = true; continue; } if (ch === '(') { d++; cur += ch; continue; } if (ch === ')') { d--; if (d === 0) o.push(cur); else cur += ch; continue; } cur += ch; } i = e + 9; } return o.join(' ').replace(/\s+/g, ' '); };
+  const log = console.log; console.log = () => {}; console.warn = () => {};
+  const noVal = chunks(buildAssessmentPdf(A, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', H.bregoValuation, null));
+  const withVal = chunks(buildAssessmentPdf(A, H.vehicle_details, 'GB', 'HV25ODX', '15/09/2026', { retail_low_valuation: 9000, retail_average_valuation: 9500, retail_high_valuation: 10000, trade_low_valuation: 7000, trade_average_valuation: 7500, trade_high_valuation: 8000, _mileageSource: 'copart_listed', _mileageUsed: 53544 }, null));
+  console.log = log;
+  ok('PDF (stored HV25ODX, no valuation): the sentence is printed under LIVE MARKET VALUATION', noVal.includes('LIVE MARKET VALUATION') && noVal.includes('No market valuation was returned for this vehicle'));
+  ok('PDF with a valuation: the sentence is NOT printed (the table is)', !withVal.includes('No market valuation was returned') && /Retail/.test(withVal));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

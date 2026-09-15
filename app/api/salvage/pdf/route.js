@@ -6,7 +6,7 @@ import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts, editedSourcingLinks } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
-import { categoryDirective } from '@/config/booking.mjs';
+import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -496,6 +496,14 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.text(flagLines, MARGIN, y); y += flagLines.length * 4 + 3;
     }
     y += 2;
+  } else {
+    // batch 136 task D3: no valuation came back — say so where the valuation belongs (the PDF used to say nothing at
+    // all). Same one-owner sentence as the screen (config/booking.mjs NO_VALUATION_NOTE).
+    sectionTitle('Live Market Valuation');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60);
+    const nvLines = doc.splitTextToSize(str(NO_VALUATION_NOTE), CONTENT_W);
+    checkPage(nvLines.length * 4.5 + 4);
+    doc.text(nvLines, MARGIN, y); y += nvLines.length * 4.5 + 4;
   }
 
   // Section 3: REPAIR ESTIMATE BANNER — code-owned parts_sum, edited view (buyer strikes/adds applied)
