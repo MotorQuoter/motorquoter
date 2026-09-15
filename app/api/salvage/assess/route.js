@@ -8,6 +8,7 @@ import { MODELS } from '@/config/models';
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
+import { feeRowsAtPredictedBids } from '@/lib/predictedBidFees.mjs';   // batch 138 item 1
 const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
@@ -5997,6 +5998,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.log(`[MARGIN] source=${auctionSource} exit=£${exitValue} repair=£${parts_sum} scenarios=${marginScenarios.length}`);
     } else if (feeStackFn) {
       console.warn(`[MARGIN] skipped — source=${auctionSource} parts_sum=${parts_sum} exitValue=${exitValue}`);
+    }
+
+    // batch 138 item 1 (Vincent, 15 Sep: yes): with NO valuation at all (Brego and Cazana both empty) there is no exit value
+    // and so no ladder — show the Copart fee stack at SalvageGuide's predicted bids (low / average / high) instead. Fees
+    // only: margin and outcome are null ("—"), SalvageGuide never becomes an exit value or a price-band source. Stored on
+    // its own field so no ceiling, break-even or ledger edit can read a null margin as £0. No SalvageGuide → nothing
+    // more than the no-valuation note.
+    if (!_catAB && !bregoData && feeStackFn) {
+      const _bidFeeRows = feeRowsAtPredictedBids(enrichedVd.salvageGuide, feeStackFn, lotIsVatQualifying);
+      if (_bidFeeRows) {
+        assessment._predictedBidFees = _bidFeeRows;
+        console.log(`[BID FEES] no valuation — Copart fees at SalvageGuide predicted bids: ${_bidFeeRows.map((r) => `${r.which} £${r.hammer} → £${r.totalIncVat}`).join(' · ')}`);
+      }
     }
 
     // ── SalvageGuide market cross-check (labelled reference; NEVER feeds exit/margin) ──

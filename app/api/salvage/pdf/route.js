@@ -1009,6 +1009,40 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     y += 2;
   }
 
+  // batch 138 item 1: no valuation → Copart fees at SalvageGuide's predicted bids. Fees only; margin "-", never £0.
+  if (Array.isArray(assessment._predictedBidFees) && assessment._predictedBidFees.length > 0) {
+    const bf     = assessment._predictedBidFees;
+    const fmtB   = (v) => v == null ? '-' : '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const bfVat  = bf.some((r) => r.hammerVat > 0);
+    const cols   = [...(bfVat ? ['Hammer VAT'] : []), 'Copart Fees', 'Margin'];
+    const HAM_W  = CONTENT_W * 0.35;
+    const colW   = (CONTENT_W - HAM_W) / cols.length;
+    const colX   = (i) => MARGIN + HAM_W + (i + 1) * colW;
+    checkPage(14);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(60, 60, 60);
+    doc.text("Copart fees at SalvageGuide's predicted bids", MARGIN, y); y += 5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+    doc.text('HAMMER', MARGIN, y);
+    cols.forEach((h, i) => doc.text(h.toUpperCase(), colX(i), y, { align: 'right' }));
+    y += 3;
+    doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.2); doc.line(MARGIN, y - 1, PAGE_W - MARGIN, y - 1);
+    y += 3;
+    for (const r of bf) {
+      checkPage(11);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
+      doc.text(str(r.label), MARGIN, y); y += 4;
+      doc.setFontSize(8.5); doc.setTextColor(20, 20, 20);
+      doc.text(fmtB(r.hammer), MARGIN, y);
+      let ci = 0;
+      if (bfVat) { doc.setTextColor(170, 0, 0); doc.text(r.hammerVat > 0 ? fmtB(r.hammerVat) : '-', colX(ci), y, { align: 'right' }); ci++; }
+      doc.setTextColor(170, 0, 0); doc.text(fmtB(r.totalIncVat), colX(ci), y, { align: 'right' }); ci++;
+      doc.setTextColor(150, 150, 150); doc.text('-', colX(ci), y, { align: 'right' });
+      y += 5;
+      doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.1); doc.line(MARGIN, y - 2, PAGE_W - MARGIN, y - 2);
+    }
+    y += 2;
+  }
+
   // SalvageGuide market cross-check — labelled independent reference; omitted entirely if absent.
   if (assessment._salvageGuide) {
     const sg = edited.salvageGuide;   // divergence recomputed against the edited break-even

@@ -293,5 +293,47 @@ console.log('\nF. batch 136 task F — a failed dashboard read never prints "No 
   ok('the failure is stored on the assessment (_dashReadFailed) and logged', rt.includes('assessment._dashReadFailed = dashRead.readFailed === true;') && rt.includes('readFailed=${dashRead.readFailed === true}'));
 }
 
+console.log('\n138.1 batch 138 item 1 — no valuation: Copart fees at SalvageGuide\'s predicted bids; margin "—", never £0');
+{
+  const { feeRowsAtPredictedBids } = await import('../lib/predictedBidFees.mjs');
+  const { feeStack } = await import('../lib/copartFees.js');
+  const vd = H.vehicle_details;
+  ok('STORED SHAPE: HV25ODX — no valuation, SalvageGuide present (bids £2,264 / £3,266 / £4,865), Copart, VAT on the hammer',
+    H.bregoValuation === null && vd.salvageGuide?.salvage_auction_predicted_bid_low_gbp === 2264 && vd.salvageGuide?.salvage_auction_predicted_bid_average_gbp === 3266 && vd.salvageGuide?.salvage_auction_predicted_bid_high_gbp === 4865 && vd.auctionSource === 'copart' && vd.vatOnSale === 'Yes');
+  const rows = feeRowsAtPredictedBids(vd.salvageGuide, feeStack, vd.vatOnSale === 'Yes');
+  ok('three hammer rows, low → average → high, at the predicted bids', rows?.length === 3 && rows.map((r) => r.hammer).join('/') === '2264/3266/4865' && rows.map((r) => r.which).join('/') === 'low/average/high');
+  ok('rows are labelled plainly as SalvageGuide\'s predicted bids', rows.every((r) => r.label === `SalvageGuide predicted bid (${r.which})`));
+  ok('each row carries the real Copart fee stack for that hammer', rows.every((r) => r.totalIncVat === feeStack(r.hammer).totalIncVat && r.buyerFee === feeStack(r.hammer).buyerFee));
+  ok('hammer VAT on a VAT lot, same rule as the ladder (£452.80 / £653.20 / £973.00)', rows.map((r) => r.hammerVat).join('/') === '452.8/653.2/973');
+  ok('margin and outcome are null — never £0', rows.every((r) => r.margin === null && r.outcome === null));
+  console.log(`      (HV25ODX fee rows: ${rows.map((r) => `£${r.hammer} → fees £${r.totalIncVat}`).join(' · ')})`);
+  ok('SalvageGuide absent (both-absent shape) → no rows', feeRowsAtPredictedBids(null, feeStack, true) === null);
+  ok('SalvageGuide with no usable bid → no rows', feeRowsAtPredictedBids({ category_adjusted_retail_value_low_gbp: 7560 }, feeStack, true) === null);
+
+  const rt = route.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  ok('route: rows are built only with NO valuation (Brego and Cazana both empty) and not on Cat A/B', /if \(!_catAB && !bregoData && feeStackFn\) \{\s*\n\s*const _bidFeeRows = feeRowsAtPredictedBids\(enrichedVd\.salvageGuide, feeStackFn, lotIsVatQualifying\);/.test(rt));
+  ok('route: stored on their OWN field — never in _marginScenarios (ceilings / break-even / edits read that)', rt.includes('assessment._predictedBidFees = _bidFeeRows;') && !/_marginScenarios\s*=\s*_bidFeeRows/.test(rt));
+  const ledger = readFileSync('lib/ledgerEdits.mjs', 'utf8') + readFileSync('lib/bidCeiling.mjs', 'utf8') + readFileSync('lib/investmentBlock.mjs', 'utf8');
+  ok('no ceiling / break-even / ledger-edit code reads the fee-only rows', !ledger.includes('_predictedBidFees'));
+  const page = readFileSync('app/salvage/success/page.js', 'utf8');
+  ok('screen: renders _predictedBidFees with the row label, the Copart fees and a "—" margin', page.includes('assessment._predictedBidFees?.length > 0') && page.includes('{r.label}') && page.includes('{fmt2(r.totalIncVat)}') && /Margin<\/th>[\s\S]{0,1400}>—<\/td>/.test(page));
+
+  // Real PDF renders: HV25ODX with the rows; the both-absent shape.
+  const zlib2 = (await import('node:zlib')).default;
+  const { buildAssessmentPdf } = await import('../app/api/salvage/pdf/route.js');
+  const bs2 = String.fromCharCode(92);
+  const txt = (bytes) => { const buf = Buffer.from(bytes); const o = []; let i = 0; while (true) { const s0 = buf.indexOf('stream', i); if (s0 < 0) break; const e = buf.indexOf('endstream', s0); if (e < 0) break; let st = s0 + 6; if (buf[st] === 13) st++; if (buf[st] === 10) st++; let t; try { t = zlib2.inflateSync(buf.subarray(st, e)).toString('latin1'); } catch { t = buf.subarray(st, e).toString('latin1'); } let d = 0, cur = '', esc = false; for (const ch of t) { if (d === 0) { if (ch === '(') { d = 1; cur = ''; } continue; } if (esc) { cur += ch; esc = false; continue; } if (ch === bs2) { esc = true; continue; } if (ch === '(') { d++; cur += ch; continue; } if (ch === ')') { d--; if (d === 0) o.push(cur); else cur += ch; continue; } cur += ch; } i = e + 9; } return o.join(' | '); };
+  const lg = console.log, wn = console.warn; console.log = () => {}; console.warn = () => {};
+  const withRows = txt(buildAssessmentPdf({ ...A, _predictedBidFees: rows }, vd, 'GB', 'HV25ODX', '15/09/2026', null, null));
+  const bothAbsentA = { ...A }; delete bothAbsentA._salvageGuide; delete bothAbsentA._predictedBidFees;
+  const bothAbsent = txt(buildAssessmentPdf(bothAbsentA, { ...vd, salvageGuide: null }, 'GB', 'HV25ODX', '15/09/2026', null, null));
+  console.log = lg; console.warn = wn;
+  const fm = (v) => '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  ok('PDF (HV25ODX): the no-valuation note is still printed', withRows.includes('No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown.'));
+  ok('PDF (HV25ODX): each predicted-bid row prints its label, hammer and Copart fees, margin "-"', rows.every((r) => withRows.includes(`SalvageGuide predicted bid (${r.which})`) && withRows.includes(fm(r.hammer)) && withRows.includes(fm(r.totalIncVat))) && /COPART FEES \| MARGIN/.test(withRows));
+  ok('PDF (HV25ODX): no £0.00 margin anywhere in the fee rows', !/predicted bid \((low|average|high)\)[^|]*\|[^|]*\|[^|]*\|[^|]*\| £0\.00/.test(withRows));
+  ok('PDF (both absent): only the note — no fee rows', bothAbsent.includes('No market valuation was returned') && !bothAbsent.includes('SalvageGuide predicted bid ('));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

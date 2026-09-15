@@ -1341,11 +1341,45 @@ export default function SalvageSuccessPage() {
                       </div>
                     );
                   }
+                  // batch 138 item 1: no valuation → Copart fees at SalvageGuide's predicted bids (fees only; margin "—").
+                  const fmt2 = (v) => v == null ? '—' : '£' + Number(v).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  const bidFees = assessment._predictedBidFees;
+                  const bidFeesVat = Array.isArray(bidFees) && bidFees.some((r) => r.hammerVat > 0);
                   return (
-                    <div className="field-row">
-                      <div className="field-key">Live Market Valuation</div>
-                      <div className="field-val" style={{ color: 'var(--text-dim)' }}>{NO_VALUATION_NOTE}</div>
-                    </div>
+                    <>
+                      <div className="field-row">
+                        <div className="field-key">Live Market Valuation</div>
+                        <div className="field-val" style={{ color: 'var(--text-dim)' }}>{NO_VALUATION_NOTE}</div>
+                      </div>
+                      {assessment._predictedBidFees?.length > 0 && (
+                        <div className="field-row">
+                          <div className="field-key">Copart fees at SalvageGuide&apos;s predicted bids</div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...headSt, textAlign: 'left' }}>Hammer</th>
+                                {bidFeesVat && <th style={headSt}>Hammer VAT</th>}
+                                <th style={headSt}>Copart fees</th>
+                                <th style={headSt}>Margin</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bidFees.map((r, i) => (
+                                <tr key={i}>
+                                  <td style={{ ...cellSt(false), textAlign: 'left' }}>
+                                    <span style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}>{r.label}</span>
+                                    {fmt2(r.hammer)}
+                                  </td>
+                                  {bidFeesVat && <td style={cellSt(false)}>{r.hammerVat > 0 ? fmt2(r.hammerVat) : '—'}</td>}
+                                  <td style={cellSt(false)}>{fmt2(r.totalIncVat)}</td>
+                                  <td style={{ ...cellSt(false), color: 'var(--text-dim)' }}>—</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
                 {assessment['Realistic Exit Value'] && (
