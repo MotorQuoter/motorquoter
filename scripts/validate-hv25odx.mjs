@@ -202,7 +202,12 @@ console.log('\nD1. batch 136 task D1 — every One Auto call is recorded; a fail
 console.log('\nD3. batch 136 task D3 — a missing valuation is said plainly, screen AND PDF');
 {
   const { NO_VALUATION_NOTE } = await import('../config/booking.mjs');
-  eq('the sentence, verbatim as the brief gives it', NO_VALUATION_NOTE, 'No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown. The repair estimate above is complete.');
+  eq('the sentence, verbatim as batch 138 item 2 rules it (one sentence only)', NO_VALUATION_NOTE, 'No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown.');
+  {
+    const src = ['config/booking.mjs', 'app/salvage/success/page.js', 'app/api/salvage/pdf/route.js', 'app/api/salvage/assess/route.js']
+      .map((f) => readFileSync(f, 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')).join('\n');
+    ok('batch 138 item 2: "The repair estimate above is complete" appears nowhere in code (comments excepted)', !/repair estimate above is complete/i.test(src));
+  }
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
   const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
   ok('screen: the false "engine used wider confidence range" line is gone', !page.includes('engine used wider confidence range'));

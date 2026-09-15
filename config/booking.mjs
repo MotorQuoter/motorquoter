@@ -18,7 +18,9 @@ export const WINDOW_CLOSED_WARNING = "Inspection booking window closed — sale 
 // batch 136 task D3 (Vincent, 15 Sep: "A valuation should always come back. Even if it doesn't the app can still provide a
 // repair estimate."): where the live market valuation belongs when none came back — screen AND PDF, one owner. Replaces
 // the false "Unavailable — engine used wider confidence range" (no code widens anything; batch 135) and the PDF's silence.
-export const NO_VALUATION_NOTE = "No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown. The repair estimate above is complete.";
+// batch 138 item 2 (Vincent, 15 Sep: yes): the second sentence "The repair estimate above is complete." is REMOVED
+// everywhere — in the PDF the valuation sits above the estimate, and without a price band the estimate is not checked.
+export const NO_VALUATION_NOTE = "No market valuation was returned for this vehicle, so the after-repair value, bid ladder and rebuild ceiling are not shown.";
 
 export const CAT_NU_DIRECTIVE = "The key unknowns above should be independently verified before bidding — lower structural risk than a Cat S, but they remain unquantified downside.";
 
