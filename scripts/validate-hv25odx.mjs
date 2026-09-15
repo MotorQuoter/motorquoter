@@ -267,5 +267,26 @@ console.log('\nE. batch 136 task E — the final assessment save and the re-run 
   ok('client: a non-OK re-run answer shows the error and does not navigate to the re-run form', /throw new Error\(body\.error \|\| 'Re-run failed'\);\s*\}[\s\S]{0,400}router\.push\(`\/salvage\?rerun=/.test(page));
 }
 
+console.log('\nF. batch 136 task F — a failed dashboard read never prints "No dashboard photograph in the listing."');
+{
+  const { buildDashLine, DASH_READ_FAILED_LINE, DASH_READ_FAILED_AIRBAGS } = await import('../app/api/salvage/assess/route.js');
+  const rt = route.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  ok('STORED SHAPE: HV25ODX\'s dash read succeeded (warning) — its stored line is the warning line, unchanged', A._dashState === 'warning' && buildDashLine({ cluster: 'warning', telltales: ['ENGINE_MIL', 'AIRBAG_SRS', 'OTHER_TELLTALE'] }) === A._dashLine);
+  const failed = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false, readFailed: true };
+  const line = buildDashLine(failed);
+  ok('the same lot with a FAILED read → says the check could not be completed', line === DASH_READ_FAILED_LINE && /could not be completed/.test(line));
+  ok('…and never "No dashboard photograph in the listing."', !/No dashboard photograph/.test(line));
+  ok('a genuine no-photo read (not failed) still says there is no dashboard photograph', buildDashLine({ cluster: 'no-photo', telltales: [] }) === 'No dashboard photograph in the listing.');
+  ok('the failure lines carry no dashes (the PDF strips them)', !/[—–]/.test(DASH_READ_FAILED_LINE + DASH_READ_FAILED_AIRBAGS));
+  const floor = rt.match(/const FLOOR = \{[^}]*\};/)?.[0] ?? '';
+  ok('every FLOOR return (exhausted / API error / max_tokens / refusal / no JSON / threw) is marked readFailed', floor.includes('readFailed: true') && (rt.match(/return FLOOR;/g) || []).length === 6);
+  ok('FLOOR keeps cluster "no-photo" — a failed read is never "clean" (EV verdict / telltale gates unchanged)', floor.includes("cluster: 'no-photo'"));
+  ok('an off-enum cluster answer is a failed read', rt.includes("readFailed: !clusterOnEnum") && rt.includes("const cluster = clusterOnEnum ? parsed.cluster : 'no-photo';"));
+  const iAir = rt.indexOf("assessment['Airbags'] = srsInjected");
+  const air = rt.slice(iAir, rt.indexOf(';', rt.indexOf("'No dashboard photograph in the listing — airbag state", iAir)));
+  ok('Airbags field: a failed read says so, ahead of the "No dashboard photograph" fallback', iAir > 0 && air.indexOf('dashRead.readFailed === true') > 0 && air.indexOf('DASH_READ_FAILED_AIRBAGS') < air.indexOf("'No dashboard photograph in the listing"));
+  ok('the failure is stored on the assessment (_dashReadFailed) and logged', rt.includes('assessment._dashReadFailed = dashRead.readFailed === true;') && rt.includes('readFailed=${dashRead.readFailed === true}'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} hv25odx: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

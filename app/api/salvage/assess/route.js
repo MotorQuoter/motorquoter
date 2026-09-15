@@ -937,7 +937,12 @@ export const DASH_BRAKE_PARKING_NOTE = 'A red brake lamp is also lit by an appli
 // The code-owned dashboard line (replaces the model's VDS cluster assertion). Lifted out of the pipeline
 // UNCHANGED for every state (batch 118) so the brake note is pinned on the shipped function; the only
 // addition is that note, appended when ABS_BRAKE is in a warning read.
+// batch 136 task F: a FAILED dashboard read never prints "No dashboard photograph in the listing." — the photograph may
+// well be there; the check did not complete. Code-owned wording (PROPOSED — Vincent approves buyer wording). No dashes.
+export const DASH_READ_FAILED_LINE = 'The dashboard check could not be completed, so the warning lights were not read. Check the dashboard on inspection.';
+export const DASH_READ_FAILED_AIRBAGS = 'The dashboard check could not be completed, so the airbag warning light was not read. Confirm airbag state on inspection.';
 export function buildDashLine(dashRead) {
+  if (dashRead.readFailed === true) return DASH_READ_FAILED_LINE;
   if (dashRead.cluster === 'warning') {
     const telltales = dashRead.telltales || [];
     const base = `Dashboard read: warning light(s) shown — ${telltales.map(t => TELLTALE_LABELS[t] || t).join(', ')}`;
@@ -996,7 +1001,10 @@ ${mismatchBlock}
 Return a raw JSON object only — no markdown, no explanation, no surrounding text:
 { "cluster": "no-photo" | "unlit" | "clean" | "warning", "telltales": ["<zero or more enum tokens; empty unless cluster is warning>"], "airbag": "no-photo" | "not-lit" | "warning-lit", "sticker": "<suffix letter, UNREADABLE, or empty string>", "bodyStyleMismatch": "match" | "mismatch" | "unclear", "hvMarkings": true | false }`;
 
-  const FLOOR = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false };
+  // batch 136 task F: every FLOOR return is a read that FAILED (retries exhausted, API error, truncated, refused, no JSON,
+  // threw) — not a listing without a dashboard photograph. `readFailed` says so; `cluster` stays 'no-photo' so every
+  // gate that reads it (EV verdict, telltale queries) behaves exactly as before — a failed read is never "clean".
+  const FLOOR = { cluster: 'no-photo', telltales: [], airbag: 'no-photo', sticker: '', bodyStyleMismatch: 'unclear', hvMarkings: false, readFailed: true };
   try {
     if (images.length > 35) console.warn(`[DASH READ] image set truncated to 35 (received ${images.length})`);
     const imageBlocks = images.slice(0, 35).map(img => {
@@ -1026,7 +1034,9 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[DASH READ] no JSON object in response:', raw.slice(0, 200)); return FLOOR; }
     const parsed = JSON.parse(match[0]);
-    const cluster = ['no-photo', 'unlit', 'clean', 'warning'].includes(parsed.cluster) ? parsed.cluster : 'no-photo';
+    const clusterOnEnum = ['no-photo', 'unlit', 'clean', 'warning'].includes(parsed.cluster);
+    if (!clusterOnEnum) console.warn(`[DASH READ] off-enum cluster "${parsed.cluster}" — the read FAILED (batch 136 F)`);
+    const cluster = clusterOnEnum ? parsed.cluster : 'no-photo';
     const airbag  = ['no-photo', 'not-lit', 'warning-lit'].includes(parsed.airbag) ? parsed.airbag : 'no-photo';
     // Telltale array — validate every element against the closed enum; drop unknowns (breadcrumb),
     // never pass them through. Only meaningful on cluster==='warning'; empty otherwise.
@@ -1044,7 +1054,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     const sticker = VALID_STICKER.includes(rawSticker) ? rawSticker : 'UNREADABLE';
     console.log(`[DASH READ] rawSticker="${rawSticker}" → sticker="${sticker}"`);
     const bodyStyleMismatch = ['match', 'mismatch', 'unclear'].includes(parsed.bodyStyleMismatch) ? parsed.bodyStyleMismatch : 'unclear';
-    return { cluster, telltales, airbag, sticker, bodyStyleMismatch, hvMarkings };
+    return { cluster, telltales, airbag, sticker, bodyStyleMismatch, hvMarkings, readFailed: !clusterOnEnum };
   } catch (err) {
     console.warn('[DASH READ] error:', err.message);
     return FLOOR;
@@ -5360,7 +5370,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // mismatch (Part C) so Call-2 no longer mines prose for those values.
     assessment._dashState  = dashRead.cluster;
     assessment._airbagState = dashRead.airbag;
-    console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales=[${dashRead.telltales.join(',')}] hvMarkings=${dashRead.hvMarkings}`);
+    assessment._dashReadFailed = dashRead.readFailed === true;   // batch 136 F: stored, so a failed read is never mistaken for "no photo"
+    console.log(`[DASH READ] cluster=${dashRead.cluster} airbag=${dashRead.airbag} telltales=[${dashRead.telltales.join(',')}] hvMarkings=${dashRead.hvMarkings} readFailed=${dashRead.readFailed === true}`);
 
     // Part B — body-style owner: Brego vehicle_desc (code-owned for all GB lots with a live
     // valuation call). Degrades gracefully to make/model/year if vehicle_desc absent (~7%
@@ -5430,6 +5441,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       ? 'Airbag warning light shown on the cluster — airbag system fault or deployment likely; confirm on inspection.'
       : dashRead.airbag === 'not-lit'
       ? 'No airbag warning light shown on the cluster; no deployed bags visible in the cabin shots. Confirm on inspection.'
+      : dashRead.readFailed === true
+      ? DASH_READ_FAILED_AIRBAGS          // batch 136 F: a failed read is not "no dashboard photograph"
       : dashRead.cluster === 'unlit'
       ? 'The instrument cluster is photographed but unlit (non-runner) — airbag warning state cannot be read from it. Confirm on inspection.'
       : 'No dashboard photograph in the listing — airbag state could not be confirmed. Confirm on inspection.';
