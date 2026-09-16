@@ -2,7 +2,7 @@
 // Run: node scripts/validate-booking-line.mjs   (expect "N passed, 0 failed")
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '../lib/bookingLine.mjs';
 import * as BOOKING from '../config/booking.mjs';
-import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, CAT_NU_DIRECTIVE, categoryDirective, SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '../config/booking.mjs';
+import { SALE_PASSED_WARNING, WINDOW_CLOSED_WARNING, SALE_PASSED_REJECT_PAID, SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '../config/booking.mjs';
 
 let pass = 0, fail = 0;
 const H = 3600 * 1000;
@@ -51,25 +51,25 @@ console.log('\n── bookingHeaderSuffix (collapsed to open/deadline case) ─�
 check("returns the open/deadline suffix",        bookingHeaderSuffix() === 'book 48hrs before sale');
 check("no state dependence (ignores any arg)",   bookingHeaderSuffix('past-generic') === 'book 48hrs before sale' && bookingHeaderSuffix('window-closed') === 'book 48hrs before sale');
 
-console.log('\n── categoryDirective (batch 134: the Cat S "Do not bid" directive is REMOVED — null, no Bid Directive; Cat N/U unchanged) ──');
-check("'S' → no directive (null)",              categoryDirective('S') === null);
-check("'Cat S' → no directive (null)",          categoryDirective('Cat S') === null);
-check("'S Repairable' → no directive (null)",   categoryDirective('S Repairable') === null);
-check("HV25ODX 'S REPAIRABLE STRUCTURAL' → no directive (null)", categoryDirective('S REPAIRABLE STRUCTURAL') === null);
-check("'N' → CAT_NU",             categoryDirective('N') === CAT_NU_DIRECTIVE);
-check("'Category N' → CAT_NU",    categoryDirective('Category N') === CAT_NU_DIRECTIVE);
-check("'N Repairable' → CAT_NU",  categoryDirective('N Repairable') === CAT_NU_DIRECTIVE);
-check("'U' → CAT_NU",             categoryDirective('U') === CAT_NU_DIRECTIVE);
-check("'Cat U' → CAT_NU",         categoryDirective('Cat U') === CAT_NU_DIRECTIVE);
-check("absent → no directive (null)",        categoryDirective('') === null && categoryDirective(null) === null);
-check("unrecognised 'C' / 'A' / 'B' → no directive (null)", categoryDirective('C') === null && categoryDirective('A') === null && categoryDirective('B') === null);
-check('the "Do not bid on this lot" text no longer exists anywhere in the booking config', !('CAT_S_DIRECTIVE' in BOOKING) && !Object.values(BOOKING).some((v) => typeof v === 'string' && /Do not bid on this lot/i.test(v)));
+console.log('\n-- the Bid Directive is GONE (batch 144 U2) --');
+// Vincent, 16 Sep: "remove it. The inspection flags already list the unknowns." CAT_NU_DIRECTIVE and
+// categoryDirective() are deleted, and with them the Bid Directive block on both surfaces. These
+// checks pin the REMOVAL, so neither the constant nor the block can come back unnoticed.
+check('CAT_NU_DIRECTIVE is gone from the booking config', !('CAT_NU_DIRECTIVE' in BOOKING));
+check('categoryDirective() is gone from the booking config', !('categoryDirective' in BOOKING));
+check('no bid directive of any kind survives in the config',
+      !Object.values(BOOKING).some((v) => typeof v === 'string' && /Do not bid on this lot|verified before bidding — lower structural risk/i.test(v)));
 {
   const { readFileSync } = await import('node:fs');
   const page = readFileSync('app/salvage/success/page.js', 'utf8');
-  const pdf = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
-  check('screen: the Bid Directive renders only when categoryDirective returns a string', page.includes("some(f => f.weight === 'high') && categoryDirective(vehicleDetails?.category) && ("));
-  check('PDF: the Bid Directive renders only when categoryDirective returns a string', pdf.includes("if (pdfFlags.some(f => f.weight === 'high') && categoryDirective(vd.category)) {"));
+  const pdf  = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  const cfg  = readFileSync('config/booking.mjs', 'utf8');
+  check('screen: no Bid Directive block renders', !page.includes('<div className="field-key">Bid Directive</div>'));
+  check('PDF: no Bid Directive block renders', !pdf.includes("fieldBlock('Bid Directive'"));
+  check('neither surface still imports categoryDirective',
+        !/import \{[^}]*categoryDirective/.test(page) && !/import \{[^}]*categoryDirective/.test(pdf));
+  check('the config exports neither symbol',
+        !cfg.includes('export const CAT_NU_DIRECTIVE') && !cfg.includes('export function categoryDirective'));
 }
 
 console.log('\n── sale-passed reject strings (Commit 4) ──');

@@ -2,7 +2,6 @@
 // asserting the CANONICAL output forms match what the Copart-path consumers expect.
 // Run: node scripts/validate-iaa-parser.mjs
 import { normaliseLot } from '../lib/normaliseLot.js';
-import { categoryDirective, CAT_NU_DIRECTIVE } from '../config/booking.mjs';
 
 // Mirrors route.js catLetter — the exit-band / SalvageGuide category consumer.
 function catLetter(s) {
@@ -54,7 +53,7 @@ const vd = normaliseLot({ auctionSource: 'iaa', rawCopartPaste: SAMPLE });
 
 eq('category → Copart canonical', vd.category, 'S REPAIRABLE STRUCTURAL');
 ok('catLetter(category) === "s"', catLetter(vd.category) === 's');
-eq('categoryDirective: Cat S → no directive (batch 134, "Do not bid" removed)', categoryDirective(vd.category), null);
+// batch 144 U2: categoryDirective() is deleted — there is no bid directive on any category now.
 eq('odometer bare comma form', vd.odometer, '62,955');
 eq('odometerQualifier kept separately', vd.odometerQualifier, 'Unverified');
 eq('keys', vd.keys, 'Yes');
@@ -89,7 +88,7 @@ Registration LT65ABC`;
 const vdn = normaliseLot({ auctionSource: 'iaa', rawCopartPaste: CATN });
 eq('Cat N → canonical', vdn.category, 'N REPAIRABLE NON STRUCTURAL');
 ok('catLetter === "n"', catLetter(vdn.category) === 'n');
-eq('categoryDirective routes to CAT_NU', categoryDirective(vdn.category), CAT_NU_DIRECTIVE);
+// batch 144 U2: the Cat N/U directive is deleted; catLetter above is what the parser must get right.
 eq('runCondition non-runner → Does not run', vdn.runCondition, 'Does not run');
 eq('odometer (no-space qualifier) parsed', vdn.odometer, '104,220');
 eq('odometerQualifier Warranted', vdn.odometerQualifier, 'Warranted');

@@ -7,7 +7,7 @@ import { formatOdometer } from '@/lib/odometerDisplay';
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { applyEdits, EDITS_DISCARDED_PDF, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts, editedSourcingLinks } from '@/lib/ledgerEdits.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
-import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
+import { NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -1103,12 +1103,9 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // assessment['Recommended Action'] is still STORED and still written on the Cat A/B hard stop
   // (assess/route.js) — no stored data is deleted, and the Cat A/B legal text reaches the buyer on
   // its other two surfaces, Realistic Exit Value and Red Flags.
-  // The code-owned Bid Directive is a SEPARATE block and is unchanged: it used to be rendered at the
-  // head of this section, so it now stands on its own. Cat N/U only — batch 134 removed the Cat S
-  // "Do not bid" text, and Vincent rules on the Cat N/U wording separately.
-  if (pdfFlags.some(f => f.weight === 'high') && categoryDirective(vd.category)) {
-    fieldBlock('Bid Directive', categoryDirective(vd.category), { color: [160, 0, 0], bold: true });
-  }
+  // batch 144 U2 (Vincent, 16 Sep): the Bid Directive block is REMOVED. Its only content was the
+  // Cat N/U directive, now deleted — the Inspection Flags section already lists the unknowns it
+  // pointed at, one by one.
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));

@@ -13,7 +13,7 @@ import {
 } from '@/lib/ledgerEdits.mjs';
 import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
-import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
+import { NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
@@ -1564,14 +1564,9 @@ export default function SalvageSuccessPage() {
                     </div>
                   );
                 })()}
-                {/* batch 134: categoryDirective returns null where no directive applies (the Cat S "Do not bid" text is
-                    removed — Vincent, "inform, do not decide"), and then no Bid Directive renders. */}
-                {withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited).some(f => f.weight === 'high') && categoryDirective(vehicleDetails?.category) && (
-                  <div className="field-row">
-                    <div className="field-key">Bid Directive</div>
-                    <div className="field-val" style={{ color: '#f87171', fontWeight: 700 }}>{categoryDirective(vehicleDetails?.category)}</div>
-                  </div>
-                )}
+                {/* batch 144 U2 (Vincent, 16 Sep): the Bid Directive block is REMOVED. Its only
+                    content was the Cat N/U directive, now deleted — the inspection flags below
+                    already list the unknowns it pointed at, one by one. */}
                 {assessment['Bidder Note'] && (
                   <div className="field-row">
                     <div className="field-key">Bidder Note</div>
@@ -1583,7 +1578,7 @@ export default function SalvageSuccessPage() {
                     The engine no longer asks the model to author it (config/assessmentEngine.js),
                     so this is not an output scrub. assessment['Recommended Action'] is still STORED
                     and still carries the Cat A/B legal stop, which reaches the buyer on Realistic
-                    Exit Value and Red Flags. The Bid Directive block above is unchanged. */}
+                    Exit Value and Red Flags. */}
               </div>
             </div>
 
