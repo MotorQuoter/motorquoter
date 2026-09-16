@@ -865,7 +865,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred (£0).
   if (assessment._damageCards?.length > 0) {
     const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '-';
-    const lines = assessment._damageCards.filter(c => !struckKeys.has(c._rowKey)).map(c0 => repriceStoredEntry(c0, lampRepriced.get(c0._rowKey))).map(c => {
+    // batch 143 T2: an uncostable £0 not-visible line is Inspection Flags + checklist only, never here.
+    const lines = assessment._damageCards.filter(c => !struckKeys.has(c._rowKey) && !c._notVisibleFloor).map(c0 => repriceStoredEntry(c0, lampRepriced.get(c0._rowKey))).map(c => {
       const bits = [c.origin];
       if (c.severity) bits.push(c.severity);
       if (c.action) bits.push(c.action);

@@ -1209,7 +1209,8 @@ export default function SalvageSuccessPage() {
                 ) : null}
                 {/* Damage Breakdown — per-part cards (AEP-style): Visible (costed) / Related / Inferred */}
                 {assessment._damageCards?.length > 0 && (() => {
-                  const cards = assessment._damageCards.map(c => repriceStoredEntry(c, lampRepriced.get(c._rowKey)));   // batch 114
+                  // batch 143 T2: an uncostable £0 not-visible line is Inspection Flags + checklist only, never here.
+                  const cards = assessment._damageCards.filter(c => !c._notVisibleFloor).map(c => repriceStoredEntry(c, lampRepriced.get(c._rowKey)));   // batch 114
                   const g = (v) => v != null ? `£${Number(v).toLocaleString('en-GB')}` : '—';
                   const oc = { Visible: '#4ade80', Related: '#b8860b', Inferred: '#888' };
                   return (

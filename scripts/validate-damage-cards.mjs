@@ -1,6 +1,7 @@
 // Unit tests for lib/damageCards.mjs — deterministic, no network.
 // Run: node scripts/validate-damage-cards.mjs
 import { buildDamageCards } from '../lib/damageCards.mjs';
+import { readFileSync } from 'node:fs';
 
 let passed = 0, failed = 0;
 function eq(label, got, expected) {
@@ -135,6 +136,76 @@ const SRS_FLAG   = { panelId: 'AIRBAG', partName: 'SRS airbag (deployed)', zone:
   const cards = buildDamageCards({ gatedParts: [FOG(1), FOG(2)], costedParts: [], flaggedParts: [] });
   eq('a costed PAIR still renders two cards (fog lamps, headlamps)', cards.length, 2);
   ok('both are Visible', cards.every((c) => c.origin === 'Visible' && c.cost === 50));
+}
+
+
+// -- batch 143 T2: an uncostable £0 line is Inspection Flags + checklist ONLY -------------------
+// Vincent, 16 Sep: "flags only". The resolving === 0 not-visible branch (route.js) produces
+// "Side structure - Related, inspect: £0" in the Damage Breakdown. It is marked here and DROPPED by
+// the two renderers. The card is deliberately still BUILT: lib/flooredProseScrub.mjs derives its
+// FLOORED panel set from _damageCards, so removing it from the data would silently stop the scrub
+// stripping model claims about that panel.
+console.log('\n=== batch 143 T2: the uncostable £0 line is marked, not deleted ===\n');
+
+const NV_FLAG = { panelId: 'SIDE_STRUCTURE', partName: 'Side structure', zone: 'side', weight: 'medium',
+                  reason: 'not clear from the listing photographs - condition unconfirmed; ask for it on the WhatsApp inspection before bidding',
+                  _amalgNotVisible: true };
+const PLAIN_FLAG = { panelId: 'SILL', partName: 'Sill', zone: 'side', weight: 'medium', reason: 'possible related damage' };
+
+{
+  const cards = buildDamageCards({ gatedParts, costedParts, flaggedParts: [NV_FLAG, PLAIN_FLAG] });
+  const nv = cards.find((c) => c.part === 'Side structure');
+  const plain = cards.find((c) => c.part === 'Sill');
+  ok('the not-visible card is still BUILT (flooredProseScrub reads it)', !!nv);
+  eq('and marked for the renderers to drop', nv._notVisibleFloor, true);
+  eq('it is still a £0 inspect card', nv.cost, 0);
+  ok('a Related card from any OTHER branch is NOT marked', !!plain && plain._notVisibleFloor === undefined);
+
+  // What each renderer shows.
+  const shown = cards.filter((c) => !c._notVisibleFloor);
+  ok('the Damage Breakdown drops it', !shown.some((c) => c.part === 'Side structure'));
+  ok('and keeps every other Related card', shown.some((c) => c.part === 'Sill'));
+
+  // MONEY: the filter touches no Visible card, so parts_sum cannot move.
+  const sum = (list) => list.filter((c) => c.origin === 'Visible').reduce((t, c) => t + (Number(c.cost) || 0), 0);
+  eq('money is identical before and after the filter', sum(cards), sum(shown));
+  eq('the filter removes Related cards only', cards.length - shown.length, 1);
+}
+
+{
+  // T2 x R3 must not collide. The two are keyed on DIFFERENT markers, so a costed SRS lot with a
+  // separate not-visible panel loses exactly one card to each rule, and the airbag is still shown
+  // once (from the costed row).
+  const cards = buildDamageCards({
+    gatedParts: [...gatedParts, SRS_COSTED], costedParts,
+    flaggedParts: [SRS_FLAG, NV_FLAG],
+  });
+  const shown = cards.filter((c) => !c._notVisibleFloor);
+  eq('R3: exactly one airbag card survives', shown.filter((c) => /airbag/i.test(c.part || '')).length, 1);
+  eq('and it is the COSTED one', shown.find((c) => /airbag/i.test(c.part || '')).origin, 'Visible');
+  ok('T2: the not-visible card is gone from the breakdown', !shown.some((c) => c.part === 'Side structure'));
+  ok('the airbag flag is NOT marked _notVisibleFloor (different marker, no collision)',
+     !cards.some((c) => /airbag/i.test(c.part || '') && c._notVisibleFloor));
+}
+
+{
+  // The DEFERRED airbag path: no costed SRS row, so R3 does not fire. The airbag flag must still
+  // reach the Damage Breakdown -- T2 must not swallow it, because it carries no _amalgNotVisible.
+  const cards = buildDamageCards({ gatedParts, costedParts, flaggedParts: [SRS_FLAG] });
+  const shown = cards.filter((c) => !c._notVisibleFloor);
+  eq('deferred airbag still shows in the breakdown', shown.filter((c) => /airbag/i.test(c.part || '')).length, 1);
+}
+
+{
+  // Both renderers must carry the filter -- pinned against the shipped source, since the rule lives
+  // at the display surfaces by design (the card stays in the data for flooredProseScrub).
+  const pdfSrc = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  const webSrc = readFileSync('app/salvage/success/page.js', 'utf8');
+  ok('the PDF Damage Breakdown filters _notVisibleFloor', pdfSrc.includes('!c._notVisibleFloor'));
+  ok('the screen Damage Breakdown filters _notVisibleFloor', webSrc.includes('!c._notVisibleFloor'));
+  const scrub = readFileSync('lib/flooredProseScrub.mjs', 'utf8');
+  ok('flooredProseScrub still derives its floored set from _damageCards (why the card is kept)',
+     scrub.includes('_damageCards') && scrub.includes("String(c.action).toLowerCase() === 'inspect'"));
 }
 
 console.log(`\n${passed + failed} checks: ${passed} passed, ${failed} failed`);
