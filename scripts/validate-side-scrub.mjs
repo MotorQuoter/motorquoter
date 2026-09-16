@@ -1,6 +1,7 @@
 // Unit tests for scrubSideWords (lib/sideScrub.mjs) — Option A residual set.
 // Run: node scripts/validate-side-scrub.mjs   (expect "N passed, 0 failed")
 import { scrubSideWords } from '../lib/sideScrub.mjs';
+import { sanitizeSideTerms } from '../lib/sanitizeProse.js';
 
 let pass = 0, fail = 0;
 
@@ -44,6 +45,49 @@ check('word containing "right"',      'Upright support bracket',           'Upri
 
 // bare-right coverage
 check('bare-right',                   'Front right wing',                  'Front wing',                    true,  false);
+
+// sanitizeSideTerms (lib/sanitizeProse.js) - batch 141 item 6a
+// The prose layer SUBSTITUTES an absolute side label for a relative one. A substituted phrase
+// that ends the clause ("cracked through on the opposite-side") names no part and tells the
+// buyer nothing, so it is dropped; used as an adjective it must survive untouched.
+console.log('\n-- sanitizeSideTerms - dangling substituted side phrase --');
+function prose(label, input, expected) {
+  const got = sanitizeSideTerms(input);
+  if (got === expected) { console.log(`  PASS — ${label}`); pass++; }
+  else {
+    console.log(`  FAIL — ${label}`);
+    console.log(`         input="${input}"`);
+    console.log(`         got  ="${got}"`);
+    console.log(`         want ="${expected}"`);
+    fail++;
+  }
+}
+
+// The shipped HV25ODX defect, and the same shape with each punctuation terminator.
+prose('HV25ODX windscreen line',        'Windscreen: cracked through on the nearside - full replacement.',
+                                        'Windscreen: cracked through - full replacement.');
+prose('terminal before a full stop',    'Windscreen: cracked through on the passenger side. Next.',
+                                        'Windscreen: cracked through. Next.');
+prose('terminal before a semicolon',    'Impact on the offside;',            'Impact;');
+prose('terminal before an em dash',     'cracked on the nearside — replace', 'cracked — replace');
+prose('terminal at end of string',      'Glass cracked through on the offside', 'Glass cracked through');
+
+// Adjectival use - a noun follows, the phrase carries information, KEEP.
+prose('adjective: opposite front wing', 'Replace the nearside front wing.',  'Replace the opposite front wing.');
+prose('adjective: damaged front wing',  'Damage on the offside front wing and door.',
+                                        'Damage on the damaged front wing and door.');
+prose('adjective: damaged front wheel', 'Check the offside front wheel (bent).',
+                                        'Check the damaged front wheel (bent).');
+prose('subject, not a locative',        'The nearside is undamaged.',        'The opposite-side is undamaged.');
+prose('compound noun survives',         'Right hand drive car with nearside damage',
+                                        'Right hand drive car with opposite-side damage');
+
+// Vehicle spec must still survive the whole pass verbatim.
+prose('RHD spec untouched',             'Right hand drive, LHD conversion', 'Right hand drive, LHD conversion');
+
+// Idempotent - the chokepoint may run more than once.
+prose('idempotent',                     sanitizeSideTerms('Windscreen: cracked through on the nearside - full replacement.'),
+                                        'Windscreen: cracked through - full replacement.');
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);
