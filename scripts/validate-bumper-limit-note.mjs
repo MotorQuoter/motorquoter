@@ -46,10 +46,15 @@ ok('the MONEY path still uses the presence read (legacy only under the dev A/B t
   ok(`legacy derivation is referenced exactly 6 times (2 definitions, 2 toggle, 2 note-only) — got ${uses}`,
      uses === 6);
 }
-ok('a panel carrying the §4 limit note is excluded from Parts Sourcing',
-   route.includes('!_bumperOffLimitPanels.has(p.panelId)'));
-ok('the excluded set is built from the _bumperOffLimit flags',
-   route.includes("(assessment._flaggedParts || []).filter(f => f._bumperOffLimit && f.panelId)"));
+// batch 141 item 6b (Vincent, 16 Sep) REVERSES the batch-107 exclusion: EVERY COSTED PART GETS A
+// SOURCING ROW. The §4 note means the panel IS costed and the buyer IS paying for it — HV25ODX billed
+// the front wing at £235 new / £130 S/H and offered no way to buy it. Withholding the link does not
+// un-bill the part. The note itself still renders beside the row (asserted above), so the limit is
+// still stated. These two assertions now pin the REMOVAL, so the exclusion cannot creep back.
+ok('a panel carrying the §4 limit note is NOT excluded from Parts Sourcing (batch 141 item 6b)',
+   !route.includes('_bumperOffLimitPanels'));
+ok('the sourcing filter keeps exactly the two surviving exclusions (£0-rule, repair-no-part)',
+   route.includes('.filter(p => !p._zeroRule && !p._repairNoPart),'));
 
 // ── Fixture assertions (dumps gitignored; SKIP if absent) ─────────────────────────────────────────
 const DUMPS = join(ROOT, '_cc/sweep/v107');
@@ -104,7 +109,11 @@ if (!ak || !amz || !dl) {
     ok('SF69YBB: the limit note IS present on the rear quarter', noteFor(sf, 'rear'));
     ok('SF69YBB: the quarter STAYS COSTED — Vincent ruled it stays and the buyer strikes it',
        (sf._reconciledParts || []).some((p) => p.panelId === 'REAR_QUARTER' && (p.used ?? p.oem ?? 0) > 0));
-    ok('SF69YBB: NO eBay link on the quarter we have just said we cannot confirm',
+    // batch 141 item 6b: this dump was produced by the PRE-141 code, so it still has no link on the
+    // quarter. That is now the OLD behaviour, not the rule — the shipped filter (asserted above) no
+    // longer excludes a §4-note panel, so a fresh run links it. Recorded, not asserted as correct;
+    // the check is only that the dump is the one we think it is. Re-capture retires this line.
+    ok('SF69YBB: pre-141 dump — the quarter had no eBay link under the old batch-107 exclusion',
        !linked(sf, 'Rear quarter panel'));
     ok('SF69YBB: the Damage Breakdown card carries the limit, not a bare "Severe / replace"',
        (sf._damageCards || []).some((c) => /quarter/i.test(c.part || '') && /torn away/.test(c.note || '')));
