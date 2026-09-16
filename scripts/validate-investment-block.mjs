@@ -125,8 +125,18 @@ const IB_VAT = buildInvestmentBlock({
   salvageGuide: sgHV, feeStackFn: realFees, vatQualifying: true,
 });
 
-// Non-VAT lot: UNCHANGED - resale less fees at the resale figure (£3,266 - £676.80 = £2,589.20).
-eq('HV25ODX shape, non-VAT: flip unchanged at £2,589', IB_NOVAT.bidCeilings.flip.value, 2589);
+// batch 143 T1 (Vincent, 16 Sep - "same method"): the non-VAT lot is no longer "unchanged". It is the
+// SAME SOLVE at VAT rate 0 - the hammer at which hammer + fees(hammer) = the resale figure. The old
+// fees-at-resale arithmetic (£3,266 - fees(£3,266) £676.80 = £2,589) is GONE: it charged the fee stack
+// at a bid the buyer could never make.
+//   £2,631 + fees(£2,631) £634.80 = £3,265.80 <= £3,266
+//   £2,632 + fees(£2,632) £634.80 = £3,266.80 >  £3,266
+eq('HV25ODX shape, non-VAT: fees at the hammer, no VAT -> £2,631', IB_NOVAT.bidCeilings.flip.value, 2631);
+ok('the old fees-at-resale answer (£2,589) is no longer produced', IB_NOVAT.bidCeilings.flip.value !== 2589);
+ok('non-VAT flip fits and is maximal', (() => {
+  const h = IB_NOVAT.bidCeilings.flip.value, o = (x) => x + realFees(x).totalIncVat;
+  return o(h) <= 3266 + 1e-9 && o(h + 1) > 3266;
+})());
 // VAT lot: the hammer at which hammer + 20% + fees = £3,266.
 //   £2,242 x 1.20 = £2,690.40, fees(£2,242) = £574.80  ->  £3,265.20 <= £3,266
 //   £2,243 x 1.20 = £2,691.60, fees(£2,243) = £574.80  ->  £3,266.40 >  £3,266
@@ -145,15 +155,26 @@ const poLow = estimatePartOut(11565).low;
 // a bid that could never be £1,200. Charging fees at the real hammer (fees(£584) = £298.80) frees more
 // than the 20% hammer VAT (£116.80) costs. The solve is exact either way; the direction is a consequence
 // of the fees-at-hammer basis the brief specifies, matching the rebuild ceiling.
-eq('partsOut, non-VAT: unchanged at £563', IB_NOVAT.bidCeilings.partsOut.value, 563);
+// batch 143 T1: the non-VAT part-out ceiling is the same solve at rate 0. Old fees-at-recovery answer
+// was £563 (£1,200 - £200 - fees(£1,200) £436.80); the hammer basis gives £683.
+eq('partsOut, non-VAT: fees at the hammer, no VAT -> £683', IB_NOVAT.bidCeilings.partsOut.value, 683);
+ok('the old fees-at-recovery answer (£563) is no longer produced', IB_NOVAT.bidCeilings.partsOut.value !== 563);
+ok('non-VAT partsOut fits and is maximal', (() => {
+  const h = IB_NOVAT.bidCeilings.partsOut.value, o = (x) => x + realFees(x).totalIncVat, t = poLow - DISMANTLING_ALLOWANCE;
+  return o(h) <= t + 1e-9 && o(h + 1) > t;
+})());
+// ONE METHOD, TWO RATES: the only thing that differs between a VAT and a non-VAT lot is the rate.
+eq('VAT flip == the same solve at rate 20%', IB_VAT.bidCeilings.flip.value,
+   ceilingHammerForOutlay(3266, realFees, { vatQualifying: true }));
+eq('non-VAT flip == the same solve at rate 0%', IB_NOVAT.bidCeilings.flip.value,
+   ceilingHammerForOutlay(3266, realFees, { vatQualifying: false }));
 eq('partsOut, VAT: exact hammer solve £584', IB_VAT.bidCeilings.partsOut.value, 584);
 ok('partsOut ceiling: hammer + VAT + fees <= recovery - dismantling',
    outlay(IB_VAT.bidCeilings.partsOut.value) <= (poLow - DISMANTLING_ALLOWANCE) + 1e-9);
 ok('partsOut ceiling: one pound more does NOT fit',
    outlay(IB_VAT.bidCeilings.partsOut.value + 1) > (poLow - DISMANTLING_ALLOWANCE));
 
-// Default (no vatQualifying passed) must behave as a non-VAT lot - every pre-141 caller and every
-// stored replay keeps its figures.
+// Default (no vatQualifying passed) must behave as a non-VAT lot.
 const IB_DEFAULT = buildInvestmentBlock({
   retailAverage: 13294, tradeAverage: 11565, exitValue: 8000,
   salvageGuide: sgHV, feeStackFn: realFees,
@@ -163,6 +184,17 @@ eq('omitted vatQualifying = non-VAT (partsOut)', IB_DEFAULT.bidCeilings.partsOut
 
 // The rebuild ceiling is NOT touched by this change - it already carried hammer VAT through the ladder.
 eq('rebuild ceiling untouched by vatQualifying', IB_VAT.bidCeilings.rebuild, IB_NOVAT.bidCeilings.rebuild);
+// batch 143 T1: and with a REAL rebuild basis present, so the check above cannot pass on null === null.
+// The rebuild ceiling is read straight from the ladder-derived hammer; the solver never touches it.
+{
+  const args = { retailAverage: 13294, tradeAverage: 11565, exitValue: 8000, salvageGuide: sgHV,
+                 feeStackFn: realFees, breakEven: 4210, rebuildHammer: 4873 };
+  const rV = buildInvestmentBlock({ ...args, vatQualifying: true }).bidCeilings.rebuild;
+  const rN = buildInvestmentBlock({ ...args, vatQualifying: false }).bidCeilings.rebuild;
+  eq('rebuild is the ladder hammer verbatim, VAT lot', rV.value, 4873);
+  eq('rebuild is the ladder hammer verbatim, non-VAT lot', rN.value, 4873);
+  eq('rebuild assumption identical either way', rV.assumption, rN.assumption);
+}
 
 // The solver itself.
 console.log('\n=== Case J: ceilingHammerForOutlay ===\n');
