@@ -1739,7 +1739,10 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
   }
 }
 
-const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
+// batch 143 T3: "per-view disagreement" is internal language — same fix as batch 141 item 5 on
+// AMALG_REASON_NOT_VISIBLE below. Vincent's wording, keeping the one clause that actually tells the
+// buyer WHAT the disagreement is (a bare "the photographs disagree" leaves him nothing to act on).
+const AMALG_REASON_DISAGREE    = 'the listing photographs disagree on this part — it looks undamaged in at least one photo and damaged in another; condition unconfirmed; ask for it on the WhatsApp inspection before bidding';
 // batch 106 wording rule: the engine may NEVER assert a fact about the photograph SET (the buyer can
 // falsify "not in the photos" by looking — see AMZ3790 wheels). State it as the engine's READ instead.
 // batch 141 item 5: "per-view read" is internal language — the buyer has no idea what a per-view read

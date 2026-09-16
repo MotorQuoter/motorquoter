@@ -2,8 +2,13 @@
 // Run: node scripts/validate-side-scrub.mjs   (expect "N passed, 0 failed")
 import { scrubSideWords } from '../lib/sideScrub.mjs';
 import { sanitizeSideTerms } from '../lib/sanitizeProse.js';
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
+function prose_ok(label, cond) {
+  if (cond) { console.log(`  PASS — ${label}`); pass++; }
+  else { console.log(`  FAIL — ${label}`); fail++; }
+}
 
 // Assert the scrubbed cell + the changed/guarded flags.
 function check(label, input, expectName, expectChanged, expectGuarded) {
@@ -88,6 +93,25 @@ prose('RHD spec untouched',             'Right hand drive, LHD conversion', 'Rig
 // Idempotent - the chokepoint may run more than once.
 prose('idempotent',                     sanitizeSideTerms('Windscreen: cracked through on the nearside - full replacement.'),
                                         'Windscreen: cracked through - full replacement.');
+
+// -- batch 143 T3: no internal language in a buyer-facing amalgamate reason ---------------------
+// Batch 141 item 5 took "per-view read" out of AMALG_REASON_NOT_VISIBLE; T3 takes "per-view
+// disagreement" out of AMALG_REASON_DISAGREE. Read from the SHIPPED route.js source, so the whole
+// family is swept and a new one cannot reintroduce the vocabulary.
+console.log('\n-- amalgamate reasons: plain buyer words only --');
+{
+  const src = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  const reasons = [...src.matchAll(/^const (AMALG_REASON_[A-Z_]+)\s*=\s*'([^']+)';/gm)];
+  prose_ok(`the reason constants were read from route.js (got ${reasons.length})`, reasons.length >= 8);
+  const BANNED = /per[-\s]?view|probe|amalgam|\biv:|_[a-zA-Z]+[A-Z]/;
+  for (const [, name, body] of reasons) {
+    prose_ok(`${name} carries no internal vocabulary`, !BANNED.test(body));
+  }
+  const dis = reasons.find(([, n]) => n === 'AMALG_REASON_DISAGREE');
+  prose_ok('AMALG_REASON_DISAGREE opens with the buyer wording', !!dis && dis[2].startsWith('the listing photographs disagree on this part'));
+  prose_ok('and still says WHAT the disagreement is', !!dis && /undamaged in at least one photo and damaged in another/.test(dis[2]));
+  prose_ok('and still routes to the WhatsApp inspection', !!dis && /WhatsApp inspection before bidding/.test(dis[2]));
+}
 
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);
