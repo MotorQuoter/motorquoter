@@ -128,5 +128,34 @@ console.log('\n4. the PDF route takes its cells from the owner too');
   ok('pdf costCells IS the owner (no local copy), "from" off the owner\'s flag', pdf.includes('const costCells = partsTableCells;') && !pdf.includes("if (act === 'replace') return") && pdf.includes('c.from && c.repair != null ? `from ${fmtPP(c.repair)}` : fmtPP(c.repair)'));
 }
 
+
+console.log('\n5. batch 142 R4 — the footer must not claim the from-£500 floors are excluded');
+{
+  // The old footer said "Items not independently confirmable appear in Inspection Flags ... and are
+  // not in this figure." On a lot carrying the structural jig floor AND the SRS airbag floor, both of
+  // which ARE in the repair total and ARE shown in Inspection Flags, that told the buyer he was not
+  // paying for £1,000 he was paying for. Rendered on a REAL PDF, then read back.
+  const chunks = pdfChunks(buildAssessmentPdf(mk([bumper, srsRow, labour]), vd, 'GB', 'TEST142', '16/09/2026', null, null));
+  const footer = chunks.filter((c) => /repair figure|this figure|not costed|Inspection Flags/i.test(c)).join(' ');
+  console.log(`    PDF footer text: ${JSON.stringify(footer.slice(0, 320))}`);
+
+  ok('the false exclusion claim is GONE from the rendered PDF', !/are not in this figure/i.test(footer));
+  ok('the figure is described as parts, labour AND paint (labour was missing before)',
+     /itemised parts, labour and paint/i.test(footer));
+  ok('the footer says the structural-work and airbag floors ARE included, as from-figures',
+     /includes the structural-work and airbag floors shown there, each from £500/i.test(footer));
+  ok('and that the OTHER flagged items are not costed', /Other items in the Inspection Flags are not costed/i.test(footer));
+
+  // One owner: neither surface may carry its own copy of the sentence.
+  const pdfSrc = readFileSync('app/api/salvage/pdf/route.js', 'utf8');
+  const webSrc = readFileSync('app/salvage/success/page.js', 'utf8');
+  ok('the PDF takes the sentence from config/reportFooter.mjs',
+     pdfSrc.includes("import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';") && pdfSrc.includes('${REPAIR_FIGURE_FOOTER}'));
+  ok('the screen takes the SAME sentence from the same owner',
+     webSrc.includes("import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';") && webSrc.includes('{REPAIR_FIGURE_FOOTER}'));
+  ok('neither surface keeps a local copy of the old claim',
+     !/are not in this figure/i.test(pdfSrc) && !/are not in this figure/i.test(webSrc));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} from-floor: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -17,6 +17,7 @@ import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -1722,7 +1723,7 @@ export default function SalvageSuccessPage() {
 
             <p className="footer-note">
               <span style={{ color: 'var(--text)', fontWeight: 700 }}>Official DVLA &amp; DVSA data.</span><br />
-              AI-generated guidance only. Not a professional repair quote. The repair figure is the sum of itemised parts costed as visible in the photos. Items not independently confirmable appear in Inspection Flags and italic allowance rows — they are not in this figure. Hidden, secondary, or unphotographed damage may increase actual costs.<br />
+              AI-generated guidance only. Not a professional repair quote. {REPAIR_FIGURE_FOOTER} Hidden, secondary, or unphotographed damage may increase actual costs.<br />
               MotorQuoter is not affiliated with Copart, CAP or HPI. &nbsp;<a href="/terms">Terms &amp; Conditions</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a>
             </p>
 
