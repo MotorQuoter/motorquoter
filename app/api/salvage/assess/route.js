@@ -1742,7 +1742,10 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
 const AMALG_REASON_DISAGREE    = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
 // batch 106 wording rule: the engine may NEVER assert a fact about the photograph SET (the buyer can
 // falsify "not in the photos" by looking — see AMZ3790 wheels). State it as the engine's READ instead.
-const AMALG_REASON_NOT_VISIBLE = 'no per-view read resolved this part — condition unconfirmed; request on the WhatsApp inspection before bidding';
+// batch 141 item 5: "per-view read" is internal language — the buyer has no idea what a per-view read
+// is. Plain words, still framed as the engine's READ (the 106 rule above) and matching the aperture
+// reasons below, which already say "cannot be reliably assessed from the listing photos".
+const AMALG_REASON_NOT_VISIBLE = 'not clear from the listing photographs — condition unconfirmed; ask for it on the WhatsApp inspection before bidding';
 // Aperture-confusion rewording: fired post-assembly when a DISAGREE floor sits behind a
 // confirmed displaced bumper. States only the situation and uncertainty — no damage verb,
 // no damage claim, no "inspect in person" (buyers have no Copart access).
