@@ -146,7 +146,7 @@ Alternative Damage Scenario: [if photos don't match description, state what else
 Confidence Level: Low / Medium / High [based on photo quality and information available]
 Bidder Note: [one sentence risk summary]
 Recommended Action: [Author the A/B/C risk posture ONLY — which tier applies and the one-line reasoning. INSPECTION TIMING AND THE BID DIRECTIVE ARE CODE-OWNED: do NOT write, mention, or imply any booking or sale-timing wording (no "book a WhatsApp inspection", no "48 hours before sale", no "before the sale", no deadline or schedule) and do NOT write any bid directive (no "do not bid", no "bid with confidence", no whether-to-bid instruction). The code assembles the booking line, its timing, and the bid directive separately. State the risk and what remains to be checked; say nothing about when or whether to book, or whether to bid.]
-Realistic Exit Value: [State your reasoning for the band position you are choosing: describe the visible damage severity, the desirability signals (mileage relative to age, badge, spec, condition), and any EV/fuel-type consideration, and explain why these lead to your chosen step. Do NOT include a £ figure — code computes the exit £ from your Exit Band Position step × trade-low. Brego tier values may be cited as reference context to frame the reasoning; do not anchor to a tier and do not apply a discount percentage.]
+Realistic Exit Value: [State your reasoning for the band position you are choosing: describe the visible damage severity, the desirability signals (mileage relative to age, badge, spec, condition), and any EV/fuel-type consideration, and explain why these lead to your chosen step. Do NOT include a £ figure — code computes the exit £ from your Exit Band Position step × trade-low. The live market valuation figures above may be cited as reference context to frame the reasoning; do not anchor to a tier and do not apply a discount percentage. Never name the source of the valuation — no supplier, provider or data-company name appears anywhere in your output.]
 Exit Band Position: [EXACTLY ONE of: lower / mid-low / mid / mid-high / upper — then a dash and one line of justification. Nothing else. No £ figure. Example: "mid — mainstream ICE, average condition, moderate front damage." Machine-read: the step word must match one of the five permitted values verbatim.
 
 Band-position guidance:
@@ -732,6 +732,6 @@ The two signals work together:
   Cat N carries lighter stigma than Cat S — the band percentages already encode this;
   pick position within the band, do not re-apply a category haircut on top.
 
-Do NOT apply a percentage yourself. Do NOT anchor to a Brego tier and discount.
+Do NOT apply a percentage yourself. Do NOT anchor to a valuation tier and discount.
 Pick the step, state it in Exit Band Position, explain the reasoning in Realistic Exit Value.
 `;
