@@ -491,7 +491,10 @@ console.log('\n13. batch 130 — Q4 does NOT promote on a losing vote (Vincent 1
   const { buildDamageCards } = await import('../lib/damageCards.mjs');
   const { readFileSync } = await import('node:fs');
   const ENTRY = { oem: 500, used: 275 };
-  const DISAGREE = 'per-view disagreement — seen as undamaged in at least one photo and damaged in another; condition could not be resolved across views; request on the WhatsApp inspection before bidding';
+  // batch 145 V1: READ the shipped constant instead of retyping it — this literal was a stale copy of
+  // the pre-143 wording and went on passing after batch 143 rewrote it.
+  const DISAGREE = readFileSync('app/api/salvage/assess/route.js', 'utf8')
+    .match(/^const AMALG_REASON_DISAGREE\s*=\s*'([^']+)';/m)[1];
   const run = (pvVotes, flag = { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium', reason: DISAGREE, _amalgDisagree: true }) => {
     const rows = [{ panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 365, used: 200 }];
     const flags = [flag];
@@ -626,6 +629,51 @@ console.log('\n15. batch 132 — the quarter Q4 DECLINES reaches the buyer: flag
     ok(`${tag}: after — the checklist gains exactly the declined-quarter item, every other item unchanged`,
        clAfter.filter((i) => i === Q4_DECLINED_CHECKLIST_ITEM).length === 1 && JSON.stringify(clAfter.filter((i) => i !== Q4_DECLINED_CHECKLIST_ITEM)) === JSON.stringify(clBefore));
   }
+}
+
+
+// -- batch 145 V1: the checklist and the flag describe a panel the SAME WAY ---------------------
+// Batches 141 and 143 rewrote the buyer-facing FLAG wording but left the checklist seeds saying
+// "the engine's read" and "could not be resolved across views". The buyer read two descriptions of
+// one panel, one of them in internal language. These pin the alignment against the SHIPPED source.
+console.log('\n-- batch 145 V1: checklist seeds carry no internal language --');
+{
+  const { seedChecklistFromFlags } = await import('../lib/parts.mjs');
+  const { readFileSync } = await import('node:fs');
+  const partsSrc = readFileSync('lib/parts.mjs', 'utf8');
+  const routeSrc = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  const reasonOf = (name) => routeSrc.match(new RegExp(`^const ${name}\\s*=\\s*'([^']+)';`, 'm'))[1];
+
+  // Every seed string in the shipped seeder, swept for the vocabulary batches 141/143/145 removed.
+  const seeds = [...partsSrc.matchAll(/seedItem = `([^`]+)`;/g)].map((m) => m[1]);
+  ok(`the seed strings were read from lib/parts.mjs (got ${seeds.length})`, seeds.length >= 7);
+  const BANNED = /the engine's read|per[-\s]?view|across views|probe|amalgam|\biv:/i;
+  for (const s of seeds) ok(`seed carries no internal language: "${s.slice(14, 60)}…"`, !BANNED.test(s));
+
+  // The two that pair with a rewritten flag must use the flag's own words.
+  const nv = seedChecklistFromFlags('1. Show the bonnet shut line.', [
+    { panelId: 'SIDE_STRUCTURE', partName: 'Side structure', zone: 'side', weight: 'medium',
+      reason: reasonOf('AMALG_REASON_NOT_VISIBLE'), _amalgNotVisible: true },
+  ], { lampTier2Fired: false });
+  ok('not-visible seed uses the flag\'s words ("not clear from the listing photographs")',
+     /Show Side structure close-up — not clear from the listing photographs; condition unconfirmed\./.test(nv));
+  ok('and the flag itself opens the same way', reasonOf('AMALG_REASON_NOT_VISIBLE').startsWith('not clear from the listing photographs'));
+
+  const dis = seedChecklistFromFlags('1. Show the bonnet shut line.', [
+    { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium',
+      reason: reasonOf('AMALG_REASON_DISAGREE'), _amalgDisagree: true },
+  ], { lampTier2Fired: false });
+  ok('disagree seed uses the flag\'s words ("the listing photographs disagree on this part")',
+     /Show Rear quarter panel close-up — the listing photographs disagree on this part; condition unconfirmed\./.test(dis));
+  ok('and the flag itself opens the same way', reasonOf('AMALG_REASON_DISAGREE').startsWith('the listing photographs disagree on this part'));
+
+  // The airbag line (batch 131, Vincent's own words) is NOT touched by this pass.
+  const srs = seedChecklistFromFlags('1. Show the bonnet shut line.', [
+    { panelId: 'AIRBAG', partName: 'SRS airbag (deployed)', zone: 'interior', weight: 'high',
+      reason: 'Airbags deployed', _srsExtentFloor: true },
+  ], { lampTier2Fired: false });
+  ok('the airbag checklist line is unchanged',
+     srs.includes('Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.'));
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
