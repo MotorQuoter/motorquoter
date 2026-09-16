@@ -1,5 +1,9 @@
 // validate-headlamp-pair — batch 109 task C.
 //
+// RE-AFFIRMED by Vincent, 16 Sep 2026 (batch 142 R2, on the HV25ODX re-run): BOTH HEADLAMPS STAY
+// COSTED on a full-width frontal hit. HV25ODX shipped two £350 lamp rows and that is correct —
+// no change was made, and none is wanted. This file is the test that covers it.
+//
 // VINCENT'S RULING, 10 Sep 2026, after reviewing the SA26KVT photographs: on a lampCount === 2 lot
 // (a full-width front hit) BOTH headlamps go in the repair total, each at the band price, with no
 // lamp allowance row — and every buyer-facing surface must say the same thing as the money.
