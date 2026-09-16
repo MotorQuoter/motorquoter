@@ -79,5 +79,63 @@ console.log('\n=== Null-safety ===\n');
 eq('empty input → []', buildDamageCards({}), []);
 eq('no-arg → []', buildDamageCards(), []);
 
+// -- batch 142 R3: ONE AIRBAG CARD ------------------------------------------------------------
+// HV25ODX shipped the subject twice in the Damage Breakdown:
+//   "SRS airbag kit (deployed) - Visible, replace: from £500"   (the costed row)
+//   "SRS airbag (deployed) - Related, inspect: £0"              (the flag)
+// The name dedup cannot catch it: norm() strips only the bracket, so "srs airbag kit" never equals
+// "srs airbag". Keyed on the MARKERS instead, so the wording can change without breaking the rule.
+console.log('\n=== batch 142 R3: one airbag card ===\n');
+
+const SRS_COSTED = { name: 'SRS airbag kit (deployed)', action: 'replace', used: 500, panelId: 'SRS_AIRBAG', _srsFloor: true, _gOwned: true };
+const SRS_FLAG   = { panelId: 'AIRBAG', partName: 'SRS airbag (deployed)', zone: 'interior', weight: 'high',
+                     reason: 'Airbags deployed - replacement from £500 (kit and fitting)... This must be checked before bidding.',
+                     _srsExtentFloor: true };
+
+{
+  const cards = buildDamageCards({ gatedParts: [...gatedParts, SRS_COSTED], costedParts, flaggedParts: [SRS_FLAG] });
+  const srs = cards.filter((c) => /srs|airbag/i.test(c.part || ''));
+  eq('costed SRS present -> exactly ONE airbag card', srs.length, 1);
+  eq('the survivor is the COSTED card, not the flag card', srs[0].origin, 'Visible');
+  eq('the survivor still renders as a from-figure', srs[0]._fromFigure, true);
+  eq('the survivor carries the £500 floor', srs[0].cost, 500);
+  ok('no Related airbag card survives', !cards.some((c) => c.origin === 'Related' && /airbag/i.test(c.part || '')));
+}
+
+{
+  // Deployment DEFERRED (gate open, no confirmation): there is no costed row, so the flag card is the
+  // only thing the buyer has. It MUST still show, or the airbag disappears from the Damage Breakdown.
+  const cards = buildDamageCards({ gatedParts, costedParts, flaggedParts: [SRS_FLAG] });
+  const srs = cards.filter((c) => /srs|airbag/i.test(c.part || ''));
+  eq('no costed SRS row -> the flag card DOES show', srs.length, 1);
+  eq('and it is the Related card', srs[0].origin, 'Related');
+  eq('carrying the flag reason verbatim', srs[0].note, SRS_FLAG.reason);
+}
+
+{
+  // The suppression is keyed on the marker pair only -- it must not swallow any other flag.
+  const OTHER = { panelId: 'SIDE_STRUCTURE', partName: 'Side structure', zone: 'side', weight: 'medium', reason: 'not clear from the listing photographs' };
+  const cards = buildDamageCards({ gatedParts: [...gatedParts, SRS_COSTED], costedParts, flaggedParts: [SRS_FLAG, OTHER] });
+  ok('an unrelated flag still gets its Related card', cards.some((c) => c.origin === 'Related' && c.part === 'Side structure'));
+  eq('exactly one airbag card still', cards.filter((c) => /airbag/i.test(c.part || '')).length, 1);
+}
+
+{
+  // MONEY DOES NOT MOVE. Related cards are £0 and cards never feed parts_sum, but pin that the costed
+  // rows and their figures are identical with and without the suppression.
+  const withFlag = buildDamageCards({ gatedParts: [...gatedParts, SRS_COSTED], costedParts, flaggedParts: [SRS_FLAG] }).filter((c) => c.origin === 'Visible');
+  const noFlag   = buildDamageCards({ gatedParts: [...gatedParts, SRS_COSTED], costedParts, flaggedParts: [] }).filter((c) => c.origin === 'Visible');
+  eq('the Visible (costed) cards are byte-identical either way', JSON.stringify(withFlag), JSON.stringify(noFlag));
+}
+
+{
+  // The two fog-lamp cards on HV25ODX are NOT this bug: both are COSTED rows -- a genuine pair, like
+  // the headlamp pair Vincent re-affirmed in R2. Two costed rows must stay two cards.
+  const FOG = (n) => ({ name: 'Front fog lamp', action: 'replace', used: 50, panelId: 'FOG_LAMP', _n: n });
+  const cards = buildDamageCards({ gatedParts: [FOG(1), FOG(2)], costedParts: [], flaggedParts: [] });
+  eq('a costed PAIR still renders two cards (fog lamps, headlamps)', cards.length, 2);
+  ok('both are Visible', cards.every((c) => c.origin === 'Visible' && c.cost === 50));
+}
+
 console.log(`\n${passed + failed} checks: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

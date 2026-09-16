@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { srsTierFromSignals, srsPositionsFromPerView } from '@/app/api/salvage/assess/route.js';
 import { PANEL } from '@/lib/panelEnum.mjs';
+import { readFileSync } from 'node:fs';
 
 const NO_PASTE = { deployed: false, intact: false, curtainSide: false, bothFront: false };
 const PASTE_DEPLOYED = { ...NO_PASTE, deployed: true };
@@ -136,4 +137,35 @@ test('duplicate curtain sightings across views collapse to the distinct set', ()
   const r = tierOf([bag('curtain-left'), bag('curtain-left'), bag('curtain-right')]);
   assert.equal(r.tier, 3);
   assert.deepEqual([...r.positions].sort(), ['curtain-left', 'curtain-right']);
+});
+
+// -- batch 142 R3 (Vincent, 16 Sep): EXACTLY ONE HIGH AIRBAG FLAG ------------------------------
+// When the costed "SRS airbag kit (deployed) - from £500" row is injected, the buyer must see
+// exactly ONE high inspection flag carrying the airbag sentence. The route achieves that by
+// COLLAPSING every pre-existing AIRBAG flag and then pushing one canonical flag. Pinned against the
+// shipped source, because the ORDERING (suppress, THEN push) is the whole guarantee -- reversed, the
+// push would be swallowed and the airbag would vanish from Inspection Flags entirely.
+const R3_ROUTE_SRC = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+
+test('R3: suppressAirbagFlags removes every pre-existing AIRBAG flag', () => {
+  const i = R3_ROUTE_SRC.indexOf('const suppressAirbagFlags = ()');
+  assert.ok(i > 0, 'suppressAirbagFlags not found in route.js');
+  const body = R3_ROUTE_SRC.slice(i, i + 400);
+  assert.ok(body.includes('panelId === PANEL.AIRBAG'), 'it no longer selects AIRBAG flags');
+  assert.ok(body.includes('splice(i, 1)'), 'it no longer removes them');
+});
+
+test('R3: on confirmed deployment the route suppresses FIRST, then pushes exactly one flag', () => {
+  const i = R3_ROUTE_SRC.indexOf('const srsFlagDropped = suppressAirbagFlags();');
+  assert.ok(i > 0, 'the confirmed-deployment suppress call is gone');
+  const after = R3_ROUTE_SRC.slice(i, i + 1200);
+  const pushes = after.split('coreObs.flaggedParts.push(').length - 1;
+  assert.equal(pushes, 1, 'expected exactly one flag pushed after the suppress');
+  assert.ok(after.includes('_srsExtentFloor: true'), 'the pushed flag is not the canonical SRS extent flag');
+  assert.ok(after.includes("weight: 'high'"), 'the pushed flag is not HIGH weight');
+});
+
+test('R3: the costed row and the flag carry the marker pair the card suppressor keys on', () => {
+  assert.ok(R3_ROUTE_SRC.includes('_srsFloor: true'), 'the costed SRS row lost its _srsFloor marker');
+  assert.ok(R3_ROUTE_SRC.includes('_srsExtentFloor: true'), 'the SRS flag lost its _srsExtentFloor marker');
 });
