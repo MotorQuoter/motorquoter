@@ -378,5 +378,111 @@ console.log('\n(L) LAMP-TYPE CORRECTION — batch 114');
   }
 }
 
+
+// ── batch 149 Y3 — A BUYER STRIKE RE-CHECKS THE STRUCTURE FLOOR ───────────────────────────────────
+// Batch 147 X2: no structure charge when the only damage at an end is the bumper. The ENGINE applied
+// that when it built the ledger, but a strike can make a zone bumper-only AFTER the fact and the £500
+// floor stayed. The edit layer now re-runs the engine's OWN rule (lib/structureFloor.mjs — one owner,
+// imported by both) over the surviving costed rows.
+console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
+{
+  // SF69YBB's ledger exactly as the £0 replay produces it at HEAD (parts_sum £5,525).
+  const SF_ROWS = [
+    { panelId: 'FRONT_BUMPER',   name: 'Front bumper',       used: 200, oem: 365 },
+    { panelId: 'GRILLE',         name: 'Grille',             used: 70,  oem: 160 },
+    { panelId: 'SLAM_PANEL',     name: 'Slam panel',         used: 50,  oem: 95 },
+    { panelId: 'RADIATOR_PACK',  name: 'Radiator pack',      used: 300, oem: 545 },
+    { panelId: 'HEADLAMP',       name: 'Headlamp',           used: 350, oem: null },
+    { panelId: 'HEADLAMP',       name: 'Headlamp',           used: 350, oem: null },
+    { panelId: 'REAR_BUMPER',    name: 'Rear bumper',        used: 185, oem: 335 },
+    { panelId: 'REAR_QUARTER',   name: 'Rear quarter panel', used: null, oem: 320 },
+    { panelId: 'FRONT_STRUCTURE', name: 'Front structure',   used: 500, oem: null, _structFloor: true, _zeroRule: 'A' },
+    { panelId: 'WHEEL',          name: 'Wheel',              used: 200, oem: null },
+    { panelId: 'REAR_STRUCTURE', name: 'Rear structure',     used: 500, oem: null, _structFloor: true, _zeroRule: 'A' },
+    { name: 'Labour & paint (new & painted)', used: null, oem: 2500, _codeLabour: true },
+  ];
+  const SF_BODY = [
+    { panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'replace' },
+    { panelId: 'REAR_BUMPER',  zone: 'rear',  severity: 'SEVERE', action: 'replace' },
+    { panelId: 'REAR_QUARTER', zone: 'rear',  severity: 'SEVERE', action: 'replace' },
+  ];
+  const sf = {
+    _reconciledParts: SF_ROWS,
+    _partsReconciliation: { parts_sum: 5525 },
+    _labourBodyPanels: SF_BODY,
+    _labourTellCount: 0,
+    _marginScenarios: null, _investmentBlock: null, _salvageGuide: null,
+  };
+  const sfKeys = rowKeyFor(SF_ROWS);
+  const sfStamp = ledgerHash(SF_ROWS);
+  const qKey = sfKeys[SF_ROWS.findIndex((r) => r.panelId === 'REAR_QUARTER')];
+  const rearFloorKey = sfKeys[SF_ROWS.findIndex((r) => r.panelId === 'REAR_STRUCTURE')];
+
+  // NO-EDIT PARITY first — nothing runs when there is no layer.
+  const sfNone = applyEdits(sf, null);
+  ok('Y3: SF69YBB no-edit parity — £5,525, delta 0, no floor dropped',
+     sfNone.partsSum === 5525 && sfNone.delta === 0 && sfNone.structFloorsDropped.length === 0);
+
+  // THE CASE: strike the rear quarter → rear zone is bumper-only → the rear floor drops too.
+  const sfStruck = applyEdits(sf, { stamp: sfStamp, strikes: [qKey], adds: [] });
+  ok('Y3: SF69YBB strike the quarter → £3,705', sfStruck.partsSum === 3705);
+  ok('Y3: and that is £320 part + £1,000 labour + £500 floor',
+     sfStruck.delta === -1820 && sfStruck.labourDelta === -1000 && sfStruck.structFloorDelta === -500);
+  ok('Y3: exactly one floor dropped, and it is the REAR one',
+     sfStruck.structFloorsDropped.length === 1 && sfStruck.structFloorsDropped[0].panelId === 'REAR_STRUCTURE');
+  ok('Y3: the FRONT floor survives — the front zone still has grille, slam panel, rad pack, lamps',
+     sfStruck.rows.some((r) => r.panelId === 'FRONT_STRUCTURE' && !r._struck));
+  const dropped = sfStruck.rows.find((r) => r.panelId === 'REAR_STRUCTURE');
+  ok('Y3: the dropped floor row is shown STRUCK, marked, with a plain reason',
+     dropped._struck === true && dropped._structFloorDropped === true
+     && /no longer charged/.test(dropped._structFloorReason) && /bumper/.test(dropped._structFloorReason));
+  ok('Y3: the reason does not claim the structure is sound',
+     /inspection flags/i.test(dropped._structFloorReason) && !/undamaged|sound|no damage/i.test(dropped._structFloorReason));
+
+  // UN-STRIKE — the floor comes back. Nothing is persisted; it is recomputed from the layer every read.
+  const sfBack = applyEdits(sf, { stamp: sfStamp, strikes: [], adds: [] });
+  ok('Y3: un-strike → £5,525 and the floor returns',
+     sfBack.partsSum === 5525 && sfBack.structFloorsDropped.length === 0
+     && sfBack.rows.every((r) => !r._structFloorDropped));
+
+  // A buyer can still strike a structure floor DIRECTLY, and it is not double-counted.
+  const sfDirect = applyEdits(sf, { stamp: sfStamp, strikes: [rearFloorKey], adds: [] });
+  ok('Y3: striking the floor row directly still works — £5,025, counted once',
+     sfDirect.partsSum === 5025 && sfDirect.structFloorDelta === 0);
+
+  // A buyer-ADDED line is not a detection of damage and cannot hold a floor up.
+  const sfAdd = applyEdits(sf, { stamp: sfStamp, strikes: [qKey], adds: [{ id: 'a', text: 'rear repair', amount: 400 }] });
+  ok('Y3: a buyer-added line does not keep the floor alive',
+     sfAdd.structFloorDelta === -500 && sfAdd.partsSum === 4105);
+
+  // FRONT-ZONE CASE: strike every front member except the bumper → the front floor drops.
+  const frontMembers = ['GRILLE', 'SLAM_PANEL', 'RADIATOR_PACK', 'HEADLAMP'];
+  const frontKeys = SF_ROWS.map((r, i) => (frontMembers.includes(r.panelId) ? sfKeys[i] : null)).filter(Boolean);
+  const sfFront = applyEdits(sf, { stamp: sfStamp, strikes: frontKeys, adds: [] });
+  ok('Y3: strike every front member but the bumper → the FRONT floor drops',
+     sfFront.structFloorsDropped.some((d) => d.panelId === 'FRONT_STRUCTURE'));
+  ok('Y3: and the REAR floor still stands (the quarter is untouched)',
+     sfFront.rows.some((r) => r.panelId === 'REAR_STRUCTURE' && !r._struck));
+
+  // Cat A/B still refuses every edit, floors included.
+  const sfCatAB = applyEdits({ ...sf, _catABHardStop: 'B' }, { stamp: sfStamp, strikes: [qKey], adds: [] });
+  ok('Y3: Cat A/B still refuses — nothing struck, no floor dropped, total unmoved',
+     sfCatAB.notEditable === true && sfCatAB.partsSum === 5525
+     && sfCatAB.delta === 0 && sfCatAB.structFloorDelta === 0 && sfCatAB.structFloorsDropped.length === 0);
+
+  // A stale layer applies nothing either.
+  const sfStale = applyEdits(sf, { stamp: 'not-the-stamp', strikes: [qKey], adds: [] });
+  ok('Y3: a stale edit layer drops no floor and moves nothing',
+     sfStale.stampMismatch === true && sfStale.partsSum === 5525 && sfStale.structFloorDelta === 0);
+
+  // ONE OWNER — the edit layer must not carry its own copy of the rule.
+  const editSrc = readFileSync(join(ROOT, 'lib/ledgerEdits.mjs'), 'utf8');
+  const routeSrc = readFileSync(join(ROOT, 'app/api/salvage/assess/route.js'), 'utf8');
+  ok('Y3: the edit layer IMPORTS the rule, it does not re-implement it',
+     editSrc.includes("from './structureFloor.mjs'") && !editSrc.includes('STRUCT_FLOOR_ZONE = '));
+  ok('Y3: the engine imports the same owner',
+     routeSrc.includes("from '@/lib/structureFloor.mjs'") && !routeSrc.includes('export const STRUCT_FLOOR_ZONE = Object.freeze'));
+}
+
 console.log(`\n${fail === 0 ? 'OK' : 'FAILED'} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

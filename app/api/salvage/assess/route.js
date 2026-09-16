@@ -14,6 +14,7 @@ const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
 import { scrubFlooredProse } from '@/lib/flooredProseScrub.mjs';
+import { STRUCT_FLOOR_ZONE, structureFloorApplies } from '@/lib/structureFloor.mjs';   // batch 149 Y3 — one owner, shared with the edit layer
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
@@ -134,6 +135,7 @@ const ELIGIBLE_PANELS = Object.freeze({
 });
 
 export const maxDuration = 300;
+export { STRUCT_FLOOR_ZONE, structureFloorApplies };   // batch 149 Y3 — re-exported; the owner is lib/structureFloor.mjs
 
 function getSupabase() {
   return createClient(
@@ -1316,21 +1318,9 @@ const PROBE_ZONE_MAP = {
 // over-charging this ruling removes.
 // Zone membership is CODE-OWNED and explicit, never read from the per-view zone tag — that is the
 // same unreliable field batch 147 X1 had to work around.
-export const STRUCT_FLOOR_ZONE = Object.freeze({
-  FRONT_STRUCTURE: { bumper: 'FRONT_BUMPER', members: ['GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'FOG_LAMP', 'RADIATOR_PACK', 'WINDSCREEN'] },
-  REAR_STRUCTURE:  { bumper: 'REAR_BUMPER',  members: ['REAR_PANEL', 'BOOT_LID', 'REAR_QUARTER', 'REAR_LAMP', 'REAR_GLASS'] },
-});
-
-// EXPORTED so validate-labour proves the rule with the shipped function rather than a re-typed copy.
-// Returns { apply, otherDamage, bumperCosted }. A panel with no zone entry (not a structure panel)
-// always applies — this rule governs the two structure floors only.
-export function structureFloorApplies(panelId, damagedPanels) {
-  const zone = STRUCT_FLOOR_ZONE[panelId];
-  if (!zone) return { apply: true, otherDamage: [], bumperCosted: false };
-  const has = (p) => (damagedPanels instanceof Set ? damagedPanels.has(p) : Array.isArray(damagedPanels) && damagedPanels.includes(p));
-  const otherDamage = zone.members.filter(has);
-  return { apply: otherDamage.length > 0, otherDamage, bumperCosted: has(zone.bumper) };
-}
+// batch 149 Y3: STRUCT_FLOOR_ZONE and structureFloorApplies MOVED to lib/structureFloor.mjs so the
+// buyer's edit layer (lib/ledgerEdits.mjs) runs the SAME rule after a strike — one owner, no copy.
+// Re-exported here so existing importers of this route keep working.
 
 export const END_SPECIFIC_PANELS = {
   front: new Set([PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING, PANEL.HEADLAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_STRUCTURE]),
