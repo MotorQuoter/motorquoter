@@ -332,7 +332,25 @@ forbids. A contradiction inside this document.**
 
 ⚖️ **RULED: BINNED.** *Vincent, 14 Sep: "Bin it."*
 
-### ✅ REPLACED BY THE ECONOMIC WARNING — Vincent's, and a better test
+### ⛔ NOT REPLACED BY ANYTHING — ruled 14 September 2026
+
+> **Vincent: *"Just give the user the figures. If he can't work out what to do with the
+> figures he shouldn't be buying salvage."***
+
+**The envelope is binned and NOTHING replaces it.** An economic warning was proposed,
+scoped and costed, then **ruled out entirely** — no warning box, no sentence, no trigger,
+not even the purely factual *"no hammer price breaks even"* statement.
+
+🎯 **The break-even ceilings ARE the deliverable, and they already exist and already
+display** (`bidCeilings.rebuild` / `.flip` / `.partsOut`, rendered under "Max bid
+ceilings"). The buyer subtracts whatever profit he wants. **Nothing is to be built here.**
+
+📌 **The governing principle — INFORM, DO NOT DECIDE:** *"Profit is an individual choice.
+We provide the information to HELP the buyer make a decision — we are not in business to
+make a decision for him/her."* The engine never bakes in a margin, never recommends a bid,
+and never judges a deal.
+
+### 📌 THE HISTORY — why a warning was considered and dropped
 
 > **Vincent: *"why not highlight a serious problem if repair costs plus bid value exceed
 > value of vehicle."***
