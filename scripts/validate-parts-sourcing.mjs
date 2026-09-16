@@ -140,6 +140,15 @@ eq('zero/negative cost → null (not 0)', buildPartsSourcing({ parts: [{ name: '
   ok('a stale layer drops nothing', editedSourcingLinks(src.links, applyEdits(asmt, { stamp: 'L5-stale', strikes: ['REAR_QUARTER#0'], adds: [] }), { dropStruck: true }).length === 3);
 
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  // batch 141 item 6b: EVERY COSTED PART GETS A SOURCING ROW. The batch-107 exclusion of a panel
+  // carrying the §4 bumper-off LIMIT note is gone — HV25ODX billed the front wing at £235 new /
+  // £130 S/H and then offered no way to buy it. The two remaining exclusions are intact: a £0-rule
+  // injected row (you cannot buy a chassis jig from a breaker) and a panel being REPAIRED (no part).
+  ok('route: no bumper-off-limit exclusion survives in the sourcing filter',
+     !/_bumperOffLimitPanels/.test(route));
+  ok('route: the £0-rule and repair-no-part exclusions are still the only two',
+     /\.filter\(p => !p\._zeroRule && !p\._repairNoPart\),/.test(route));
+
   ok('route: the keys come from rowKeyFor over the FULL ledger, attached BEFORE the sourcing filter',
      /const _ledgerRowKeys = rowKeyFor\(gatedParts\);/.test(route) && /gatedParts\.map\(\(p, i\) => \(\{ \.\.\.p, _rowKey: _ledgerRowKeys\[i\] \}\)\)\s*\n\s*\.filter\(/.test(route));
 }

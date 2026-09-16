@@ -5879,9 +5879,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // (no campid) so nothing fabricated/broken ships — the panel switches live when the ID lands.
     // Wrapped so it can never break the assessment. Presence-gated: no links → no panel.
     const _ledgerRowKeys = rowKeyFor(gatedParts);   // batch 117 — the ledger's own keys, for edit-aware Parts Sourcing
-    const _bumperOffLimitPanels = new Set(
-      (assessment._flaggedParts || []).filter(f => f._bumperOffLimit && f.panelId).map(f => f.panelId),
-    );
     try {
       const epn = {
         campaignId: (process.env.EBAY_EPN_CAMPAIGN_ID || '').trim() || null,
@@ -5890,14 +5887,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _sourcing = buildPartsSourcing({
         // batch 106: the £0-rule injected rows are excluded from the shoppable eBay list — you cannot buy
         // a chassis jig from a breaker, and the band-flip lines are unconfirmed until inspection.
-        // batch 107: a panel carrying the §4 bumper-off LIMIT note is excluded on the same principle.
-        // We have just told the buyer we cannot confirm that panel is damaged behind a torn bumper —
-        // offering to sell him the part in the next section is the worst version of this defect.
-        // batch 116: no eBay link for a panel being repaired. batch 117: each row carries its LEDGER key, taken from
+        // batch 116: no eBay link for a panel being repaired — there is no part to buy.
+        // batch 141 item 6b (Vincent, 16 Sep — EVERY COSTED PART GETS A SOURCING ROW): the batch-107
+        // exclusion of a panel carrying the §4 bumper-off LIMIT note is REMOVED. It was written against
+        // the pre-§4 semantics, where such a panel was held OUT of the repair total. Under §4 (batch 103,
+        // ratified) the panel IS costed and the buyer IS being asked to pay for it — HV25ODX billed the
+        // front wing at £235 new / £130 S/H and then offered no way to buy it. Withholding the link does
+        // not un-bill the part; it only leaves the buyer to find it himself. The LIMIT note still renders
+        // beside the row, so he is told exactly what is unconfirmed.
+        // batch 117: each row carries its LEDGER key, taken from
         // rowKeyFor over the FULL gatedParts (= _reconciledParts, unmutated since the VDS assembly) BEFORE filtering —
         // never re-derived over the filtered array — so a struck row's link can be dropped at render.
         parts:   gatedParts.map((p, i) => ({ ...p, _rowKey: _ledgerRowKeys[i] }))
-          .filter(p => !p._zeroRule && !p._repairNoPart && !_bumperOffLimitPanels.has(p.panelId)),
+          .filter(p => !p._zeroRule && !p._repairNoPart),
         vehicle: { make: enrichedVd.make, model: enrichedVd.model, year: enrichedVd.year },
         epn,
       });
