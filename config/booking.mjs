@@ -5,10 +5,15 @@
 // the single edit point. Reject strings (Commit 4) will live here too.
 export const SALE_PASSED_WARNING = "Inspection no longer possible — the sale has taken place. The inspection-class risks in this report remain unverified; treat all flagged items as unresolved when judging this purchase.";
 
-export const WINDOW_CLOSED_WARNING = "Inspection booking window closed — sale is within 48 hours. The inspection-class risks in this report can no longer be verified before bidding; treat all flagged items as unresolved and bid accordingly, or wait for the lot to relist.";
+// batch 142 R1 (Vincent, 16 Sep — INFORM, DO NOT DECIDE): the FACTUAL part of the notice is kept;
+// the bid directive that followed it is removed. "bid accordingly, or wait for the lot to relist"
+// told the buyer what to do about the closed window — that is his decision, not the report's.
+// What is left states the window, the deadline and what that means for the flags, and stops.
+export const WINDOW_CLOSED_WARNING = "Inspection booking window closed — sale is within 48 hours. The inspection-class risks in this report can no longer be verified before bidding; they remain unresolved.";
 
-// Code-owned bid directive (rendered at the head of the Recommended Action section when a
-// HIGH-weight inspection flag is present). The model no longer authors a bid directive (Commit 1);
+// Code-owned bid directive (rendered as its own block when a HIGH-weight inspection flag is
+// present — it sat at the head of the Recommended Action section until batch 142 R1 removed that
+// section; the directive itself is unchanged and still renders). The model no longer authors a bid directive (Commit 1);
 // this is its single owner. Wording may be amended by the wording-markup pass.
 // batch 134 (Vincent, 15 Sep — "INFORM, DO NOT DECIDE"): the Cat S "Do not bid on this lot…" directive is REMOVED.
 // It was advice, not a fact. Every case that returned it (Cat S, an absent category, an unrecognised letter) now

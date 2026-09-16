@@ -10,7 +10,6 @@ import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
-import { parseAction } from '@/config/recommendedAction.mjs';
 
 function getSupabase() {
   return createClient(
@@ -1095,23 +1094,19 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // Recommended Action suppression, the checklist header suffix, and the code booking line below.
   const booking = computeBookingLine(assessment);
 
-  // Recommended Action renders raw model prose (the prose suppressor was retired in Commit 2).
-  const action = str(assessment['Recommended Action']);
-  const actionColor = action.toLowerCase().includes('option a') ? [0, 130, 0]
-                    : action.toLowerCase().includes('option b') ? [160, 110, 0]
-                    : action.toLowerCase().includes('option c') ? [160, 0, 0]
-                    : [20, 20, 20];
-  // Code-owned bid directive (Commit 3) — head of the Recommended Action section, rendered only
-  // when a HIGH-weight inspection flag is present; string selected by salvage category. See
-  // config/booking.mjs. Matches the web surface.
-  // batch 134: null where no directive applies (the Cat S "Do not bid" text is removed) → no Bid Directive block.
+  // batch 142 R1 (Vincent, 16 Sep — INFORM, DO NOT DECIDE): the RECOMMENDED ACTION verdict is GONE
+  // from the report. The heading, the A/B/C tier label ("High Risk — Too Many Unknowns") and the
+  // model's reason sentence no longer render on the PDF or the screen. The engine no longer asks the
+  // model to author it either (config/assessmentEngine.js), so this is not an output scrub.
+  // assessment['Recommended Action'] is still STORED and still written on the Cat A/B hard stop
+  // (assess/route.js) — no stored data is deleted, and the Cat A/B legal text reaches the buyer on
+  // its other two surfaces, Realistic Exit Value and Red Flags.
+  // The code-owned Bid Directive is a SEPARATE block and is unchanged: it used to be rendered at the
+  // head of this section, so it now stands on its own. Cat N/U only — batch 134 removed the Cat S
+  // "Do not bid" text, and Vincent rules on the Cat N/U wording separately.
   if (pdfFlags.some(f => f.weight === 'high') && categoryDirective(vd.category)) {
     fieldBlock('Bid Directive', categoryDirective(vd.category), { color: [160, 0, 0], bold: true });
   }
-  // Surface the plain-English tier label (shared copy with the web via config/recommendedAction)
-  // ahead of the model's reasoning; the "Option X —" prefix is stripped so it doesn't read twice.
-  const pa = parseAction(action);
-  fieldBlock('Recommended Action', pa.label ? `${pa.label}\n${pa.body}` : pa.body, { color: actionColor, bold: true });
 
   // Fix 4 — Section 6: WHATSAPP INSPECTION CHECKLIST
   const checklistItems = parseChecklistItems(assessment['WhatsApp Inspection Checklist']).map(item => str(item));

@@ -17,7 +17,6 @@ import { categoryDirective, NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
-import { parseAction } from '@/config/recommendedAction.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -99,15 +98,6 @@ function confidenceColor(level) {
   if (l.includes('high')) return '#4ade80';
   if (l.includes('medium')) return '#f5c842';
   if (l.includes('low')) return '#f87171';
-  return '#f0ebe6';
-}
-
-function actionColor(action) {
-  if (!action) return '#f0ebe6';
-  const l = action.toLowerCase();
-  if (l.includes('option a')) return '#4ade80';
-  if (l.includes('option b')) return '#f5c842';
-  if (l.includes('option c')) return '#f87171';
   return '#f0ebe6';
 }
 
@@ -1586,27 +1576,12 @@ export default function SalvageSuccessPage() {
                     <div className="field-val">{assessment['Bidder Note']}</div>
                   </div>
                 )}
-                {assessment['Recommended Action'] && (() => {
-                  const pa = parseAction(assessment['Recommended Action']);
-                  const c = actionColor(assessment['Recommended Action']);
-                  return (
-                    <div className="field-row">
-                      <div className="field-key">Recommended Action</div>
-                      <div className="field-val">
-                        {pa.label && (
-                          <span style={{ display: 'inline-block', background: c, color: '#1a1512',
-                            fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.03em',
-                            textTransform: 'uppercase', padding: '2px 8px', borderRadius: '6px', marginBottom: '6px' }}>
-                            {pa.label}
-                          </span>
-                        )}
-                        <div style={{ color: pa.label ? c : 'var(--text)', fontWeight: 600, marginTop: pa.label ? '4px' : 0 }}>
-                          {pa.body}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {/* batch 142 R1 (Vincent, 16 Sep — INFORM, DO NOT DECIDE): the Recommended Action
+                    verdict is GONE — heading, A/B/C tier label and the model's reason sentence.
+                    The engine no longer asks the model to author it (config/assessmentEngine.js),
+                    so this is not an output scrub. assessment['Recommended Action'] is still STORED
+                    and still carries the Cat A/B legal stop, which reaches the buyer on Realistic
+                    Exit Value and Red Flags. The Bid Directive block above is unchanged. */}
               </div>
             </div>
 
@@ -1685,7 +1660,6 @@ export default function SalvageSuccessPage() {
                       ['Exit Value', savedLot.assessment?.['Realistic Exit Value']?.split('.')[0] + '.', assessment?.['Realistic Exit Value']?.split('.')[0] + '.'],
                       ['Airbags', savedLot.assessment?.['Airbags'] ? savedLot.assessment['Airbags'].split('.')[0] + '.' : '—', assessment?.['Airbags'] ? assessment['Airbags'].split('.')[0] + '.' : '—'],
                       ['Confidence', savedLot.assessment?.['Confidence Level']?.split('\n')[0], assessment?.['Confidence Level']?.split('\n')[0]],
-                      ['Action', savedLot.assessment?.['Recommended Action']?.split('.')[0] + '.', assessment?.['Recommended Action']?.split('.')[0] + '.'],
                     ].map(([field, val1, val2]) => (
                       <tr key={field}>
                         <td><div className="compare-field">{field}</div></td>
