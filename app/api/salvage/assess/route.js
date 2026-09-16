@@ -1303,6 +1303,35 @@ const PROBE_ZONE_MAP = {
 //      lamps (front OR rear), windscreen and everything else are out of scope.
 //   4. Fail open: frame-zone failed, no tag, or a bare ["detail"] → no demotion.
 //   5. Every demotion is logged, always, with both reads and the tag set.
+// ── batch 147 X2 — NO STRUCTURE CHARGE WHEN THE ONLY DAMAGE IN THE ZONE IS THE BUMPER ────────
+// Vincent, 16 Sep: "if there are no other detections of damage other than bumper ripped off then no
+// structure charge." A detached bumper on its own is not evidence the structure behind it is bent —
+// bumpers snag off on light impacts. The batch 106 £500 floor fires for a zone ONLY when that zone
+// carries damage BEYOND its own bumper.
+//
+// WHAT COUNTS as other damage: a panel of that zone that is COSTED — money in the repair total, or
+// _repairNoPart (batch 116: a repaired panel is costed damage whose cost sits in panel work).
+// WHAT DOES NOT COUNT: a flag-only or disagreeing panel. A flag is by definition unconfirmed, and
+// charging £500 of structural work off a panel nobody has confirmed is damaged is exactly the
+// over-charging this ruling removes.
+// Zone membership is CODE-OWNED and explicit, never read from the per-view zone tag — that is the
+// same unreliable field batch 147 X1 had to work around.
+export const STRUCT_FLOOR_ZONE = Object.freeze({
+  FRONT_STRUCTURE: { bumper: 'FRONT_BUMPER', members: ['GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'FOG_LAMP', 'RADIATOR_PACK', 'WINDSCREEN'] },
+  REAR_STRUCTURE:  { bumper: 'REAR_BUMPER',  members: ['REAR_PANEL', 'BOOT_LID', 'REAR_QUARTER', 'REAR_LAMP', 'REAR_GLASS'] },
+});
+
+// EXPORTED so validate-labour proves the rule with the shipped function rather than a re-typed copy.
+// Returns { apply, otherDamage, bumperCosted }. A panel with no zone entry (not a structure panel)
+// always applies — this rule governs the two structure floors only.
+export function structureFloorApplies(panelId, damagedPanels) {
+  const zone = STRUCT_FLOOR_ZONE[panelId];
+  if (!zone) return { apply: true, otherDamage: [], bumperCosted: false };
+  const has = (p) => (damagedPanels instanceof Set ? damagedPanels.has(p) : Array.isArray(damagedPanels) && damagedPanels.includes(p));
+  const otherDamage = zone.members.filter(has);
+  return { apply: otherDamage.length > 0, otherDamage, bumperCosted: has(zone.bumper) };
+}
+
 export const END_SPECIFIC_PANELS = {
   front: new Set([PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING, PANEL.HEADLAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_STRUCTURE]),
   rear:  new Set([PANEL.REAR_BUMPER, PANEL.REAR_QUARTER, PANEL.REAR_LAMP, PANEL.BOOT_LID, PANEL.REAR_PANEL, PANEL.REAR_GLASS, PANEL.REAR_STRUCTURE]),
@@ -5044,6 +5073,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const sevOf = p => (p.used ?? p.oem ?? 0) > 0 && (p.action === 'replace' || p._ledgerSeverity === 'SEVERE' || p._gSeverity === 'SEVERE');
       const costedSevere = new Set(gatedParts.filter(sevOf).map(p => p.panelId));
       const alreadyCosted = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
+      // batch 147 X2: costed damage = money in the total OR a repaired panel (batch 116 — its cost is
+      // in panel work, so it is costed damage even at £0 part price).
+      const damagedPanels = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0 || p._repairNoPart).map(p => p.panelId));
       // EV battery — Vincent ruling: NO band, NO floor (a hit HV pack ranges £0-to-total-loss, so no
       // honest figure exists). But it is the LARGEST unknown on the car, not one of fifteen inspection
       // items — upgrade the generic medium not-visible flag to HIGH with its own wording. Limit-only:
@@ -5066,6 +5098,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         const te = bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] : null;
         let injected = null;
         if (isStructReason && !f._amalgNotVisible) {
+          // batch 147 X2 — the zone must show damage beyond its own bumper, or there is no floor.
+          const _sf = structureFloorApplies(pid, damagedPanels);
+          if (!_sf.apply) {
+            // Flag RETAINED at £0 — the buyer is still told to look at the structure; it just is not charged.
+            console.log(`[ZERO-RULE][A] ${pid} → NO floor (batch 147 X2) — the only damage in this zone is ${_sf.bumperCosted ? 'the bumper' : 'none'}; flag retained at £0`);
+            continue;
+          }
+          if (STRUCT_FLOOR_ZONE[pid]) console.log(`[ZERO-RULE][A] ${pid} zone damage beyond the bumper: [${_sf.otherDamage.join(', ')}] → floor applies`);
           // A — positive structural read → £500 FLOOR (never a complete figure)
           injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'inspect',
             oem: null, used: ZERO_RULE_STRUCT_FLOOR, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };

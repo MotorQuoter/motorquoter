@@ -359,8 +359,11 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
   ok('route: the rule runs inside the labour block, before bodyPanels', route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') > 0
      && route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') < route.indexOf('const bodyPanels = gatedParts'));
-  ok('route: a repaired panel still counts as costed for the bonnet tell and the §4 bumper-off note',
-     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 2);
+  // batch 147 X2 added a THIRD use of the same principle: the damagedPanels set that decides whether a
+  // structure floor applies. A repaired panel is costed damage (its cost sits in panel work), so it
+  // licenses a structure floor exactly as a replaced one does.
+  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note and the X2 structure floor',
+     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 3);
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
   // assertion is the same — a repaired panel is excluded from the eBay sourcing basket.
   ok('route: no eBay parts link for a panel being repaired', /\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));
@@ -717,6 +720,70 @@ eq('X1: the flank tag was worth half a panel of pure labour', before - after, PA
 
   // The REAR QUARTER is deliberately left alone — spec §3 does not support folding it into the rear.
   ok('X1: no quarter normalisation was added', !route.includes('PANEL.REAR_QUARTER && _labourStruckZones'));
+}
+
+
+// -- batch 147 X2: no structure floor when the only damage in the zone is the bumper ------------
+// Vincent, 16 Sep: "if there are no other detections of damage other than bumper ripped off then no
+// structure charge." Proved with the SHIPPED function, not a re-typed copy of the condition.
+console.log('\n-- batch 147 X2: the structure floor needs damage beyond the bumper --');
+{
+  const { structureFloorApplies, STRUCT_FLOOR_ZONE } = await import('@/app/api/salvage/assess/route.js');
+
+  // THE RULING: a bumper alone buys no structure floor.
+  const frontBumperOnly = structureFloorApplies('FRONT_STRUCTURE', new Set(['FRONT_BUMPER']));
+  ok('X2: front bumper alone → NO front structure floor', frontBumperOnly.apply === false);
+  ok('X2: and the run knows it was the bumper (for the log line)', frontBumperOnly.bumperCosted === true);
+  const rearBumperOnly = structureFloorApplies('REAR_STRUCTURE', new Set(['REAR_BUMPER']));
+  ok('X2: rear bumper alone → NO rear structure floor', rearBumperOnly.apply === false);
+
+  // Nothing costed at all is likewise no floor.
+  ok('X2: an empty zone → no floor', structureFloorApplies('FRONT_STRUCTURE', new Set()).apply === false);
+  ok('X2: and it does not claim a bumper it never saw',
+     structureFloorApplies('FRONT_STRUCTURE', new Set()).bumperCosted === false);
+
+  // ONE other costed panel is enough — the ruling is "other than bumper", not a threshold.
+  for (const p of STRUCT_FLOOR_ZONE.FRONT_STRUCTURE.members) {
+    ok(`X2: front bumper + ${p} → floor applies`,
+       structureFloorApplies('FRONT_STRUCTURE', new Set(['FRONT_BUMPER', p])).apply === true);
+  }
+  for (const p of STRUCT_FLOOR_ZONE.REAR_STRUCTURE.members) {
+    ok(`X2: rear bumper + ${p} → floor applies`,
+       structureFloorApplies('REAR_STRUCTURE', new Set(['REAR_BUMPER', p])).apply === true);
+  }
+
+  // Zones do not leak into each other: rear damage must not license a FRONT floor.
+  ok('X2: rear damage does not license the front floor',
+     structureFloorApplies('FRONT_STRUCTURE', new Set(['REAR_BUMPER', 'REAR_QUARTER', 'BOOT_LID'])).apply === false);
+  ok('X2: front damage does not license the rear floor',
+     structureFloorApplies('REAR_STRUCTURE', new Set(['FRONT_BUMPER', 'BONNET', 'GRILLE'])).apply === false);
+
+  // A panel that is not a structure panel is not governed by this rule at all.
+  ok('X2: a non-structure panel always applies', structureFloorApplies('SIDE_STRUCTURE', new Set()).apply === true);
+  ok('X2: an unknown panel always applies', structureFloorApplies('AIRBAG', new Set()).apply === true);
+
+  // Array input is accepted as well as a Set (call sites pass a Set; keep it total).
+  ok('X2: accepts an array as well as a Set',
+     structureFloorApplies('FRONT_STRUCTURE', ['FRONT_BUMPER', 'BONNET']).apply === true);
+
+  // THE THREE CORPUS LOTS, from their own replayed ledgers: none is in the bumper-only state, so
+  // none loses its floor. Recorded so a future change that DOES move them is visible.
+  const corpus = {
+    AMZ3790: { zone: 'FRONT_STRUCTURE', damaged: ['FRONT_BUMPER', 'GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'FOG_LAMP', 'RADIATOR_PACK'] },
+    SF69YBB: { zone: 'REAR_STRUCTURE',  damaged: ['REAR_BUMPER', 'REAR_QUARTER'] },
+    SA26KVT: { zone: 'FRONT_STRUCTURE', damaged: ['FRONT_BUMPER', 'GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'RADIATOR_PACK'] },
+  };
+  for (const [vrm, c] of Object.entries(corpus)) {
+    const r = structureFloorApplies(c.zone, new Set(c.damaged));
+    ok(`X2: ${vrm} ${c.zone} keeps its floor (other damage: ${r.otherDamage.join(', ') || 'none'})`, r.apply === true);
+  }
+  // SF69YBB is the lot that prompted the ruling: its rear floor survives on the QUARTER alone.
+  ok('X2: SF69YBB rear floor rests on REAR_QUARTER, and drops without it',
+     structureFloorApplies('REAR_STRUCTURE', new Set(['REAR_BUMPER'])).apply === false
+     && structureFloorApplies('REAR_STRUCTURE', new Set(['REAR_BUMPER', 'REAR_QUARTER'])).apply === true);
+  // A flag-only rear lamp is NOT costed, so it does not count — the documented choice.
+  ok('X2: a flag-only panel is not in the damaged set, so it cannot license a floor',
+     structureFloorApplies('REAR_STRUCTURE', new Set(['REAR_BUMPER'])).apply === false);
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
