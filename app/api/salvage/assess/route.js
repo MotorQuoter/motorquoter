@@ -6102,6 +6102,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         salvageGuide:  enrichedVd.salvageGuide || null,
         confidence:    assessment['Confidence Level'] || null,
         feeStackFn:    FEE_STACKS[auctionSource],
+        vatQualifying: lotIsVatQualifying,   // batch 141 item 2: the flip and part-out ceilings charge hammer VAT, as the ladder already does
       });
       if (ib) {
         assessment._investmentBlock = ib;

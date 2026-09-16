@@ -1,7 +1,8 @@
 // Unit tests for lib/investmentBlock.mjs — deterministic, no network.
 // Run: node scripts/validate-investment-block.mjs
 import * as IB from '../lib/investmentBlock.mjs';
-import { buildInvestmentBlock, DISMANTLING_ALLOWANCE } from '../lib/investmentBlock.mjs';
+import { buildInvestmentBlock, DISMANTLING_ALLOWANCE, ceilingHammerForOutlay } from '../lib/investmentBlock.mjs';
+import { feeStack as copartFeeStack } from '../lib/copartFees.js';
 import { estimatePartOut } from '../lib/partOut.mjs';
 
 let passed = 0, failed = 0;
@@ -101,6 +102,80 @@ eq('rebuildHammer takes precedence over breakEven', G.bidCeilings.rebuild.value,
 // still null when both absent.
 const H = buildInvestmentBlock({ retailAverage: 5000, exitValue: 3000, tradeAverage: 4000, breakEven: null, rebuildHammer: null, feeStackFn: feeStub });
 eq('rebuild null when both breakEven and rebuildHammer absent', H.bidCeilings.rebuild, null);
+
+// -- Case I (batch 141 item 2): hammer VAT in the flip and part-out ceilings --------------------
+// On a VAT-qualifying lot the buyer pays 20% VAT on the hammer as well as the fees. The margin
+// ladder and the rebuild ceiling have always charged it; flip and partsOut did not, and over-stated
+// the ceiling - the buyer was told he could bid MORE than he can.
+console.log('\n=== Case I: hammer VAT on the flip / part-out ceilings ===\n');
+
+// The real Copart schedule, so the HV25ODX figures in the batch 141 report are locked here.
+const realFees = copartFeeStack;
+const sgHV = {
+  salvage_auction_predicted_bid_low_gbp: 2800,
+  salvage_auction_predicted_bid_average_gbp: 3266,
+  salvage_auction_predicted_bid_high_gbp: 3700,
+};
+const IB_NOVAT = buildInvestmentBlock({
+  retailAverage: 13294, tradeAverage: 11565, exitValue: 8000,
+  salvageGuide: sgHV, feeStackFn: realFees, vatQualifying: false,
+});
+const IB_VAT = buildInvestmentBlock({
+  retailAverage: 13294, tradeAverage: 11565, exitValue: 8000,
+  salvageGuide: sgHV, feeStackFn: realFees, vatQualifying: true,
+});
+
+// Non-VAT lot: UNCHANGED - resale less fees at the resale figure (£3,266 - £676.80 = £2,589.20).
+eq('HV25ODX shape, non-VAT: flip unchanged at £2,589', IB_NOVAT.bidCeilings.flip.value, 2589);
+// VAT lot: the hammer at which hammer + 20% + fees = £3,266.
+//   £2,242 x 1.20 = £2,690.40, fees(£2,242) = £574.80  ->  £3,265.20 <= £3,266
+//   £2,243 x 1.20 = £2,691.60, fees(£2,243) = £574.80  ->  £3,266.40 >  £3,266
+eq('HV25ODX shape, VAT: flip drops to the hammer £2,242', IB_VAT.bidCeilings.flip.value, 2242);
+ok('VAT flip is BELOW the non-VAT flip (never bids higher)', IB_VAT.bidCeilings.flip.value < IB_NOVAT.bidCeilings.flip.value);
+
+// The ceiling is a true solution: outlay at the ceiling fits, outlay one pound up does not.
+const outlay = (h) => h * 1.20 + realFees(h).totalIncVat;
+ok('flip ceiling: hammer + VAT + fees <= resale', outlay(IB_VAT.bidCeilings.flip.value) <= 3266 + 1e-9);
+ok('flip ceiling: one pound more does NOT fit', outlay(IB_VAT.bidCeilings.flip.value + 1) > 3266);
+
+// partsOut: the same solve, against recovery less the dismantling allowance.
+const poLow = estimatePartOut(11565).low;
+// NOTE (reported to Vincent, batch 141 item 2): partsOut moves UP on this shape, £563 -> £584.
+// Not a VAT error - the OLD formula charged fees at the RECOVERY figure (fees(£1,200) = £436.80) against
+// a bid that could never be £1,200. Charging fees at the real hammer (fees(£584) = £298.80) frees more
+// than the 20% hammer VAT (£116.80) costs. The solve is exact either way; the direction is a consequence
+// of the fees-at-hammer basis the brief specifies, matching the rebuild ceiling.
+eq('partsOut, non-VAT: unchanged at £563', IB_NOVAT.bidCeilings.partsOut.value, 563);
+eq('partsOut, VAT: exact hammer solve £584', IB_VAT.bidCeilings.partsOut.value, 584);
+ok('partsOut ceiling: hammer + VAT + fees <= recovery - dismantling',
+   outlay(IB_VAT.bidCeilings.partsOut.value) <= (poLow - DISMANTLING_ALLOWANCE) + 1e-9);
+ok('partsOut ceiling: one pound more does NOT fit',
+   outlay(IB_VAT.bidCeilings.partsOut.value + 1) > (poLow - DISMANTLING_ALLOWANCE));
+
+// Default (no vatQualifying passed) must behave as a non-VAT lot - every pre-141 caller and every
+// stored replay keeps its figures.
+const IB_DEFAULT = buildInvestmentBlock({
+  retailAverage: 13294, tradeAverage: 11565, exitValue: 8000,
+  salvageGuide: sgHV, feeStackFn: realFees,
+});
+eq('omitted vatQualifying = non-VAT (flip)', IB_DEFAULT.bidCeilings.flip.value, IB_NOVAT.bidCeilings.flip.value);
+eq('omitted vatQualifying = non-VAT (partsOut)', IB_DEFAULT.bidCeilings.partsOut.value, IB_NOVAT.bidCeilings.partsOut.value);
+
+// The rebuild ceiling is NOT touched by this change - it already carried hammer VAT through the ladder.
+eq('rebuild ceiling untouched by vatQualifying', IB_VAT.bidCeilings.rebuild, IB_NOVAT.bidCeilings.rebuild);
+
+// The solver itself.
+console.log('\n=== Case J: ceilingHammerForOutlay ===\n');
+eq('null target -> null', ceilingHammerForOutlay(null, realFees, { vatQualifying: true }), null);
+eq('no fee fn -> null', ceilingHammerForOutlay(1000, null, { vatQualifying: true }), null);
+eq('target below the fixed fee floor -> 0', ceilingHammerForOutlay(10, realFees, { vatQualifying: true }), 0);
+ok('non-VAT solve fits and is maximal', (() => {
+  const h = ceilingHammerForOutlay(3266, realFees, { vatQualifying: false });
+  const o = (x) => x + realFees(x).totalIncVat;
+  return o(h) <= 3266 + 1e-9 && o(h + 1) > 3266;
+})());
+ok('VAT solve is strictly below the non-VAT solve',
+   ceilingHammerForOutlay(3266, realFees, { vatQualifying: true }) < ceilingHammerForOutlay(3266, realFees, { vatQualifying: false }));
 
 console.log(`\n${passed + failed} checks: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
