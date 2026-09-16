@@ -676,5 +676,48 @@ console.log('\n-- batch 145 V1: checklist seeds carry no internal language --');
      srs.includes('Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.'));
 }
 
+
+// -- batch 147 X1: a front wing flattens with the FRONT panels on a front-struck lot -------------
+// flattenPanelWork gives the first panel of EACH zone its full price. The per-view pass tags a front
+// wing by FLANK on some lots ('flank-damaged-side' — AMZ3790, HV25ODX) and by END on others ('front'
+// — SA26KVT), so identical damage bought an extra full-price zone: +£300, or +£375 after §6's +25%.
+console.log('\n-- batch 147 X1: front-wing labour zoning --');
+{
+  const { readFileSync } = await import('node:fs');
+  const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+
+  // The normalisation exists, is LABOUR-ONLY, and does not mutate the shared map.
+  ok('X1: the labour mapping normalises the front wing\'s zone', route.includes('const labourZoneOf = (p) =>'));
+  ok('X1: it is keyed on FRONT_WING and a struck front', route.includes("p.panelId === PANEL.FRONT_WING && _labourStruckZones.has('front')"));
+  ok('X1: bodyPanels takes its zone from the normaliser', route.includes('zone: labourZoneOf(p),'));
+  ok('X1: zoneByPanel is NOT mutated (flags and cards keep their own zone)',
+     !/zoneByPanel\.set\([^)]*FRONT_WING/.test(route) && !route.includes("zoneByPanel.set(p.panelId, 'front')"));
+
+  // The arithmetic the fix turns on, proved on the real flattener.
+  const AMZ_BEFORE = [
+    { zone: 'front', labour: PANEL_WORK.SEVERE },               // front bumper
+    { zone: 'front', labour: PANEL_WORK.SEVERE },               // bonnet
+    { zone: 'flank-damaged-side', labour: PANEL_WORK.SEVERE },  // front wing — its own zone
+  ];
+  const AMZ_AFTER = AMZ_BEFORE.map((p) => ({ ...p, zone: 'front' }));
+  const before = flattenPanelWork(AMZ_BEFORE);
+  const after  = flattenPanelWork(AMZ_AFTER);
+  eq('X1: AMZ3790 panel work before (wing in its own zone)', before, 1500);
+  eq('X1: AMZ3790 panel work after (wing folded into front)', after, 1200);
+  // The wing went from a full-price first panel of its own zone (£600) to a half-price extra (£300).
+eq('X1: the flank tag was worth half a panel of pure labour', before - after, PANEL_WORK.SEVERE / 2);
+
+  // A wing already tagged 'front' (SA26KVT) must be untouched — the fix is a no-op there.
+  const SA = [
+    { zone: 'front', labour: PANEL_WORK.SEVERE },
+    { zone: 'front', labour: PANEL_WORK.SEVERE },
+    { zone: 'front', labour: PANEL_WORK.SEVERE },
+  ];
+  eq('X1: a wing already in the front zone is unchanged', flattenPanelWork(SA), after);
+
+  // The REAR QUARTER is deliberately left alone — spec §3 does not support folding it into the rear.
+  ok('X1: no quarter normalisation was added', !route.includes('PANEL.REAR_QUARTER && _labourStruckZones'));
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} labour: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

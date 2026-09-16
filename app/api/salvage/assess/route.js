@@ -5714,9 +5714,32 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // panel nobody has confirmed is damaged. FRONT_STRUCTURE's £500 floor is excluded anyway (it is not in
       // BODY_PANEL_LABOUR, and the floor is jig-work all-in), but families B/C/D/F inject REAL body panels
       // at band and those would otherwise pull labour.
+      // batch 147 X1 — LABOUR ZONING. flattenPanelWork (spec §3) gives the first panel of EACH zone its
+      // full price and every extra in that zone half. The per-view pass tags a FRONT WING by FLANK on
+      // some lots ('flank-damaged-side' — AMZ3790, HV25ODX) and by END on others ('front' — SA26KVT),
+      // so the same damage bought a whole extra full-price zone on the flank-tagged lots: +£300, or
+      // +£375 after §6's +25% top. A front wing is part of the FRONT of the car, so on a front-struck
+      // lot it flattens WITH the front panels.
+      //
+      // LABOUR ONLY. zoneByPanel is shared — promoteFlaggedQuarter reads it just above, and the flag and
+      // damage-card zones come from the same coreObs.costedParts .zone field — so the map is NOT mutated
+      // and no buyer-facing zone label changes. This normalisation lives in the labour mapping alone.
+      //
+      // The REAR QUARTER is deliberately NOT included: spec §3 defines zones generically ("each runs its
+      // OWN curve") and says nothing that supports folding a quarter into the rear end. Left alone, as
+      // the brief directs when the spec does not support it.
+      const _labourStruckZones = new Set(assessment._struckZones || []);
+      const labourZoneOf = (p) => {
+        const z = zoneByPanel.get(p.panelId) || p.zone || 'default';
+        if (p.panelId === PANEL.FRONT_WING && _labourStruckZones.has('front') && z !== 'front') {
+          console.log(`[LABOUR ZONE] FRONT_WING zone "${z}" → "front" for panel-work flattening (front is a struck zone)`);
+          return 'front';
+        }
+        return z;
+      };
       const bodyPanels = gatedParts
         .filter(p => !isLabour(p.name) && p.panelId && !p._zeroRule && isBodyPanel(p.panelId))
-        .map(p => ({ panelId: p.panelId, zone: zoneByPanel.get(p.panelId) || p.zone || 'default', severity: sevByPanel.get(p.panelId) || 'MODERATE', action: p.action || 'replace' }));
+        .map(p => ({ panelId: p.panelId, zone: labourZoneOf(p), severity: sevByPanel.get(p.panelId) || 'MODERATE', action: p.action || 'replace' }));
 
       // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
       // batch 116: a repaired panel (_repairNoPart, £0 part, cost in panel work) is still a costed, damaged panel.
