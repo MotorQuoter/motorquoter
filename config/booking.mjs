@@ -3,7 +3,11 @@
 // section is suppressed (see the section gate in success/page.js + pdf/route.js) and one of
 // these lines renders in its place. Wording may be amended by the wording-markup pass; this is
 // the single edit point. Reject strings (Commit 4) will live here too.
-export const SALE_PASSED_WARNING = "Inspection no longer possible — the sale has taken place. The inspection-class risks in this report remain unverified; treat all flagged items as unresolved when judging this purchase.";
+// batch 144 U1 (Vincent, 16 Sep): ends at "remain unverified." The tail — "treat all flagged items
+// as unresolved when judging this purchase" — told the buyer how to weigh the lot, which is his
+// call, not the report's. Same rule as batch 142 R1, which cut the equivalent tail from
+// WINDOW_CLOSED_WARNING below. What is left is the fact and nothing else.
+export const SALE_PASSED_WARNING = "Inspection no longer possible — the sale has taken place. The inspection-class risks in this report remain unverified.";
 
 // batch 142 R1 (Vincent, 16 Sep — INFORM, DO NOT DECIDE): the FACTUAL part of the notice is kept;
 // the bid directive that followed it is removed. "bid accordingly, or wait for the lot to relist"

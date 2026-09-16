@@ -36,6 +36,17 @@ check("absent-generic → null (no warning)",     checklistWarning('absent-gener
 // The two suppressed states map to distinct, non-empty warnings.
 check("SALE_PASSED and WINDOW_CLOSED differ",   SALE_PASSED_WARNING !== WINDOW_CLOSED_WARNING && SALE_PASSED_WARNING.length > 0 && WINDOW_CLOSED_WARNING.length > 0);
 
+// batch 144 U1 + batch 142 R1 (Vincent — INFORM, DO NOT DECIDE): both warnings state the FACT and
+// stop. Neither tells the buyer how to weigh the lot or what to bid. Pinned so a wording pass cannot
+// put the judgement back.
+check("SALE_PASSED ends at 'remain unverified.'", SALE_PASSED_WARNING.endsWith('remain unverified.'));
+check("SALE_PASSED drops the 'when judging this purchase' tail", !/judging this purchase|treat all flagged items/i.test(SALE_PASSED_WARNING));
+check("WINDOW_CLOSED drops the 'bid accordingly' tail", !/bid accordingly|wait for the lot to relist/i.test(WINDOW_CLOSED_WARNING));
+for (const [name, w] of [['SALE_PASSED', SALE_PASSED_WARNING], ['WINDOW_CLOSED', WINDOW_CLOSED_WARNING]]) {
+  check(`${name} carries no bid instruction`, !/bid (accordingly|with confidence)|do not bid|walk away/i.test(w));
+  check(`${name} still states the fact it exists for`, /inspection/i.test(w) && /unverified|unresolved/i.test(w));
+}
+
 console.log('\n── bookingHeaderSuffix (collapsed to open/deadline case) ──');
 check("returns the open/deadline suffix",        bookingHeaderSuffix() === 'book 48hrs before sale');
 check("no state dependence (ignores any arg)",   bookingHeaderSuffix('past-generic') === 'book 48hrs before sale' && bookingHeaderSuffix('window-closed') === 'book 48hrs before sale');
