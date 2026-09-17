@@ -362,8 +362,9 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   // batch 147 X2 added a THIRD use of the same principle: the damagedPanels set that decides whether a
   // structure floor applies. A repaired panel is costed damage (its cost sits in panel work), so it
   // licenses a structure floor exactly as a replaced one does.
-  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note and the X2 structure floor',
-     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 3);
+  // batch 150 Z1 added a FOURTH: wheelNetParts — a repaired wheel is "already identified and costed" too.
+  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor and the wheel checklist line',
+     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 4);
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
   // assertion is the same — a repaired panel is excluded from the eBay sourcing basket.
   ok('route: no eBay parts link for a panel being repaired', /\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));

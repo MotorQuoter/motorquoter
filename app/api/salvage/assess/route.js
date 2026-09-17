@@ -14,7 +14,7 @@ const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
 import { scrubFlooredProse } from '@/lib/flooredProseScrub.mjs';
-import { STRUCT_FLOOR_ZONE, structureFloorApplies } from '@/lib/structureFloor.mjs';   // batch 149 Y3 — one owner, shared with the edit layer
+import { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel } from '@/lib/structureFloor.mjs';   // batch 149 Y3 — one owner, shared with the edit layer
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
@@ -31,6 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
+  reconcileFlagMoneyWording,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -135,7 +136,17 @@ const ELIGIBLE_PANELS = Object.freeze({
 });
 
 export const maxDuration = 300;
-export { STRUCT_FLOOR_ZONE, structureFloorApplies };   // batch 149 Y3 — re-exported; the owner is lib/structureFloor.mjs
+export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   // batch 149 Y3 — re-exported; the owner is lib/structureFloor.mjs
+
+// batch 150 Z1 — the rows the wheel checklist line may call "wheel/tyre damage already identified and costed".
+const WHEEL_NET_NAME_RE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
+const WHEEL_NET_EXCLUDED = new Set(['SPARE_WHEEL', 'DISPLACED_WHEEL']);
+export function wheelNetParts(rows) {
+  return (rows || []).filter(p => p && WHEEL_NET_NAME_RE.test(p.name || '')
+    && !WHEEL_NET_EXCLUDED.has(p.panelId)
+    && !p._structFloor && p.action !== 'inspect'
+    && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));
+}
 
 function getSupabase() {
   return createClient(
@@ -1775,6 +1786,9 @@ const AMALG_REASON_APERTURE_REAR  = 'Rear bumper displaced on this corner; the q
 const AMALG_REASON_APERTURE_WING  = 'Front bumper displaced on this corner; the wing behind it cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_APERTURE_LAMP  = 'Front bumper displaced on this corner; the headlamp mounting area cannot be reliably assessed from the listing photos.';
 const AMALG_REASON_FLAG_CLASS     = 'structural or inspection-class component — flagged for inspection, not included in the repair cost; assess on the WhatsApp inspection before bidding';
+// batch 150 Z1: every OTHER flag-only class (spare wheel, parcel shelf, displaced wheel, airbag marker) gets
+// this plain reason. It is not structure, so it must not say so, and it never buys the jig floor.
+const AMALG_REASON_INSPECT_CLASS  = 'inspection item — flagged for inspection, not included in the repair cost; ask for it on the WhatsApp inspection before bidding';
 const AMALG_REASON_COSMETIC       = 'light cosmetic damage — refinish or trim-grade; not included in the repair cost; confirm extent on the WhatsApp inspection';
 const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
 // Ruling 2 (batch 81): a SINGLE unsupported MINOR view. Weaker evidence than a disagree — one weak
@@ -2234,6 +2248,9 @@ function amalgamate(groups, viewPanelSets) {
     const isFlagOnly = effClass === PANEL_CLASS.STRUCTURAL_FLAG
                     || effClass === PANEL_CLASS.VISIBLE_FLAG
                     || effClass === PANEL_CLASS.PRESENCE_CHECK;
+    // batch 150 Z1: the structural wording belongs to STRUCTURAL_FLAG panels only; the rest get the plain reason.
+    // _flagClassRead marks a POSITIVE flag-class read (missing / damaged) — the only read zero-rule A may floor.
+    const flagClassReason = effClass === PANEL_CLASS.STRUCTURAL_FLAG ? AMALG_REASON_FLAG_CLASS : AMALG_REASON_INSPECT_CLASS;
     const verdicts  = members.map(line => {
       const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
       return m ? m[1].toLowerCase() : 'na';
@@ -2265,7 +2282,7 @@ function amalgamate(groups, viewPanelSets) {
     if (missing > 0) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
-        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: flagClassReason, _flagClassRead: true });
       } else {
         // Missing dominates: absence is not adjudicable by a view that didn't notice it.
         // A clean vote cannot override a missing vote — you cannot mistake a present part
@@ -2283,7 +2300,7 @@ function amalgamate(groups, viewPanelSets) {
     } else if (severeOverride) {
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} SEVERE damaged (flag-class) → flag (not cost)`);
-        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: flagClassReason, _flagClassRead: true });
       } else {
         console.log(`[AMALG] ${panelId} SEVERE damaged (${damaged} damaged, ${clean} clean) → cost (SEVERE override, no floor)`);
         costedParts.push({ panelId, partName, zone, independentlyVisible: true, partHeight: null, _severeOverride: true, _ledgerSeverity: 'SEVERE',
@@ -2329,7 +2346,7 @@ function amalgamate(groups, viewPanelSets) {
       const effectiveClean = clean + implicitClean;
       if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} ${damaged}/${resolving} damaged (flag-class) → flag (not cost)`);
-        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: AMALG_REASON_FLAG_CLASS });
+        flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: flagClassReason, _flagClassRead: true });
       } else if (HIDDEN_CORROBORATION_PANELS.has(panelId) && viewsThatSaw >= 2 && damaged < 2) {
         // Straight corroboration floor for hidden exposed-only cost parts (SLAM_PANEL): ≥2 views
         // saw it but <2 confirmed damage → uncorroborated → floor to inspection. NOT silence-as-clean
@@ -5084,10 +5101,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         if (f._amalgSingleMinor) continue;                            // E — Ruling 2 exception
         if (f._apertureDemoted || f._bumperOffStripped) continue;     // H — dies on the held bumper branch
         if (f._srsExtentFloor) continue;                              // I — batch 107
-        const isStructReason = (f.reason || '').includes('structural or inspection-class');
+        // batch 150 Z1: a positive flag-class read. Keyed on the marker (the reason constant is kept as a
+        // fallback for a flag rebuilt without it) — never on a substring every flag-only class shares.
+        const isFlagClassRead = !f._amalgNotVisible && (f._flagClassRead === true || f.reason === AMALG_REASON_FLAG_CLASS);
         const te = bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] : null;
         let injected = null;
-        if (isStructReason && !f._amalgNotVisible) {
+        if (isFlagClassRead && !isStructureFloorPanel(pid)) {
+          // batch 150 Z1 — the jig/geometry floor is for FRONT/REAR/SIDE_STRUCTURE only (lib/structureFloor.mjs).
+          // A spare wheel, parcel shelf, displaced wheel or airbag marker stays a £0 inspection flag, plain reason.
+          if (f.reason === AMALG_REASON_FLAG_CLASS) f.reason = AMALG_REASON_INSPECT_CLASS;
+          console.log(`[ZERO-RULE][A] ${pid} → NO floor (batch 150 Z1) — not a structure panel; £0 inspection flag retained`);
+          continue;
+        }
+        if (isFlagClassRead) {
           // batch 147 X2 — the zone must show damage beyond its own bumper, or there is no floor.
           const _sf = structureFloorApplies(pid, damagedPanels);
           if (!_sf.apply) {
@@ -5867,6 +5893,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._allowanceParts  = allowanceParts;
     assessment._partsReconciliation = { parts_sum, lamp_delta, lamp_inserted, lamp_count, lamp_money_rows, lamp_span_source, orphan_collapse };
 
+    // batch 150 Z2 — the ledger is final here. A panel in the money must not carry a flag saying it is not
+    // (CK75ONW Rear panel: zero-rule C costed it at band, the uncorroborated flag still said "not included").
+    // Runs before the damage cards and the buyer flags read the reasons. Words only — no money moves.
+    {
+      const _z2 = reconcileFlagMoneyWording([...(assessment._flaggedParts || []), ...(coreObs.flaggedParts || [])], gatedParts);
+      for (const r of _z2) console.log(`[FLAG MONEY WORDING] ${r.panelId} is costed — no-cost reason rewritten ("${r.from.slice(0, 50)}…")`);
+      if (_z2.length === 0) console.log('[FLAG MONEY WORDING] no costed panel carried a no-cost reason');
+    }
+
     // Per-part damage cards (AEP-style) — purely additive; READS the finalised parts pipeline.
     // Never mutates parts_sum / the reconciliation. Wrapped so it can never break the assessment.
     try {
@@ -5975,8 +6010,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // CB8: wheel-net item adapts when costed wheel/tyre lines are in gatedParts,
     // avoiding contradiction with already-confirmed wheel damage in the checklist.
     {
-      const IS_WHEEL_TYRE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
-      const damagedWheelParts = gatedParts.filter(p => IS_WHEEL_TYRE.test(p.name));
+      // batch 150 Z1: "damage already identified and costed" must be true of every row it names. Only a road
+      // wheel/tyre row that is actually in the money (or repaired) counts — never a presence check (spare wheel),
+      // a flag-class marker (displaced wheel), or a floor/inspect row. CK75ONW named "Spare wheel" here off a
+      // £500 jig floor. wheelNetParts is the single definition, exported for the validator.
+      const damagedWheelParts = wheelNetParts(gatedParts);
       const netItem = damagedWheelParts.length > 0
         ? `Wheel/tyre damage already identified and costed (${damagedWheelParts.map(p => p.name).join(', ')}) — photograph ALL corners close-up to confirm extent of identified damage and that unaffected corners are serviceable`
         : `Inspect and photograph all four wheels and tyres close-up — confirm no shredding, kerbing, cuts or bulges`;
