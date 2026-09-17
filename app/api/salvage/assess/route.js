@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
-  reconcileFlagMoneyWording,
+  reconcileFlagMoneyWording, disagreeMajorityRows,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -137,6 +137,23 @@ const ELIGIBLE_PANELS = Object.freeze({
 
 export const maxDuration = 300;
 export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   // batch 149 Y3 — re-exported; the owner is lib/structureFloor.mjs
+
+// batch 151 V3 — the §4 bumper limit note says only what the engine read. 'absent' = the presence read says
+// the bumper is off; 'aperture' = the bumper area is open (a garnish, trim or the wing behind is gone) with no
+// absent read; 'severe' = the bumper is graded SEVERE but read as fitted. Exported for the validator.
+export function bumperOffWhy(absent, apertureExposed, severe) {
+  return absent ? 'absent' : apertureExposed ? 'aperture' : severe ? 'severe' : null;
+}
+export function bumperLimitReason(end, panelWord, why) {
+  const tail = `It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.`;
+  if (why === 'aperture') {
+    return `The ${end} bumper area is open on this side — part of the bumper, its trim or the panel next to it is displaced or missing. Whether the ${panelWord} behind it is also damaged cannot be fully seen in these photographs. ${tail}`;
+  }
+  if (why === 'severe') {
+    return `The ${end} bumper is badly damaged on this side. Whether the ${panelWord} behind it is also damaged cannot be fully seen in these photographs. ${tail}`;
+  }
+  return `The ${end} bumper is torn away on this side. Whether the ${panelWord} behind it is also damaged cannot be determined from these photographs. ${tail}`;
+}
 
 // batch 150 Z1 — the rows the wheel checklist line may call "wheel/tyre damage already identified and costed".
 const WHEEL_NET_NAME_RE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
@@ -4554,6 +4571,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // phantom with a shopping link, and A4 says which way that asymmetry should run.
       assessment._frontBumperOffAny = _frontOffNew || _frontOffLegacy;
       assessment._rearBumperOffAny  = _rearOffNew  || _rearOffLegacy;
+      // batch 151 V3: WHICH limb said "off" — the §4 note may only say "torn away" when the presence read
+      // says the bumper is ABSENT. The legacy limb fires on an exposed aperture (a missing garnish, a destroyed
+      // wing) or a SEVERE bumper with the bumper still fitted (CK75ONW: _frontBumperOff=false, OffAny=true).
+      // Note wording only — never read by money.
+      assessment._bumperOffWhy = {
+        front: bumperOffWhy(_frontOffNew, lampObs?.apertureExposed === true, frontBumperSevere),
+        rear:  bumperOffWhy(_rearOffNew,  lampObs?.rearApertureExposed === true, rearBumperSevere),
+      };
       console.log(`[BUMPER-OFF] frontBumperOff=${frontBumperOff} (present=${lampObs?.frontBumperPresent ?? 'missing'} severe=${frontBumperSevere}) rearBumperOff=${rearBumperOff} (present=${lampObs?.rearBumperPresent ?? 'missing'} severe=${rearBumperSevere})`);
       // Persist the authoritative bumper-off determination for the downstream fog-bumper rule
       // (Fix B, lib/partsCompleteness) — it runs after the gate, out of this block's scope.
@@ -5064,21 +5089,27 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // summed identically by sumPartsRealistic. Families that FLIP:
     //   A structural  — positive structural read (FLAG_CLASS, high) → £500 FLOOR, rendered "from £500";
     //                   a STRUCTURE panel flagged ONLY via NOT_VISIBLE gets NO floor (nobody saw it).
-    //   B not-visible — cost at band ONLY when adjacent to a panel already costed SEVERE on the same
-    //                   end (deterministic neighbour set — radiator behind a costed front bumper).
+    //   B not-visible — REMOVED from the money (batch 151 V2, Vincent 17 Sep: "a part no photo shows is
+    //                   flagged, not charged"). A not-visible panel stays a £0 flag whatever its neighbours.
     //   C/D uncorrob  — cost at band + flag (consistency; dormant on the corpus).
     //   F cosmetic    — cost at the panel's band (repair) + low flag.
     // E single-MINOR (Ruling 2) and G allowance (batch 107) do NOT flip; H/I/J untouched.
     const ZERO_RULE_STRUCT_FLOOR = STRUCT_FLOOR_GBP;   // £500 — one owner (lib/labour.mjs), money unchanged
-    // A not-visible panel is "behind" one of these costed-severe neighbours on the same end. Code-owned,
-    // same shape as PANEL_REAR_NEIGHBOURS. Extend as Vincent rules — radiator-behind-front-end is canonical.
-    const ZERO_RULE_ADJACENCY = {
-      [PANEL.RADIATOR_PACK]: [PANEL.FRONT_BUMPER, PANEL.SLAM_PANEL, PANEL.BONNET, PANEL.GRILLE],
-      [PANEL.SLAM_PANEL]:    [PANEL.FRONT_BUMPER, PANEL.BONNET, PANEL.RADIATOR_PACK],
-    };
+    // batch 151 V2: ZERO_RULE_ADJACENCY (the family-B neighbour set) is gone with the rule — nothing reads it.
+
+    // ── batch 151 V1 — a disputed non-quarter panel with damaged > clean is COSTED at band ─────────────────
+    // Runs BEFORE the £0-rule pass so the new rows count as costed damage for the batch 147 X2 structure
+    // floor (damagedPanels below), exactly as a model row the gate kept would. One owner: lib/parts.mjs.
     {
-      const sevOf = p => (p.used ?? p.oem ?? 0) > 0 && (p.action === 'replace' || p._ledgerSeverity === 'SEVERE' || p._gSeverity === 'SEVERE');
-      const costedSevere = new Set(gatedParts.filter(sevOf).map(p => p.panelId));
+      const _v1 = disagreeMajorityRows({ flags: coreObs.flaggedParts, costedParts: coreObs.costedParts,
+        pvVotes: pvResult.pvVotesMap, gatedParts, bandKey, display: PANEL_DISPLAY });
+      for (const r of _v1.rows) {
+        gatedParts.push(r);
+        console.log(`[DISAGREE MAJORITY] ${r.panelId} damaged ${r._votes.damaged} > clean ${r._votes.clean} → costed at band (${r._grade} → ${r.action}) oem £${r.oem} used £${r.used}; disagree note kept (batch 151 V1)`);
+      }
+      for (const k of _v1.skipped) console.log(`[DISAGREE MAJORITY] ${k.panelId} not costed — ${k.why}`);
+    }
+    {
       const alreadyCosted = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
       // batch 147 X2: costed damage = money in the total OR a repaired panel (batch 116 — its cost is
       // in panel work, so it is costed damage even at £0 part price).
@@ -5131,11 +5162,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           f.reason = STRUCT_FLOOR_NOTE;
           f._structFloorFlag = true;
         } else if (f._amalgNotVisible) {
-          // B — cost ONLY when behind a costed-severe neighbour; otherwise stays flag-only
-          const nbrs = ZERO_RULE_ADJACENCY[pid] || [];
-          if (!nbrs.some(n => costedSevere.has(n)) || !te) continue;
-          injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'replace',
-            oem: te.oem, used: te.used, _tableMandated: true, _zeroRule: 'B' };
+          // B — batch 151 V2: REMOVED from the money. A part no photo shows is flagged, not charged.
+          console.log(`[ZERO-RULE][B] ${pid} not visible → £0 inspection flag (batch 151 V2 — no neighbour costing)`);
+          continue;
         } else if (f._amalgUncorroborated || f._radUncorroborated) {
           // C / D — cost at band + flag (dormant on the corpus, path must obey the rule)
           if (!te) continue;
@@ -5853,12 +5882,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const costed = gatedParts.some(p => p.panelId === panelId && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));   // batch 116: a repaired panel is costed (in panel work)
       if (!costed) continue;   // §4 fires only on a COSTED adjacent panel
       if (assessment._flaggedParts.some(f => f._bumperOffLimit && f.zone === end)) continue;
+      const _why = assessment._bumperOffWhy?.[end] ?? 'absent';
       assessment._flaggedParts.push({
         panelId, partName: PANEL_DISPLAY[panelId], zone: end, weight: 'medium',
-        reason: `The ${end} bumper is torn away on this side. Whether the ${panelWord} behind it is also damaged cannot be determined from these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.`,
-        _bumperOffLimit: true,
+        reason: bumperLimitReason(end, panelWord, _why),   // batch 151 V3: "torn away" only when the bumper is read as absent
+        _bumperOffLimit: true, _bumperOffWhy: _why,
       });
-      console.log(`[BUMPER-OFF §4] ${end} bumper off + ${panelId} costed → stated the limit (panel kept costed)`);
+      console.log(`[BUMPER-OFF §4] ${end} bumper off (${_why}) + ${panelId} costed → stated the limit (panel kept costed)`);
     }
 
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
