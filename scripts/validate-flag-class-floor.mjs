@@ -4,6 +4,14 @@
 //        the wheel checklist line never calls such a row "wheel/tyre damage already identified and costed".
 //   Z2 — a panel in the money never carries a flag reason saying it is not.
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-flag-class-floor.mjs
+//
+// RULINGS (Vincent, 17 Sep — batch 152), locked by the tests below:
+//   - DISPLACED_WHEEL is FLAG ONLY — no £500 floor, as built in batch 150 ("Z1: DISPLACED_WHEEL → no floor").
+//   - AMALG_REASON_INSPECT_CLASS and the Z2 costed variants are APPROVED as built (pinned verbatim below).
+//   - Stored reports keep what they were sold with: the edit layer does NOT re-check non-structure floors
+//     ("ruling: the edit layer still uses structureFloorApplies only").
+//   - X1: the checklist seed for a non-structure flag-class item reads "inspection item" (keyed on
+//     lib/structureFloor.mjs isStructureFloorPanel, never a string); structure panels keep their line.
 import { readFileSync } from 'fs';
 import { STRUCT_FLOOR_PANELS, isStructureFloorPanel, structureFloorApplies, STRUCT_FLOOR_ZONE } from '../lib/structureFloor.mjs';
 import {
@@ -150,6 +158,61 @@ ok('Z2: the shipped no-cost reasons were read from route.js', [UNCORROBORATED, R
   ok('Z2: route calls the owner once', call > 0 && route.indexOf('reconcileFlagMoneyWording([', call + 1) === -1);
   ok('Z2: after the ledger is final, before the damage cards', ledger > 0 && ledger < call && call < cards);
   ok('Z2: over BOTH flag lists', /reconcileFlagMoneyWording\(\[\.\.\.\(assessment\._flaggedParts \|\| \[\]\), \.\.\.\(coreObs\.flaggedParts \|\| \[\]\)\], gatedParts\)/.test(route));
+}
+
+// ── Rulings pinned (batch 152) ──────────────────────────────────────────────────────────────────────
+console.log('\n-- batch 152: rulings pinned --');
+ok('ruling: AMALG_REASON_INSPECT_CLASS approved verbatim',
+  inspectReason === 'inspection item — flagged for inspection, not included in the repair cost; ask for it on the WhatsApp inspection before bidding');
+ok('ruling: Z2 costed uncorroborated wording approved verbatim', COSTED_REASON_UNCORROBORATED ===
+  'single-view damage — only one photo flagged this panel; the other photos that show this area did not flag it, so the damage is not corroborated. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
+ok('ruling: Z2 costed cosmetic wording approved verbatim', COSTED_REASON_COSMETIC ===
+  'light cosmetic damage — refinish or trim-grade. It has been included in the repair total at the repair figure — strike the line on the ledger if the inspection shows it sound.');
+ok('ruling: Z2 costed radiator wording approved verbatim', COSTED_REASON_RAD_UNCORROBORATED ===
+  'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
+{
+  const edits = readFileSync(new URL('../lib/ledgerEdits.mjs', import.meta.url), 'utf8');
+  ok('ruling: the edit layer still uses structureFloorApplies only (stored non-structure floors kept as sold)',
+    edits.includes('structureFloorApplies(r.panelId, survivingDamaged)') && !edits.includes('isStructureFloorPanel'));
+}
+
+// ── X1 — the checklist seed line for flag-class items ───────────────────────────────────────────────
+console.log('\n-- batch 152 X1: "inspection item" seed for non-structure flag-class items --');
+{
+  const { seedChecklistFromFlags, isNonStructureFlagClass } = await import('../lib/parts.mjs');
+  const partsSrc = readFileSync(new URL('../lib/parts.mjs', import.meta.url), 'utf8');
+  const STRUCT_LINE = (p) => `Show ${p} close-up — structural or inspection-class component; confirm condition before bidding.`;
+  const INSPECT_LINE = (p) => `Show ${p} close-up — inspection item; confirm condition before bidding.`;
+  const seed = (flags) => seedChecklistFromFlags('1. Show the bonnet shut line.', flags, { lampTier2Fired: false });
+  for (const [pid, name] of [['FRONT_STRUCTURE', 'Front structure'], ['REAR_STRUCTURE', 'Rear structure'], ['SIDE_STRUCTURE', 'Side structure']]) {
+    const t = seed([{ panelId: pid, partName: name, weight: 'high', reason: 'x' }]);
+    ok(`X1: ${pid} keeps the structural line`, t.includes(STRUCT_LINE(name)));
+  }
+  for (const [pid, name] of [['PARCEL_SHELF', 'Parcel shelf'], ['EV_BATTERY_PRESENCE', 'HV battery'], ['EV_BATTERY_ZONE', 'HV battery pack'], ['AIRBAG', 'Airbag']]) {
+    const t = seed([{ panelId: pid, partName: name, weight: 'high', reason: inspectReason }]);
+    ok(`X1: ${pid} → "inspection item", never "structural"`, t.includes(INSPECT_LINE(name)) && !/structural/i.test(t));
+  }
+  // Every flag-only class in the enum, derived — not a hand list.
+  for (const p of flagOnly) ok(`X1: ${p} is ${STRUCT_FLOOR_PANELS.includes(p) ? 'structure' : 'an inspection item'}`,
+    isNonStructureFlagClass(p) === !STRUCT_FLOOR_PANELS.includes(p));
+  for (const p of ['BONNET', 'FRONT_BUMPER', 'OTHER', null, undefined, 'UNKNOWN']) ok(`X1: ${p} is not a flag-class inspection item`, isNonStructureFlagClass(p) === false);
+  // A spare wheel / tyre mobility kit never reaches this line: seed Rule 1 (wheel-net) skips any "…wheel…" part.
+  const spare = seed([{ panelId: 'SPARE_WHEEL', partName: 'Spare wheel', weight: 'high', reason: inspectReason }]);
+  ok('X1: Spare wheel is skipped by the wheel-net rule (no seed line at all)', !/Spare wheel/.test(spare));
+  ok('X1: SPARE_WHEEL is still classed an inspection item (for any other name)', isNonStructureFlagClass('SPARE_WHEEL') === true);
+  // A high flag that is not flag-class keeps the generic line (out of X1 scope).
+  const other = seed([{ panelId: 'FRONT_BUMPER', partName: 'front bumper', weight: 'high', reason: 'bumper read as displaced', _bumperOffContradiction: true }]);
+  ok('X1: a non-flag-class high flag keeps the generic line (unchanged)', other.includes(STRUCT_LINE('front bumper')));
+  // The airbag SRS line still wins over X1 (its branch sits first).
+  const srs = seed([{ panelId: 'AIRBAG', partName: 'SRS airbag (deployed)', weight: 'high', reason: 'x', _srsExtentFloor: true }]);
+  ok('X1: the SRS airbag line is unchanged', srs.includes('Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.'));
+  // Keyed on the one owner, not a string.
+  ok('X1: keyed on isStructureFloorPanel from lib/structureFloor.mjs', partsSrc.includes("import { isStructureFloorPanel } from './structureFloor.mjs';")
+    && /export function isNonStructureFlagClass\(panelId\) \{\s*if \(!panelId \|\| isStructureFloorPanel\(panelId\)\) return false;/.test(partsSrc));
+  const iSrs = partsSrc.indexOf('} else if (flag._srsExtentFloor) {');
+  const iX1 = partsSrc.indexOf("} else if (flag.weight === 'high' && isNonStructureFlagClass(pid)) {");
+  const iGen = partsSrc.indexOf("} else if (flag.weight === 'high') {");
+  ok('X1: the inspection-item branch sits after the SRS branch and before the generic one', iSrs > 0 && iSrs < iX1 && iX1 < iGen);
 }
 
 console.log(`\nflag-class-floor: ${pass} passed, ${fail} failed`);

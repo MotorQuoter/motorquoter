@@ -559,7 +559,9 @@ console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Se
   const GENERIC = "seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;";
   ok('seed: a targeted branch keyed on the SRS flag marker (_srsExtentFloor) seeds Vincent\'s wording', seedSrc.includes('} else if (flag._srsExtentFloor) {') && seedSrc.includes(SRS_LINE));
   ok('seed: the SRS branch sits BEFORE the generic high-weight branch (so the airbag never falls to it)', seedSrc.indexOf('} else if (flag._srsExtentFloor) {') > 0 && seedSrc.indexOf('} else if (flag._srsExtentFloor) {') < seedSrc.indexOf("} else if (flag.weight === 'high') {"));
-  ok('seed: the generic high-weight line is UNCHANGED for every other part', seedSrc.includes(GENERIC));
+  // batch 152 X1: the generic line now serves structure panels and non-flag-class high flags; non-structure
+  // flag-class items get "inspection item" (pinned in validate-flag-class-floor). The string itself is unchanged.
+  ok('seed: the generic high-weight line is UNCHANGED (structure panels + non-flag-class high flags)', seedSrc.includes(GENERIC));
   ok('route: seeds through the one owner and keeps no inline copy', route.includes('seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired })') && !route.includes('seedItem ='));
   ok('route: the SRS flag carries the marker the branch keys on', route.includes('reason: srsDeploymentNote(),') && /reason: srsDeploymentNote\(\),\s*_srsExtentFloor: true,/.test(route));
   const rendered = 'Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.';

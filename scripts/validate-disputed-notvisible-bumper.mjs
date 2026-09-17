@@ -3,6 +3,13 @@
 //   V2 — zero-rule B is gone: a panel no photo shows is flagged, never charged, whatever its neighbours.
 //   V3 — the §4 note says "torn away" only when the bumper is read as ABSENT.
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-disputed-notvisible-bumper.mjs
+//
+// RULINGS (Vincent, 17 Sep — batch 152), locked by the tests below:
+//   - V1 STAYS AS BUILT: damaged > clean is charged with the "photos disagree" note; the buyer strikes the
+//     phantoms. Corpus seen: CK75ONW tailgate real; AMZ3790 rear bumper + SF69YBB bonnet phantom by ground
+//     truth; SF69YBB wing + SA26KVT windscreen unknown.
+//   - Ties and minorities (damaged <= clean): NO CHANGE — they stay uncosted ("V1: a tie ..." / "a minority ...").
+//   - V3 `aperture` and `severe` sentences APPROVED as built (pinned verbatim below).
 import { readFileSync } from 'fs';
 import { disagreeMajorityRows, DISAGREE_MAJORITY_EXCLUDED, buildBuyerFlags } from '../lib/parts.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
@@ -94,6 +101,8 @@ console.log('\n-- V3: "torn away" only when the bumper is read as absent --');
   const absent = bumperLimitReason('front', 'wing', 'absent');
   const aperture = bumperLimitReason('front', 'wing', 'aperture');
   const severe = bumperLimitReason('rear', 'quarter panel', 'severe');
+  ok('V3 ruling: aperture sentence approved verbatim', aperture === 'The front bumper area is open on this side — part of the bumper, its trim or the panel next to it is displaced or missing. Whether the wing behind it is also damaged cannot be fully seen in these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
+  ok('V3 ruling: severe sentence approved verbatim', severe === 'The rear bumper is badly damaged on this side. Whether the quarter panel behind it is also damaged cannot be fully seen in these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
   ok('V3: absent keeps the batch 103 §4 wording', absent.startsWith('The front bumper is torn away on this side.'));
   ok('V3: aperture never says "torn away"', !/torn away/i.test(aperture) && /open on this side/.test(aperture));
   ok('V3: severe never says "torn away"', !/torn away/i.test(severe) && /badly damaged/.test(severe));
