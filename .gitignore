@@ -56,4 +56,10 @@ next-env.d.ts
 # Replay harness fixtures — local, regenerable from the DB via scripts/capture-fixture.mjs
 # while lot-images/DB retention holds (photos ~7wk+ verified). Not committed (binary photos +
 # large baselines would bloat the repo). Re-capture on a fresh machine before replaying.
-/fixtures
+# batch 154 T1: Vincent's ground-truth labels ARE tracked (fixtures/<LOT>/ground-truth.json only) — the
+# accuracy scorecard's labels must not live on one disk. Git cannot re-include a file under an ignored
+# DIRECTORY, so the contents are ignored level by level and only the label file is negated.
+/fixtures/*
+!/fixtures/*/
+/fixtures/*/*
+!/fixtures/*/ground-truth.json

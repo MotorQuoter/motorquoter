@@ -1,0 +1,30 @@
+{
+  "lot": "CK75ONW",
+  "labelledBy": "Vincent",
+  "labelledOn": "2026-09-17",
+  "panels": {
+    "BOOT_LID": {
+      "label": "damaged",
+      "source": "Vincent 17 Sep 2026",
+      "note": "tailgate — replace"
+    },
+    "BONNET": {
+      "label": "damaged",
+      "source": "Vincent 17 Sep 2026"
+    },
+    "REAR_QUARTER": {
+      "label": "clean",
+      "source": "Vincent 17 Sep 2026",
+      "note": "neither quarter damaged"
+    },
+    "FRONT_WING": {
+      "label": "clean",
+      "source": "Vincent 17 Sep 2026"
+    },
+    "SPARE_WHEEL": {
+      "label": "clean",
+      "source": "Vincent 17 Sep 2026",
+      "note": "the car has a tyre mobility kit, not a spare"
+    }
+  }
+}

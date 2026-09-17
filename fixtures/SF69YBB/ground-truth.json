@@ -1,0 +1,41 @@
+{
+  "lot": "SF69YBB",
+  "labelledBy": "Vincent",
+  "labelledOn": "2026-09-08",
+  "panels": {
+    "FRONT_BUMPER": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "GRILLE": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "SIDE_SKIRT": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "REAR_BUMPER": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "FRONT_DOOR": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026",
+      "note": "bottom split and buckled"
+    },
+    "REAR_DOOR": {
+      "label": "damaged",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026",
+      "note": "bottom split and buckled"
+    },
+    "BONNET": {
+      "label": "clean",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "REAR_QUARTER": {
+      "label": "clean",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    }
+  }
+}

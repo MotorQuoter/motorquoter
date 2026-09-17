@@ -1,0 +1,76 @@
+{
+  "lot": "AMZ3790",
+  "labelledBy": "Vincent",
+  "labelledOn": "2026-09-15",
+  "panels": {
+    "FRONT_BUMPER": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "GRILLE": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "BONNET": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "SLAM_PANEL": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "FRONT_WING": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "FOG_LAMP": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026",
+      "count": 2
+    },
+    "WINDSCREEN": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026",
+      "note": "Copart-ringed chip"
+    },
+    "HEADLAMP": {
+      "label": "damaged",
+      "source": "Vincent 4 Sep / 15 Sep 2026",
+      "count": 1,
+      "note": "one absent, one serviceable"
+    },
+    "FRONT_DOOR": {
+      "label": "clean",
+      "source": "Vincent 15 Sep 2026",
+      "note": "\"AMZ door ok\""
+    },
+    "WHEEL": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026"
+    },
+    "TYRE": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026"
+    },
+    "REAR_BUMPER": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026",
+      "note": "rear end undamaged"
+    },
+    "REAR_QUARTER": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026",
+      "note": "rear end undamaged"
+    },
+    "BOOT_LID": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026",
+      "note": "rear end undamaged"
+    },
+    "REAR_LAMP": {
+      "label": "clean",
+      "source": "Vincent 4 Sep 2026",
+      "note": "rear end undamaged"
+    }
+  }
+}

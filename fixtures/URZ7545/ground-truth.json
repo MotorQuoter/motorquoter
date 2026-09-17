@@ -1,0 +1,12 @@
+{
+  "lot": "URZ7545",
+  "labelledBy": "Vincent",
+  "labelledOn": "2026-09-15",
+  "panels": {
+    "WINDSCREEN": {
+      "label": "damaged",
+      "source": "Vincent 15 Sep 2026",
+      "note": "broken by the airbag"
+    }
+  }
+}
