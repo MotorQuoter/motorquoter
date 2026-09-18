@@ -549,7 +549,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
       doc.setTextColor(255, 220, 200);
-      doc.text(`Adjusted by you - engine estimate £${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 18);
+      // batch 159 T2: "engine" reads as the motor to a buyer — this is OUR figure.
+      doc.text(`Adjusted by you - we assessed £${Number(partsSum).toLocaleString('en-GB')}`, MARGIN + 4, y + 18);
     } else if (discardedLines.length) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);

@@ -703,7 +703,8 @@ export default function SalvageSuccessPage() {
                 <div className="repair-banner-value">£{Number(edited.partsSum).toLocaleString('en-GB')}</div>
                 {edited.applied && (
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 4 }}>
-                    Adjusted by you — engine estimate £{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}
+                    {/* batch 159 T2: "engine" reads as the motor to a buyer — this is OUR figure. */}
+                    Adjusted by you — we assessed £{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}
                   </div>
                 )}
               </div>
@@ -1006,12 +1007,6 @@ export default function SalvageSuccessPage() {
                           {parts.map((p, i) => { const c = costCells(p); const struck = !!p._struck; const strikeSt = struck ? { textDecoration: 'line-through' } : null; return (
                             <tr key={p._rowKey || i} style={struck ? { opacity: 0.5 } : undefined}>
                               <td style={{ ...colSt('left'), ...strikeSt }}>
-                                {ledgerEditable && editMode && (
-                                  <button type="button" onClick={() => toggleStrike(p._rowKey)} title={struck ? 'Restore this line' : 'Remove this line from the repair total'}
-                                    style={{ marginRight: 8, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: struck ? '#4ade80' : '#f87171', cursor: 'pointer', textDecoration: 'none', display: 'inline-block' }}>
-                                    {struck ? '↺' : '✕'}
-                                  </button>
-                                )}
                                 {p.name}
                                 {/* batch 158 A2 (Vincent, 18 Sep) — EDIT a line, not only strike or add it.
                                     Repair ↔ replace re-prices from the code-owned grid (lib/priceBand.mjs) at
@@ -1020,23 +1015,39 @@ export default function SalvageSuccessPage() {
                                     never lost — it is shown greyed and ↺ restores it, because the amend is only
                                     a view-time recompute of an untouched ledger. The action choice appears only
                                     where the grid prices the panel; otherwise the amount override stands alone. */}
-                                {ledgerEditable && editMode && !struck && !p._codeLabour && (() => {
+                                {/* batch 159 T3 (Vincent: "There is NO edit button") — the controls now sit on
+                                    their OWN LINE under the part name, never glued to it, and they are labelled.
+                                    The old 11px dim pill read as part of the name ("Rear bumperedit") when the
+                                    page was printed. Orange outline, 13px, 32px touch target, wraps at 480px. */}
+                                {ledgerEditable && editMode && !p._codeLabour && (() => {
                                   const cap = amendableRow(p, assessment?._priceBandKey ?? null);
                                   const am = amendOf(p._rowKey);
                                   const open = amendOpen === p._rowKey;
+                                  const ctl = (extra = {}) => ({
+                                    padding: '6px 12px', minHeight: 32, fontSize: 13, fontWeight: 700, lineHeight: 1.4,
+                                    background: 'transparent', border: '1.5px solid var(--orange)', borderRadius: 8,
+                                    color: 'var(--orange)', cursor: 'pointer', textDecoration: 'none', ...extra,
+                                  });
                                   return (
-                                    <span style={{ textDecoration: 'none', fontWeight: 400 }}>
+                                    <div style={{ textDecoration: 'none', fontWeight: 400, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                      <button type="button" onClick={() => toggleStrike(p._rowKey)}
+                                        title={struck ? 'Put this line back in the repair total' : 'Take this line out of the repair total'}
+                                        style={ctl({ borderColor: struck ? '#4ade80' : '#f87171', color: struck ? '#4ade80' : '#f87171' })}>
+                                        {struck ? '↺ Restore' : '✕ Remove'}
+                                      </button>
+                                      {!struck && (
                                       <button type="button" onClick={() => { setAmendOpen(open ? null : p._rowKey); setAmendDraft(''); }}
                                         title="Change repair/replace, or enter your own figure"
-                                        style={{ marginLeft: 8, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: am ? 'var(--orange)' : 'var(--text-dim)', cursor: 'pointer' }}>
-                                        {am ? 'edited' : 'edit'}
+                                        style={ctl(am ? { background: 'var(--orange)', color: '#fff' } : {})}>
+                                        {am ? 'Changed — edit' : 'Change'}
                                       </button>
-                                      {am && (
-                                        <button type="button" onClick={() => clearAmend(p._rowKey)} title="Restore the original figure"
-                                          style={{ marginLeft: 4, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: '#4ade80', cursor: 'pointer' }}>↺</button>
+                                      )}
+                                      {am && !struck && (
+                                        <button type="button" onClick={() => clearAmend(p._rowKey)} title="Restore our original figure"
+                                          style={ctl({ borderColor: '#4ade80', color: '#4ade80' })}>↺ Undo</button>
                                       )}
                                       {open && (
-                                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                        <div style={{ flexBasis: '100%', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                                           {cap.action.map(a => (
                                             <button key={a} type="button" onClick={() => { putAmend(p._rowKey, { action: a }); setAmendOpen(null); }}
                                               disabled={a === p.action}
@@ -1054,13 +1065,13 @@ export default function SalvageSuccessPage() {
                                         </div>
                                       )}
                                       {p._amended && (
-                                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                                        <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
                                           {p._amended.kind === 'amount' ? 'your figure' : `changed to ${p._amended.toAction}`}
                                           {' · was '}
                                           <span style={{ textDecoration: 'line-through' }}>£{Number(p._amended.from).toLocaleString('en-GB')}</span>
                                         </div>
                                       )}
-                                    </span>
+                                    </div>
                                   );
                                 })()}
                                 {/* batch 127 — the labour range and the second-hand comparison (spec §6 + item 4, wording approved
@@ -1078,13 +1089,14 @@ export default function SalvageSuccessPage() {
                                 {p._lampMandated && !struck && p._rowKey === firstLampKey && engineLampType && (
                                   <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, textDecoration: 'none' }}>
                                     {edited?.lampTypeCorrection
-                                      ? <>Type: {lampTypeLabel(edited.lampTypeCorrection.type)} — corrected by you (engine: {lampTypeLabel(engineLampType)}, {lampSourceText[engineLampSource] || 'engine'})</>
-                                      : <>Type: {lampTypeLabel(engineLampType)} — {lampSourceText[engineLampSource] || 'engine'}</>}
+                                      ? <>Type: {lampTypeLabel(edited.lampTypeCorrection.type)} — corrected by you (we assessed: {lampTypeLabel(engineLampType)}, {lampSourceText[engineLampSource] || 'assumed'})</>
+                                      : <>Type: {lampTypeLabel(engineLampType)} — {lampSourceText[engineLampSource] || 'assumed'}</>}
                                     {ledgerEditable && editMode && (
                                       <select value={editLampType ?? ''} onChange={e => setEditLampType(e.target.value || null)}
                                         title="Correct the headlamp type if the inspection shows a different unit"
                                         style={{ marginLeft: 8, fontSize: 11, background: 'var(--bg3)', color: 'var(--text)', border: '1px solid var(--border-dim)', borderRadius: 6, padding: '1px 4px' }}>
-                                        <option value="">Keep engine type</option>
+                                        {/* batch 159 T2 (Vincent): a buyer reads "engine" as the motor. This is OUR assessment. */}
+                                        <option value="">As assessed — {lampTypeLabel(engineLampType)}</option>
                                         {LAMP_TYPES.map(t => <option key={t} value={t}>{lampTypeLabel(t)} (£{HEADLAMP_BANDS[t]} per unit)</option>)}
                                       </select>
                                     )}
@@ -1171,11 +1183,11 @@ export default function SalvageSuccessPage() {
                       <div className="field-key" style={{ marginBottom: 0 }}>Adjust This Ledger</div>
                       <button type="button" onClick={() => setEditMode(m => !m)}
                         style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, background: editMode ? 'var(--orange)' : 'transparent', border: '1.5px solid var(--orange)', borderRadius: 8, color: editMode ? '#fff' : 'var(--orange)', cursor: 'pointer' }}>
-                        {editMode ? 'Done' : 'Edit'}
+                        {editMode ? 'Done' : 'Adjust ledger'}
                       </button>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
-                      Strike a line you can confirm is sound on inspection, add one we couldn&apos;t see, or edit one — switch a panel between repair and replace, or enter your own figure. The repair total, margins, break-even and bid ceilings all update. Nothing is deleted — struck lines stay visible and ↺ restores our figure.
+                      Press <b>Adjust ledger</b> and every line gets its own <b>Change</b> and <b>Remove</b> buttons. <b>Change</b> switches a panel between repair and replace — re-priced from our parts grid — or takes your own figure instead. <b>Remove</b> takes a line out if you can confirm it is sound on inspection, and you can add a line we couldn&apos;t see. The repair total, margins, break-even and bid ceilings all update. Nothing is deleted: removed lines stay visible and <b>↺ Undo</b> restores our figure.
                     </div>
                     {editMode && (
                       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -126,5 +126,37 @@ ok('B3: NO code rule about edges was added — the model grades and code keeps S
   !/swage|return flange/i.test(readFileSync(new URL('../lib/labour.mjs', import.meta.url), 'utf8'))
   && !/swage|return flange/i.test(readFileSync(new URL('../lib/parts.mjs', import.meta.url), 'utf8')));
 
+// ── batch 159 T2 + T3 — the buyer-facing controls and wording ──────────────────────────
+console.log('\n-- batch 159 T2/T3: wording and the per-line controls --');
+{
+  const page = readFileSync(new URL('../app/salvage/success/page.js', import.meta.url), 'utf8');
+  const pdf  = readFileSync(new URL('../app/api/salvage/pdf/route.js', import.meta.url), 'utf8');
+  // T2 — a buyer reads "engine" as the motor. Every buyer-facing use that meant OUR assessment is gone.
+  ok('T2: the lamp picklist says "As assessed", not "Keep engine type"',
+    page.includes('As assessed — {lampTypeLabel(engineLampType)}') && !page.includes('Keep engine type'));
+  ok('T2: the corrected-lamp line says "we assessed", not "engine:"',
+    page.includes('corrected by you (we assessed:') && !page.includes('corrected by you (engine:'));
+  ok('T2: the repair banner says "we assessed" on BOTH surfaces',
+    page.includes('Adjusted by you — we assessed') && pdf.includes('Adjusted by you - we assessed'));
+  ok('T2: no buyer-facing "engine estimate" is left on either surface',
+    !page.includes('engine estimate') && !pdf.includes('engine estimate'));
+  ok('T2: the lamp-source fallback reads "assumed", not "engine"',
+    !/lampSourceText\[engineLampSource\] \|\| 'engine'/.test(page));
+  // T3 — the controls are labelled, sized, and on their own line.
+  ok('T3: every costed line offers a labelled Change button', page.includes("{am ? 'Changed — edit' : 'Change'}"));
+  ok('T3: the strike control is labelled, not a bare glyph',
+    page.includes("{struck ? '↺ Restore' : '✕ Remove'}") && !page.includes("{struck ? '↺' : '✕'}"));
+  ok('T3: the controls sit on their own line, not glued to the part name',
+    /marginTop: 6, display: 'flex', flexWrap: 'wrap'/.test(page));
+  ok('T3: 13px text and a 32px touch target, in the orange outline style',
+    /minHeight: 32, fontSize: 13[\s\S]{0,120}border: '1\.5px solid var\(--orange\)'/.test(page));
+  ok('T3: the bottom button reads "Adjust ledger" and becomes "Done"',
+    page.includes("{editMode ? 'Done' : 'Adjust ledger'}"));
+  ok('T3: the helper text explains repair/replace and your own figure',
+    /Press <b>Adjust ledger<\/b>[\s\S]{0,300}repair and replace[\s\S]{0,120}your own figure/.test(page));
+  // The PDF is generated from the ledger rows, so it can never print a control.
+  ok('T3: the PDF prints no control text', !/'Change'|✕ Remove|↺ Restore|'edit'/.test(pdf));
+}
+
 console.log(`\nbatch158: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
