@@ -1,17 +1,20 @@
-// validate-disputed-notvisible-bumper.mjs — batch 151 (CK75ONW, stored run 16 Sep). £0, pure.
-//   V1 — a disputed non-quarter COST panel with damaged > clean is costed at band, note kept for the buyer.
+// validate-disputed-notvisible-bumper.mjs — batch 151 (CK75ONW, stored run 16 Sep), V1 section rewritten
+// by batch 156 T0. £0, pure.
+//   V1 — REVERTED (batch 156 T0). A disputed panel is FLAGGED, NOT COSTED. The tests below assert the rule
+//        is gone: no owner, no call site, no buyer-flag carve-out.
 //   V2 — zero-rule B is gone: a panel no photo shows is flagged, never charged, whatever its neighbours.
 //   V3 — the §4 note says "torn away" only when the bumper is read as ABSENT.
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-disputed-notvisible-bumper.mjs
 //
-// RULINGS (Vincent, 17 Sep — batch 152), locked by the tests below:
-//   - V1 STAYS AS BUILT: damaged > clean is charged with the "photos disagree" note; the buyer strikes the
-//     phantoms. Corpus seen: CK75ONW tailgate real; AMZ3790 rear bumper + SF69YBB bonnet phantom by ground
-//     truth; SF69YBB wing + SA26KVT windscreen unknown.
-//   - Ties and minorities (damaged <= clean): NO CHANGE — they stay uncosted ("V1: a tie ..." / "a minority ...").
+// RULINGS:
+//   - V1 REVERTED (Vincent, 18 Sep: "Yes revert"). The batch 155 scorecard measured it over 16 labelled lots:
+//     5 panels Vincent labels CLEAN became phantoms (+£2,685) and it gained ZERO hits. The batch 152 ruling
+//     that V1 "stays as built" is SUPERSEDED. Ties and minorities were never costed and still are not.
+//   - V2 and V3 are UNCHANGED and still locked below.
 //   - V3 `aperture` and `severe` sentences APPROVED as built (pinned verbatim below).
 import { readFileSync } from 'fs';
-import { disagreeMajorityRows, DISAGREE_MAJORITY_EXCLUDED, buildBuyerFlags } from '../lib/parts.mjs';
+import { buildBuyerFlags } from '../lib/parts.mjs';
+import * as PARTS from '../lib/parts.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
 
@@ -22,59 +25,31 @@ const DISPLAY = { BOOT_LID: 'Boot lid', BONNET: 'Bonnet', WINDSCREEN: 'Windscree
 const flag = (panelId) => ({ panelId, partName: DISPLAY[panelId] || panelId, zone: 'rear', weight: 'medium', reason: 'the listing photographs disagree on this part', _amalgDisagree: true });
 const twin = (panelId, sev) => ({ panelId, independentlyVisible: false, _amalgDisagree: true, _ledgerSeverity: sev });
 
-// ── V1 ──────────────────────────────────────────────────────────────────────────────────────────────
-console.log('\n-- V1: a majority-damaged disputed panel is costed --');
+// ── V1 ─ REVERTED (batch 156 T0) ────────────────────────────────────────────────
+console.log('\n-- V1 REVERTED: a disputed panel is flagged, not costed --');
 {
-  // CK75ONW verbatim: _pvVotes.BOOT_LID = {views:3, damaged:2, clean:1, branch:"disagree"}, LUXURY band, no model row.
-  const flags = [flag('BOOT_LID')];
-  const pvVotes = { BOOT_LID: { views: 3, resolving: 3, damaged: 2, clean: 1, notVisible: 0, branch: 'disagree', severeVotes: 1 } };
-  const lux = PANEL_PRICE_TABLE.BOOT_LID.Luxury;
-  for (const sev of ['SEVERE', 'MODERATE']) {
-    const f = [flag('BOOT_LID')];
-    const { rows } = disagreeMajorityRows({ flags: f, costedParts: [twin('BOOT_LID', sev)], pvVotes, gatedParts: [], bandKey: 'Luxury', display: DISPLAY });
-    ok(`V1: CK75ONW tailgate (${sev}) → one row at LUXURY band £${lux.oem}/£${lux.used}`,
-      rows.length === 1 && rows[0].oem === lux.oem && rows[0].used === lux.used && rows[0].panelId === 'BOOT_LID');
-    ok(`V1: ${sev} → ${sev === 'SEVERE' ? 'replace' : 'repair'} (grade picks, as for other panels)`, rows[0].action === (sev === 'SEVERE' ? 'replace' : 'repair'));
-    ok(`V1: ${sev} row is NOT a £0-rule row (so grade and panel work apply)`, rows[0]._zeroRule === undefined && rows[0]._disagreeCosted === true);
-    ok(`V1: ${sev} — the disagree flag is kept and marked`, f[0]._amalgDisagree === true && f[0]._disagreeMajorityCosted === true);
-    // The grade then owns the price exactly as for any body panel.
-    const g = [{ ...rows[0] }];
-    applyGradeOwnsAction(g, new Map([['BOOT_LID', sev]]));
-    ok(`V1: ${sev} after applyGradeOwnsAction → ${sev === 'SEVERE' ? 'replace, part kept' : 'repair, £0 part (panel work carries it)'}`,
-      sev === 'SEVERE' ? (g[0].action === 'replace' && g[0].used === lux.used) : (g[0]._repairNoPart === true && g[0].used === null));
-  }
-  // Ties, minorities, exclusions.
-  const run = (pid, d, c, extra = {}) => {
-    const f = [flag(pid)];
-    const r = disagreeMajorityRows({ flags: f, costedParts: [twin(pid, 'MODERATE')], pvVotes: { [pid]: { damaged: d, clean: c, branch: 'disagree' } },
-      gatedParts: extra.gatedParts || [], bandKey: 'Executive', display: DISPLAY });
-    return { r, f };
-  };
-  ok('V1: a tie (1d/1c) is NOT costed (report only)', run('BOOT_LID', 1, 1).r.rows.length === 0);
-  ok('V1: a minority (1d/3c) is NOT costed (report only)', run('FRONT_DOOR', 1, 3).r.rows.length === 0);
-  ok('V1: a minority leaves the flag unmarked', !run('FRONT_DOOR', 1, 3).f[0]._disagreeMajorityCosted);
-  ok('V1: the rear quarter is excluded (Q4 rule owns it)', DISAGREE_MAJORITY_EXCLUDED.includes('REAR_QUARTER') && run('REAR_QUARTER', 3, 1).r.rows.length === 0);
-  const already = run('BONNET', 3, 2, { gatedParts: [{ panelId: 'BONNET', name: 'Bonnet', oem: 300, used: 165, _disagreeCosted: true }] });
-  ok('V1: a panel already in the money (model row the gate kept) is not doubled', already.r.rows.length === 0);
-  const repaired = run('BONNET', 3, 2, { gatedParts: [{ panelId: 'BONNET', name: 'Bonnet', oem: null, used: null, _repairNoPart: true }] });
-  ok('V1: a repaired panel (£0 part) counts as in the money too', repaired.r.rows.length === 0);
-  ok('V1: a flag-class panel is never costed', run('AIRBAG', 2, 1).r.rows.length === 0);
-  ok('V1: no band → no row', disagreeMajorityRows({ flags: [flag('BONNET')], costedParts: [], pvVotes: { BONNET: { damaged: 3, clean: 1, branch: 'disagree' } }, gatedParts: [], bandKey: null }).rows.length === 0);
-  const two = [flag('BONNET'), flag('BONNET')];
-  ok('V1: two disagree flags for one panel (G-split) → ambiguous, not costed',
-    disagreeMajorityRows({ flags: two, costedParts: [], pvVotes: { BONNET: { damaged: 3, clean: 1, branch: 'disagree' } }, gatedParts: [], bandKey: 'Executive' }).rows.length === 0);
-  // SA26KVT: a non-body part (windscreen) is replaced — the band figure is a part, glass has no repair path.
-  const ws = disagreeMajorityRows({ flags: [flag('WINDSCREEN')], costedParts: [twin('WINDSCREEN', 'MODERATE')], pvVotes: { WINDSCREEN: { damaged: 3, clean: 2, branch: 'disagree' } }, gatedParts: [], bandKey: 'Prestige', display: DISPLAY });
-  ok('V1: SA26KVT windscreen (MODERATE, 3d/2c) → replace at £480/£265', ws.rows.length === 1 && ws.rows[0].action === 'replace' && ws.rows[0].oem === 480 && ws.rows[0].used === 265);
-  // The buyer keeps the note: buildBuyerFlags would drop an _amalgDisagree flag with no model row.
-  const buyer = buildBuyerFlags({ _flaggedParts: [{ ...flags[0], _disagreeMajorityCosted: true }, flag('FRONT_DOOR')], _preGateParts: [{ panelId: 'FRONT_BUMPER' }] });
-  ok('V1: the costed disputed panel survives the buyer-flag filter', buyer.some((f) => f.panelId === 'BOOT_LID'));
-  ok('V1: an uncosted disputed panel with no model row is still filtered as before', !buyer.some((f) => f.panelId === 'FRONT_DOOR'));
-  // Wiring.
-  const v1 = route.indexOf('disagreeMajorityRows({');
-  ok('V1: route calls the owner once', v1 > 0 && route.indexOf('disagreeMajorityRows({', v1 + 1) === -1);
-  ok('V1: before the £0-rule pass builds damagedPanels (so it counts for the structure floor)', v1 < route.indexOf('const damagedPanels = new Set(gatedParts.filter('));
-  ok('V1: before the labour block grades rows', v1 < route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)'));
+  const parts = readFileSync(new URL('../lib/parts.mjs', import.meta.url), 'utf8');
+  ok('V1 gone: lib/parts.mjs exports no disagreeMajorityRows', PARTS.disagreeMajorityRows === undefined);
+  ok('V1 gone: lib/parts.mjs exports no DISAGREE_MAJORITY_EXCLUDED', PARTS.DISAGREE_MAJORITY_EXCLUDED === undefined);
+  ok('V1 gone: no owner is left in the source', !/function disagreeMajorityRows/.test(parts));
+  ok('V1 gone: route.js never calls it and logs no [DISAGREE MAJORITY]',
+    !route.includes('disagreeMajorityRows({') && !route.includes('[DISAGREE MAJORITY]'));
+  ok('V1 gone: the _disagreeMajorityCosted mark is set nowhere', !parts.includes('_disagreeMajorityCosted = true'));
+  // The buyer-flag carve-out is gone with it: a disputed flag whose panel the main call never implicated
+  // is dropped again, EVEN IF something stamped the old mark on it.
+  const marked = buildBuyerFlags({
+    _flaggedParts: [{ ...flag('BOOT_LID'), _disagreeMajorityCosted: true }, flag('FRONT_DOOR')],
+    _preGateParts: [{ panelId: 'FRONT_BUMPER' }],
+  });
+  ok('V1 gone: the carve-out no longer rescues a disputed flag', !marked.some((f) => f.panelId === 'BOOT_LID'));
+  ok('V1 gone: an uncosted disputed panel is filtered as before', !marked.some((f) => f.panelId === 'FRONT_DOOR'));
+  // Everything the revert must NOT touch.
+  const corroborated = buildBuyerFlags({ _flaggedParts: [flag('BOOT_LID')], _preGateParts: [{ panelId: 'BOOT_LID' }] });
+  ok('UNTOUCHED: a disputed flag the main call implicated still survives', corroborated.some((f) => f.panelId === 'BOOT_LID'));
+  const q4 = buildBuyerFlags({ _flaggedParts: [{ ...flag('REAR_QUARTER'), _q4Declined: true }], _preGateParts: [{ panelId: 'FRONT_BUMPER' }] });
+  ok('UNTOUCHED: the batch 132 Q4-declined carve-out still exempts a quarter flag', q4.some((f) => f.panelId === 'REAR_QUARTER'));
+  ok('UNTOUCHED: the gate still keeps a disputed panel the MODEL costed (_disagreeCosted)',
+    parts.includes('_disagreeCosted: true') && parts.includes('verdict._amalgDisagree'));
 }
 
 // ── V2 ──────────────────────────────────────────────────────────────────────────────────────────────

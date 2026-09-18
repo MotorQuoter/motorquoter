@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
-  reconcileFlagMoneyWording, disagreeMajorityRows,
+  reconcileFlagMoneyWording,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -5097,18 +5097,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const ZERO_RULE_STRUCT_FLOOR = STRUCT_FLOOR_GBP;   // £500 — one owner (lib/labour.mjs), money unchanged
     // batch 151 V2: ZERO_RULE_ADJACENCY (the family-B neighbour set) is gone with the rule — nothing reads it.
 
-    // ── batch 151 V1 — a disputed non-quarter panel with damaged > clean is COSTED at band ─────────────────
-    // Runs BEFORE the £0-rule pass so the new rows count as costed damage for the batch 147 X2 structure
-    // floor (damagedPanels below), exactly as a model row the gate kept would. One owner: lib/parts.mjs.
-    {
-      const _v1 = disagreeMajorityRows({ flags: coreObs.flaggedParts, costedParts: coreObs.costedParts,
-        pvVotes: pvResult.pvVotesMap, gatedParts, bandKey, display: PANEL_DISPLAY });
-      for (const r of _v1.rows) {
-        gatedParts.push(r);
-        console.log(`[DISAGREE MAJORITY] ${r.panelId} damaged ${r._votes.damaged} > clean ${r._votes.clean} → costed at band (${r._grade} → ${r.action}) oem £${r.oem} used £${r.used}; disagree note kept (batch 151 V1)`);
-      }
-      for (const k of _v1.skipped) console.log(`[DISAGREE MAJORITY] ${k.panelId} not costed — ${k.why}`);
-    }
+    // batch 156 T0: batch 151 V1 (disagreeMajorityRows — cost a disputed panel on a damaged majority) is
+    // REVERTED. It made 5 phantoms worth £2,685 on the 16-lot corpus and no hits. A disputed panel is
+    // flagged, not costed; the rear quarter keeps Q4. See lib/parts.mjs.
     {
       const alreadyCosted = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
       // batch 147 X2: costed damage = money in the total OR a repaired panel (batch 116 — its cost is
