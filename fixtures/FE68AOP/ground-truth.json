@@ -1,22 +1,22 @@
 {
-  "lot": "URZ7545",
+  "lot": "FE68AOP",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-18",
   "panels": {
     "FRONT_BUMPER": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "GRILLE": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "BONNET": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "SLAM_PANEL": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FRONT_WING": {
@@ -29,11 +29,10 @@
     },
     "FOG_LAMP": {
       "label": "clean",
-      "count": 2,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "RADIATOR_PACK": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FRONT_DOOR": {
@@ -41,7 +40,8 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_DOOR": {
-      "label": "clean",
+      "label": "damaged",
+      "note": "Slight scuff",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "SILL": {
@@ -61,17 +61,18 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_BUMPER": {
-      "label": "clean",
+      "label": "damaged",
+      "note": "bumper ripped off",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_LAMP": {
-      "label": "clean",
+      "label": "damaged",
+      "note": "one taillamp",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "WINDSCREEN": {
-      "label": "damaged",
-      "note": "broken by the airbag",
-      "source": "Vincent 15 Sep 2026"
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "ROOF": {
       "label": "clean",
@@ -106,31 +107,16 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "AIRBAG": {
-      "label": "damaged",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "SPARE_WHEEL": {
-      "label": "cannot-tell",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "PARCEL_SHELF": {
-      "label": "cannot-tell",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "EV_BATTERY_ZONE": {
-      "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "EV_BATTERY_PRESENCE": {
-      "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "BOOT_LID": {
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_QUARTER": {
-      "label": "clean",
+      "label": "damaged",
+      "note": "repairable",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_GLASS": {

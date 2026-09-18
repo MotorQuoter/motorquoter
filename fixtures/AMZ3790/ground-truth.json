@@ -1,7 +1,7 @@
 {
   "lot": "AMZ3790",
   "labelledBy": "Vincent",
-  "labelledOn": "2026-09-15",
+  "labelledOn": "2026-09-17",
   "panels": {
     "FRONT_BUMPER": {
       "label": "damaged",
@@ -23,26 +23,64 @@
       "label": "damaged",
       "source": "Vincent 4 Sep / 15 Sep 2026"
     },
-    "FOG_LAMP": {
-      "label": "damaged",
-      "source": "Vincent 4 Sep / 15 Sep 2026",
-      "count": 2
-    },
-    "WINDSCREEN": {
-      "label": "damaged",
-      "source": "Vincent 4 Sep / 15 Sep 2026",
-      "note": "Copart-ringed chip"
-    },
     "HEADLAMP": {
       "label": "damaged",
-      "source": "Vincent 4 Sep / 15 Sep 2026",
       "count": 1,
-      "note": "one absent, one serviceable"
+      "note": "one absent, one serviceable",
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "FOG_LAMP": {
+      "label": "damaged",
+      "count": 2,
+      "source": "Vincent 4 Sep / 15 Sep 2026"
+    },
+    "RADIATOR_PACK": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FRONT_DOOR": {
       "label": "clean",
-      "source": "Vincent 15 Sep 2026",
-      "note": "\"AMZ door ok\""
+      "note": "\"AMZ door ok\"",
+      "source": "Vincent 15 Sep 2026"
+    },
+    "REAR_DOOR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SILL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_SKIRT": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "DOOR_MIRROR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "REAR_BUMPER": {
+      "label": "clean",
+      "note": "rear end undamaged",
+      "source": "Vincent 4 Sep 2026"
+    },
+    "REAR_LAMP": {
+      "label": "clean",
+      "note": "rear end undamaged",
+      "source": "Vincent 4 Sep 2026"
+    },
+    "WINDSCREEN": {
+      "label": "clean",
+      "note": "Copart-ringed chip",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "ROOF": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "WHEEL": {
       "label": "clean",
@@ -52,25 +90,51 @@
       "label": "clean",
       "source": "Vincent 4 Sep 2026"
     },
-    "REAR_BUMPER": {
+    "REAR_PANEL": {
       "label": "clean",
-      "source": "Vincent 4 Sep 2026",
-      "note": "rear end undamaged"
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
-    "REAR_QUARTER": {
+    "REAR_STRUCTURE": {
       "label": "clean",
-      "source": "Vincent 4 Sep 2026",
-      "note": "rear end undamaged"
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_STRUCTURE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "DISPLACED_WHEEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "AIRBAG": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SPARE_WHEEL": {
+      "label": "cannot-tell",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "PARCEL_SHELF": {
+      "label": "cannot-tell",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "EV_BATTERY_PRESENCE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BOOT_LID": {
       "label": "clean",
-      "source": "Vincent 4 Sep 2026",
-      "note": "rear end undamaged"
+      "note": "rear end undamaged",
+      "source": "Vincent 4 Sep 2026"
     },
-    "REAR_LAMP": {
+    "REAR_QUARTER": {
       "label": "clean",
-      "source": "Vincent 4 Sep 2026",
-      "note": "rear end undamaged"
+      "note": "rear end undamaged",
+      "source": "Vincent 4 Sep 2026"
+    },
+    "REAR_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     }
   }
 }

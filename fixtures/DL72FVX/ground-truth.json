@@ -1,14 +1,15 @@
 {
-  "lot": "EA17HDN",
+  "lot": "DL72FVX",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-17",
   "panels": {
     "FRONT_BUMPER": {
       "label": "damaged",
+      "note": "minor damage top lower bumper",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "GRILLE": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BONNET": {
@@ -28,8 +29,7 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FOG_LAMP": {
-      "label": "damaged",
-      "count": 1,
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "RADIATOR_PACK": {
@@ -53,8 +53,8 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "DOOR_MIRROR": {
-      "label": "damaged",
-      "source": "Vincent 15 Sep 2026"
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SIDE_GLASS": {
       "label": "clean",
@@ -109,11 +109,19 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SPARE_WHEEL": {
-      "label": "cannot-tell",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "PARCEL_SHELF": {
-      "label": "damaged",
+      "label": "cannot-tell",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "EV_BATTERY_ZONE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "EV_BATTERY_PRESENCE": {
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BOOT_LID": {

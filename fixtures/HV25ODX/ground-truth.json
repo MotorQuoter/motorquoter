@@ -1,5 +1,5 @@
 {
-  "lot": "URZ7545",
+  "lot": "HV25ODX",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-18",
   "panels": {
@@ -24,11 +24,12 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "HEADLAMP": {
-      "label": "clean",
+      "label": "damaged",
+      "count": 1,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FOG_LAMP": {
-      "label": "clean",
+      "label": "damaged",
       "count": 2,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
@@ -56,10 +57,6 @@
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
-    "SIDE_GLASS": {
-      "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
     "REAR_BUMPER": {
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
@@ -70,8 +67,7 @@
     },
     "WINDSCREEN": {
       "label": "damaged",
-      "note": "broken by the airbag",
-      "source": "Vincent 15 Sep 2026"
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "ROOF": {
       "label": "clean",
@@ -90,14 +86,10 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FRONT_STRUCTURE": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_STRUCTURE": {
-      "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "SIDE_STRUCTURE": {
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
@@ -110,19 +102,11 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "SPARE_WHEEL": {
-      "label": "cannot-tell",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "PARCEL_SHELF": {
       "label": "cannot-tell",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "EV_BATTERY_ZONE": {
-      "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "EV_BATTERY_PRESENCE": {
-      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "BOOT_LID": {

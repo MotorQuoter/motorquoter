@@ -1,14 +1,14 @@
 {
-  "lot": "EA17HDN",
+  "lot": "DMZ4614",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-17",
   "panels": {
     "FRONT_BUMPER": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "GRILLE": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BONNET": {
@@ -20,16 +20,17 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FRONT_WING": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "HEADLAMP": {
       "label": "clean",
+      "count": 2,
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FOG_LAMP": {
-      "label": "damaged",
-      "count": 1,
+      "label": "clean",
+      "count": 2,
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "RADIATOR_PACK": {
@@ -37,24 +38,24 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FRONT_DOOR": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "REAR_DOOR": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SILL": {
-      "label": "clean",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SIDE_SKIRT": {
-      "label": "clean",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "DOOR_MIRROR": {
       "label": "damaged",
-      "source": "Vincent 15 Sep 2026"
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SIDE_GLASS": {
       "label": "clean",
@@ -77,11 +78,11 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "WHEEL": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "TYRE": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "REAR_PANEL": {
@@ -89,7 +90,7 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FRONT_STRUCTURE": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "REAR_STRUCTURE": {
@@ -97,11 +98,11 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SIDE_STRUCTURE": {
-      "label": "clean",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "DISPLACED_WHEEL": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "AIRBAG": {
@@ -113,7 +114,7 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "PARCEL_SHELF": {
-      "label": "damaged",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BOOT_LID": {

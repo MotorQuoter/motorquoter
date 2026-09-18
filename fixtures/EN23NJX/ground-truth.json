@@ -1,14 +1,14 @@
 {
-  "lot": "EA17HDN",
+  "lot": "EN23NJX",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-17",
   "panels": {
     "FRONT_BUMPER": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "GRILLE": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BONNET": {
@@ -25,11 +25,12 @@
     },
     "HEADLAMP": {
       "label": "clean",
+      "count": 2,
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "FOG_LAMP": {
-      "label": "damaged",
-      "count": 1,
+      "label": "clean",
+      "count": 2,
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "RADIATOR_PACK": {
@@ -53,8 +54,8 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "DOOR_MIRROR": {
-      "label": "damaged",
-      "source": "Vincent 15 Sep 2026"
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "SIDE_GLASS": {
       "label": "clean",
@@ -108,12 +109,8 @@
       "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
-    "SPARE_WHEEL": {
-      "label": "cannot-tell",
-      "source": "Vincent 2026-09-17 (labelling sheet)"
-    },
     "PARCEL_SHELF": {
-      "label": "damaged",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "BOOT_LID": {
@@ -121,7 +118,8 @@
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "REAR_QUARTER": {
-      "label": "clean",
+      "label": "damaged",
+      "note": "arch trim missing",
       "source": "Vincent 2026-09-17 (labelling sheet)"
     },
     "REAR_GLASS": {

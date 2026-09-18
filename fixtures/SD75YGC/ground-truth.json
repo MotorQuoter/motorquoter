@@ -1,5 +1,5 @@
 {
-  "lot": "URZ7545",
+  "lot": "SD75YGC",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-18",
   "panels": {
@@ -25,11 +25,6 @@
     },
     "HEADLAMP": {
       "label": "clean",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "FOG_LAMP": {
-      "label": "clean",
-      "count": 2,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "RADIATOR_PACK": {
@@ -70,19 +65,18 @@
     },
     "WINDSCREEN": {
       "label": "damaged",
-      "note": "broken by the airbag",
-      "source": "Vincent 15 Sep 2026"
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "ROOF": {
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "WHEEL": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "TYRE": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_PANEL": {
@@ -90,7 +84,7 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FRONT_STRUCTURE": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_STRUCTURE": {
@@ -102,23 +96,15 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "DISPLACED_WHEEL": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "AIRBAG": {
       "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
-    "SPARE_WHEEL": {
-      "label": "cannot-tell",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
-    "PARCEL_SHELF": {
-      "label": "cannot-tell",
-      "source": "Vincent 2026-09-18 (labelling sheet)"
-    },
     "EV_BATTERY_ZONE": {
-      "label": "clean",
+      "label": "cannot-tell",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "EV_BATTERY_PRESENCE": {

@@ -1,7 +1,7 @@
 {
   "lot": "SF69YBB",
   "labelledBy": "Vincent",
-  "labelledOn": "2026-09-08",
+  "labelledOn": "2026-09-18",
   "panels": {
     "FRONT_BUMPER": {
       "label": "damaged",
@@ -11,31 +11,119 @@
       "label": "damaged",
       "source": "Vincent 8-9 Jun / 8 Sep 2026"
     },
+    "BONNET": {
+      "label": "clean",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "SLAM_PANEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "FRONT_WING": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "HEADLAMP": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "FOG_LAMP": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "RADIATOR_PACK": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "FRONT_DOOR": {
+      "label": "damaged",
+      "note": "bottom split and buckled",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "REAR_DOOR": {
+      "label": "damaged",
+      "note": "bottom split and buckled",
+      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "SILL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
     "SIDE_SKIRT": {
       "label": "damaged",
       "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "DOOR_MIRROR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "SIDE_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_BUMPER": {
       "label": "damaged",
       "source": "Vincent 8-9 Jun / 8 Sep 2026"
     },
-    "FRONT_DOOR": {
-      "label": "damaged",
-      "source": "Vincent 8-9 Jun / 8 Sep 2026",
-      "note": "bottom split and buckled"
-    },
-    "REAR_DOOR": {
-      "label": "damaged",
-      "source": "Vincent 8-9 Jun / 8 Sep 2026",
-      "note": "bottom split and buckled"
-    },
-    "BONNET": {
+    "REAR_LAMP": {
       "label": "clean",
-      "source": "Vincent 8-9 Jun / 8 Sep 2026"
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "WINDSCREEN": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "ROOF": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "WHEEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "TYRE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "REAR_PANEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "FRONT_STRUCTURE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "REAR_STRUCTURE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "SIDE_STRUCTURE": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "DISPLACED_WHEEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "AIRBAG": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "SPARE_WHEEL": {
+      "label": "cannot-tell",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "PARCEL_SHELF": {
+      "label": "cannot-tell",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "REAR_QUARTER": {
       "label": "clean",
       "source": "Vincent 8-9 Jun / 8 Sep 2026"
+    },
+    "REAR_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     }
   }
 }

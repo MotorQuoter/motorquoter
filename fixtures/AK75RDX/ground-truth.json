@@ -1,11 +1,149 @@
 {
   "lot": "AK75RDX",
   "labelledBy": "Vincent",
-  "labelledOn": "2026-09-15",
+  "labelledOn": "2026-09-17",
   "panels": {
+    "FRONT_BUMPER": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "GRILLE": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "BONNET": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SLAM_PANEL": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "FRONT_WING": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "HEADLAMP": {
+      "label": "damaged",
+      "count": 1,
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "FOG_LAMP": {
+      "label": "damaged",
+      "count": 1,
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "RADIATOR_PACK": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
     "FRONT_DOOR": {
       "label": "damaged",
       "source": "Vincent 15 Sep 2026"
+    },
+    "REAR_DOOR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SILL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_SKIRT": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "DOOR_MIRROR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "REAR_BUMPER": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "REAR_LAMP": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "WINDSCREEN": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "ROOF": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "TYRE": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "REAR_PANEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "FRONT_STRUCTURE": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "REAR_STRUCTURE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SIDE_STRUCTURE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "DISPLACED_WHEEL": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "AIRBAG": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "SPARE_WHEEL": {
+      "label": "damaged",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "PARCEL_SHELF": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "EV_BATTERY_ZONE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "EV_BATTERY_PRESENCE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "BED_SIDE_L": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "BED_SIDE_R": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "BED_FLOOR": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "DROP_TAILGATE": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "CAB_REAR_PANEL": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "CAB_REAR_GLASS": {
+      "label": "clean",
+      "source": "Vincent 2026-09-17 (labelling sheet)"
     }
   }
 }

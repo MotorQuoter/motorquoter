@@ -1,5 +1,5 @@
 {
-  "lot": "URZ7545",
+  "lot": "YH23NVW",
   "labelledBy": "Vincent",
   "labelledOn": "2026-09-18",
   "panels": {
@@ -12,23 +12,24 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "BONNET": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "SLAM_PANEL": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FRONT_WING": {
-      "label": "clean",
+      "label": "damaged",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "HEADLAMP": {
-      "label": "clean",
+      "label": "damaged",
+      "count": 1,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "FOG_LAMP": {
-      "label": "clean",
+      "label": "damaged",
       "count": 2,
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
@@ -69,9 +70,8 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "WINDSCREEN": {
-      "label": "damaged",
-      "note": "broken by the airbag",
-      "source": "Vincent 15 Sep 2026"
+      "label": "clean",
+      "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "ROOF": {
       "label": "clean",
@@ -106,7 +106,7 @@
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "AIRBAG": {
-      "label": "damaged",
+      "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
     },
     "SPARE_WHEEL": {
