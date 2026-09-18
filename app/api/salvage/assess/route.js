@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
-  reconcileFlagMoneyWording, trimPanelOverlaps,
+  reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -163,11 +163,24 @@ export function bumperLimitReason(end, panelWord, why) {
 }
 
 // batch 150 Z1 — the rows the wheel checklist line may call "wheel/tyre damage already identified and costed".
-const WHEEL_NET_NAME_RE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
-const WHEEL_NET_EXCLUDED = new Set(['SPARE_WHEEL', 'DISPLACED_WHEEL']);
+// batch 158 A3 — THE NET IS KEYED ON THE PANEL, NOT ON THE WORD "WHEEL".
+// CK75ONW shipped: "Wheel/tyre damage already identified and costed (Wheel arch moulding)". A wheel arch
+// moulding is TRIM — it is not wheel or tyre damage, and calling it that misdescribes the lot to the buyer.
+// The name regex matched it because its DISPLAY NAME contains "wheel"; exactly six panel names do (WHEEL,
+// TYRE, DISPLACED_WHEEL, SPARE_WHEEL, WHEEL_ARCH_MOULDING, WHEEL_ARCH_LINER) and only two belong here. So a
+// row carrying a panelId is judged by its panelId — the batch 117 lesson: test the id, not the word. The
+// regex survives ONLY as the fallback for a model-written row with no panelId ("alloy wheel").
+export const WHEEL_NET_NAME_RE = /\b(?:wheel|tyre|tire|rim|alloy)\b/i;
+const WHEEL_NET_PANELS   = new Set([PANEL.WHEEL, PANEL.TYRE]);
+const WHEEL_NET_EXCLUDED = new Set([PANEL.SPARE_WHEEL, PANEL.DISPLACED_WHEEL,
+  PANEL.WHEEL_ARCH_MOULDING, PANEL.WHEEL_ARCH_LINER]);
+export function isWheelNetRow(p) {
+  if (!p) return false;
+  if (p.panelId) return WHEEL_NET_PANELS.has(p.panelId) && !WHEEL_NET_EXCLUDED.has(p.panelId);
+  return WHEEL_NET_NAME_RE.test(p.name || '');
+}
 export function wheelNetParts(rows) {
-  return (rows || []).filter(p => p && WHEEL_NET_NAME_RE.test(p.name || '')
-    && !WHEEL_NET_EXCLUDED.has(p.panelId)
+  return (rows || []).filter(p => isWheelNetRow(p)
     && !p._structFloor && p.action !== 'inspect'
     && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));
 }
@@ -4952,6 +4965,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     } else {
       console.log('[PRICE TABLE] no trade_average_valuation — all panels retain model figures (Q2 fallback)');
     }
+    // batch 158 A2 — persist the band the ledger was priced at. The buyer's Edit control re-prices a line
+    // repair ↔ replace from the SAME grid (lib/priceBand.mjs), and the edit layer runs long after this
+    // request, so the band has to be on the assessment or it cannot be consulted. Read-only downstream;
+    // a report stored before this batch simply has no band and is offered the amount override only.
+    assessment._priceBandKey = bandKey ?? null;
 
     // Spec-table lamp band, computed at request scope regardless of tier / lampObs — the tier-1 orphan
     // clamp (reconcileParts) needs a band even when the lamp machinery never fired (undisplaced front).
@@ -5357,6 +5375,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         }
       }
       console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${removed.join(', ')}]`);
+    }
+
+    // batch 158 A1 — a panel the photographs disagree on that ends up UNCOSTED is still an inspection
+    // item. Runs here, after the ledger is final (the body-class strip above is the last thing to remove
+    // a row), so "not costed" is the real answer. It never costs anything. One owner: lib/parts.mjs.
+    {
+      const _split = discloseSplitVoteUncosted({ pvVotes: pvResult.pvVotesMap, gatedParts,
+        flags: coreObs.flaggedParts, display: PANEL_DISPLAY });
+      for (const s of _split) {
+        const v = pvResult.pvVotesMap?.[s.panelId];
+        console.log(`[SPLIT VOTE] ${s.panelId} damaged ${v?.damaged} / clean ${v?.clean}, not costed → inspection flag ${s.action} + checklist item (batch 158 A1)`);
+      }
     }
 
     // batch 156 T2 — the model named a trim item AND the panel behind it, read in the same frames. REPORT

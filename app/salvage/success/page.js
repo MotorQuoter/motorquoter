@@ -10,6 +10,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import {
   applyEdits, ledgerHash, EDITS_DISCARDED_NOTICE,
   lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure, editedVdsParts, editedSourcingLinks,
+  amendableRow,
 } from '@/lib/ledgerEdits.mjs';
 import { HEADLAMP_BANDS, LAMP_TYPES } from '@/lib/lampBands.mjs';
 import { computeBookingLine, bookingHeaderSuffix, isChecklistSuppressed, checklistWarning } from '@/lib/bookingLine.mjs';
@@ -85,11 +86,14 @@ function parseChecklist(text) {
 
 // batch 117 — a comparable identity for an edit layer's content (strikes, adds, lamp type), used to tell whether
 // the buyer's on-screen edits differ from what the server has stored. Strikes are a set, so order is ignored.
-function editsKeyOf(strikes, adds, lampType) {
+function editsKeyOf(strikes, adds, lampType, amends) {
   return JSON.stringify({
     s: [...(strikes || [])].sort(),
     a: (adds || []).map((x) => [x?.id ?? null, x?.text ?? '', Number(x?.amount) || 0]),
     t: lampType ?? null,
+    // batch 158 A2 — amends join the identity, or an unsaved repair↔replace would look saved.
+    m: [...(amends || [])].map((x) => [x?.rowKey ?? '', x?.action ?? '', Number(x?.amount) ?? null])
+      .sort((x, y) => String(x[0]).localeCompare(String(y[0]))),
   });
 }
 
@@ -138,6 +142,9 @@ export default function SalvageSuccessPage() {
   // simply never appear — the report renders normally).
   const [editStrikes, setEditStrikes] = useState([]);           // [rowKey]
   const [editAdds, setEditAdds] = useState([]);                 // [{id,text,amount}]
+  const [editAmends, setEditAmends] = useState([]);              // batch 158 A2: [{rowKey, action}|{rowKey, amount}]
+  const [amendOpen, setAmendOpen] = useState(null);              // rowKey whose Edit panel is open
+  const [amendDraft, setAmendDraft] = useState('');              // the amount being typed
   const [editLampType, setEditLampType] = useState(null);        // batch 114: buyer lamp-type correction (halogen|hid|led) or null
   // batch 117 — what the SERVER holds (last loaded or saved layer), so the page knows when the buyer's edits are
   // unsaved. The PDF is built from the stored layer; without this, a download silently contradicted the screen.
@@ -247,12 +254,13 @@ export default function SalvageSuccessPage() {
         const s = Array.isArray(layer.strikes) ? layer.strikes : [];
         const a = Array.isArray(layer.adds) ? layer.adds : [];
         const t = LAMP_TYPES.includes(layer.lampType) ? layer.lampType : null;
-        setEditStrikes(s); setEditAdds(a); setEditLampType(t);
-        setSavedEditsKey(editsKeyOf(s, a, t));   // batch 117: this IS what the PDF will print
+        const m = Array.isArray(layer.amends) ? layer.amends : [];
+        setEditStrikes(s); setEditAdds(a); setEditLampType(t); setEditAmends(m);
+        setSavedEditsKey(editsKeyOf(s, a, t, m));   // batch 117: this IS what the PDF will print
       } else {
-        setEditStrikes([]); setEditAdds([]); setEditLampType(null);
-        setSavedEditsKey(editsKeyOf([], [], null));   // a discarded (stale-stamp) layer applies nothing on the PDF either
-        if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0) + (layer.lampType ? 1 : 0)) > 0) {
+        setEditStrikes([]); setEditAdds([]); setEditLampType(null); setEditAmends([]);
+        setSavedEditsKey(editsKeyOf([], [], null, []));   // a discarded (stale-stamp) layer applies nothing on the PDF either
+        if (layer && ((layer.strikes?.length || 0) + (layer.adds?.length || 0) + (layer.amends?.length || 0) + (layer.lampType ? 1 : 0)) > 0) {
           setEditNotice(EDITS_DISCARDED_NOTICE);
         }
       }
@@ -323,7 +331,7 @@ export default function SalvageSuccessPage() {
     // batch 117 (found by Vincent on the preview): the PDF is built from the SAVED edit layer, so downloading
     // with unsaved edits produced a report that silently contradicted the screen (£4,480 on screen, £5,250 on
     // paper). Stop and say so; the buyer chooses — save first, or download without them. Never auto-saved.
-    const unsaved = editsAvailable && editsKeyOf(editStrikes, editAdds, editLampType) !== savedEditsKey;
+    const unsaved = editsAvailable && editsKeyOf(editStrikes, editAdds, editLampType, editAmends) !== savedEditsKey;
     if (unsaved && !ignoreUnsaved) { setPdfUnsavedPrompt(true); return; }
     setPdfUnsavedPrompt(false);
     setPdfLoading(true);
@@ -396,6 +404,16 @@ export default function SalvageSuccessPage() {
     setEditStrikes((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
   };
   const removeAdd = (id) => setEditAdds((a) => a.filter((x) => x.id !== id));
+  // batch 158 A2 — one amend per row, last wins; ↺ simply drops it, so the engine's own figure returns.
+  const amendOf = (key) => editAmends.find((x) => x.rowKey === key) || null;
+  const putAmend = (key, patch) => setEditAmends((m) => [...m.filter((x) => x.rowKey !== key), { rowKey: key, ...patch }]);
+  const clearAmend = (key) => setEditAmends((m) => m.filter((x) => x.rowKey !== key));
+  const applyAmendAmount = (key) => {
+    const n = Number(String(amendDraft).replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(n)) return;
+    putAmend(key, { amount: n });
+    setAmendDraft(''); setAmendOpen(null);
+  };
   const handleAddLine = () => {
     const amt = Number(String(addDraft.amount).replace(/[^0-9.]/g, ''));
     if (!addDraft.text.trim() || !Number.isFinite(amt)) return;
@@ -418,6 +436,7 @@ export default function SalvageSuccessPage() {
           stamp: ledgerHash(assessment._reconciledParts),
           strikes: editStrikes,
           adds: editAdds,
+          amends: editAmends,
           lampType: editLampType,
           ...(promoTokenRef.current ? { promo_token: promoTokenRef.current } : { session_id: sessionIdRef.current }),
         }),
@@ -429,8 +448,9 @@ export default function SalvageSuccessPage() {
       const s = j.editLayer?.strikes ?? [];
       const a = j.editLayer?.adds ?? [];
       const t = j.editLayer?.lampType ?? null;
-      setEditStrikes(s); setEditAdds(a); setEditLampType(t);
-      setSavedEditsKey(editsKeyOf(s, a, t));   // batch 117: screen and PDF agree again
+      const m = j.editLayer?.amends ?? [];
+      setEditStrikes(s); setEditAdds(a); setEditLampType(t); setEditAmends(m);
+      setSavedEditsKey(editsKeyOf(s, a, t, m));   // batch 117: screen and PDF agree again
       setEditNotice('Saved. Your changes are stored and appear on the downloaded PDF.');
       return true;
     } catch (e) {
@@ -447,7 +467,7 @@ export default function SalvageSuccessPage() {
   // SalvageGuide divergence — can route through `edited` unconditionally. Cheap + pure → in render.
   const editStamp = assessment?._reconciledParts?.length ? ledgerHash(assessment._reconciledParts) : null;
   const edited = assessment
-    ? applyEdits(assessment, { stamp: editStamp, strikes: editStrikes, adds: editAdds, lampType: editLampType })
+    ? applyEdits(assessment, { stamp: editStamp, strikes: editStrikes, adds: editAdds, amends: editAmends, lampType: editLampType })
     : null;
   // batch 114 — rows the buyer's lamp-type correction re-priced (rowKey → {from,to}); the stored KCD and
   // Damage Breakdown entries for those rows are re-priced at render so no surface keeps the engine figure.
@@ -993,6 +1013,56 @@ export default function SalvageSuccessPage() {
                                   </button>
                                 )}
                                 {p.name}
+                                {/* batch 158 A2 (Vincent, 18 Sep) — EDIT a line, not only strike or add it.
+                                    Repair ↔ replace re-prices from the code-owned grid (lib/priceBand.mjs) at
+                                    this car's band and re-derives labour through lib/labour.mjs, exactly as a
+                                    strike does; "your figure" overrides the amount. The engine's own figure is
+                                    never lost — it is shown greyed and ↺ restores it, because the amend is only
+                                    a view-time recompute of an untouched ledger. The action choice appears only
+                                    where the grid prices the panel; otherwise the amount override stands alone. */}
+                                {ledgerEditable && editMode && !struck && !p._codeLabour && (() => {
+                                  const cap = amendableRow(p, assessment?._priceBandKey ?? null);
+                                  const am = amendOf(p._rowKey);
+                                  const open = amendOpen === p._rowKey;
+                                  return (
+                                    <span style={{ textDecoration: 'none', fontWeight: 400 }}>
+                                      <button type="button" onClick={() => { setAmendOpen(open ? null : p._rowKey); setAmendDraft(''); }}
+                                        title="Change repair/replace, or enter your own figure"
+                                        style={{ marginLeft: 8, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: am ? 'var(--orange)' : 'var(--text-dim)', cursor: 'pointer' }}>
+                                        {am ? 'edited' : 'edit'}
+                                      </button>
+                                      {am && (
+                                        <button type="button" onClick={() => clearAmend(p._rowKey)} title="Restore the original figure"
+                                          style={{ marginLeft: 4, padding: '1px 6px', fontSize: 11, lineHeight: 1.4, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 6, color: '#4ade80', cursor: 'pointer' }}>↺</button>
+                                      )}
+                                      {open && (
+                                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                          {cap.action.map(a => (
+                                            <button key={a} type="button" onClick={() => { putAmend(p._rowKey, { action: a }); setAmendOpen(null); }}
+                                              disabled={a === p.action}
+                                              style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700, background: 'transparent', border: '1px solid var(--border-dim)', borderRadius: 8, color: a === p.action ? 'var(--text-dim)' : 'var(--orange)', cursor: a === p.action ? 'default' : 'pointer', opacity: a === p.action ? 0.5 : 1 }}>
+                                              {a === 'repair' ? 'Repair' : `Replace${cap.replaceFigure != null ? ` £${cap.replaceFigure.toLocaleString('en-GB')}` : ''}`}
+                                            </button>
+                                          ))}
+                                          {/* ≥16px so mobile Safari does not zoom the 480px layout on focus. */}
+                                          <input type="text" inputMode="decimal" value={amendDraft} onChange={e => setAmendDraft(e.target.value)}
+                                            placeholder="your figure £"
+                                            style={{ width: 120, background: 'var(--bg3)', border: '1px solid var(--border-dim)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)', fontSize: 16, fontFamily: "'Barlow', sans-serif", outline: 'none' }} />
+                                          <button type="button" onClick={() => applyAmendAmount(p._rowKey)}
+                                            disabled={!String(amendDraft).replace(/[^0-9.]/g, '')}
+                                            style={{ padding: '8px 12px', fontSize: 13, fontWeight: 700, background: 'var(--orange)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', opacity: !String(amendDraft).replace(/[^0-9.]/g, '') ? 0.45 : 1 }}>Use</button>
+                                        </div>
+                                      )}
+                                      {p._amended && (
+                                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                                          {p._amended.kind === 'amount' ? 'your figure' : `changed to ${p._amended.toAction}`}
+                                          {' · was '}
+                                          <span style={{ textDecoration: 'line-through' }}>£{Number(p._amended.from).toLocaleString('en-GB')}</span>
+                                        </div>
+                                      )}
+                                    </span>
+                                  );
+                                })()}
                                 {/* batch 127 — the labour range and the second-hand comparison (spec §6 + item 4, wording approved
                                     by Vincent 14 Sep). Display only: one owner (lib/labour.mjs) via the edit view, so a struck
                                     body panel re-derives it. Hidden when the buyer struck the labour line itself. */}
@@ -1105,7 +1175,7 @@ export default function SalvageSuccessPage() {
                       </button>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
-                      Strike a line you can confirm is sound on inspection, or add one we couldn&apos;t see. The repair total, margins, break-even and bid ceilings all update. Nothing is deleted — struck lines stay visible.
+                      Strike a line you can confirm is sound on inspection, add one we couldn&apos;t see, or edit one — switch a panel between repair and replace, or enter your own figure. The repair total, margins, break-even and bid ceilings all update. Nothing is deleted — struck lines stay visible and ↺ restores our figure.
                     </div>
                     {editMode && (
                       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1128,7 +1198,7 @@ export default function SalvageSuccessPage() {
                             {editSaving ? 'Saving…' : 'Save changes'}
                           </button>
                           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                            {editStrikes.length} struck · {editAdds.length} added{editLampType ? ` · lamp type: ${lampTypeLabel(editLampType)}` : ''}
+                            {editStrikes.length} struck · {editAdds.length} added · {editAmends.length} edited{editLampType ? ` · lamp type: ${lampTypeLabel(editLampType)}` : ''}
                           </span>
                         </div>
                         {/* Labour follows the ledger (Vincent's ruling, 8 Sep): striking a body panel now

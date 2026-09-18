@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { ledgerHash, isLampType } from '@/lib/ledgerEdits';
+import { ledgerHash, isLampType, isAmendAction } from '@/lib/ledgerEdits';
 
 // Buyer ledger edits (batch 82). Stores a reversible, version-stamped edit layer over the IMMUTABLE
 // engine assessment. GET returns the stored layer; POST replaces it (the client owns the strikes/adds
@@ -13,6 +13,7 @@ import { ledgerHash, isLampType } from '@/lib/ledgerEdits';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STRIKES = 200;
 const MAX_ADDS = 50;
+const MAX_AMENDS = 200;
 const MAX_TEXT = 200;
 const MAX_AMOUNT = 10_000_000;
 
@@ -60,6 +61,29 @@ function sanitizeAdds(raw) {
   return out;
 }
 
+// batch 158 A2 — the buyer's per-row amends: repair ↔ replace, or his own figure.
+// Same contract as a strike: a row KEY plus what he chose, never a row body and never a price we
+// accept from the client for a panel. An amount is bounded to a sane numeric range exactly as an added
+// line is (batch 82 §4: never blocked, never clamped toward "our" figure). One amend per row — the last
+// one wins — so ↺ is simply the amend being dropped from the array.
+function sanitizeAmends(raw) {
+  if (!Array.isArray(raw)) return [];
+  const byKey = new Map();
+  for (const a of raw) {
+    if (!a || typeof a !== 'object') continue;
+    const rowKey = typeof a.rowKey === 'string' ? a.rowKey : '';
+    if (!rowKey || rowKey.length > 128) continue;
+    const hasAmount = a.amount !== undefined && a.amount !== null && a.amount !== '';
+    const amountNum = Number(a.amount);
+    if (hasAmount && Number.isFinite(amountNum)) {
+      byKey.set(rowKey, { rowKey, amount: Math.max(0, Math.min(MAX_AMOUNT, Math.round(amountNum * 100) / 100)) });
+      continue;
+    }
+    if (isAmendAction(a.action)) { byKey.set(rowKey, { rowKey, action: a.action }); continue; }
+  }
+  return [...byKey.values()].slice(0, MAX_AMENDS);
+}
+
 async function loadSession(supabase, salvage_id) {
   return supabase
     .from('salvage_sessions')
@@ -94,7 +118,7 @@ export async function POST(request) {
   let body;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid request body' }, { status: 400 }); }
 
-  const { salvage_id, session_id, promo_token, stamp, strikes, adds, lampType } = body;
+  const { salvage_id, session_id, promo_token, stamp, strikes, adds, amends, lampType } = body;
   if (!salvage_id || !UUID_RE.test(String(salvage_id))) {
     return NextResponse.json({ error: 'Missing or invalid salvage_id' }, { status: 400 });
   }
@@ -124,13 +148,14 @@ export async function POST(request) {
 
   const cleanStrikes = sanitizeStrikes(strikes);
   const cleanAdds = sanitizeAdds(adds);
+  const cleanAmends = sanitizeAmends(amends);
   // batch 114 — the buyer's lamp-type correction: closed enum (lib/lampBands LAMP_TYPES via isLampType);
   // anything else is dropped to null (no correction), never stored.
   const cleanLampType = isLampType(lampType) ? lampType : null;
 
-  const editLayer = (cleanStrikes.length === 0 && cleanAdds.length === 0 && !cleanLampType)
+  const editLayer = (cleanStrikes.length === 0 && cleanAdds.length === 0 && cleanAmends.length === 0 && !cleanLampType)
     ? null   // no edits → clear the layer
-    : { stamp: currentStamp, rerunStamp: session.rerun_count ?? 0, strikes: cleanStrikes, adds: cleanAdds, ...(cleanLampType ? { lampType: cleanLampType } : {}), updatedAt: new Date().toISOString() };
+    : { stamp: currentStamp, rerunStamp: session.rerun_count ?? 0, strikes: cleanStrikes, adds: cleanAdds, amends: cleanAmends, ...(cleanLampType ? { lampType: cleanLampType } : {}), updatedAt: new Date().toISOString() };
 
   const { error: updErr } = await supabase
     .from('salvage_sessions')

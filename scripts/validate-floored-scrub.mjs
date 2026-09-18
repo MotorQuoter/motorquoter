@@ -76,5 +76,41 @@ ok('end-to-end keeps costed door KCD line', /Front door/.test(assess['Key Cost D
 ok('end-to-end neutralises VDS crushed-sill', !/crushed/.test(assess['Visible Damage Summary']));
 ok('end-to-end reports actions', res.kcdDropped.length === 1 && res.vdsChanges.length === 1);
 
+// ── batch 158 A4 — THE DRIVERS ARE BUILT ONLY FROM COSTED LEDGER ROWS ─────────────────────
+// Two sources feed the report's Key Cost Drivers: the code-owned _kcdParts (assembleKcdParts — costed
+// rows only, by construction) and the MODEL's free text, rendered as judgement colour on both surfaces.
+// Only the second can contradict the ledger, and it was only checked against panels that had a damage
+// CARD. A panel with no card was in neither set, and on a lot with no inspection-only card the scrub did
+// not run at all.
+{
+  const withLedger = {
+    _reconciledParts: [
+      { panelId: 'REAR_BUMPER', name: 'Rear bumper', action: 'replace', oem: 655, used: 360 },
+      { panelId: 'BOOT_LID', name: 'Tailgate', action: 'repair', oem: null, used: null, _repairNoPart: true },
+    ],
+    'Key Cost Drivers': [
+      '- Rear bumper: torn away at the corner, replacement.',
+      '- Front bumper: displaced upper section requiring replacement.',
+      '- Boot lid: creased at the rear edge, straighten and refinish.',
+    ].join('\n'),
+    'Visible Damage Summary': 'Rear corner impact.',
+  };
+  const r158 = scrubFlooredProse(withLedger);
+  ok('A4: a driver naming a panel the ledger does not cost is dropped',
+     !/Front bumper/.test(withLedger['Key Cost Drivers']) && r158.kcdDropped.length === 1);
+  ok('A4: a driver naming a costed panel is kept', /Rear bumper/.test(withLedger['Key Cost Drivers']));
+  ok('A4: a panel costed as a £0 repair counts as costed', /Boot lid/.test(withLedger['Key Cost Drivers']));
+  ok('A4: it runs even with no inspection-only damage card at all', r158.kcdDropped.length > 0);
+
+  const both = { _reconciledParts: withLedger._reconciledParts,
+    'Key Cost Drivers': '- Rear bumper and front bumper: both ends struck.', 'Visible Damage Summary': '' };
+  scrubFlooredProse(both);
+  ok('A4: a line naming a costed panel too is never dropped', /front bumper/i.test(both['Key Cost Drivers']));
+
+  const noLedger = { 'Key Cost Drivers': '- Front bumper: replacement.', 'Visible Damage Summary': '' };
+  scrubFlooredProse(noLedger);
+  ok('A4: with no ledger to judge against, nothing is scrubbed', /Front bumper/.test(noLedger['Key Cost Drivers']));
+}
+
 console.log(`\n${failed === 0 ? '✅' : '❌'} floored-scrub: ${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

@@ -520,7 +520,10 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     // (success/page.js:236), hyphens not em-dashes (the PDF suppressor is a standing constraint here).
     // Gated on the layer actually holding edits, exactly as the screen is — a present-but-empty layer
     // must not fire it, and neither must a clean report.
-    const _layerEditCount = (editLayer?.strikes?.length || 0) + (editLayer?.adds?.length || 0) + (editLayer?.lampType ? 1 : 0);
+    // batch 158 A2: an amend counts as an edit for this notice too — a buyer whose only change was a
+    // repair↔replace or his own figure must be told when the report moved under it, same as a strike.
+    const _layerEditCount = (editLayer?.strikes?.length || 0) + (editLayer?.adds?.length || 0)
+      + (editLayer?.amends?.length || 0) + (editLayer?.lampType ? 1 : 0);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     const discardedLines = (!edited.applied && edited.stampMismatch && _layerEditCount > 0)

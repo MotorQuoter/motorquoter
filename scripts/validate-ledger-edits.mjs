@@ -13,7 +13,10 @@ import { dirname, join } from 'node:path';
 import {
   applyEdits, rowKeyFor, figureOf, ledgerHash,
   isLampType, lampRepricedKeys, repriceStoredEntry, withoutAnsweredLampDisclosure,
+  amendableRow, isAmendAction,
 } from '../lib/ledgerEdits.mjs';
+import { partsTableCells, computeLabour } from '../lib/labour.mjs';
+import { PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let pass = 0, fail = 0;
@@ -482,6 +485,100 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
      editSrc.includes("from './structureFloor.mjs'") && !editSrc.includes('STRUCT_FLOOR_ZONE = '));
   ok('Y3: the engine imports the same owner',
      routeSrc.includes("from '@/lib/structureFloor.mjs'") && !routeSrc.includes('export const STRUCT_FLOOR_ZONE = Object.freeze'));
+}
+
+// ── batch 158 A2 — THE BUYER EDITS A LINE, NOT ONLY STRIKES OR ADDS IT ───────────────────────────
+console.log('\n(E) batch 158 A2 — per-row amends');
+{
+  const band = 'Luxury';
+  const q = PANEL_PRICE_TABLE.REAR_QUARTER[band];
+  const amendable = {
+    _partsReconciliation: { parts_sum: 1000 },
+    _priceBandKey: band,
+    _exitValue: 9000,
+    _labourBodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: 'SEVERE', action: 'replace' }],
+    _labourTellCount: 0,
+    _reconciledParts: [
+      { panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'replace', oem: q.oem, used: q.used },
+      { panelId: 'WINDSCREEN', name: 'Windscreen', action: 'replace', oem: 480, used: 265 },
+    ],
+  };
+  const keys = rowKeyFor(amendable._reconciledParts);
+  const stamp = ledgerHash(amendable._reconciledParts);
+  const layer = (amends) => ({ stamp, strikes: [], adds: [], amends });
+  const base = applyEdits(amendable, null);
+
+  ok('A2: no amends = no-edit parity', base.partsSum === 1000 && applyEdits(amendable, layer([])).partsSum === 1000);
+
+  // (1) repair ↔ replace, re-priced from the code-owned grid.
+  const cap = amendableRow(amendable._reconciledParts[0], band);
+  ok('A2: a priced BODY panel may switch repair/replace', cap.action.join() === 'repair,replace' && cap.replaceFigure === q.used);
+  ok('A2: glass is priced but has no repair path, so only the amount override is offered',
+     amendableRow(amendable._reconciledParts[1], band).action.length === 0);
+  ok('A2: with no stored band the grid cannot be consulted — amount only',
+     amendableRow(amendable._reconciledParts[0], null).action.length === 0);
+  const toRepair = applyEdits(amendable, layer([{ rowKey: keys[0], action: 'repair' }]));
+  ok('A2: replace → repair removes the part from the total', toRepair.partsSum === 1000 - q.used);
+  ok('A2: and leaves the engine own repair shape (£0 part, panel work carries it)',
+     toRepair.rows[0]._repairNoPart === true && toRepair.rows[0].used === null && toRepair.rows[0].action === 'repair');
+  ok('A2: the row records what it was, so the revert can restore it',
+     toRepair.rows[0]._amended.kind === 'action' && toRepair.rows[0]._amended.from === q.used);
+  ok('A2: both surfaces render it exactly as an engine-native repair row does',
+     JSON.stringify(partsTableCells(toRepair.rows[0])) === JSON.stringify(partsTableCells({ action: 'repair', oem: null, used: null, _repairNoPart: true })));
+  ok('A2: a no-op flip is not an edit', applyEdits(amendable, layer([{ rowKey: keys[0], action: 'replace' }])).partsSum === 1000);
+
+  // (2) the buyer's own figure.
+  const toAmount = applyEdits(amendable, layer([{ rowKey: keys[0], amount: 250 }]));
+  ok('A2: an amount override moves the total by the difference', toAmount.partsSum === 1000 - q.used + 250);
+  ok('A2: the engine figure is kept beside it, never overwritten',
+     toAmount.rows[0]._amended.kind === 'amount' && toAmount.rows[0]._amended.from === q.used && amendable._reconciledParts[0].used === q.used);
+  ok('A2: zero is a legitimate figure', applyEdits(amendable, layer([{ rowKey: keys[0], amount: 0 }])).partsSum === 1000 - q.used);
+  ok('A2: a negative figure cannot pull a line below zero',
+     applyEdits(amendable, layer([{ rowKey: keys[0], amount: -500 }])).partsSum === 1000 - q.used);
+
+  // (3) everything downstream follows, exactly as it does for a strike.
+  ok('A2: margins, break-even and ceilings all move with an amend',
+     toAmount.delta === 250 - q.used && (toAmount.marginScenarios || []).every(m => m.repair === toAmount.partsSum));
+
+  // (4) labour re-derives through the ONE owner. Batch 81 locked labour to SEVERITY, not action, so an
+  //     action flip correctly leaves it UNCHANGED — the recompute runs, the answer is the same.
+  const asReplace = computeLabour({ bodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: 'SEVERE', action: 'replace' }] });
+  const asRepair = computeLabour({ bodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: 'SEVERE', action: 'repair' }] });
+  ok('A2: labour is severity-driven, so an action flip must not move it', asReplace.panelWorkMoney === asRepair.panelWorkMoney);
+  const editSrcA2 = readFileSync(join(ROOT, 'lib/ledgerEdits.mjs'), 'utf8');
+  ok('A2: the amend feeds the SAME labour owner a strike does (no second implementation)',
+     editSrcA2.includes('amendedActions.has(bp?.panelId)') && (editSrcA2.match(/computeLabour\(\{/g) || []).length === 1);
+
+  // (5) the stamp and the Cat A/B stop apply to an amend exactly as to a strike.
+  ok('A2: a stale stamp applies NO amend', applyEdits(amendable, { ...layer([{ rowKey: keys[0], amount: 250 }]), stamp: 'nope' }).partsSum === 1000);
+  ok('A2: a Cat A/B report refuses an amend',
+     applyEdits({ ...amendable, _catABHardStop: 'A' }, layer([{ rowKey: keys[0], amount: 250 }])).partsSum === 1000);
+  ok('A2: a struck row ignores an amend (strike wins, as it does for the lamp correction)',
+     applyEdits(amendable, { stamp, strikes: [keys[0]], adds: [], amends: [{ rowKey: keys[0], amount: 5000 }] }).partsSum === 1000 - q.used);
+  ok('A2: an unknown rowKey is ignored', applyEdits(amendable, layer([{ rowKey: 'NOPE#9', amount: 999 }])).partsSum === 1000);
+  ok('A2: the action enum is closed', isAmendAction('repair') && isAmendAction('replace') && !isAmendAction('scrap') && !isAmendAction(null));
+
+  // (6) a welded panel the engine priced at NEW keeps that treatment when flipped back.
+  const weldedAsm = { ...amendable, _reconciledParts: [{ panelId: 'REAR_QUARTER', name: 'Rear quarter panel', action: 'repair', oem: null, used: null, _repairNoPart: true, _weldedAtNew: { used: q.used } }] };
+  const wk = rowKeyFor(weldedAsm._reconciledParts);
+  const backToReplace = applyEdits(weldedAsm, { stamp: ledgerHash(weldedAsm._reconciledParts), strikes: [], adds: [], amends: [{ rowKey: wk[0], action: 'replace' }] });
+  ok('A2: a welded panel returns to the engine NEW price, not the grid second-hand figure',
+     backToReplace.rows[0].oem === q.oem && backToReplace.rows[0].used === null && backToReplace.rows[0]._amended.welded === true);
+
+  // (7) the API stores it, and the PDF counts it as an edit.
+  const apiSrc = readFileSync(join(ROOT, 'app/api/salvage/edits/route.js'), 'utf8');
+  ok('A2: the API sanitises and persists amends', apiSrc.includes('function sanitizeAmends') && apiSrc.includes('amends: cleanAmends'));
+  ok('A2: the API never accepts a price for a panel, only the buyer own amount',
+     !/sanitizeAmends[\s\S]*?PANEL_PRICE_TABLE/.test(apiSrc));
+  const pdfSrc = readFileSync(join(ROOT, 'app/api/salvage/pdf/route.js'), 'utf8');
+  ok('A2: the PDF renders edited.rows, so an amend prints with the same parity as a strike',
+     pdfSrc.includes('hasStructured ? edited.rows') && pdfSrc.includes('editLayer?.amends?.length'));
+  const pageSrc = readFileSync(join(ROOT, 'app/salvage/success/page.js'), 'utf8');
+  ok('A2: the screen sends amends and counts them as unsaved work',
+     pageSrc.includes('amends: editAmends') && pageSrc.includes('editsKeyOf(editStrikes, editAdds, editLampType, editAmends)'));
+  ok('A2: the amount input is at least 16px so mobile does not zoom the 480px layout',
+     /placeholder="your figure £"[\s\S]{0,240}fontSize: 16/.test(pageSrc));
+  ok('A2: the revert control is offered on every amended row', pageSrc.includes('clearAmend(p._rowKey)'));
 }
 
 console.log(`\n${fail === 0 ? 'OK' : 'FAILED'} — ${pass} passed, ${fail} failed`);
