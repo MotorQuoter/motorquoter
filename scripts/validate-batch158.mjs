@@ -94,5 +94,37 @@ ok('the seeder skips only real wheel/tyre panels', /WHEEL_NET_PANEL_IDS\.has\(fl
   ok('a real wheel flag is still covered by the wheel-net line', !/Show Wheel close-up/.test(wheel));
 }
 
+// ── PART B — the prompt rules (text asserts; no model call, no scoring) ────────────────────
+console.log('\n-- B2/B3: the per-photo rules the prompt now states --');
+// B2 — a torn-off bumper is not evidence about the panel behind it (CK75ONW: three rear-corner frames
+// graded the quarter SEVERE while the flank frames and the main call read it clean).
+ok('B2: the corner-read block exists', /--- CORNER READS: THE BUMPER IS NOT THE PANEL BEHIND IT ---/.test(route)
+  && /--- END CORNER READS ---/.test(route));
+ok('B2: at a rear corner, bumper/cladding/lamp-aperture damage is NOT the quarter',
+  /is NOT REAR_QUARTER/.test(route));
+ok('B2: the quarter is iv:true only on its OWN metal above the bumper line',
+  /quarter's OWN METAL is dented, creased or split ABOVE the bumper line/.test(route));
+ok('B2: a covered or out-of-shot quarter is iv:na, not iv:true',
+  /REAR_QUARTER is iv:na — not iv:true/.test(route));
+ok('B2: the same rule is stated for the front wing', /is NOT FRONT_WING/.test(route)
+  && /wing's own metal is deformed above the bumper line/.test(route));
+ok('B2: it says plainly what a torn-off bumper is and is not evidence of',
+  /It is NOT evidence about the panel behind it/.test(route));
+ok('B2: the bonnet leading edge is BONNET even beside a missing grille',
+  /Damage on the bonnet's own front leading edge, or anywhere on its horizontal skin, is BONNET/.test(route));
+ok('B2: the existing wing-edge rule is kept, not replaced',
+  /--- BONNET: WING-EDGE & DISPLACEMENT ---/.test(route)
+  && /Damage on the vertical fender, at or above the front wheel arch[\s\S]{0,120}is FRONT_WING/.test(route));
+// B3 — an edge/return crease is replace-grade. The MODEL grades; code keeps SEVERE → replace, so there
+// must be no new code rule about edges.
+ok('B3: SEVERE now covers a crease into an edge, flange, swage line or lamp aperture',
+  route.includes("ALSO SEVERE: a crease, fold or kink that runs INTO a panel's edge, return flange, swage line or"));
+ok('B3: it says why — it cannot be dressed out', /cannot be dressed out, so the panel is replaced/.test(route));
+ok('B3: MODERATE and MINOR are untouched', /MODERATE = clear impact damage, repair-grade/.test(route)
+  && /MINOR    = cosmetic — scuff \/ scratch \/ light dent, refinish only/.test(route));
+ok('B3: NO code rule about edges was added — the model grades and code keeps SEVERE → replace',
+  !/swage|return flange/i.test(readFileSync(new URL('../lib/labour.mjs', import.meta.url), 'utf8'))
+  && !/swage|return flange/i.test(readFileSync(new URL('../lib/parts.mjs', import.meta.url), 'utf8')));
+
 console.log(`\nbatch158: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

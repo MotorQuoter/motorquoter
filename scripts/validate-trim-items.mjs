@@ -72,16 +72,21 @@ ok('the fix is in the single owner (_ELIGIBLE_UNIVERSAL), not a per-class patch'
   /_ELIGIBLE_UNIVERSAL = \[[\s\S]*?PANEL\.WHEEL_ARCH_MOULDING, PANEL\.WHEEL_ARCH_LINER, PANEL\.REAR_LIGHT_STRIP,[\s\S]*?\];/.test(route));
 
 // ── T2: the vocabulary and the TRIM BEFORE PANEL rule ───────────────────────────────────────────────
-// batch 157 — ENGINE FREEZE (Vincent, 18 Sep). Batch 156's vocabulary lines and the TRIM BEFORE PANEL
-// block are OUT of both prompts again, so every cassette replays at £0. The two new items stay priced,
-// eligible, scored and tested, but they are DORMANT: the model is never told their names, so it can never
-// write a row for one and nothing about them reaches a customer. These tests assert the ABSENCE, which is
-// what the freeze is; the pre-existing WHEEL_ARCH_MOULDING line (batch 75) must survive untouched.
-console.log('\n-- T2/T1 (batch 157 freeze): neither new item is named to the model --');
+// batch 158 B1 — THE FREEZE IS LIFTED (Vincent, 18 Sep: "I need it fixed"). The vocabulary lines and the
+// TRIM BEFORE PANEL block are back in BOTH prompts, so the model can name the two items and the engine can
+// cost them. These tests assert PRESENCE again, as they did in batch 156; batch 157 briefly asserted their
+// absence, which was the freeze. The pre-existing WHEEL_ARCH_MOULDING line (batch 75) is untouched
+// throughout. The cassettes are invalidated by this and no re-record was approved.
+console.log('\n-- T2/B1: both definition lists carry the items and the rule --');
 for (const [name, src] of [['route.js', route], ['config/assessmentEngine.js', engine]]) {
-  ok(`${name}: no WHEEL_ARCH_LINER vocabulary line`, !/WHEEL_ARCH_LINER\s+wheel arch liner/.test(src));
-  ok(`${name}: no REAR_LIGHT_STRIP vocabulary line`, !/REAR_LIGHT_STRIP\s+rear light strip/.test(src));
-  ok(`${name}: no TRIM BEFORE PANEL block`, !/TRIM BEFORE PANEL/.test(src) && !/write BOTH lines, one for each/.test(src));
+  ok(`${name}: WHEEL_ARCH_LINER defined as the liner INSIDE the arch, not the panel`,
+    /WHEEL_ARCH_LINER\s+wheel arch liner[^\n]*INSIDE the wheel arch[^\n]*NOT the wing or quarter/.test(src));
+  ok(`${name}: REAR_LIGHT_STRIP defined as the strip across the tailgate, not the tailgate`,
+    /REAR_LIGHT_STRIP\s+rear light strip[^\n]*between the rear lamps[^\n]*NOT the boot lid or tailgate/.test(src));
+  ok(`${name}: the TRIM BEFORE PANEL rule is stated`, /TRIM BEFORE PANEL/.test(src));
+  ok(`${name}: the rule names the three panels it displaces`,
+    /FRONT_WING, REAR_QUARTER and BOOT_LID are\n\s+for damage to the PANEL/.test(src));
+  ok(`${name}: both damaged → both lines (no silent merge)`, /write BOTH lines, one for each/.test(src));
   ok(`${name}: the batch 75 WHEEL_ARCH_MOULDING line is untouched`,
     /WHEEL_ARCH_MOULDING\s+wheel arch moulding[^\n]*NOT the metal quarter\/wing panel behind it/.test(src));
 }

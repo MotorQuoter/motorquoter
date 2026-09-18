@@ -1901,6 +1901,13 @@ COST panels — carry a repair price when damaged:
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
+  WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
+  REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
+                       TRIM BEFORE PANEL (all three trim items above): when the damage you can see at a wheel arch or across a tailgate is
+                       confined to the TRIM ITSELF — a scuffed, cracked, split, hanging or missing moulding, liner or light strip on an
+                       otherwise straight panel — write the TRIM item, NOT the panel behind it. FRONT_WING, REAR_QUARTER and BOOT_LID are
+                       for damage to the PANEL: dented, creased, split or torn metal. If BOTH the trim and the panel behind it are damaged,
+                       write BOTH lines, one for each.
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
   BOOT_LID          boot lid / trunk lid / hatchback rear door (car only — for van rear closures use BARN_DOOR_L/R or TAILGATE_GLAZED; do not route van barn doors or van tailgates here)
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
@@ -1981,7 +1988,9 @@ The iv value has FOUR meanings. Read carefully:
                in this shot" is iv:na, not iv:missing.
 
 severity (on iv:true only; use - on false/na/missing):
-  SEVERE   = destroyed / replace-grade — torn, shredded, crushed, structural deformation
+  SEVERE   = destroyed / replace-grade — torn, shredded, crushed, structural deformation.
+             ALSO SEVERE: a crease, fold or kink that runs INTO a panel's edge, return flange, swage line or
+             lamp aperture — whatever its size. That damage cannot be dressed out, so the panel is replaced.
   MODERATE = clear impact damage, repair-grade
   MINOR    = cosmetic — scuff / scratch / light dent, refinish only
 
@@ -1992,7 +2001,14 @@ Lower rocker, sill and side-skirt panels routinely carry PRE-EXISTING kerb-rash,
 --- BONNET: WING-EDGE & DISPLACEMENT ---
 BONNET is the horizontal hood skin between the wings. Damage on the vertical fender, at or above the front wheel arch, or at the front corner where the wing meets the headlamp, is FRONT_WING — NOT BONNET. A wing or front-corner impact visible near the bonnet edge is FRONT_WING — do not file it under BONNET because it is near the bonnet.
 Grade BONNET iv:true ONLY if the horizontal hood SKIN itself is creased, dented, or buckled in THIS photo. A bonnet that is unlatched, sitting proud, misaligned, or showing a disturbed shut-line gap — but whose skin is intact — is DISPLACED, not damaged: an alignment consequence of structural/latch-area impact behind it. Grade it iv:false (the refit resolves with the structural repair, not a panel replacement). Do not grade a displaced-but-intact bonnet as a damaged panel.
+Damage on the bonnet's own front leading edge, or anywhere on its horizontal skin, is BONNET — even when it sits next to a missing grille, a removed upper trim or an open front. The wing rule above is about the VERTICAL fender beside the bonnet; it does not move damage off the bonnet's own panel.
 --- END BONNET: WING-EDGE & DISPLACEMENT ---
+
+--- CORNER READS: THE BUMPER IS NOT THE PANEL BEHIND IT ---
+At a REAR corner where the bumper is torn away, hanging or displaced, damage to the bumper itself, its mountings and brackets, the arch cladding, the lamp aperture or the rear closing panel is NOT REAR_QUARTER. Mark REAR_QUARTER iv:true ONLY when the quarter's OWN METAL is dented, creased or split ABOVE the bumper line, and you can see that metal in THIS photo. If the bumper still covers that area, or the bumper has taken the damage, or the quarter's metal is out of shot, REAR_QUARTER is iv:na — not iv:true.
+The same holds at the FRONT corner: with the front bumper displaced or missing, damage to the bumper, its mountings, the arch liner or the lamp aperture is NOT FRONT_WING. Mark FRONT_WING iv:true only when the wing's own metal is deformed above the bumper line and visible here.
+A torn-off bumper is strong evidence the corner was struck. It is NOT evidence about the panel behind it — say what you can see of that panel, and iv:na when you cannot see it.
+--- END CORNER READS ---
 
 --- CLOSE-UPS: NAME A FRONT OR REAR PANEL ONLY WHEN THE PHOTO SETTLES IT ---
 A close-up that does not show a whole side or end of the car is easy to misplace: a buckled front wing beside a door looks much like a rear quarter beside a door. Before you name a front or rear panel in a close-up — FRONT_WING or REAR_QUARTER, FRONT_DOOR or REAR_DOOR, FRONT_BUMPER or REAR_BUMPER, HEADLAMP or REAR_LAMP — find what in THIS photo settles which end of the car you are looking at:
