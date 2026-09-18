@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
-  reconcileFlagMoneyWording,
+  reconcileFlagMoneyWording, trimPanelOverlaps,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -112,6 +112,13 @@ const _ELIGIBLE_UNIVERSAL = [
   PANEL.REAR_LAMP, PANEL.WINDSCREEN, PANEL.ROOF, PANEL.WHEEL, PANEL.TYRE, PANEL.REAR_PANEL,
   PANEL.FRONT_STRUCTURE, PANEL.REAR_STRUCTURE, PANEL.SIDE_STRUCTURE, PANEL.DISPLACED_WHEEL, PANEL.AIRBAG,
   PANEL.SPARE_WHEEL, PANEL.PARCEL_SHELF, PANEL.OTHER, PANEL.EV_BATTERY_ZONE, PANEL.EV_BATTERY_PRESENCE,
+  // batch 156 TASK-0 — THE TRIM ITEMS ARE UNIVERSAL. WHEEL_ARCH_MOULDING was added as a COST panel with
+  // its own price band by batch 75 (26 Aug) but was never added here, so BODY_CLASS_STRIP below deleted it
+  // — row AND buyer flag — on EVERY enforced body class, not just cars (CK75ONW, an Ioniq 5, resolves
+  // bodyClass=car: "[BODY_CLASS_STRIP] bodyClass=car removed=[WHEEL_ARCH_MOULDING]"). There was no rule and
+  // no recorded reason: the allow-set (26 Jun) simply predates the panel. Every body class has wheel arches
+  // and a rear closure, so all three trim items belong in the universal set, not in a per-class list.
+  PANEL.WHEEL_ARCH_MOULDING, PANEL.WHEEL_ARCH_LINER, PANEL.REAR_LIGHT_STRIP,
 ];
 export const ELIGIBLE_PANELS = Object.freeze({   // batch 153: exported (read-only) for the labelling sheet — no behaviour change
   car: new Set([
@@ -1881,6 +1888,13 @@ COST panels — carry a repair price when damaged:
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
+  WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
+  REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
+                       TRIM BEFORE PANEL (all three trim items above): when the damage you can see at a wheel arch or across a tailgate is
+                       confined to the TRIM ITSELF — a scuffed, cracked, split, hanging or missing moulding, liner or light strip on an
+                       otherwise straight panel — write the TRIM item, NOT the panel behind it. FRONT_WING, REAR_QUARTER and BOOT_LID are
+                       for damage to the PANEL: dented, creased, split or torn metal. If BOTH the trim and the panel behind it are damaged,
+                       write BOTH lines, one for each.
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
   BOOT_LID          boot lid / trunk lid / hatchback rear door (car only — for van rear closures use BARN_DOOR_L/R or TAILGATE_GLAZED; do not route van barn doors or van tailgates here)
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)
@@ -5350,6 +5364,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         }
       }
       console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${removed.join(', ')}]`);
+    }
+
+    // batch 156 T2 — the model named a trim item AND the panel behind it, read in the same frames. REPORT
+    // ONLY: no merge rule yet (Vincent, 18 Sep), no money moves, no row struck. One owner: lib/parts.mjs.
+    {
+      const _trimOverlap = trimPanelOverlaps(coreObs.costedParts);
+      if (_trimOverlap.length) {
+        assessment._trimPanelOverlap = _trimOverlap;
+        for (const o of _trimOverlap) {
+          console.log(`[TRIM/PANEL] ${o.trim} and ${o.panel} both reported in frame(s) [${o.frames.join(', ')}] — reported, not merged (batch 156)`);
+        }
+      }
     }
 
     // ── Door-count strip (Stage 5) ───────────────────────────────────────────
