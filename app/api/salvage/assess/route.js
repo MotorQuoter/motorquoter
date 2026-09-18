@@ -1888,13 +1888,6 @@ COST panels — carry a repair price when damaged:
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
-  WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
-  REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
-                       TRIM BEFORE PANEL (all three trim items above): when the damage you can see at a wheel arch or across a tailgate is
-                       confined to the TRIM ITSELF — a scuffed, cracked, split, hanging or missing moulding, liner or light strip on an
-                       otherwise straight panel — write the TRIM item, NOT the panel behind it. FRONT_WING, REAR_QUARTER and BOOT_LID are
-                       for damage to the PANEL: dented, creased, split or torn metal. If BOTH the trim and the panel behind it are damaged,
-                       write BOTH lines, one for each.
   REAR_LAMP         tail lamp / tail light / rear lamp cluster
   BOOT_LID          boot lid / trunk lid / hatchback rear door (car only — for van rear closures use BARN_DOOR_L/R or TAILGATE_GLAZED; do not route van barn doors or van tailgates here)
   REAR_PANEL        rear closing panel between the rear lamps (not the same as REAR_BUMPER)

@@ -143,9 +143,23 @@ test('A1 EXCEPTION (batch 111): on iv != true BOTH pair lamps STAY in the total 
 // _partsReconciliation.parts_sum values.
 const EXPECTED_MOVERS = { AMZ3790: 350, SA26KVT: 350, SD75YGC: 350, SF69YBB: 150, URZ7545: 350, YH23NVW: 350 };
 
-test('exactly 6 of the stored lots are lampCount:2, and they are the expected 6', () => {
-  const movers = lots().filter(v => load(v)._lampResult?.lampCount === 2);
-  assert.deepEqual(movers.sort(), Object.keys(EXPECTED_MOVERS).sort());
+// batch 157 — HALF 2 IS A BEFORE/AFTER HARNESS, AND THE CORPUS NOW HOLDS BOTH SIDES.
+// Its six baselines were captured BEFORE the pair fix shipped, so each shows the OLD shape: one lamp in
+// the money and one shelved. CK75ONW and HV25ODX were captured on 17 Sep, long AFTER it, so they show the
+// NEW shape: the pair already in the money, nothing shelved. Judging a post-fix capture by a pre-fix
+// expectation made a correct engine look broken (8 failing tests, batches 155–156). The side is now read
+// off the stored SHAPE rather than a hard-coded list, so the next capture classifies itself.
+const storedShape = (v) => { const A = load(v); return { costed: lampRows(A._reconciledParts).length, shelved: lampRows(A._allowanceParts).length }; };
+const isPreFixPair = (v) => { const s = storedShape(v); return s.costed === 1 && s.shelved === 1; };
+const storedPairs = () => lots().filter(v => load(v)._lampResult?.lampCount === 2);
+
+test('every stored lampCount:2 lot is either a pre-fix baseline (the expected 6) or a post-fix capture', () => {
+  const pairs = storedPairs();
+  assert.deepEqual(pairs.filter(isPreFixPair).sort(), Object.keys(EXPECTED_MOVERS).sort(), 'the pre-fix six');
+  for (const v of pairs.filter(v => !isPreFixPair(v))) {
+    assert.deepEqual(storedShape(v), { costed: 2, shelved: 0 }, `${v}: a post-fix baseline must show the pair in the money`);
+    assert.equal(EXPECTED_MOVERS[v], undefined, `${v}: a post-fix lot has no movement left to make`);
+  }
 });
 
 for (const vrm of lots()) {
@@ -161,7 +175,14 @@ for (const vrm of lots()) {
     continue;
   }
 
-  if (L.lampCount === 2) {
+  if (L.lampCount === 2 && !isPreFixPair(vrm)) {
+    // batch 157: captured after the fix — there is no "before" to move, so what is asserted is the END STATE.
+    test(`${vrm}: POST-FIX baseline — the pair is already in the money and nothing is shelved`, () => {
+      assert.equal(lampRows(A._reconciledParts).length, 2, 'both lamps costed');
+      assert.equal(lampRows(A._allowanceParts).length, 0, 'nothing shelved');
+      assert.ok(lampRows(A._reconciledParts).every(p => (p.used ?? p.oem ?? 0) > 0), 'both lamps carry money');
+    });
+  } else if (L.lampCount === 2) {
     test(`${vrm}: MOVES by exactly £${EXPECTED_MOVERS[vrm]} (its own band)`, () => {
       assert.equal(L.lampAllowance, EXPECTED_MOVERS[vrm], 'band drifted from the B5 table');
       const two = runChain([modelLamp(240), LABOUR], L).sum;
@@ -536,8 +557,8 @@ test('TASK 3 CARDS: a CONFIRMED pair (iv:true) keeps the 109C note and raises no
 // the stored money only on iv:true (A1 shelved everything else when those baselines were written), so
 // a stored pair with a mandated lamp in its money was iv:true, and the exception moves none of them.
 test('TASK 3 CORPUS: all six stored pairs had a mandated lamp in the money (iv:true) — the exception moves none', () => {
-  const pairs = lots().filter(v => load(v)._lampResult?.lampCount === 2);
-  assert.equal(pairs.length, 6);
+  const pairs = storedPairs();
+  assert.equal(pairs.filter(isPreFixPair).length, 6, 'the six pre-fix pairs (batch 157: post-fix captures are counted apart)');
   for (const v of pairs) {
     const A = load(v);
     assert.ok(lampRows(A._reconciledParts).some(p => p._lampMandated), `${v}: no mandated lamp in stored money`);
@@ -870,7 +891,15 @@ for (const v of lots()) {
     const expect = MOVERS_113[v] ?? { before: BAND[beforeType], after: BAND[beforeType] };
     assert.equal(BAND[beforeType], expect.before, 'pre-113 band');
     assert.equal(after.bandValue, expect.after, 'post-113 band');
-    assert.equal(after.lampTypeSource, 'photo', `${v}: the photograph resolved a type on every lot that has a read`);
+    // batch 157: the source is 'photo' only where the photograph actually NAMED a type. CK75ONW is the
+    // corpus's first lot where it did not: both corners read lamp_type "indeterminate" (the intact corner's
+    // own evidence says "only the DRL strip is clearly legible so the main-beam type cannot be confirmed"),
+    // so photoLampType returns null and the band falls back to the default — which is exactly what the unit
+    // test "113 PHOTO TYPE: nothing resolved → null" already pins. The old flat assert was a statement of
+    // fact about a 14-lot corpus, not a rule; the rule is derived from the data here.
+    const named = corners.some((c) => BAND[String(c.lamp_type || '').trim().toLowerCase()]);
+    assert.equal(after.lampTypeSource, named ? 'photo' : 'default',
+      `${v}: the photograph ${named ? 'named a type, so it must set the source' : 'named no type on either corner, so the source must fall back'}`);
   });
 }
 
@@ -965,8 +994,16 @@ test('114 CHECKLIST: route.js appends it post-gate through the helpers; only ONE
 });
 
 test('114 CORPUS: the stored lots that gain the item are exactly the tier-2 lots with a lamp in the money', () => {
-  const gain = lots().filter(v => lampChecklistItem(load(v)._lampResult) != null);
-  assert.deepEqual(gain, ['AK75RDX', 'AMZ3790', 'EA17HDN', 'GY75CJU', 'KT73YAJ', 'SA26KVT', 'SD75YGC', 'SF69YBB', 'URZ7545', 'YH23NVW']);
+  // batch 157: the expected set is DERIVED from the rule this test is named after, not pinned as a list.
+  // The old list was the 14-lot corpus; batch 154 added CK75ONW and HV25ODX, both tier 2 with £700 of lamp
+  // money, and both correctly gain the item. A hard-coded list made a correct engine look broken, and would
+  // again on the next lot. Checked on all 16: gain ⇔ (tier 2 AND lamp money > 0), no exceptions.
+  const lampMoney = (v) => lampRows(load(v)._reconciledParts).reduce((n, p) => n + (p.used ?? p.oem ?? 0), 0);
+  const gain     = lots().filter(v => lampChecklistItem(load(v)._lampResult) != null);
+  const expected = lots().filter(v => load(v)._lampResult?.tier === 2 && lampMoney(v) > 0);
+  assert.deepEqual(gain, expected);
+  assert.ok(gain.includes('CK75ONW') && gain.includes('HV25ODX'), 'the batch 154 lots are in the corpus');
+  assert.ok(gain.length >= 12, `expected the tier-2 majority to gain the item, got ${gain.length}`);
 });
 
 test('114 SINGLE OWNER: HEADLAMP_BANDS lives only in lib/lampBands.mjs — route.js imports it and holds no copy', () => {
