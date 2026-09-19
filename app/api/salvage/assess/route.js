@@ -1834,6 +1834,40 @@ const AMALG_REASON_UNCORROBORATED = 'single-view damage — only one photo flagg
 // cosmetic and uncorroborated reasons so the buyer can tell how strong the signal is.
 const AMALG_REASON_SINGLE_MINOR = 'one photo suggested light damage here; the other views of this area did not — a single weak signal, not confirmed and not dismissed; carries no cost. If it matters to you, confirm on the WhatsApp inspection and add your own figure.';
 const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visible when the front is open; no second view confirmed it and no central front-structure damage corroborates it; not included in the repair cost; confirm on the WhatsApp inspection before bidding';
+
+// ── batch 160 R1 (Vincent, 19 Sep) — a corner-frame quarter/wing that a side-on photo calls straight ──
+// A G-split instance is admitted to the ledger by code injection alone: the model is never shown a COSTED
+// ledger line for it (ledgerPreamble filters _gOwned), so nothing but the per-view votes put it there. When
+// one of that instance's OWN member views is a side-on shot of the car and graded the panel CLEAN, the
+// corner close-ups are the weaker evidence — the quarter's metal above the bumper line is exactly what a
+// corner frame cannot show (per-view prompt, "REAR_QUARTER is iv:na — not iv:true"). It goes to the buyer
+// as an inspection item instead of a repair line.
+//
+// "matching that side" is satisfied BY CONSTRUCTION and needs no side field: a member view of an instance
+// is a view the correspondence pass already assigned to THAT physical instance (route.js:2193/:2268). The
+// engine has no side label on an instance — panel names are side-neutral by design — and 'flank' is defined
+// (:1186) as a side shot whose side cannot be told, so a side test against a panel side could not be run
+// even if one wanted it. Membership is the stronger statement and it is already there.
+//
+// DIRECTION OF ERROR: no side-on member view, or a frame-zone pass that failed (ok:false), leaves the panel
+// COSTED — unchanged behaviour. The rule only ever subtracts on a positive clean read, never on silence.
+export const R1_SIDE_ON_ZONES = new Set(['flank', 'nearside', 'offside']);
+export function r1SideOnClearView(perViewGrades, frameZones) {
+  if (!Array.isArray(perViewGrades) || perViewGrades.length === 0) return null;
+  if (!frameZones || frameZones.ok !== true || !Array.isArray(frameZones.frames)) return null;
+  const zonesOf = new Map(frameZones.frames.map(f => [f.i, Array.isArray(f.zones) ? f.zones : []]));
+  for (const g of perViewGrades) {
+    if (g.iv !== 'false') continue;                    // POSITIVE clean read only — iv:na is "couldn't see it" (:2022)
+    const zones = zonesOf.get(g.view);
+    if (zones && zones.some(z => R1_SIDE_ON_ZONES.has(z))) return { view: g.view, zones };
+  }
+  return null;
+}
+// One owner for the buyer wording (provisional — Vincent may change it before merge).
+const R1_SIDE_CLEAR_WORDING = {
+  [PANEL.REAR_QUARTER]: 'Rear quarter: the close-up corner photos suggest damage, but the side-on photo shows the panel straight. Check the metal above the bumper line before bidding.',
+  [PANEL.FRONT_WING]:   'Front wing: the close-up corner photos suggest damage, but the side-on photo shows the panel straight. Check the metal above the bumper line before bidding.',
+};
 // EV-integrity Step 2 — EV_BATTERY_PRESENCE flag reasons (BEV lots only; flag-only).
 // Governing principle: never assert absence. The ONLY positive inference is presence-from-
 // running; the negative direction is always cannot-confirm → inspect, never "likely stripped".
@@ -2325,6 +2359,21 @@ function amalgamate(groups, viewPanelSets) {
     const damagedSevs = members
       .filter(l => /\|\s*iv:true\s*\|/i.test(l))
       .map(l => { const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i); return sm ? sm[1].toUpperCase() : 'MODERATE'; });
+    // batch 160 C (Vincent, 19 Sep) — the per-view grades travel WITH the costed entry.
+    // Until now a consumer downstream could reach the counts only through pvVotesMap, which is keyed by
+    // _instanceKey (:2465) — and _instanceKey is never stamped on the entry, so for a G-SPLIT instance
+    // (the very case batch 160 is about) a bare-panelId lookup reads another instance's votes or nothing.
+    // Carrying {view, iv, sev} on the entry survives the split by construction: these ARE this instance's
+    // member views. R1 (the side-on clean read, below) and R2 both read this and nothing else.
+    // sev mirrors damagedSevs EXACTLY — iv:true with no sev token reads MODERATE (:2327), everything
+    // else is null — so severeVotes recomputed from this stamp equals :2328 by construction.
+    const _perViewGrades = members.map(l => {
+      const vm = l.match(/^\[view:(\d+)\]/);
+      const im = l.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
+      const sm = l.match(/\|\s*sev:(SEVERE|MODERATE|MINOR)\s*\|/i);
+      const iv = im ? im[1].toLowerCase() : 'na';
+      return { view: vm ? parseInt(vm[1], 10) : -1, iv, sev: iv === 'true' ? (sm ? sm[1].toUpperCase() : 'MODERATE') : null };
+    }).filter(g => g.view >= 0);
     const severeVotes    = damagedSevs.filter(s => s === 'SEVERE').length;
     const severeOverride = severeVotes >= SEVERE_OVERRIDE_THRESHOLD;
     const hasModerate    = damagedSevs.some(s => s === 'MODERATE');
@@ -2451,6 +2500,7 @@ function amalgamate(groups, viewPanelSets) {
     if (costedParts.length > _preCosted) {
       const _cp = costedParts[costedParts.length - 1];
       _cp._probeViews = _probeViews;
+      _cp._perViewGrades = _perViewGrades;   // batch 160 C — same 1:1 last-entry mechanism as _probeViews
       // opp-ref: carry the Case-B excluded-clean views (group._oppRefViews) so the aperture P1 branch
       // can append them as opposite-side reference frames. Same 1:1 last-entry mechanism as _probeViews.
       if (Array.isArray(_oppRefViews) && _oppRefViews.length) _cp._oppRefViews = _oppRefViews;
@@ -5063,6 +5113,33 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (e.independentlyVisible === false) {
         console.log(`[G INJECT] ${e.panelId} skipped — demoted (iv=false); not re-costed`);
         continue;
+      }
+      // batch 160 R1 — quarter/wing called straight by a side-on member view goes to Inspection Flags,
+      // not the ledger. Runs BEFORE the band lookup: the outcome does not depend on a price, and a
+      // band-less lot must reach the same answer. The model row is stripped here too — the rule says
+      // "no £ on the ledger for it", and ledgerPreamble hiding the panel does not guarantee the model
+      // wrote no row (:5077 records the row as non-deterministic). Nothing here reads rawParts: the
+      // strip is the consequence of the decision, never an input to it (ruling A).
+      if (e.panelId === PANEL.REAR_QUARTER || e.panelId === PANEL.FRONT_WING) {
+        const sideOnClear = r1SideOnClearView(e._perViewGrades, assessment._frameZones);
+        if (sideOnClear) {
+          let r1Stripped = 0;
+          for (let i = gatedParts.length - 1; i >= 0; i--) {
+            if (gatedParts[i].panelId === e.panelId) { gatedParts.splice(i, 1); r1Stripped++; }
+          }
+          e.independentlyVisible = false;
+          e._r1SideOnClear = true;
+          coreObs.flaggedParts.push({
+            panelId:  e.panelId,
+            partName: PANEL_DISPLAY[e.panelId],
+            zone:     e.zone,
+            weight:   'high',
+            reason:   R1_SIDE_CLEAR_WORDING[e.panelId],
+            _r1SideOnClear: true,
+          });
+          console.log(`[G INJECT][R1] ${e.panelId} NOT costed — side-on view:${sideOnClear.view} zones=[${sideOnClear.zones.join(',')}] graded it clean; → Inspection Flags (model rows stripped=${r1Stripped})`);
+          continue;
+        }
       }
       if (!bandKey) {
         console.log(`[G INJECT] ${e.panelId} floored — no band (no Brego trade valuation)`);
