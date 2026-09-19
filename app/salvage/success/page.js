@@ -1019,7 +1019,13 @@ export default function SalvageSuccessPage() {
                                     their OWN LINE under the part name, never glued to it, and they are labelled.
                                     The old 11px dim pill read as part of the name ("Rear bumperedit") when the
                                     page was printed. Orange outline, 13px, 32px touch target, wraps at 480px. */}
-                                {ledgerEditable && editMode && !p._codeLabour && (() => {
+                                {/* batch 161 E1 (Vincent, 19 Sep) — the Labour & paint row gets BOTH controls back.
+                                    `!p._codeLabour` was added here in batch 158 A2 and silently took Remove off the
+                                    one row the report's own addendum tells the buyer to remove. The labour row needs
+                                    no repair/replace toggle and gets none: amendableRow returns action:[] for a row
+                                    the price grid does not price (no panelId), so Change opens the amount field
+                                    alone. One rule, no special case. */}
+                                {ledgerEditable && editMode && (() => {
                                   const cap = amendableRow(p, assessment?._priceBandKey ?? null);
                                   const am = amendOf(p._rowKey);
                                   const open = amendOpen === p._rowKey;
@@ -1037,7 +1043,7 @@ export default function SalvageSuccessPage() {
                                       </button>
                                       {!struck && (
                                       <button type="button" onClick={() => { setAmendOpen(open ? null : p._rowKey); setAmendDraft(''); }}
-                                        title="Change repair/replace, or enter your own figure"
+                                        title={cap.action.length ? 'Change repair/replace, or enter your own figure' : 'Enter your own figure'}
                                         style={ctl(am ? { background: 'var(--orange)', color: '#fff' } : {})}>
                                         {am ? 'Changed — edit' : 'Change'}
                                       </button>

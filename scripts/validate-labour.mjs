@@ -131,7 +131,10 @@ import { assembleColumns } from '../lib/labour.mjs';
   const d = labourDisplayLines(c);
   eq('display: the approved range sub-line', d.range, 'Estimate £1,615 - £2,375 · the total uses the top');
   eq('display: the second-hand sub-line', d.secondHand, 'With second-hand colour-matched panels: £1,029 - £1,513 · for comparison, not in the total');
-  eq('display: the approved addendum, verbatim', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the top of that range. If your repairer quotes less, remove the line and add their figure.');
+  // batch 161 E4 (Vincent, 19 Sep): the closing sentence was re-approved. It used to say "If your repairer
+  // quotes less, remove the line and add their figure" — two steps, and since batch 158 A2 took the controls
+  // off the labour row it named a button that was not there. It now names the one control that does the job.
+  eq('display: the approved addendum, verbatim', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the top of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
   ok('display: all three lines are Latin-1 (the PDF drops anything else)', [d.range, d.secondHand, d.addendum].every((s) => !/[^\x00-\xFF]/.test(s)));
   ok('display: no columns (a pre-batch-92 report) → no lines', labourDisplayLines(null) === null && labourDisplayLines({}) === null);
 
