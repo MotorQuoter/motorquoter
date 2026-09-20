@@ -366,8 +366,14 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   // structure floor applies. A repaired panel is costed damage (its cost sits in panel work), so it
   // licenses a structure floor exactly as a replaced one does.
   // batch 150 Z1 added a FOURTH: wheelNetParts — a repaired wheel is "already identified and costed" too.
+  // batch 163 T2: all four spelled the rule out by hand and now call the one owner, lib/ledgerEdits.mjs
+  // isChargedRow. The assertion is unchanged in meaning — still four sites, still "a repaired panel is
+  // costed" — but it now pins the shared call, and it fails if anyone re-inlines the old spelling.
   ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor and the wheel checklist line',
-     (route.match(/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/g) || []).length === 4);
+     // count USES, not `isChargedRow(` — one of the four passes it by reference, `.filter(isChargedRow)`
+     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 4
+     && /import \{ rowKeyFor, isChargedRow \} from '@\/lib\/ledgerEdits\.mjs';/.test(route)
+     && !/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/.test(route));
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
   // assertion is the same — a repaired panel is excluded from the eBay sourcing basket.
   ok('route: no eBay parts link for a panel being repaired', /\.filter\(p => !p\._zeroRule && !p\._repairNoPart/.test(route));

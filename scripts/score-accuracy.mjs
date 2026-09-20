@@ -42,7 +42,7 @@ if (process.argv.includes('--diff')) {
 
 const { PANEL, PANEL_DISPLAY } = await import('../lib/panelEnum.mjs');
 const { PANEL_PRICE_TABLE } = await import('../lib/priceBand.mjs');
-const { applyEdits, rowKeyFor, ledgerHash, figureOf } = await import('../lib/ledgerEdits.mjs');
+const { applyEdits, rowKeyFor, ledgerHash, figureOf, isChargedRow } = await import('../lib/ledgerEdits.mjs');
 const { computeLabour, isBodyPanel } = await import('../lib/labour.mjs');
 const { isStructureFloorPanel, STRUCT_FLOOR_ZONE } = await import('../lib/structureFloor.mjs');
 const { PAIRS, listLots, lotInfo } = await import('./lib/labelVocabulary.mjs');
@@ -52,7 +52,8 @@ const sha = execFileSync('git', ['-C', tree, 'rev-parse', '--short', 'HEAD'], { 
 const tmp = resolve(tmpdir(), `score-accuracy-${sha}-${process.pid}`);
 mkdirSync(tmp, { recursive: true });
 
-const isCosted = (r) => figureOf(r) > 0 || r._repairNoPart === true;
+// batch 163 T2: one owner, lib/ledgerEdits.mjs. A repaired panel is charged at £0 on its own row.
+const isCosted = isChargedRow;
 // A row's panel: its panelId, or — for a panelless clone such as the second row of a headlamp pair
 // (batch 109C) — the enum id whose display name it carries. Labour/allowance rows match nothing.
 const BY_DISPLAY = new Map(Object.entries(PANEL_DISPLAY).map(([id, name]) => [String(name).toLowerCase().trim(), id]));

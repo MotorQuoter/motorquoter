@@ -35,7 +35,7 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
-import { rowKeyFor } from '@/lib/ledgerEdits.mjs';
+import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -182,7 +182,7 @@ export function isWheelNetRow(p) {
 export function wheelNetParts(rows) {
   return (rows || []).filter(p => isWheelNetRow(p)
     && !p._structFloor && p.action !== 'inspect'
-    && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));
+    && isChargedRow(p));   // batch 163 T2 — one owner
 }
 
 function getSupabase() {
@@ -1851,6 +1851,25 @@ const AMALG_REASON_RAD_UNCORROBORATED = 'single-view damage on a part only visib
 //
 // DIRECTION OF ERROR: no side-on member view, or a frame-zone pass that failed (ok:false), leaves the panel
 // COSTED — unchanged behaviour. The rule only ever subtracts on a positive clean read, never on silence.
+// ── batch 163 T1 (Vincent, 20 Sep) — R2: two SEVERE views and no clean view outrank one probe re-read ──
+// Reads the batch 160 C stamp and nothing else. The grade vocabulary is the per-view prompt's (:1980-1988):
+//   iv:true    — seen and damaged; `sev` carries SEVERE / MODERATE / MINOR
+//   iv:false   — seen and UNDAMAGED. This is the only value that breaks the run.
+//   iv:na      — could not resolve it (out of frame, occluded, too oblique). NEUTRAL.
+//   iv:missing — the part is physically ABSENT, torn away. NEUTRAL by Vincent's ruling — it is not a
+//                SEVERE grade (the prompt gives it no sev), and it plainly is not a clean read either.
+// A MODERATE or MINOR vote does not break the run: the rule is "≥2 SEVERE and none clean", exactly as
+// measured in batch 160 §4, not "every view SEVERE".
+//
+// DIRECTION OF ERROR: no stamp, an empty stamp, or anything unreadable → false → the probe behaves
+// exactly as it does today. The rule only ever KEEPS a panel; it never adds, removes or re-prices
+// anything, and it cannot fire on a panel the probe was not already about to floor.
+export function r2SevereKeep(perViewGrades) {
+  if (!Array.isArray(perViewGrades) || perViewGrades.length === 0) return false;
+  if (perViewGrades.some(g => g?.iv === 'false')) return false;                 // one clean read breaks it
+  return perViewGrades.filter(g => g?.iv === 'true' && g?.sev === 'SEVERE').length >= 2;
+}
+
 export const R1_SIDE_ON_ZONES = new Set(['flank', 'nearside', 'offside']);
 export function r1SideOnClearView(perViewGrades, frameZones) {
   if (!Array.isArray(perViewGrades) || perViewGrades.length === 0) return null;
@@ -4943,8 +4962,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // B). One-way: a verdict may FLOOR, never promote. Code-owned money systems are EXEMPT: rad-pack
     // (disposition machinery above is sole owner) — probe fired for telemetry, no mutation; HEADLAMP
     // (lamp-band allowance does not read iv) — skipped entirely, no vision call, no verdict.
-    // Action enum: exempt-rad | exempt-lamp | probe-error | kept | floored (+ skipped-already-floored,
-    // documented-unreachable under B).
+    // Action enum: exempt-rad | exempt-lamp | probe-error | kept | unconfirmed-kept | r2-severe-kept |
+    // floored (+ skipped-already-floored, documented-unreachable under B). batch 163 T1 added
+    // r2-severe-kept: the verdict contradicted the claim, but ≥2 views graded the panel SEVERE and none
+    // graded it clean, so the money stays. It is a KEEP — iv is untouched and no flag is raised.
     assessment._attributionProbe = { ok: true, panels: [] };
     {
       const _probeSurvivors = coreObs.costedParts.filter(cp => cp.independentlyVisible === true);
@@ -4988,6 +5009,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             _attribUnconfirmed: true,
           });
           action = 'unconfirmed-kept';
+        } else if (r2SevereKeep(cp._perViewGrades)) {
+          // batch 163 T1 (Vincent, 20 Sep) — R2: THE PROBE MAY NOT ZERO A PANEL EVERY VIEW GRADED SEVERE.
+          // The probe is one re-read of a few frames. When two or more separate views already graded this
+          // panel SEVERE and not one view called it clean, that is the stronger evidence, and a single
+          // contradicting re-read must not delete the money. Measured before it was built (batch 160 §4):
+          // on the 16-lot corpus this fires on exactly two panels, GY75CJU FRONT_WING and SD75YGC GRILLE,
+          // both labelled damaged and both MISSES today.
+          const g = cp._perViewGrades || [];
+          console.log(`[PROBE][R2] ${cp.panelId} kept — severe views:[${g.filter(x => x.sev === 'SEVERE').map(x => x.view).join(',')}] clean:none (na/missing neutral)`);
+          action = 'r2-severe-kept';
         } else {
           // FLOOR — only a verdict that POSITIVELY contradicts the claim (PROBE_CONTRADICTS). Mirror the zone-floor flag
           // push EXACTLY (:3748-3755); only the marker differs.
@@ -5222,7 +5253,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const alreadyCosted = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0).map(p => p.panelId));
       // batch 147 X2: costed damage = money in the total OR a repaired panel (batch 116 — its cost is
       // in panel work, so it is costed damage even at £0 part price).
-      const damagedPanels = new Set(gatedParts.filter(p => (p.used ?? p.oem ?? 0) > 0 || p._repairNoPart).map(p => p.panelId));
+      const damagedPanels = new Set(gatedParts.filter(isChargedRow).map(p => p.panelId));   // batch 163 T2 — one owner
       // EV battery — Vincent ruling: NO band, NO floor (a hit HV pack ranges £0-to-total-loss, so no
       // honest figure exists). But it is the LARGEST unknown on the car, not one of fifteen inspection
       // items — upgrade the generic medium not-visible flag to HIGH with its own wording. Limit-only:
@@ -5961,7 +5992,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
       // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
       // batch 116: a repaired panel (_repairNoPart, £0 part, cost in panel work) is still a costed, damaged panel.
-      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart)).map(p => p.panelId));
+      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && isChargedRow(p)).map(p => p.panelId));   // batch 163 T2 — one owner
       const flagObs = (pid) => (coreObs.flaggedParts || []).some(f => f.panelId === pid && !/not visible in any photo/i.test(f.reason || ''));
       // Bonnet tell = the bonnet displaced OR costed-with-damage — matches the Q2 measurement grid Vincent
       // ruled ≥2 against (a crumpled bonnet on a frontal is the "not lining up" sign; a costed bonnet counts).
@@ -6012,7 +6043,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       [assessment._rearBumperOffAny,  PANEL.REAR_QUARTER, 'rear',  'quarter panel'],
     ]) {
       if (off !== true) continue;
-      const costed = gatedParts.some(p => p.panelId === panelId && ((p.used ?? p.oem ?? 0) > 0 || p._repairNoPart));   // batch 116: a repaired panel is costed (in panel work)
+      const costed = gatedParts.some(p => p.panelId === panelId && isChargedRow(p));   // batch 163 T2 — one owner (batch 116: a repaired panel is costed, in panel work)
       if (!costed) continue;   // §4 fires only on a COSTED adjacent panel
       if (assessment._flaggedParts.some(f => f._bumperOffLimit && f.zone === end)) continue;
       const _why = assessment._bumperOffWhy?.[end] ?? 'absent';

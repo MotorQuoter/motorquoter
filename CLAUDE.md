@@ -230,6 +230,14 @@ Finished-but-unmerged and finished-but-uncommitted are both real states here and
 **à-la-carte menu** (`config/pricing.js`); Ireland is moving to a **bundle**. Read `config/pricing.js`
 at HEAD, never this file, for what is sold and at what price.
 
+## 7. Whether a panel is charged — one check, never a £ scan
+A repaired panel carries no £ on its own row: its cost is inside the Labour & paint line
+(`_repairNoPart`). So "is this panel charged?" is NEVER answered by looking for a £ figure on the row.
+Always use `isChargedRow()` from `lib/ledgerEdits.mjs` — in app code, validators, scorecards, and
+one-off analysis scripts alike. Any summary that counts charges, hits, misses or phantoms must be
+produced by that function, and the prose must agree with the table it summarises. (Added 20 Sep 2026
+after batch 160 §3's summary called a repair-row HIT "not charged".)
+
 ## WORKING RULE — never `cd` before `git`
 
 **Use `git -C <path> <cmd>`, or rely on the cwd you are already in. NEVER `cd <path> && git <cmd>`.**
