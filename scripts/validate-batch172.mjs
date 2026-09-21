@@ -55,5 +55,18 @@ console.log('\n-- P2: the claim binder\'s two wrong drops --');
   ok('trade / valuation / average figures are never checked', bindClaimClasses('The trade valuation averages £9,000 against repair costs. Second line.', ctx, 'speculation').dropped.length === 0);
 }
 
+// ── P4 ─────────────────────────────────────────────────────────────────────────────────────────────
+console.log('\n-- P4: checklist line for an unnamed part --');
+{
+  const { seedChecklistFromFlags, OTHER_FALLBACK_NAME } = await import('../lib/parts.mjs');
+  const nv = (partName) => ({ panelId: 'OTHER', partName, zone: 'underside', weight: 'medium', reason: 'not clear', _amalgNotVisible: true });
+  const kt = seedChecklistFromFlags('1. x', [nv(OTHER_FALLBACK_NAME)]);
+  ok('KT73YAJ shape: "Show a close-up of the unidentified part in the listing photos — …"',
+    kt.includes('2. Show a close-up of the unidentified part in the listing photos — not clear from the listing photographs; condition unconfirmed.'));
+  ok('…never "Show Unidentified part — see photos close-up"', !kt.includes('Show Unidentified part'));
+  ok('a named OTHER part ("Underside", GY75CJU) is unchanged', seedChecklistFromFlags('1. x', [nv('Underside')]).includes('2. Show Underside close-up — not clear from the listing photographs; condition unconfirmed.'));
+  ok('an ordinary panel is unchanged', seedChecklistFromFlags('1. x', [{ ...nv('Sill'), panelId: 'SILL' }]).includes('2. Show Sill close-up — not clear'));
+}
+
 console.log(`\nbatch172: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
