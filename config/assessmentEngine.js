@@ -624,6 +624,9 @@ Include the front headlamp as a separate line in Parts Breakdown for each implic
 OMIT the headlamp Parts Breakdown line ONLY when your Visible Damage Summary affirmatively states the lamp is intact and undisturbed in the photos. Every other state — not visible, obstructed, cannot confirm, bumper displaced — INCLUDES the line. Uncertain defaults to INCLUDE, not omit. This is deliberately asymmetric: a missed lamp replacement is a worse outcome than a precautionary allowance confirmed on inspection.
 Source: MK15VPZ Toyota Yaris / EN66NMJ full-frontal — lamp count and insertion fix — Session 03 Jun 2026.
 
+COSTING IS CODE-OWNED — NEVER DESCRIBE HOW A LINE IS COSTED: In Visible Damage Summary, Key Cost Drivers, Red Flags and Bidder Note, do not write "allowance", "precautionary", "provisional", "carried" or any similar word about how a part is priced or held in the total. The engine decides what is costed and how, and shows it in the Parts Breakdown. Say only what the photographs show and what they cannot confirm — e.g. "the headlamp is only partly visible; its serviceability cannot be confirmed from the photos."
+Source: batch 167 — CK75ONW run 690aeba8 called a headlamp costed on two damaged photo reads "a precautionary allowance" — 21 Sep 2026.
+
 recordCoreObservations Extraction (provenance verdicts only)
 
 After you complete your assessment prose, a structured extraction step reads your text for provenance signals only. The windscreen sticker suffix and body style are now code-owned — do NOT state them in prose for extraction purposes.
