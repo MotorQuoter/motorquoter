@@ -1390,6 +1390,19 @@ export function demoteContradictedVotes(perViewResults, frameZones) {
     const end = frameEndOnly(tags);
     if (!end) continue;
     const contradicted = END_SPECIFIC_PANELS[end === 'front' ? 'rear' : 'front'];
+    // batch 169 (Vincent, 21 Sep; batch 168 Part 3 tightened): when the read of this photo names AT LEAST TWO
+    // end-specific panels and EVERY one of them belongs to the OTHER end, it is the frame-zone tag that is
+    // wrong, not the read — keep every vote. Either-end panels (WHEEL, TYRE, doors, glass … — anything not in
+    // END_SPECIFIC_PANELS, the one named set) count neither for nor against. Counted as DISTINCT panels, so one
+    // lamp's two instance rows are one. A lone other-end panel is ambiguous: batch 119's demotion stands.
+    // CK75ONW: view 9 (6 front panels vs ["rear"]) and cassette view 8 (7 rear panels + WHEEL/TYRE vs
+    // ["front"]) are kept; AMZ3790 frame 20 (REAR_QUARTER beside FRONT_DOOR) is still demoted.
+    const endPanels = new Set([...(r.costedParts || []), ...(r.instanceParts || [])]
+      .map((cp) => cp?.panelId).filter((pid) => END_SPECIFIC_PANELS.front.has(pid) || END_SPECIFIC_PANELS.rear.has(pid)));
+    if (endPanels.size >= 2 && [...endPanels].every((pid) => contradicted.has(pid))) {
+      console.log(`[ZONE DEMOTE] view ${r.idx} kept — all ${endPanels.size} end-specific panels are ${end === 'front' ? 'rear' : 'front'} [${[...endPanels].join(', ')}]; the frame-zone tag ${JSON.stringify(tags)} is wrong for this photo, not the read (batch 169)`);
+      continue;
+    }
     for (const cp of new Set([...(r.costedParts || []), ...(r.instanceParts || [])])) {
       if (!contradicted.has(cp?.panelId)) continue;
       if (cp.independentlyVisible == null) continue;                                     // already na
@@ -2321,7 +2334,8 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
       result.push({ panelId, _instanceKey: `${panelId}#1`, members: instanceMembers, _oppRefViews: excludedCleanViews });
       excludedIndices.forEach(idx => {
         const iv = (memberByView.get(idx) ?? '').match(/\|\s*iv:(true|false|na|missing)\s*\|/i)?.[1] ?? '?';
-        console.log(`[G] ${panelId} excluded view:${idx} iv:${iv} (opposite-side — not part of damaged instance)`);
+        // batch 169 (batch 168's log fix): no side is checked here — the view is simply not in the correspondence instance.
+        console.log(`[G] ${panelId} excluded view:${idx} iv:${iv} (not in the correspondence instance — no side checked)`);
       });
     }
   }
