@@ -76,5 +76,24 @@ console.log('\n-- P3: a headlamp pair needs two damaged headlamps seen --');
   ok('route passes the per-view count into computeLampResult', route.includes('damagedHeadlampsSeen(perViewResults)   // batch 171 P3'));
 }
 
+// ── P4 ─────────────────────────────────────────────────────────────────────────────────────────────
+console.log('\n-- P4: the claim binder drops the clause, not the whole sentence --');
+{
+  const { bindClaimClasses, dropDemotedClauses } = await import('../lib/parts.mjs');
+  // CK75ONW run 2 _raw Visible Damage Summary, first sentence verbatim (the binder dropped it whole, batch 170 T1.7).
+  const SYN = 'A near-delivery 2025 Ioniq 5 Premium (current-generation BEV, ~5,900 miles) carrying two separate impacts — a full-width rear-end hit that has torn the rear bumper away and displaced the rear closing structure, plus a lighter front-end disturbance where the front bumper is displaced and the front grille/slam-panel area is exposed; the biggest unseeable risk is the rear chassis-leg/boot-floor integrity and high-voltage battery-zone condition behind the rear impact, neither of which can be confirmed from the photographs.';
+  if (RUN2) ok('(fixture) the sentence is run 2\'s own text', RUN2._raw.includes(SYN));
+  const ctx = { lampType: 'led', allowedFigures: [], partActions: [], demoted: ['Front bumper'], evVerdict: null };
+  const r = bindClaimClasses(SYN, ctx, 'speculation');
+  ok('the synthesis survives', /near-delivery 2025 Ioniq 5 Premium/.test(r.text) && /biggest unseeable risk/.test(r.text));
+  ok('…its rear-impact clause survives', /torn the rear bumper away and displaced the rear closing structure/.test(r.text));
+  ok('…only the clause naming the demoted front bumper goes', !/front bumper/i.test(r.text));
+  ok('…and the drop is recorded as part-status-clause', r.dropped.length === 1 && r.dropped[0].class === 'part-status-clause' && /front bumper is displaced/.test(r.dropped[0].sentence));
+  ok('a one-clause sentence naming the part still goes whole', bindClaimClasses('The front bumper is the biggest cost on the car. The roof is clean.', ctx, 'speculation').dropped[0]?.class === 'part-status');
+  ok('if what is left says nothing (< 4 words), the whole sentence goes', dropDemotedClauses('Front bumper damaged; minor.', ctx) === null);
+  ok('if what is left still contradicts (another class), the whole sentence goes',
+    dropDemotedClauses('The front bumper is damaged; the repair costs £999 in total.', { ...ctx, allowedFigures: [100] }, 'redflags') === null);
+}
+
 console.log(`\nbatch171: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
