@@ -5,7 +5,8 @@
   "panels": {
     "FRONT_BUMPER": {
       "label": "damaged",
-      "source": "Vincent 2026-09-17 (labelling sheet)"
+      "source": "Vincent 2026-09-17 (labelling sheet); re-look 21 Sep 2026",
+      "note": "very slight damage — Vincent re-look 21 Sep 2026: the run-2 probe read (minor-cosmetic) was right; a replace is an over-charge (the schema has no severity field)"
     },
     "GRILLE": {
       "label": "damaged",
@@ -132,8 +133,8 @@
     },
     "REAR_QUARTER": {
       "label": "clean",
-      "note": "neither quarter damaged",
-      "source": "Vincent 17 Sep 2026"
+      "note": "completely untouched — Vincent re-look 21 Sep 2026: the rear bumper wraps round the corner and its wrap is hard to tell from the quarter in the photos (was: neither quarter damaged)",
+      "source": "Vincent 17 Sep 2026; re-look 21 Sep 2026"
     },
     "REAR_GLASS": {
       "label": "clean",
