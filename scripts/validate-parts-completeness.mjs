@@ -125,10 +125,12 @@ test('Fix B: bumper INTACT + one front fog → no cost, one "check second" flag'
   assert.equal(flagsToAdd[0].used ?? null, null);                 // a flag, not a cost
 });
 
-test('Fix B: rear bumper gone + one rear fog → clone rear fog', () => {
+// batch 167 (Vincent, 21 Sep): the rear end carries ONE fog lamp. This test used to assert a clone of the
+// second rear fog (costedToAdd 1). One costed rear fog is now the full count: nothing added, no flag.
+test('Fix B: rear bumper gone + one rear fog → nothing added (the rear carries one, batch 167)', () => {
   const costed = [fog('rear')];
   const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, rearBumperGone: true, rearBumperConfirmed: true });
-  assert.equal(costedToAdd.length, 1);
+  assert.equal(costedToAdd.length, 0);
   assert.equal(flagsToAdd.length, 0);
 });
 
@@ -162,7 +164,8 @@ test('Fix B (batch 71 FIX 4): a SEEDED fog is named for its end, not bare "Fog l
   // calls below pass VACUOUSLY on an empty array ([].every(...) === true) — which is exactly what this
   // test did while §3's gate was silently returning zero seeded rows. Assert the rows exist FIRST.
   assert.equal(front.costedToAdd.length, 2, 'front seeds both fogs (non-empty — guards against vacuous .every)');
-  assert.equal(rear.costedToAdd.length,  2, 'rear seeds both fogs (non-empty — guards against vacuous .every)');
+  // batch 167: the rear seeds ONE (was 2 — "both fogs"). Still non-empty, so the .every below is not vacuous.
+  assert.equal(rear.costedToAdd.length,  1, 'rear seeds its one fog (non-empty — guards against vacuous .every)');
   assert.ok(front.costedToAdd.every(f => f.name === 'Front fog lamp' && f.zone === 'front'), 'seeded front fogs are "Front fog lamp"');
   assert.ok(rear.costedToAdd.every(f => f.name === 'Rear fog lamp'  && f.zone === 'rear'),  'seeded rear fogs are "Rear fog lamp"');
   assert.ok(![...front.costedToAdd, ...rear.costedToAdd].some(f => f.name === 'Fog lamp'), 'no seeded fog keeps the bare end-less name');
@@ -199,9 +202,11 @@ test('Fix B: fog with no zone treated as FRONT', () => {
 // v2.0 ADDITION: gatedParts has no `zone` — front/rear must be read from the row `name`.
 test('Fix B (v2.0): rear fog identified by NAME when zone is absent', () => {
   const rearByName = { panelId: PANEL.FOG_LAMP, name: 'Rear fog lamp', action: 'replace', used: 80 };
-  // rear bumper gone, one rear fog (named, no zone field) → clone the second rear fog
+  // rear bumper gone, one rear fog (named, no zone field). batch 167: the rear carries one, so it is the full
+  // count and nothing is added (was: clone a second, costedToAdd 1). A FRONT read of it would instead give
+  // front bumper-intact "check the second" flag — the flag assertion below still proves it is read as rear.
   const r = applyFogBumperRule({ costedParts: [rearByName], rearBumperGone: true, rearBumperConfirmed: true, frontBumperGone: false });
-  assert.equal(r.costedToAdd.length, 1);
+  assert.equal(r.costedToAdd.length, 0);
   // and it must NOT be treated as a front fog (front bumper intact, so a front read would give a flag)
   assert.equal(r.flagsToAdd.length, 0);
 });
@@ -252,7 +257,10 @@ test('Fix B §3: confirming the parent is what UNLOCKS the cost (same call, one 
 });
 
 test('Fix B §3: the guard is PER END — a confirmed front does not license an unconfirmed rear', () => {
-  const costed = [fog('front'), fog('rear')];
+  // batch 167: the rear carries ONE fog, so a ledger that already holds a rear fog is complete and raises
+  // nothing — this used to seed the rear with fog('rear') and expect a flag for the "missing" second. The
+  // point of the test is the per-end guard, so the rear end now starts with NO fog (0 < 1 → the §3 flag).
+  const costed = [fog('front')];
   const r = applyFogBumperRule({
     costedParts: costed,
     frontBumperGone: true, frontBumperConfirmed: true,

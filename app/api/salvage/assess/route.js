@@ -5818,8 +5818,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // before parts_sum, and after the _flaggedParts snapshot so buildBuyerFlags sees the survivors.
     // Fix B FIRST (adds fog rows + fog flags) so Fix A's survivor check already sees any fog flag.
     {
-      // Fix B — fogs follow the bumper. Bumper gone ⇒ both that-end fogs costed (seeded from the fog
-      // price band, or flagged if no band). Bumper intact + one fog ⇒ "check the second" flag only.
+      // Fix B — fogs follow the bumper. Bumper gone ⇒ that end's fogs costed (seeded from the fog price
+      // band, or flagged if no band) up to its count — front 2, rear 1 (batch 167; one owner,
+      // FOG_LAMPS_PER_END in lib/partsCompleteness.mjs). Bumper intact + one front fog ⇒ "check the second".
       // "Gone" = v2.0's AUTHORITATIVE bumper-off signal (aperture exposed OR ledger-severe), NOT any
       // costed bumper `replace`. The pre-v2.0 module OR'd in a costed-replace fallback; the batch-65
       // fixture survey showed that over-firing on 4 of 11 lots (a cosmetic replace is not "gone" and
