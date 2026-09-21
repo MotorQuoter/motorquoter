@@ -1941,7 +1941,7 @@ COST panels — carry a repair price when damaged:
   GRILLE            front grille / grille insert
   BONNET            bonnet / hood
   SLAM_PANEL        slam panel / rad support / front upper tie bar
-  FRONT_WING        front wing / front fender
+  FRONT_WING        front wing / front fender — only its own metal above the bumper line; bumper torn off or displaced and that metal not clearly deformed → iv:na
   HEADLAMP          front or rear headlamp / headlight (any position — do not invent FRONT_HEADLAMP)
   FOG_LAMP          front or rear fog lamp / driving lamp
   RADIATOR_PACK     radiator / condenser / cooling pack (costed as a unit on frontal hits)
@@ -1952,7 +1952,7 @@ COST panels — carry a repair price when damaged:
   DOOR_MIRROR       door mirror / wing mirror / side mirror
   SIDE_GLASS        side glass / door glass (any door window — glass pane struck in isolation; if the whole sliding door skin is struck use SLIDING_DOOR_GLAZED instead)
   REAR_BUMPER       rear bumper / rear bumper cover / rear fascia
-  REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
+  REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER) — only its own metal above the bumper line; bumper torn off or displaced and that metal not clearly deformed → iv:na
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
   WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
   REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
