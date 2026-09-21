@@ -51,5 +51,30 @@ ok('route: OTHER is in the flag-only set', /\|\| effClass === PANEL_CLASS\.OTHER
 ok('route: the unknown-ID branch keeps the word (_freeName: rawId)', route.includes('partName: PANEL_DISPLAY[PANEL.OTHER], _freeName: rawId }'));
 ok('route: OTHER flags are named right after amalgamate', route.includes('nameOtherFlags(pvResult.flaggedParts, perViewResults);'));
 
+// ── P3 ─────────────────────────────────────────────────────────────────────────────────────────────
+console.log('\n-- P3: a headlamp pair needs two damaged headlamps seen --');
+{
+  const { computeLampResult, damagedHeadlampsSeen } = await import('@/app/api/salvage/assess/route.js');
+  // CK75ONW run 2: [PER-VIEW][0] HEADLAMP iv=true inst=1; [1] iv=na; [9] two instances iv=na; _lampObs full_width + apertureExposed.
+  const h = (iv, inst) => ({ panelId: 'HEADLAMP', independentlyVisible: iv, zone: 'front', inst });
+  const v0 = { idx: 0, costedParts: [h(true, 1)], instanceParts: [h(true, 1)] };
+  const v9 = { idx: 9, costedParts: [h(null, 1)], instanceParts: [h(null, 1), h(null, 2)] };
+  const run2Views = [v0, { idx: 1, costedParts: [h(null)], instanceParts: [] }, v9];
+  ok('(fixture) run 2 _lampObs is full_width + apertureExposed', !RUN2 || (RUN2._lampObs.damageSpan === 'full_width' && RUN2._lampObs.apertureExposed === true));
+  ok('run 2: the per-view reads resolved ONE damaged headlamp', damagedHeadlampsSeen(run2Views) === 1);
+  const r = computeLampResult('central', true, 'led', 'missing', null, 'full_width', false, damagedHeadlampsSeen(run2Views));
+  ok('run 2: apertureExposed + full_width + 1 seen → lampCount 1 (was 2)', r.lampCount === 1);
+  const pair = computeLampResult('central', true, 'led', 'missing', null, 'full_width', false, 2);
+  ok('two damaged headlamps seen in one view → the pair stands', pair.lampCount === 2);
+  const none = computeLampResult('central', true, 'led', 'missing', null, 'full_width', false, 0);
+  ok('none seen → minimum 1', none.lampCount === 1);
+  const legacy = computeLampResult('central', true, 'led', 'missing', null, 'full_width', false);
+  ok('no count passed (older callers, validate-headlamp-pair) → geometry as before (2)', legacy.lampCount === 2);
+  const single = computeLampResult('central', false, 'led', null, null, 'full_width', false, 2);
+  ok('the cap never raises: tier 1 (aperture not exposed) stays 1', single.lampCount === 1);
+  ok('a zone-demoted (na) vote does not count', damagedHeadlampsSeen([{ idx: 3, costedParts: [], instanceParts: [h(null, 1), h(true, 2)] }]) === 1);
+  ok('route passes the per-view count into computeLampResult', route.includes('damagedHeadlampsSeen(perViewResults)   // batch 171 P3'));
+}
+
 console.log(`\nbatch171: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

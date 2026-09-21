@@ -2796,7 +2796,20 @@ function tier1FloorLampObs() {
 // EXPORTED (batch 109C) so scripts/validate-headlamp-pair.mjs asserts the LITERAL shipped wording,
 // never a copy — the same reason srsTierFromSignals and parsePartVerdicts are exported. A validator
 // that re-types a buyer-facing string proves only that the copy matches itself.
-export function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false) {
+// batch 171 P3 — how many damaged headlamps the per-view reads resolved: in any ONE view, the distinct HEADLAMP
+// instance records graded iv:true (a zone-demoted vote is already na); the most any single view showed. Two lamps
+// seen in two different views cannot be told apart from one lamp seen twice, so it is the per-view maximum.
+export function damagedHeadlampsSeen(perViewResults) {
+  let most = 0;
+  for (const r of perViewResults || []) {
+    const rows = (r?.instanceParts && r.instanceParts.length ? r.instanceParts : r?.costedParts) || [];
+    const n = new Set(rows.filter((cp) => cp?.panelId === PANEL.HEADLAMP && cp.independentlyVisible === true)).size;
+    if (n > most) most = n;
+  }
+  return most;
+}
+
+export function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false, damagedLampsSeen = null) {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
 
@@ -2806,7 +2819,12 @@ export function computeLampResult(struckSide, apertureExposed, lampType, detecti
   const { resolvedType, bandValue, lampTypeAssumed, lampTypeSource } = resolveLampBand(lampType, detectionLampType);
 
   // Lamp count from geometry: full-width frontal implies both lamps implicated
-  const lampCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
+  // batch 171 P3 (Vincent, 21 Sep): a pair needs two damaged headlamps SEEN. When the caller passes how many damaged
+  // HEADLAMP instances the per-view reads resolved (damagedLampsSeen), the count is capped at it, minimum 1. CK75ONW
+  // run 2: apertureExposed + full_width, but HEADLAMP 1/1 in one instance → one lamp, not two. null = no cap (as before).
+  const geometryCount = (apertureExposed && damageSpan === 'full_width') ? 2 : 1;
+  const lampCount = damagedLampsSeen == null ? geometryCount : Math.min(geometryCount, Math.max(1, damagedLampsSeen));
+  if (lampCount < geometryCount) console.log(`[LAMP][P3] pair capped to ${lampCount} — per-view reads resolved ${damagedLampsSeen} damaged headlamp(s) (batch 171)`);
   // S5-1 — span-source provenance: single owner, labelled where the count decision is taken (never
   // re-derived downstream). spanDefaulted refines full_width when the span VALUE was defaulted upstream.
   const spanSource = !apertureExposed ? 'tier1-forced'
@@ -4522,7 +4540,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         detectedCorner?.verdict   || null,
         photoType,
         lampObs.damageSpan        || 'full_width',
-        lampObs._spanDefaulted    === true
+        lampObs._spanDefaulted    === true,
+        damagedHeadlampsSeen(perViewResults)   // batch 171 P3 — the pair needs two damaged headlamps seen
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
     }
