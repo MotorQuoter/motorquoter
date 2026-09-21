@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
-  reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted,
+  reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -2163,7 +2163,10 @@ async function runPerViewAssess(image, idx, onExhaust) {
           return { ...cp, panelId: rawId, partName: PANEL_DISPLAY[rawId] };
         }
         console.warn(`[PER-VIEW][${idx}] unknown panel ID "${rawId}" — routed to OTHER`);
-        return { ...cp, panelId: PANEL.OTHER, partName: PANEL_DISPLAY[PANEL.OTHER] };
+        // batch 171 P1: the model's own word is the only name this part has — keep it (_freeName) for the buyer.
+        // partName stays "Other" here so the ledger text the main call reads is unchanged; the buyer-facing name
+        // is set once, by nameOtherFlags (lib/parts.mjs), right after amalgamate.
+        return { ...cp, panelId: PANEL.OTHER, partName: PANEL_DISPLAY[PANEL.OTHER], _freeName: rawId };
       })
       .filter(Boolean);
     enriched.forEach(cp => {
@@ -2190,7 +2193,7 @@ async function runPerViewAssess(image, idx, onExhaust) {
   }
 }
 
-function groupByPanelId(allPerViewResults) {
+export function groupByPanelId(allPerViewResults) {   // batch 171: exported (read-only) for validate-batch171
   const map = new Map(); // panelId → verdict-line strings[]
   for (const { costedParts, idx } of allPerViewResults) {
     for (const cp of costedParts) {
@@ -2346,7 +2349,7 @@ const MINOR_COSMETIC_FLAG_THRESHOLD = 2; // min MINOR-only damaged votes to trig
 const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
 const STICKY_COST_THRESHOLD         = 0.70; // min damaged/resolving ratio to RESCUE a disagree-floored COST panel back to cost (post-amalgamate sticky pass; tunable — see [AMALG][STICKY])
 
-function amalgamate(groups, viewPanelSets) {
+export function amalgamate(groups, viewPanelSets) {   // batch 171: exported (read-only) for validate-batch171
   const costedParts  = [];
   const flaggedParts = [];
   const pvVotesMap   = {};
@@ -2365,9 +2368,12 @@ function amalgamate(groups, viewPanelSets) {
     const effClass = rawClass === PANEL_CLASS.EV_CONDITIONAL
       ? EV_PANEL_RESOLVED_CLASS[panelId]
       : rawClass;
+    // batch 171 P1: OTHER is "always flag, never keyed-cost" (lib/panelEnum.mjs:17) — it was missing here, so a
+    // damaged OTHER read took the cost branches (CK75ONW run 2: "Other — replace £180").
     const isFlagOnly = effClass === PANEL_CLASS.STRUCTURAL_FLAG
                     || effClass === PANEL_CLASS.VISIBLE_FLAG
-                    || effClass === PANEL_CLASS.PRESENCE_CHECK;
+                    || effClass === PANEL_CLASS.PRESENCE_CHECK
+                    || effClass === PANEL_CLASS.OTHER;
     // batch 150 Z1: the structural wording belongs to STRUCTURAL_FLAG panels only; the rest get the plain reason.
     // _flagClassRead marks a POSITIVE flag-class read (missing / damaged) — the only read zero-rule A may floor.
     const flagClassReason = effClass === PANEL_CLASS.STRUCTURAL_FLAG ? AMALG_REASON_FLAG_CLASS : AMALG_REASON_INSPECT_CLASS;
@@ -4196,6 +4202,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       perViewResults.map(r => [r.idx, new Set((r.costedParts || []).map(cp => cp.panelId).filter(Boolean))])
     );
     const pvResult          = amalgamate(groups, viewPanelSets);
+    // batch 171 P1: an OTHER flag is shown under the model's own word for the part, never a bare "Other".
+    // Flags are not part of any model call's input (only ledgerPreamble below is), so this is buyer-facing only.
+    nameOtherFlags(pvResult.flaggedParts, perViewResults);
     messages[0].content.push({ type: 'text', text: ledgerPreamble(pvResult) });
 
     const callClaude = async (withTools, forced = false) => {
