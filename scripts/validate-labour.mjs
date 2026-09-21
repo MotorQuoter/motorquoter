@@ -564,8 +564,12 @@ console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Se
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
   // batch 132: the seeding moved (logic unchanged) to lib/parts.mjs seedChecklistFromFlags — the pins follow it.
   const seedSrc = readFileSync('lib/parts.mjs', 'utf8');
-  const SRS_LINE = 'seedItem = `Show ${part} close-up — the number and location of the bags must be checked before bidding.`;';
-  const GENERIC = "seedItem = `Show ${part} close-up — structural or inspection-class component; confirm condition before bidding.`;";
+  // batch 172 P4: the lead is built once as `show` ("Show X close-up" for every named part; the unnamed OTHER part reads
+  // "Show a close-up of the unidentified part in the listing photos"). The pins follow the new spelling; the rendered
+  // string for a named part is unchanged — asserted on real output in validate-batch172 P4, and on the helper below.
+  const SRS_LINE = 'seedItem = `${show} — the number and location of the bags must be checked before bidding.`;';
+  const GENERIC = "seedItem = `${show} — structural or inspection-class component; confirm condition before bidding.`;";
+  ok('seed: the lead for a named part is still "Show ${part} close-up" (batch 172 P4)', seedSrc.includes(": `Show ${part} close-up`;"));
   ok('seed: a targeted branch keyed on the SRS flag marker (_srsExtentFloor) seeds Vincent\'s wording', seedSrc.includes('} else if (flag._srsExtentFloor) {') && seedSrc.includes(SRS_LINE));
   ok('seed: the SRS branch sits BEFORE the generic high-weight branch (so the airbag never falls to it)', seedSrc.indexOf('} else if (flag._srsExtentFloor) {') > 0 && seedSrc.indexOf('} else if (flag._srsExtentFloor) {') < seedSrc.indexOf("} else if (flag.weight === 'high') {"));
   // batch 152 X1: the generic line now serves structure panels and non-flag-class high flags; non-structure
@@ -574,7 +578,7 @@ console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Se
   ok('route: seeds through the one owner and keeps no inline copy', route.includes('seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired })') && !route.includes('seedItem ='));
   ok('route: the SRS flag carries the marker the branch keys on', route.includes('reason: srsDeploymentNote(),') && /reason: srsDeploymentNote\(\),\s*_srsExtentFloor: true,/.test(route));
   const rendered = 'Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.';
-  ok('rendered for the airbag part, verbatim as Vincent chose', SRS_LINE.replace('${part}', 'SRS airbag (deployed)').includes(rendered));
+  ok('rendered for the airbag part, verbatim as Vincent chose', SRS_LINE.replace('${show}', 'Show SRS airbag (deployed) close-up').includes(rendered)   /* batch 172 P4: lead built once */);
   ok('"must be checked", never "confirm condition" / "please check"', /must be checked/.test(rendered) && !/confirm condition|please check/i.test(rendered));
 }
 
