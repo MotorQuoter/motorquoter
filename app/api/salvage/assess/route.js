@@ -1319,7 +1319,13 @@ const PROBE_MISSING_WORDING = 'missing, torn away in the impact';
 // contradiction leak. Missing-claim parts get a "recorded as missing … absence not confirmed"
 // line (a "damage was recorded" flag against a missing claim is itself a self-contradiction).
 // For the damaged class, SEVERE leads "Serious damage"; MODERATE drops the word.
-function attribFlagWording(partName, grade, isMissing) {
+// batch 172 P1 (Vincent, 21 Sep): the flag says what the PROBE saw. When the probe read the panel minor-cosmetic, it saw
+// light marking at most — "Serious damage … could not be photographically confirmed" told the buyer the opposite.
+// Every other verdict keeps its wording. No money moves (the panel was already floored).
+export const ATTRIB_MINOR_COSMETIC_WORDING = (partName) =>
+  `The photos show at most light marking on the ${partName} — not included in the repair total; check it on inspection.`;
+export function attribFlagWording(partName, grade, isMissing, verdict = null) {
+  if (verdict === 'minor-cosmetic') return ATTRIB_MINOR_COSMETIC_WORDING(partName);
   if (isMissing) {
     return `The ${partName} was recorded as missing during assessment but its absence could not be photographically confirmed — inspect this panel before bidding.`;
   }
@@ -5073,7 +5079,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             partName: PANEL_DISPLAY[cp.panelId],
             zone:     cp.zone,
             weight:   grade === 'SEVERE' ? 'high' : 'medium',
-            reason:   attribFlagWording(PANEL_DISPLAY[cp.panelId], grade, missing),
+            reason:   attribFlagWording(PANEL_DISPLAY[cp.panelId], grade, missing, r?.verdict ?? null),
             _attribFloored: true,
           });
           _attribFloored.push({ partName: PANEL_DISPLAY[cp.panelId] });
