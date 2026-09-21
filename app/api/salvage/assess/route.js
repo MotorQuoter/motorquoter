@@ -30,7 +30,7 @@ import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
   reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -2496,19 +2496,21 @@ function amalgamate(groups, viewPanelSets) {
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _perViewClear: true });
     } else {
       // DISAGREE — some views saw damage, some saw it clean. Batch 81 §1 (Vincent): the engine must
-      // never silently resolve a disagreement — it surfaces it and the buyer rules. The panel STAYS in
-      // the ledger costed at its reconciled/table price AND carries this inspection flag; the visibility
-      // gate no longer strips it (lib/parts.mjs). iv stays false (it was not independently confirmed),
-      // so the _amalgDisagree marker — now on the COSTED entry, mirroring the flag — is how the gate and
-      // the §2 ledger/flag invariant recognise a disagree panel distinctly from a per-view CLEAR (which
-      // still strips). This is the over-count-safe direction: a costed-but-flagged phantom is challengeable;
-      // a silent deletion corrupts the total, the profit window and the bid ceiling with no trace.
+      // never silently resolve a disagreement — it surfaces it and the buyer rules. It always carries
+      // this inspection flag. batch 165 item 3 — CORRECTED: it is FLAGGED, NOT COSTED (batch 156). The
+      // entry below has iv:false, so ledgerPreamble words it FLOORED ("do NOT cost") and no code path
+      // injects a figure for it. It reaches the ledger ONLY if the model writes a row anyway; the gate then
+      // keeps that row (_disagreeCosted, lib/parts.mjs) rather than strip it. Batch 164: on the 16-lot
+      // corpus that happened on 1 of 8 disputed panels (EA17HDN door mirror, £60). The _amalgDisagree
+      // marker on this entry, mirroring the flag, is how the gate and the §2 ledger/flag invariant tell a
+      // disagree panel from a per-view CLEAR (which strips, with no flag). An uncosted disputed panel
+      // reaches the buyer as an Inspection Flag and a checklist line (158 A1, discloseSplitVoteUncosted).
       // Extent grade for the labour shape (batch 81 amendment 2): a disagree survivor carries the
       // severity of its DAMAGED views (the extent the buyer is inspecting for), so severity-weighted
       // labour can weight it. SEVERE if any damaged view was SEVERE, else MODERATE if any MODERATE, else
       // MINOR. Independent of the cost figure — extent, not value.
       const _disagreeSev = damagedSevs.includes('SEVERE') ? 'SEVERE' : (hasModerate ? 'MODERATE' : 'MINOR');
-      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → COST + flag (batch 81 §1; gate no longer strips) sev=${_disagreeSev}`);
+      console.log(`[AMALG] ${panelId} disagree (${damaged} damaged, ${clean} clean) → FLAG, not costed (batch 156; the gate keeps a row only if the model wrote one) sev=${_disagreeSev}`);
       costedParts.push({ panelId, partName, zone, independentlyVisible: false, partHeight: null, _amalgDisagree: true, _ledgerSeverity: _disagreeSev });
       flaggedParts.push({ panelId, partName, zone, weight: 'medium', reason: AMALG_REASON_DISAGREE, _amalgDisagree: true });
     }
@@ -5467,43 +5469,17 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       });
     }
 
-    // ── Body-class panel-eligibility gate (Stage 5, allow-set) ───────────────
-    // Strip any costed/flagged panel that the resolved bodyClass cannot carry
-    // (e.g. a BOOT_LID costed on a pickup, or van body panels on a car). Mirrors
-    // the coachbuilt deny-strip above. Bypass by construction: bodyClass === null
-    // (pre-Part-1, no enforcement) and 'coachbuilt' (own deny-strip) are absent
-    // from ELIGIBLE_PANELS → _eligibleSet undefined → skip; 'UNRESOLVED' throws
-    // upstream and never reaches here. Only car/panel_van/pickup/minibus gate.
-    const _eligibleSet = ELIGIBLE_PANELS[bodyClassResult.bodyClass];
-    if (_eligibleSet) {
-      const removed = [];
-      for (let i = gatedParts.length - 1; i >= 0; i--) {
-        const pid = gatedParts[i].panelId;
-        // Strip only KEYED panel rows outside the allow-set. Non-panel rows
-        // (labour / paint / sundries / blend — no panelId, see parts.mjs gate)
-        // are never cross-body misattributions; leave them in the total.
-        // SRS_AIRBAG is a code-injected sentinel (not a real PANEL, so absent from
-        // ELIGIBLE_PANELS) — exempt it: a deployed-airbag kit is valid on every body
-        // class and must survive this gate (it is injected just above, in the SRS block).
-        if (pid != null && pid !== 'SRS_AIRBAG' && !_eligibleSet.has(pid)) {
-          removed.push(pid);
-          gatedParts.splice(i, 1);
-        }
-      }
-      // Mirror strip in coreObs.flaggedParts. Null-panelId flags (free-text/structural
-      // prose, coachbuilt notice) are never keyed — leave them untouched.
-      for (let i = coreObs.flaggedParts.length - 1; i >= 0; i--) {
-        const pid = coreObs.flaggedParts[i].panelId;
-        if (pid != null && !_eligibleSet.has(pid)) {
-          coreObs.flaggedParts.splice(i, 1);
-        }
-      }
-      console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${removed.join(', ')}]`);
-    }
+    // ── Body-class panel-eligibility gate — MOVED (batch 165 item 1) ─────────
+    // It used to run here. A panel it removed then came back through later steps (158 A1 re-added
+    // AK75RDX's pickup quarter from the votes; Q4 and the checklist seed followed). It now runs once,
+    // after every step that can add a panel and before every step that reads the result: see
+    // "Body-class panel-eligibility gate (Stage 5, allow-set)" just above §11 CODE-OWNED LABOUR.
 
     // batch 158 A1 — a panel the photographs disagree on that ends up UNCOSTED is still an inspection
-    // item. Runs here, after the ledger is final (the body-class strip above is the last thing to remove
-    // a row), so "not costed" is the real answer. It never costs anything. One owner: lib/parts.mjs.
+    // item. Runs here, after the last step that removes an eligible panel's row, so "not costed" is the
+    // real answer. It never costs anything. One owner: lib/parts.mjs. batch 165: a panel this body cannot
+    // carry may still be disclosed here — the body-class gate below (above §11 labour) removes it from
+    // every buyer surface afterwards, so A1 needs no body check of its own.
     {
       const _split = discloseSplitVoteUncosted({ pvVotes: pvResult.pvVotesMap, gatedParts,
         flags: coreObs.flaggedParts, display: PANEL_DISPLAY });
@@ -5911,6 +5887,32 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           _bumperOffContradiction: true,
         });
         console.log(`[BUMPER CONTROL] ${end} bumper off but unconfirmed → flagged (no unsupported spend remains)`);
+      }
+    }
+
+    // ── Body-class panel-eligibility gate (Stage 5, allow-set) ───────────────
+    // Strip any costed/flagged panel that the resolved bodyClass cannot carry
+    // (e.g. a BOOT_LID costed on a pickup, or van body panels on a car). Mirrors
+    // the coachbuilt deny-strip. Bypass by construction: bodyClass === null
+    // (pre-Part-1, no enforcement) and 'coachbuilt' (own deny-strip) are absent
+    // from ELIGIBLE_PANELS → _eligibleSet undefined → skip; 'UNRESOLVED' throws
+    // upstream and never reaches here. Only car/panel_van/pickup/minibus gate.
+    // batch 165 item 1 (Vincent, 21 Sep): a panel removed here never comes back. THIS is the one point.
+    // Everything that can ADD a panel runs above it: 158 A1 (discloseSplitVoteUncosted), the §2
+    // ledger/flag invariant, the fog rule, the completeness net and the bumper control. Everything
+    // that READS the result runs below it and reads only what it filtered: Q4 (promoteFlaggedQuarter
+    // reads coreObs.flaggedParts), labour, the ledger (_reconciledParts / VDS / KCD / parts_sum),
+    // the §4 limit note (needs a charged row), the damage cards (coreObs.flaggedParts +
+    // assessment._flaggedParts), and buildBuyerFlags (assessment._flaggedParts), which feeds the
+    // screen, the PDF and the checklist seed. One owner of the rule: stripBodyIneligible (lib/parts.mjs).
+    const _eligibleSet = ELIGIBLE_PANELS[bodyClassResult.bodyClass];
+    if (_eligibleSet) {
+      const _stripped = stripBodyIneligible({ eligible: _eligibleSet, gatedParts,
+        flagLists: [coreObs.flaggedParts, assessment._flaggedParts], costedParts: coreObs.costedParts });
+      assessment._bodyClassStripped = [...new Set([..._stripped.rows, ..._stripped.flags, ..._stripped.verdicts])];
+      console.log(`[BODY_CLASS_STRIP] bodyClass=${bodyClassResult.bodyClass} removed=[${_stripped.rows.join(', ')}]`);
+      if (_stripped.flags.length || _stripped.verdicts.length) {
+        console.log(`[BODY_CLASS_STRIP] also removed flags=[${_stripped.flags.join(', ')}] verdicts=[${_stripped.verdicts.join(', ')}] — never comes back (batch 165)`);
       }
     }
 
