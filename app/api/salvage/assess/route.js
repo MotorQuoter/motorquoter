@@ -20,7 +20,7 @@ import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
 import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
-import { buildMileageCorroborationSlot, countIndependentMileageSources } from '@/lib/mileageCorroboration.mjs';
+import { buildMileageCorroborationSlot, countIndependentMileageSources, noMotUnderThree } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
   CORE_GROUPS, VENDOR_SUFFIX_MAP,
@@ -3724,6 +3724,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
     let photoOdometer = null;
+    let _photoOdoRaw = null;   // batch 177 P5 — the Haiku reply, verbatim, stamped on the assessment every time
     try {
       const preExtractBlocks = await Promise.all(images.map(resizeToHaikuSafe));
       const { res: haikuRes, exhausted: haikuOdoExhausted } = await with529Retry('haiku-odo', () => fetch('https://api.anthropic.com/v1/messages', {
@@ -3743,6 +3744,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (!haikuOdoExhausted && haikuRes?.ok) {
         const haikuData = await haikuRes.json();
         const raw = (haikuData.content?.[0]?.text || '').trim();
+        _photoOdoRaw = raw;
         const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
           .map(n => parseInt(n, 10))
           .filter(n => n >= 1 && n <= 999999);
@@ -3843,6 +3845,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     })();
     // The dashboard is ONE source however many times it is read (batch 106 §4). The rule itself lives
     // in lib/mileageCorroboration.countIndependentMileageSources so the validator can assert it.
+    // batch 177 P5 (Vincent, 22 Sep): a car under 3 years has no MOT record yet. When the dash photo read EQUALS the listing
+    // figure, the slot says so (still 'unconfirmed' — batch 106 §4: listing + dash is ONE source).
+    {
+      const _listedNum = (() => { const m = String(enrichedVd.copartListedMileage ?? enrichedVd.odometer ?? '').replace(/,/g, '').match(/\d+/); return m ? parseInt(m[0], 10) : NaN; })();
+      enrichedVd._photoOdometerAgrees = photoOdometer != null && photoOdometer === _listedNum;
+      enrichedVd._noMotUnder3 = noMotUnderThree(enrichedVd.year, _dvsaMileagePresent);
+    }
     enrichedVd._mileageSourceCount = countIndependentMileageSources({
       listingMileagePresent: _listingMileagePresent,
       photoOdometerPresent: photoOdometer != null,
@@ -4583,6 +4592,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
     assessment._zoneDemotions = _zoneDemotions; // batch 119 — every per-view vote the frame-zone read contradicted (→ na)
     if (lampResult) assessment._lampResult = lampResult;
+    assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };   // batch 177 P5 — stored every time, null included
     assessment._damagedHeadlampsSeen = _damagedLampsSeen;   // batch 177 P3 — stamped so the one-corner test is auditable
     assessment._lampObs = lampObs ? {
       struckSide:          lampObs.struckSide ?? 'central',
