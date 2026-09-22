@@ -3,7 +3,7 @@
 //   V1 — REVERTED (batch 156 T0). A disputed panel is FLAGGED, NOT COSTED. The tests below assert the rule
 //        is gone: no owner, no call site, no buyer-flag carve-out.
 //   V2 — zero-rule B is gone: a panel no photo shows is flagged, never charged, whatever its neighbours.
-//   V3 — the §4 note says "torn away" only when the bumper is read as ABSENT.
+//   V3 — the §4 note says "torn away" only when the bumper is read as ABSENT. SUPERSEDED by batch 179: one wording for all.
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-disputed-notvisible-bumper.mjs
 //
 // RULINGS:
@@ -76,13 +76,14 @@ console.log('\n-- V3: "torn away" only when the bumper is read as absent --');
   const absent = bumperLimitReason('front', 'wing', 'absent');
   const aperture = bumperLimitReason('front', 'wing', 'aperture');
   const severe = bumperLimitReason('rear', 'quarter panel', 'severe');
-  ok('V3 ruling: aperture sentence approved verbatim', aperture === 'The front bumper area is open on this side — part of the bumper, its trim or the panel next to it is displaced or missing. Whether the wing behind it is also damaged cannot be fully seen in these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
-  ok('V3 ruling: severe sentence approved verbatim', severe === 'The rear bumper is badly damaged on this side. Whether the quarter panel behind it is also damaged cannot be fully seen in these photographs. It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.');
-  ok('V3: absent keeps the batch 103 §4 wording', absent.startsWith('The front bumper is torn away on this side.'));
-  ok('V3: aperture never says "torn away"', !/torn away/i.test(aperture) && /open on this side/.test(aperture));
-  ok('V3: severe never says "torn away"', !/torn away/i.test(severe) && /badly damaged/.test(severe));
+  // batch 179 (Vincent, 22 Sep): ONE wording for every branch — it replaces V3's three sentences (and batch 103's "torn
+  // away … cannot be determined"). The limb is still recorded on the flag; it no longer changes the words.
+  ok('batch 179: absent → the one wording, verbatim', absent === 'Costed on the photographs. The front bumper is off on this side, so check the wing on inspection and strike the line if it is sound.');
+  ok('batch 179: aperture → the same wording', aperture === 'Costed on the photographs. The front bumper is off on this side, so check the wing on inspection and strike the line if it is sound.');
+  ok('batch 179: severe → the same wording, its own end and panel', severe === 'Costed on the photographs. The rear bumper is off on this side, so check the quarter panel on inspection and strike the line if it is sound.');
   for (const [k, r] of [['absent', absent], ['aperture', aperture], ['severe', severe]]) {
-    ok(`V3: ${k} still states the limit and the strike line`, /included in the repair total/.test(r) && /strike the line/.test(r));
+    ok(`batch 179: ${k} never says "cannot be determined" / "cannot be fully seen" / "torn away"`, !/cannot be (?:determined|fully seen)|torn away/i.test(r));
+    ok(`batch 179: ${k} still says it is costed and gives the strike line`, /^Costed on the photographs\./.test(r) && /strike the line if it is sound\.$/.test(r));
   }
   ok('V3: the note reads the recorded limb', route.includes('reason: bumperLimitReason(end, panelWord, _why)'));
   ok('V3: the limb is recorded from the same three reads the note-only signal uses',

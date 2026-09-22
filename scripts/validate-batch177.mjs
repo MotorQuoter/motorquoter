@@ -3,7 +3,8 @@
 // Unit cases come from SV24YCN's stored row (_cc/scratch/b176/row-800068f0.json, Vincent's 22 Sep preview run on 8032d99)
 // where it is on disk; every rule is also checked on its own, so the validator still means something without it.
 import { readFileSync, existsSync } from 'fs';
-import { panelOwnReadsConfirm, presenceMissingReason, M1_COST_DISPUTED, M1_DISPUTED_COSTED_REASON } from '@/app/api/salvage/assess/route.js';
+import { presenceMissingReason, M1_COST_DISPUTED, M1_DISPUTED_COSTED_REASON } from '@/app/api/salvage/assess/route.js';
+import * as ROUTE from '@/app/api/salvage/assess/route.js';
 import { dropNotVisibleForCharged, seedChecklistFromFlags, buildBuyerFlags } from '@/lib/parts.mjs';
 import { applyFogBumperRule, frontImpactIsOneCorner, FOG_SECOND_ONE_CORNER_LINE } from '@/lib/partsCompleteness.mjs';
 import { buildMileageCorroborationSlot, noMotUnderThree } from '@/lib/mileageCorroboration.mjs';
@@ -17,18 +18,19 @@ const SV = existsSync(ROW_PATH) ? JSON.parse(readFileSync(ROW_PATH, 'utf8')).ass
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
 // ── P1 ─────────────────────────────────────────────────────────────────────────────────────────────
-console.log('\n-- P1: the §4 bumper-off note respects the panel\'s own evidence --');
+console.log('\n-- P1 (REVERTED by batch 179): the §4 note goes on every charged panel behind a missing bumper, one wording --');
 {
-  const cps = [{ panelId: 'FRONT_WING', _severeOverride: true }, { panelId: 'REAR_QUARTER' }];
-  ok('SEVERE override → confirmed (severe-override)', panelOwnReadsConfirm('FRONT_WING', cps, null) === 'severe-override');
-  ok('probe consistent-with-claim → confirmed (probe)', panelOwnReadsConfirm('REAR_QUARTER', cps, { panels: [{ panelId: 'REAR_QUARTER', verdict: 'consistent-with-claim' }] }) === 'probe');
-  ok('thin evidence (no override, probe not consistent) → null: the note still fires', panelOwnReadsConfirm('REAR_QUARTER', cps, { panels: [{ panelId: 'REAR_QUARTER', verdict: 'cannot-determine' }] }) === null);
-  ok('route: the §4 loop skips a confirmed panel before it builds the note',
-    route.indexOf('const _confirmedBy = panelOwnReadsConfirm(panelId, coreObs.costedParts, assessment._attributionProbe);') > 0
-    && route.indexOf('const _confirmedBy = panelOwnReadsConfirm(') < route.indexOf('reason: bumperLimitReason(end, panelWord, _why)'));
+  // batch 179 (Vincent, 22 Sep): batch 177 P1 is reverted — no evidence test separates the 3 clean-labelled phantoms from
+  // the 6 real panels (batch 178: probe and SEVERE override confirm all 9). The note is back on all of them, reworded.
+  ok('P1 helper gone (panelOwnReadsConfirm no longer exported)', !('panelOwnReadsConfirm' in ROUTE));
+  ok('route: no skip left in the §4 loop', !route.includes('_confirmedBy') && !route.includes('panelOwnReadsConfirm('));
+  const W = (end, p) => `Costed on the photographs. The ${end} bumper is off on this side, so check the ${p} on inspection and strike the line if it is sound.`;
+  ok('the wording, verbatim (wing)', ROUTE.bumperLimitReason('front', 'wing', 'absent') === W('front', 'wing'));
+  ok('the wording, verbatim (quarter)', ROUTE.bumperLimitReason('rear', 'quarter panel', 'aperture') === W('rear', 'quarter panel'));
   if (SV) {
-    ok('(SV24YCN) the stored run carried the wing note', SV._flaggedParts.some((f) => f.panelId === 'FRONT_WING' && f._bumperOffLimit));
-    ok('(SV24YCN) the stored probe says the wing is consistent-with-claim → now confirmed, no note', panelOwnReadsConfirm('FRONT_WING', [], SV._attributionProbe) === 'probe');
+    ok('(SV24YCN) the stored run carried the wing note (old wording)', SV._flaggedParts.some((f) => f.panelId === 'FRONT_WING' && f._bumperOffLimit && /cannot be determined/.test(f.reason)));
+    ok('(SV24YCN) its limb (absent) now reads the one wording, never "cannot be determined"',
+      ROUTE.bumperLimitReason('front', 'wing', SV._bumperOffWhy.front) === W('front', 'wing'));
   }
 }
 
