@@ -18,8 +18,9 @@ console.log('\n-- P1: a probe-floored panel\'s flag says what the probe saw --')
     ok('(fixture) run 2 showed the old wording', RUN2._flaggedParts.some((f) => f.panelId === 'FRONT_BUMPER' && /^Serious damage to the Front bumper was recorded/.test(f.reason)));
   }
   const w = attribFlagWording('Front bumper', 'SEVERE', false, 'minor-cosmetic');
-  ok('run 2 front bumper (SEVERE grade, minor-cosmetic) → the light-marking wording, verbatim',
-    w === 'The photos show at most light marking on the Front bumper — not included in the repair total; check it on inspection.');
+  // batch 182 P2 (Vincent, 22 Sep): "at most light marking on" → "minor damage to" (the probe's own notes say dent/crease).
+  ok('run 2 front bumper (SEVERE grade, minor-cosmetic) → the minor-damage wording, verbatim (batch 182)',
+    w === 'The photos show minor damage to the Front bumper — not included in the repair total; check it on inspection.');
   ok('…never "Serious damage" or "could not be photographically confirmed"', !/Serious damage|photographically confirmed/.test(w));
   ok('another verdict keeps today\'s wording (SEVERE)', attribFlagWording('Front wing', 'SEVERE', false, 'no-damage-visible').startsWith('Serious damage to the Front wing was recorded during assessment'));
   ok('another verdict keeps today\'s wording (MODERATE)', attribFlagWording('Front wing', 'MODERATE', false, 'panel-not-visible').startsWith('Damage to the Front wing was recorded'));
