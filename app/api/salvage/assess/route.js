@@ -41,7 +41,7 @@ import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
-import { applyFogBumperRule, completenessFlagsFor } from '@/lib/partsCompleteness.mjs';
+import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
@@ -4546,6 +4546,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // bumper-off rule (C3), targeted to that panel's frames; no early full-set single call.
 
     let lampResult = null;
+    const _damagedLampsSeen = damagedHeadlampsSeen(perViewResults);   // batch 171 P3 count — batch 177 P3 reads it too
     if (lampObs) {
       const derivedLampType = deriveLampType(enrichedVd);
       lampResult = computeLampResult(
@@ -4554,7 +4555,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         photoType,
         lampObs.damageSpan        || 'full_width',
         lampObs._spanDefaulted    === true,
-        damagedHeadlampsSeen(perViewResults)   // batch 171 P3 — the pair needs two damaged headlamps seen
+        _damagedLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
     }
@@ -4569,6 +4570,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
     assessment._zoneDemotions = _zoneDemotions; // batch 119 — every per-view vote the frame-zone read contradicted (→ na)
     if (lampResult) assessment._lampResult = lampResult;
+    assessment._damagedHeadlampsSeen = _damagedLampsSeen;   // batch 177 P3 — stamped so the one-corner test is auditable
     assessment._lampObs = lampObs ? {
       struckSide:          lampObs.struckSide ?? 'central',
       apertureExposed:     lampObs.apertureExposed === true,
@@ -5892,6 +5894,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         frontBumperConfirmed: _bumperConfirmed(PANEL.FRONT_BUMPER),
         rearBumperConfirmed:  _bumperConfirmed(PANEL.REAR_BUMPER),
         fogSeed,
+        // batch 177 P3 (Vincent, 22 Sep): a one-corner front seeds ONE fog and asks about the second.
+        frontOneCorner: frontImpactIsOneCorner(assessment._lampObs?.damageSpan, assessment._damagedHeadlampsSeen),
       });
       if (fogRule.costedToAdd.length) {
         gatedParts.push(...fogRule.costedToAdd);
