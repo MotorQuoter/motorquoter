@@ -98,10 +98,17 @@ console.log('\nC. batch 136 task C — the buyer never sees raw model text, and 
   ok('C3: the summary sentence now SURVIVES on its own merits ("at the wheel" is the steering wheel, not the WHEEL panel)', vds.dropped.length === 0 && !vds.keptWhole && vds.text === storedVdsDrop.droppedSentence.trim());
   const steer = bindClaimClasses('The bonnet is crumpled. The airbag hanging at the steering wheel is a structural cost driver.', ctx, 'redflags');
   ok('C3: "steering wheel" does not match the WHEEL panel either', steer.dropped.length === 0 && !steer.keptWhole);
-  // NB (reported, not changed — outside batch 136): the class-4 status regex (`\b(damag|…|replac|…)\b`) only matches
-  // the bare stems, so "damaged" / "replacing" never trip it; "structural", "expensive", "costly", "repair" … do.
+  // batch 175: part status left the binder; the same C3 masking now guards the prose-damage detector, which must not
+  // put the road wheel on the inspection list for the steering wheel.
+  const { findProseDamageUncosted } = await import('../lib/parts.mjs');
+  const WHEEL = [{ panelId: 'WHEEL', name: 'Wheel' }];
+  ok('C3 (batch 175): "hanging at the wheel" / "steering wheel" never record the WHEEL panel',
+    findProseDamageUncosted(storedVdsDrop.droppedSentence, WHEEL).length === 0
+    && findProseDamageUncosted('The airbag hanging at the steering wheel is a structural cost driver.', WHEEL).length === 0);
   const road = bindClaimClasses('The bonnet is crumpled. The front wheel is an expensive structural casualty.', ctx, 'redflags');
-  ok('C3: a sentence that really names the road WHEEL as a cost driver is still bound (and only that sentence goes)', road.dropped.some((d) => d.class === 'part-status' && /front wheel/.test(d.sentence)) && road.text === 'The bonnet is crumpled.');
+  ok('C3 (inverted by batch 175): a sentence that really names the road WHEEL as damaged is KEPT and recorded for inspection (was: dropped)',
+    road.dropped.length === 0 && road.text === 'The bonnet is crumpled. The front wheel is an expensive structural casualty.'
+    && findProseDamageUncosted(road.text, WHEEL).length === 1);
 
   // C4 — no orphan: the VAT bullet goes whole.
   const rawRF = A._raw.slice(A._raw.indexOf('Red Flags:') + 'Red Flags:'.length, A._raw.indexOf('Alternative Damage Scenario:')).trim();

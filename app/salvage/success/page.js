@@ -1198,7 +1198,7 @@ export default function SalvageSuccessPage() {
                     {editMode && (
                       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input type="text" value={addDraft.text} onChange={e => setAddDraft(d => ({ ...d, text: e.target.value }))}
+                          <input id="ledger-add-line" type="text" value={addDraft.text} onChange={e => setAddDraft(d => ({ ...d, text: e.target.value }))}
                             placeholder="Add a line (e.g. Rear crossmember)"
                             style={{ flex: 1, minWidth: 0, background: 'var(--bg3)', border: '1px solid var(--border-dim)', borderRadius: 8, padding: '8px 10px', color: 'var(--text)', fontSize: 13, fontFamily: "'Barlow', sans-serif", outline: 'none' }} />
                           <input type="text" inputMode="numeric" value={addDraft.amount} onChange={e => setAddDraft(d => ({ ...d, amount: e.target.value }))}
@@ -1347,6 +1347,14 @@ export default function SalvageSuccessPage() {
                               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{f.partName}</span>
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>{f.reason}</div>
+                            {/* batch 175: prose describes damage to an uncosted panel — pre-fill the add-line control with it. */}
+                            {f._proseDamageUncosted && ledgerEditable && (
+                              <button type="button"
+                                onClick={() => { setEditMode(true); setAddDraft({ text: f.partName, amount: '' }); document.getElementById('ledger-add-line')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+                                style={{ marginTop: 4, padding: 0, fontSize: 12, fontWeight: 700, background: 'none', border: 'none', color: 'var(--orange)', cursor: 'pointer' }}>
+                                Add to ledger →
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>

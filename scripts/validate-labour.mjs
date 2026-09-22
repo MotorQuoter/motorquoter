@@ -369,9 +369,11 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   // batch 163 T2: all four spelled the rule out by hand and now call the one owner, lib/ledgerEdits.mjs
   // isChargedRow. The assertion is unchanged in meaning — still four sites, still "a repaired panel is
   // costed" — but it now pins the shared call, and it fails if anyone re-inlines the old spelling.
-  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor and the wheel checklist line',
-     // count USES, not `isChargedRow(` — one of the four passes it by reference, `.filter(isChargedRow)`
-     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 4
+  // batch 175 added a FIFTH: the uncosted panels prose damage is checked against exclude every charged panel (a repaired
+  // panel is in the repair total, so "not in the repair total" would be false for it).
+  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor, the wheel checklist line and the prose-damage uncosted list',
+     // count USES, not `isChargedRow(` — two pass it by reference, `.filter(isChargedRow)`
+     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 5
      && /import \{ rowKeyFor, isChargedRow \} from '@\/lib\/ledgerEdits\.mjs';/.test(route)
      && !/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/.test(route));
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the

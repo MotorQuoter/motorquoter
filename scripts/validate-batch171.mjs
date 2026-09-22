@@ -77,9 +77,12 @@ console.log('\n-- P3: a headlamp pair needs two damaged headlamps seen --');
 }
 
 // ── P4 ─────────────────────────────────────────────────────────────────────────────────────────────
-console.log('\n-- P4: the claim binder drops the clause, not the whole sentence --');
+console.log('\n-- P4 (inverted by batch 175): the synthesis is KEPT WHOLE, and the front bumper is recorded for inspection --');
 {
-  const { bindClaimClasses, dropDemotedClauses } = await import('../lib/parts.mjs');
+  // batch 175 (Vincent, 22 Sep): a part-status hit no longer drops anything — the clause drop (dropDemotedClauses) is gone.
+  // "the front bumper is displaced" was TRUE (CK75ONW label: damaged), so it stays and the bumper is recorded instead.
+  const parts = await import('../lib/parts.mjs');
+  const { bindClaimClasses, findProseDamageUncosted } = parts;
   // CK75ONW run 2 _raw Visible Damage Summary, first sentence verbatim (the binder dropped it whole, batch 170 T1.7).
   const SYN = 'A near-delivery 2025 Ioniq 5 Premium (current-generation BEV, ~5,900 miles) carrying two separate impacts — a full-width rear-end hit that has torn the rear bumper away and displaced the rear closing structure, plus a lighter front-end disturbance where the front bumper is displaced and the front grille/slam-panel area is exposed; the biggest unseeable risk is the rear chassis-leg/boot-floor integrity and high-voltage battery-zone condition behind the rear impact, neither of which can be confirmed from the photographs.';
   if (RUN2) ok('(fixture) the sentence is run 2\'s own text', RUN2._raw.includes(SYN));
@@ -87,12 +90,15 @@ console.log('\n-- P4: the claim binder drops the clause, not the whole sentence 
   const r = bindClaimClasses(SYN, ctx, 'speculation');
   ok('the synthesis survives', /near-delivery 2025 Ioniq 5 Premium/.test(r.text) && /biggest unseeable risk/.test(r.text));
   ok('…its rear-impact clause survives', /torn the rear bumper away and displaced the rear closing structure/.test(r.text));
-  ok('…only the clause naming the demoted front bumper goes', !/front bumper/i.test(r.text));
-  ok('…and the drop is recorded as part-status-clause', r.dropped.length === 1 && r.dropped[0].class === 'part-status-clause' && /front bumper is displaced/.test(r.dropped[0].sentence));
-  ok('a one-clause sentence naming the part still goes whole', bindClaimClasses('The front bumper is the biggest cost on the car. The roof is clean.', ctx, 'speculation').dropped[0]?.class === 'part-status');
-  ok('if what is left says nothing (< 4 words), the whole sentence goes', dropDemotedClauses('Front bumper damaged; minor.', ctx) === null);
-  ok('if what is left still contradicts (another class), the whole sentence goes',
-    dropDemotedClauses('The front bumper is damaged; the repair costs £999 in total.', { ...ctx, allowedFigures: [100] }, 'redflags') === null);
+  ok('…and its front-bumper clause is KEPT (batch 175; was: dropped)', /the front bumper is displaced/.test(r.text) && r.text === SYN);
+  ok('…nothing is dropped (batch 175; was: one part-status-clause drop)', r.dropped.length === 0);
+  const found = findProseDamageUncosted(SYN, [{ panelId: 'FRONT_BUMPER', name: 'Front bumper' }], 'speculation');
+  ok('…the front bumper is recorded as prose damage on an uncosted panel ("displaced")', found.length === 1 && found[0].panelId === 'FRONT_BUMPER');
+  ok('a one-clause cost-driver sentence is KEPT too (batch 175; was: dropped whole)',
+    bindClaimClasses('The front bumper is the biggest cost on the car. The roof is clean.', ctx, 'speculation').dropped.length === 0);
+  ok('the clause drop is gone (dropDemotedClauses no longer exported)', !('dropDemotedClauses' in parts));
+  ok('another class still drops: a figure not in the ledger',
+    bindClaimClasses('The front bumper is damaged; the repair costs £999 in total. The roof is clean.', { ...ctx, allowedFigures: [100] }, 'redflags').dropped.some((d) => d.class === 'figure'));
 }
 
 console.log(`\nbatch171: ${pass} passed, ${fail} failed`);

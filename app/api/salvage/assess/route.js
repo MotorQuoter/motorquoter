@@ -30,7 +30,7 @@ import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
   reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -6484,12 +6484,18 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           parts_sum, exitValue,
         ].filter(v => v != null && Number.isFinite(Number(v))).map(Number),
         partActions: gatedParts.filter(gp => !/labour|paint|prep/i.test(gp.name)).map(gp => [gp.name, gp.action ?? 'replace']),
-        demoted: coreObs.costedParts
-          .filter(cp => cp.independentlyVisible === false)
-          .map(cp => PANEL_DISPLAY[cp.panelId] || cp.partName || '')
-          .filter(Boolean),
         evVerdict: assessment._evCoolingHvVerdict ?? null,
       };
+      // batch 175: the uncosted panels — once the binder's part-status class, now what prose damage is checked against.
+      // "Not independently visible" is not "uncosted": a demoted panel can still carry a charged ledger row (DL72FVX's
+      // wheel arch moulding, EA17HDN's door mirror, KT73YAJ's wheel). The inspection line says "not in the repair total",
+      // so a panel charged in the final ledger is excluded — the one charged-row check (CLAUDE.md rule 7), below.
+      const _chargedIds = new Set(gatedParts.filter(isChargedRow).map(p => p.panelId).filter(Boolean));
+      const _uncostedPanels = coreObs.costedParts
+        .filter(cp => cp.independentlyVisible === false && !_chargedIds.has(cp.panelId))
+        .map(cp => ({ panelId: cp.panelId ?? null, name: PANEL_DISPLAY[cp.panelId] || cp.partName || '', zone: cp.zone ?? null }))
+        .filter(p => p.name);
+      const _proseDamage = [];
       assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
@@ -6509,7 +6515,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.error(`[CLAIM BIND] ${field}: EVERY sentence contradicted the ledger — field KEPT WHOLE, not blanked (batch 136 C2) [${keptWhole.map(d => d.class).join(', ')}]`);
         }
         assessment[field] = text;
+        // batch 175 (Vincent, 22 Sep): prose that says an uncosted panel is damaged is KEPT (it was true every time the
+        // binder deleted it) and recorded; read from the text the buyer sees.
+        for (const h of findProseDamageUncosted(text, _uncostedPanels, mode)) _proseDamage.push({ panel: h.panel, panelId: h.panelId, surface: field, sentence: h.sentence });
       }
+      // One inspection line per panel (none where a flag or checklist line already covers it). No money moves: the engine
+      // does not cost the panel; the buyer can add it to the ledger. Runs after the checklist seed, so it appends.
+      assessment._proseDamageUncosted = addProseDamageInspection(assessment, _proseDamage,
+        (pid) => _uncostedPanels.find(p => p.panelId === pid)?.zone ?? null);
     }
 
     // ── EV tier-1 lead: post-binder injection (4f C-2) ──────────────────────────────
