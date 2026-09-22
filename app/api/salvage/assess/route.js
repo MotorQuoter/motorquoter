@@ -151,6 +151,14 @@ export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   //
 export function bumperOffWhy(absent, apertureExposed, severe) {
   return absent ? 'absent' : apertureExposed ? 'aperture' : severe ? 'severe' : null;
 }
+// batch 177 P4 — the wording for a PRESENCE_CHECK panel read as missing, or null (not a presence check → the caller keeps
+// the flag-class branch). EV_BATTERY_PRESENCE is a presence check too, but a missing HV pack is not a boot accessory: it
+// keeps the HIGH flag-class branch (not ruled in batch 177 — reported for Vincent).
+export function presenceMissingReason(panelId, effClass) {
+  if (effClass !== PANEL_CLASS.PRESENCE_CHECK || panelId === PANEL.EV_BATTERY_PRESENCE) return null;
+  if (panelId === PANEL.SPARE_WHEEL) return 'No spare wheel seen — the well may hold a tyre repair kit; confirm what is supplied.';
+  return `No ${String(PANEL_DISPLAY[panelId] || panelId).toLowerCase()} seen — confirm what is supplied.`;
+}
 // batch 177 P1 — does the adjacent panel's OWN evidence confirm it? 'severe-override' when amalgamation's SEVERE
 // override fired for it; 'probe' when the attribution probe returned consistent-with-claim; else null.
 export function panelOwnReadsConfirm(panelId, costedParts, attributionProbe) {
@@ -2434,7 +2442,12 @@ export function amalgamate(groups, viewPanelSets) {   // batch 171: exported (re
     console.log(`[AMALG][SEV] ${panelId} grades=[${damagedSevs.join(',')}] severeVotes=${severeVotes} override=${severeOverride} minorOnly=${minorOnly}`);
     const _preCosted = costedParts.length;
     if (missing > 0) {
-      if (isFlagOnly) {
+      if (isFlagOnly && presenceMissingReason(panelId, effClass)) {
+        // batch 177 P4 (Vincent, 22 Sep): a presence check reads "not there", not "damaged" — SV24YCN's spare well held a
+        // tyre repair kit and was flagged HIGH like a missing chassis member. Low weight, its own words.
+        console.log(`[AMALG] ${panelId} missing (presence check) → low flag (batch 177 P4)`);
+        flaggedParts.push({ panelId, partName, zone, weight: 'low', reason: presenceMissingReason(panelId, effClass), _flagClassRead: true, _presenceMissing: true });
+      } else if (isFlagOnly) {
         console.log(`[AMALG] ${panelId} missing (flag-class) → flag (not cost)`);
         flaggedParts.push({ panelId, partName, zone, weight: 'high', reason: flagClassReason, _flagClassRead: true });
       } else {
