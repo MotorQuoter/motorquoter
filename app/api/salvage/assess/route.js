@@ -151,6 +151,10 @@ export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   //
 export function bumperOffWhy(absent, apertureExposed, severe) {
   return absent ? 'absent' : apertureExposed ? 'aperture' : severe ? 'severe' : null;
 }
+// batch 177 M1 — the switch. OFF unless MQ_M1_COST_DISPUTED=on is set (used by the replay measurement only). Do not set
+// it on Vercel until Vincent rules.
+export const M1_COST_DISPUTED = process.env.MQ_M1_COST_DISPUTED === 'on';
+export const M1_DISPUTED_COSTED_REASON = (part) => `Photographs disagree on the ${part} — costed on the views that show damage; remove the line if it is sound on inspection.`;
 // batch 177 P4 — the wording for a PRESENCE_CHECK panel read as missing, or null (not a presence check → the caller keeps
 // the flag-class branch). EV_BATTERY_PRESENCE is a presence check too, but a missing HV pack is not a boot accessory: it
 // keeps the HIGH flag-class branch (not ruled in batch 177 — reported for Vincent).
@@ -5281,6 +5285,26 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         _gOwned:  true,
       });
       console.log(`[G INJECT] ${e.panelId} stripped-model-rows=${strippedCount} action=${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
+    }
+
+    // ── batch 177 M1 — MEASUREMENT SWITCH, OFF BY DEFAULT (Vincent rules on turning it on) ──────────
+    // Question: cost a disputed panel (batch 156 flags it, uncosted) when at least one damaged vote is MODERATE or worse.
+    // On: price it from the grid by grade (MODERATE → repair: panel work carries it, via applyGradeOwnsAction below;
+    // SEVERE → replace at the band), strip any model row, and word its flag as costed. Off: nothing here runs.
+    if (M1_COST_DISPUTED) {
+      for (const cp of coreObs.costedParts) {
+        if (!cp._amalgDisagree || !['MODERATE', 'SEVERE'].includes(cp._ledgerSeverity)) continue;
+        if (PANEL_BEHAVIOUR[cp.panelId] !== PANEL_CLASS.COST) continue;
+        const tableEntry = bandKey ? PANEL_PRICE_TABLE[cp.panelId]?.[bandKey] : null;
+        if (!tableEntry) { console.log(`[M1] ${cp.panelId} not costed — no band/table entry`); continue; }
+        for (let i = gatedParts.length - 1; i >= 0; i--) if (gatedParts[i].panelId === cp.panelId) gatedParts.splice(i, 1);
+        const action = cp._ledgerSeverity === 'SEVERE' ? 'replace' : 'repair';
+        gatedParts.push({ panelId: cp.panelId, name: PANEL_DISPLAY[cp.panelId], action, oem: tableEntry.oem, used: tableEntry.used, _tableMandated: true, _m1CostedDisputed: true });
+        for (const f of coreObs.flaggedParts) {
+          if (f.panelId === cp.panelId && f._amalgDisagree) { f.reason = M1_DISPUTED_COSTED_REASON(PANEL_DISPLAY[cp.panelId]); f._m1CostedDisputed = true; }
+        }
+        console.log(`[M1] ${cp.panelId} disputed (${cp._ledgerSeverity}) → costed ${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
+      }
     }
 
     // ── WHEEL / TYRE injection (Fault 3, table-sourced) ──────────────────────
