@@ -79,8 +79,11 @@ console.log('\n-- V3: "torn away" only when the bumper is read as absent --');
   // batch 179 (Vincent, 22 Sep): ONE wording for every branch — it replaces V3's three sentences (and batch 103's "torn
   // away … cannot be determined"). The limb is still recorded on the flag; it no longer changes the words.
   ok('batch 179: absent → the one wording, verbatim', absent === 'Costed on the photographs. The front bumper is off on this side, so check the wing on inspection and strike the line if it is sound.');
-  ok('batch 179: aperture → the same wording', aperture === 'Costed on the photographs. The front bumper is off on this side, so check the wing on inspection and strike the line if it is sound.');
-  ok('batch 179: severe → the same wording, its own end and panel', severe === 'Costed on the photographs. The rear bumper is off on this side, so check the quarter panel on inspection and strike the line if it is sound.');
+  // batch 180 (Vincent, 22 Sep): the two FITTED limbs say "is damaged" — the bumper is still on (KT73YAJ, SF69YBB).
+  ok('batch 180: aperture → "is damaged", verbatim', aperture === 'Costed on the photographs. The front bumper is damaged on this side, so check the wing on inspection and strike the line if it is sound.');
+  ok('batch 180: severe → "is damaged", its own end and panel', severe === 'Costed on the photographs. The rear bumper is damaged on this side, so check the quarter panel on inspection and strike the line if it is sound.');
+  ok('batch 180: no fitted limb says "is off"', ![aperture, severe, bumperLimitReason('rear', 'quarter panel', 'aperture'), bumperLimitReason('front', 'wing', 'severe')].some((r) => /bumper is off/.test(r)));
+  ok('batch 180: only the absent limb says "is off"', /bumper is off on this side/.test(absent));
   for (const [k, r] of [['absent', absent], ['aperture', aperture], ['severe', severe]]) {
     ok(`batch 179: ${k} never says "cannot be determined" / "cannot be fully seen" / "torn away"`, !/cannot be (?:determined|fully seen)|torn away/i.test(r));
     ok(`batch 179: ${k} still says it is costed and gives the strike line`, /^Costed on the photographs\./.test(r) && /strike the line if it is sound\.$/.test(r));

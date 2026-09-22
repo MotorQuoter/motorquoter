@@ -166,10 +166,12 @@ export function presenceMissingReason(panelId, effClass) {
 // batch 179 (Vincent, 22 Sep) — ONE wording for every branch, true in every case. "Cannot be determined" was false when
 // the panel is visibly crushed (SV24YCN wing: 6 damaged views / 0 clean), and no evidence test separates the clean-labelled
 // phantoms from real panels (batch 178: probe and SEVERE override confirm all 9), so the note states what IS known — the
-// panel is costed on the photographs and the bumper is off — and asks for the check. `why` no longer changes the words;
-// it is still stamped on the flag (_bumperOffWhy) for provenance.
+// panel is costed on the photographs and the bumper is off — and asks for the check.
+// batch 180 (Vincent, 22 Sep): except on the two FITTED limbs. 'aperture' (area open) and 'severe' (graded SEVERE) are read
+// with the bumper still on (KT73YAJ, SF69YBB: labelled damaged, not missing), so they say "is damaged", never "is off".
 export function bumperLimitReason(end, panelWord, why) {
-  return `Costed on the photographs. The ${end} bumper is off on this side, so check the ${panelWord} on inspection and strike the line if it is sound.`;
+  const state = why === 'aperture' || why === 'severe' ? 'damaged' : 'off';
+  return `Costed on the photographs. The ${end} bumper is ${state} on this side, so check the ${panelWord} on inspection and strike the line if it is sound.`;
 }
 
 // batch 150 Z1 — the rows the wheel checklist line may call "wheel/tyre damage already identified and costed".

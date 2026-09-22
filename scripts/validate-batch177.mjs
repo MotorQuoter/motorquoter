@@ -26,7 +26,10 @@ console.log('\n-- P1 (REVERTED by batch 179): the §4 note goes on every charged
   ok('route: no skip left in the §4 loop', !route.includes('_confirmedBy') && !route.includes('panelOwnReadsConfirm('));
   const W = (end, p) => `Costed on the photographs. The ${end} bumper is off on this side, so check the ${p} on inspection and strike the line if it is sound.`;
   ok('the wording, verbatim (wing)', ROUTE.bumperLimitReason('front', 'wing', 'absent') === W('front', 'wing'));
-  ok('the wording, verbatim (quarter)', ROUTE.bumperLimitReason('rear', 'quarter panel', 'aperture') === W('rear', 'quarter panel'));
+  // batch 180: a FITTED limb (aperture / severe) says "is damaged", never "is off".
+  ok('the wording, verbatim (quarter, absent)', ROUTE.bumperLimitReason('rear', 'quarter panel', 'absent') === W('rear', 'quarter panel'));
+  ok('fitted limbs (aperture / severe) say "is damaged", never "is off" (batch 180)',
+    ['aperture', 'severe'].every((w) => ROUTE.bumperLimitReason('rear', 'quarter panel', w) === W('rear', 'quarter panel').replace('is off', 'is damaged')));
   if (SV) {
     ok('(SV24YCN) the stored run carried the wing note (old wording)', SV._flaggedParts.some((f) => f.panelId === 'FRONT_WING' && f._bumperOffLimit && /cannot be determined/.test(f.reason)));
     ok('(SV24YCN) its limb (absent) now reads the one wording, never "cannot be determined"',
