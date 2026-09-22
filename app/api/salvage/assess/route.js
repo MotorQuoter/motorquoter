@@ -151,6 +151,13 @@ export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   //
 export function bumperOffWhy(absent, apertureExposed, severe) {
   return absent ? 'absent' : apertureExposed ? 'aperture' : severe ? 'severe' : null;
 }
+// batch 177 P1 — does the adjacent panel's OWN evidence confirm it? 'severe-override' when amalgamation's SEVERE
+// override fired for it; 'probe' when the attribution probe returned consistent-with-claim; else null.
+export function panelOwnReadsConfirm(panelId, costedParts, attributionProbe) {
+  if ((costedParts || []).some(cp => cp.panelId === panelId && cp._severeOverride === true)) return 'severe-override';
+  if ((attributionProbe?.panels || []).some(p => p.panelId === panelId && p.verdict === 'consistent-with-claim')) return 'probe';
+  return null;
+}
 export function bumperLimitReason(end, panelWord, why) {
   const tail = `It has been included in the repair total on the visible evidence — strike the line on the ledger if the inspection shows it sound.`;
   if (why === 'aperture') {
@@ -6097,6 +6104,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const costed = gatedParts.some(p => p.panelId === panelId && isChargedRow(p));   // batch 163 T2 — one owner (batch 116: a repaired panel is costed, in panel work)
       if (!costed) continue;   // §4 fires only on a COSTED adjacent panel
       if (assessment._flaggedParts.some(f => f._bumperOffLimit && f.zone === end)) continue;
+      // batch 177 P1 (Vincent, 22 Sep): the note is for a panel costed on thin evidence behind a missing bumper. A panel
+      // whose OWN reads confirm it (SEVERE override, or the probe consistent-with-claim) was seen — no limit to state.
+      // SV24YCN: wing 6 damaged / 0 clean, 4 SEVERE, probe consistent-with-claim, yet told "cannot be determined".
+      const _confirmedBy = panelOwnReadsConfirm(panelId, coreObs.costedParts, assessment._attributionProbe);
+      if (_confirmedBy) {
+        console.log(`[BUMPER-OFF §4] ${end} bumper off + ${panelId} costed — no limit note: the panel's own reads confirm it (${_confirmedBy})`);
+        continue;
+      }
       const _why = assessment._bumperOffWhy?.[end] ?? 'absent';
       assessment._flaggedParts.push({
         panelId, partName: PANEL_DISPLAY[panelId], zone: end, weight: 'medium',
