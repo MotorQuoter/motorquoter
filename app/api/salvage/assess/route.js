@@ -31,7 +31,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
-  reconcileFlagMoneyWording, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
+  reconcileFlagMoneyWording, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -6157,6 +6157,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // (CK75ONW Rear panel: zero-rule C costed it at band, the uncorroborated flag still said "not included").
     // Runs before the damage cards and the buyer flags read the reasons. Words only — no money moves.
     {
+      // batch 177 P2: a charged panel carries no "not clear from the listing photographs" floor flag.
+      for (const d of dropNotVisibleForCharged([assessment._flaggedParts, coreObs.flaggedParts], gatedParts)) {
+        console.log(`[FLAG NOT-VISIBLE] ${d.panelId} is charged — "not clear" floor flag dropped (batch 177 P2)`);
+      }
       const _z2 = reconcileFlagMoneyWording([...(assessment._flaggedParts || []), ...(coreObs.flaggedParts || [])], gatedParts);
       for (const r of _z2) console.log(`[FLAG MONEY WORDING] ${r.panelId} is costed — no-cost reason rewritten ("${r.from.slice(0, 50)}…")`);
       if (_z2.length === 0) console.log('[FLAG MONEY WORDING] no costed panel carried a no-cost reason');
