@@ -30,7 +30,7 @@ import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, codeOwnDriverSentence, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
   reconcileFlagMoneyWording, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -6545,7 +6545,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // "Not independently visible" is not "uncosted": a demoted panel can still carry a charged ledger row (DL72FVX's
       // wheel arch moulding, EA17HDN's door mirror, KT73YAJ's wheel). The inspection line says "not in the repair total",
       // so a panel charged in the final ledger is excluded — the one charged-row check (CLAUDE.md rule 7), below.
-      const _chargedIds = new Set(gatedParts.filter(isChargedRow).map(p => p.panelId).filter(Boolean));
+      const _chargedRows = gatedParts.filter(isChargedRow);   // batch 184 P2: the rows; _chargedIds below is their panels
+      const _chargedIds = new Set(_chargedRows.map(p => p.panelId).filter(Boolean));
       const _uncostedPanels = coreObs.costedParts
         .filter(cp => cp.independentlyVisible === false && !_chargedIds.has(cp.panelId))
         .map(cp => ({ panelId: cp.panelId ?? null, name: PANEL_DISPLAY[cp.panelId] || cp.partName || '', zone: cp.zone ?? null }))
@@ -6553,6 +6554,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _proseDamage = [];
       assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
       assessment._costClaimUncharged = [];   // batch 183 P3: stamp always; [] = no sentence claimed an uncharged line
+      assessment._driverSentence = null;     // batch 184 P2: { surface, before, after, rows } when the Margin driver sentence was replaced
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
         ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
@@ -6581,6 +6583,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.log(`[COST CLAIM] ${field}: "per the Parts Breakdown" removed; not charged: ${h.panels.filter(x => !x.charged).map(x => x.name).join(', ')}`);
         }
         assessment[field] = _cc.text;
+        // batch 184 P2 (Vincent, 23 Sep): the Margin "driven by" sentence is code-owned, from the charged rows. Runs after 183
+        // P3, whose panels are already recorded for the inspection list; its appended line goes with the replaced sentence.
+        if (field === 'Margin Calculation') {
+          const _dr = codeOwnDriverSentence(assessment[field], _chargedRows);
+          if (_dr.stamp) { assessment[field] = _dr.text; assessment._driverSentence = { surface: field, ..._dr.stamp }; console.log('[DRIVER] Margin driver sentence replaced from the charged ledger'); }
+          for (const h of _dr.held) console.log('[DRIVER] mixed sentence left as written (batch 184, for Vincent): ' + h.slice(0, 100));
+        }
         // batch 175 (Vincent, 22 Sep): prose that says an uncosted panel is damaged is KEPT (it was true every time the
         // binder deleted it) and recorded; read from the text the buyer sees.
         for (const h of findProseDamageUncosted(assessment[field], _uncostedPanels, mode)) _proseDamage.push({ panel: h.panel, panelId: h.panelId, surface: field, sentence: h.sentence });

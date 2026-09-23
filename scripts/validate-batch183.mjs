@@ -66,7 +66,7 @@ console.log('\n-- P3: a prose sentence may not claim a ledger line that does not
   ok('no flag → the batch 175 line, once (flag + checklist)', bare._flaggedParts.length === 1 && bare._flaggedParts[0].reason === PROSE_DAMAGE_UNCOSTED_REASON('Sill') && bare['WhatsApp Inspection Checklist'] === `1. a\n2. ${PROSE_DAMAGE_UNCOSTED_REASON('Sill')}`);
 
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
-  ok('route: runs on every bound surface against the one charged-row set', route.includes('const _cc = unbindUnchargedCostClaims(text, _chargedIds);') && route.includes('const _chargedIds = new Set(gatedParts.filter(isChargedRow)'));
+  ok('route: runs on every bound surface against the one charged-row set', route.includes('const _cc = unbindUnchargedCostClaims(text, _chargedIds);') && route.includes('const _chargedRows = gatedParts.filter(isChargedRow);')   /* batch 184: _chargedIds now derives from _chargedRows */);
   ok('route: uncharged panels go to the inspection list; stamp always', route.includes("_proseDamage.push({ panel: pn.name, panelId: pn.panelId, surface: field, sentence: h.after, _costClaim: true })") && route.includes('assessment._costClaimUncharged = [];'));
 }
 

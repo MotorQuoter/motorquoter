@@ -2453,7 +2453,7 @@ ok('the wording, verbatim', PROSE_DAMAGE_UNCOSTED_REASON('Windscreen') === WORDS
 
 console.log('\n-- route and page wiring --');
 ok('route: part status left the binder ctx (no demoted list)', !/demoted:\s*coreObs\.costedParts/.test(route));
-ok('route: uncosted = demoted AND not charged (the one charged-row check)', route.includes('const _chargedIds = new Set(gatedParts.filter(isChargedRow).map(p => p.panelId).filter(Boolean));')
+ok('route: uncosted = demoted AND not charged (the one charged-row check)', route.includes('const _chargedRows = gatedParts.filter(isChargedRow);') && route.includes('const _chargedIds = new Set(_chargedRows.map(p => p.panelId).filter(Boolean));')   /* batch 184: respelt via _chargedRows */
   && route.includes('.filter(cp => cp.independentlyVisible === false && !_chargedIds.has(cp.panelId))'));
 // batch 183 P3: detection now reads assessment[field] — the text after binding AND after the cost-claim rewrite.
 ok('route: detection reads the text the buyer sees (after binding and the batch 183 cost-claim rewrite)', route.indexOf('findProseDamageUncosted(assessment[field], _uncostedPanels, mode)') > route.indexOf('assessment[field] = _cc.text;') && route.indexOf('assessment[field] = _cc.text;') > route.indexOf('assessment[field] = text;'));
