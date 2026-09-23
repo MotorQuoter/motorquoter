@@ -30,7 +30,7 @@ import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
   reconcileFlagMoneyWording, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
@@ -6552,6 +6552,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         .filter(p => p.name);
       const _proseDamage = [];
       assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
+      assessment._costClaimUncharged = [];   // batch 183 P3: stamp always; [] = no sentence claimed an uncharged line
       for (const [field, mode] of [
         ['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],
         ['Alternative Damage Scenario', 'speculation'], ['Bidder Note', 'speculation'],
@@ -6570,14 +6571,24 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.error(`[CLAIM BIND] ${field}: EVERY sentence contradicted the ledger — field KEPT WHOLE, not blanked (batch 136 C2) [${keptWhole.map(d => d.class).join(', ')}]`);
         }
         assessment[field] = text;
+        // batch 183 P3 (Vincent, 23 Sep): a sentence may not claim a ledger line that does not exist. "… per the Parts
+        // Breakdown" naming an uncharged panel keeps the sentence, loses the phrase, and gains one code-owned sentence naming
+        // the panel; the panel goes on the inspection list below (existing flag / checklist line stands). No money moves.
+        const _cc = unbindUnchargedCostClaims(text, _chargedIds);
+        for (const h of _cc.hits) {
+          assessment._costClaimUncharged.push({ surface: field, sentence: h.sentence, after: h.after, panels: h.panels });
+          for (const pn of h.panels.filter(x => !x.charged)) _proseDamage.push({ panel: pn.name, panelId: pn.panelId, surface: field, sentence: h.after, _costClaim: true });
+          console.log(`[COST CLAIM] ${field}: "per the Parts Breakdown" removed; not charged: ${h.panels.filter(x => !x.charged).map(x => x.name).join(', ')}`);
+        }
+        assessment[field] = _cc.text;
         // batch 175 (Vincent, 22 Sep): prose that says an uncosted panel is damaged is KEPT (it was true every time the
         // binder deleted it) and recorded; read from the text the buyer sees.
-        for (const h of findProseDamageUncosted(text, _uncostedPanels, mode)) _proseDamage.push({ panel: h.panel, panelId: h.panelId, surface: field, sentence: h.sentence });
+        for (const h of findProseDamageUncosted(assessment[field], _uncostedPanels, mode)) _proseDamage.push({ panel: h.panel, panelId: h.panelId, surface: field, sentence: h.sentence });
       }
       // One inspection line per panel (none where a flag or checklist line already covers it). No money moves: the engine
       // does not cost the panel; the buyer can add it to the ledger. Runs after the checklist seed, so it appends.
       assessment._proseDamageUncosted = addProseDamageInspection(assessment, _proseDamage,
-        (pid) => _uncostedPanels.find(p => p.panelId === pid)?.zone ?? null);
+        (pid) => (_uncostedPanels.find(p => p.panelId === pid) ?? coreObs.costedParts.find(cp => cp.panelId === pid))?.zone ?? null);
     }
 
     // ── EV tier-1 lead: post-binder injection (4f C-2) ──────────────────────────────

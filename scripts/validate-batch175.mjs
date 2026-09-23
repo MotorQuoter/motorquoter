@@ -2455,7 +2455,8 @@ console.log('\n-- route and page wiring --');
 ok('route: part status left the binder ctx (no demoted list)', !/demoted:\s*coreObs\.costedParts/.test(route));
 ok('route: uncosted = demoted AND not charged (the one charged-row check)', route.includes('const _chargedIds = new Set(gatedParts.filter(isChargedRow).map(p => p.panelId).filter(Boolean));')
   && route.includes('.filter(cp => cp.independentlyVisible === false && !_chargedIds.has(cp.panelId))'));
-ok('route: detection reads the text the buyer sees (after binding)', route.indexOf('findProseDamageUncosted(text, _uncostedPanels, mode)') > route.indexOf('assessment[field] = text;'));
+// batch 183 P3: detection now reads assessment[field] — the text after binding AND after the cost-claim rewrite.
+ok('route: detection reads the text the buyer sees (after binding and the batch 183 cost-claim rewrite)', route.indexOf('findProseDamageUncosted(assessment[field], _uncostedPanels, mode)') > route.indexOf('assessment[field] = _cc.text;') && route.indexOf('assessment[field] = _cc.text;') > route.indexOf('assessment[field] = text;'));
 ok('route: the inspection line runs after the checklist seed', route.indexOf('addProseDamageInspection(assessment, _proseDamage') > route.indexOf('seedChecklistFromFlags(checklistText, buyerFlags'));
 ok('route: stamps _proseDamageUncosted', route.includes('assessment._proseDamageUncosted = addProseDamageInspection('));
 ok('page: the flag pre-fills the add-line control with the panel, only when the ledger is editable',
