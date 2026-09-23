@@ -33,7 +33,7 @@ console.log('\n-- P2: probe-floor wording for minor-cosmetic --');
 
 console.log('\n-- P3: a single unsupported MINOR vote is not "Photographs disagree" --');
 {
-  const L = 'One photo shows possible minor marking on the Rear bumper — not costed; check it on inspection.';
+  const L = 'One photo shows possible minor marking on the Rear bumper — not costed; check it on inspection before bidding.';   // batch 183 P2 added 'before bidding'
   ok('the wording, verbatim', SINGLE_MINOR_REASON('Rear bumper') === L);
   const single = [{ panelId: 'REAR_BUMPER', partName: 'Rear bumper', weight: 'low', reason: 'x', _amalgSingleMinor: true }];
   discloseSplitVoteUncosted({ pvVotes: { REAR_BUMPER: { damaged: 1, clean: 1 } }, gatedParts: [], flags: single, display: { REAR_BUMPER: 'Rear bumper' } });
