@@ -19,7 +19,7 @@ console.log('\n-- P1 (HELD): the probe guard is unchanged --');
 
 console.log('\n-- P2: probe-floor wording for minor-cosmetic --');
 {
-  const W = 'The photos show minor damage to the Front door — not included in the repair total; check it on inspection.';
+  const W = 'The photos may show slight damage to the Front door — not included in the repair total; check it on inspection.';
   ok('the wording, verbatim', ATTRIB_MINOR_COSMETIC_WORDING('Front door') === W);
   ok('attribFlagWording routes minor-cosmetic to it', attribFlagWording('Front door', 'MODERATE', false, 'minor-cosmetic') === W);
   ok('never "at most light marking"', !/at most light marking/.test(W));
@@ -27,7 +27,7 @@ console.log('\n-- P2: probe-floor wording for minor-cosmetic --');
   if (RUN2) {
     const f = RUN2._flaggedParts.find((x) => x.panelId === 'FRONT_DOOR');
     ok('(SV24YCN run 2) the stored door flag carried the old wording (the case)', /at most light marking on the Front door/.test(f?.reason || ''));
-    ok('(SV24YCN run 2) the probe verdict was minor-cosmetic → now "minor damage to the Front door"', RUN2._attributionProbe.panels.find((p) => p.panelId === 'FRONT_DOOR')?.verdict === 'minor-cosmetic' && attribFlagWording('Front door', 'MODERATE', false, 'minor-cosmetic') === W);
+    ok('(SV24YCN run 2) the probe verdict was minor-cosmetic → now "may show slight damage to the Front door" (batch 183 P1)', RUN2._attributionProbe.panels.find((p) => p.panelId === 'FRONT_DOOR')?.verdict === 'minor-cosmetic' && attribFlagWording('Front door', 'MODERATE', false, 'minor-cosmetic') === W);
   }
 }
 

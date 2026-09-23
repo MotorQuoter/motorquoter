@@ -1335,7 +1335,7 @@ const PROBE_MISSING_WORDING = 'missing, torn away in the impact';
 // light marking at most — "Serious damage … could not be photographically confirmed" told the buyer the opposite.
 // Every other verdict keeps its wording. No money moves (the panel was already floored).
 export const ATTRIB_MINOR_COSMETIC_WORDING = (partName) =>
-  `The photos show minor damage to the ${partName} — not included in the repair total; check it on inspection.`;   // batch 182 P2 (was "at most light marking on")
+  `The photos may show slight damage to the ${partName} — not included in the repair total; check it on inspection.`;   // batch 183 P1 (was 182 P2 "show minor damage to", which asserted damage on 4 panels labelled clean)
 export function attribFlagWording(partName, grade, isMissing, verdict = null) {
   if (verdict === 'minor-cosmetic') return ATTRIB_MINOR_COSMETIC_WORDING(partName);
   if (isMissing) {
