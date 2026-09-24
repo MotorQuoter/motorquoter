@@ -1,7 +1,7 @@
 // Unit tests for lib/flooredProseScrub.mjs — deterministic, £0 (no vision, no I/O).
 // Cases drawn from real over-assertions in the harness dumps (_cc/a2runs). Run:
 //   node scripts/validate-floored-scrub.mjs
-import { scrubKCD, neutraliseVDS, scrubFlooredProse, panelKeywords } from '../lib/flooredProseScrub.mjs';
+import { scrubKCD, scrubFlooredProse, panelKeywords } from '../lib/flooredProseScrub.mjs';
 
 let passed = 0, failed = 0;
 const ok = (label, cond) => { if (cond) { console.log(`  PASS  ${label}`); passed++; } else { console.error(`  FAIL  ${label}`); failed++; } };
@@ -33,28 +33,7 @@ ok('KCD drops a floored "Radiator pack" driver',
 ok('KCD leaves header/format lines untouched', scrubKCD('Format:\n- Structural sill: crushed.', floored, costed).text.startsWith('Format:'));
 ok('KCD handles empty input', scrubKCD('', floored, costed).text === '');
 
-// ---- VDS neutralise ----
-const vds1 = 'The deciding unseeable risk is inner-sill integrity behind the crushed outer sill and the intact doors.';
-const rv1 = neutraliseVDS(vds1, floored, costed);
-ok('VDS strips "crushed" qualifying the floored sill', !/crushed/.test(rv1.text) && /outer sill/.test(rv1.text));
-ok('VDS records the change', rv1.changes.length >= 1);
-
-// Costed panel adjective must be LEFT ALONE (front door is costed here).
-const vds2 = 'A full-flank impact with the front door creased and the rear quarter folded.';
-ok('VDS leaves a costed panel\'s adjective untouched (front door "creased")',
-  /front door creased/.test(neutraliseVDS(vds2, floored, costed).text));
-
-// Floored front wing (per some runs) SHOULD be neutralised.
-const vds3 = 'headlamp displaced at one corner, front wing crushed back, running down the flank.';
-ok('VDS strips "crushed" after a floored front wing',
-  !/crushed/.test(neutraliseVDS(vds3, ['Front wing', 'Sill'], ['Front door']).text));
-
-// No floored panels → no change at all.
-ok('VDS no-ops when nothing is floored', neutraliseVDS(vds1, [], costed).text === vds1);
-
-// Synonym: "rocker" is the sill — a floored SILL described "folded rocker" must be caught.
-ok('VDS catches "folded rocker" for a floored Sill (synonym)',
-  !/folded/.test(neutraliseVDS('structure beneath the folded rocker cannot be confirmed.', ['Sill'], costed).text));
+// ---- VDS: the neutraliser was removed in batch 188 (Vincent, 24 Sep) — its tests are deleted ----
 ok('panelKeywords expands sill→rocker', panelKeywords('Sill').includes('rocker'));
 
 // ---- panelKeywords sanity ----
@@ -73,8 +52,8 @@ const assess = {
 const res = scrubFlooredProse(assess);
 ok('end-to-end drops floored sill KCD line', !/Structural sill/.test(assess['Key Cost Drivers']));
 ok('end-to-end keeps costed door KCD line', /Front door/.test(assess['Key Cost Drivers']));
-ok('end-to-end neutralises VDS crushed-sill', !/crushed/.test(assess['Visible Damage Summary']));
-ok('end-to-end reports actions', res.kcdDropped.length === 1 && res.vdsChanges.length === 1);
+ok('end-to-end: the VDS passes through unchanged (batch 188)', assess['Visible Damage Summary'] === 'Side impact with structure behind the crushed outer sill unconfirmed.');
+ok('end-to-end reports the dropped bullet', res.kcdDropped.length === 1);
 
 // ── batch 158 A4 — THE DRIVERS ARE BUILT ONLY FROM COSTED LEDGER ROWS ─────────────────────
 // Two sources feed the report's Key Cost Drivers: the code-owned _kcdParts (assembleKcdParts — costed

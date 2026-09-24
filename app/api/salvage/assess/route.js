@@ -6249,16 +6249,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       _stamp(assessment._damageCards);
     }
 
-    // Floored-panel prose scrub (Cowork §13). Deterministic post-processor: using the FINAL damage
-    // cards as ground truth, it drops Key-Cost-Driver lines whose lead panel was FLOORED (not costed)
-    // and neutralises severe-damage adjectives asserted on floored panels in KCD/VDS — the reliable
-    // fix for the slot/prose divergence a prompt clause could not close (proven on the harness).
-    // Costed panels and legitimate unseeable-risk framing are left untouched. Wrapped so it can never
-    // break the assessment.
+    // Floored-panel driver drop (Cowork §13, batch 158 A4). Deterministic post-processor: using the FINAL
+    // ledger and damage cards as ground truth, it drops Key-Cost-Driver bullets whose lead panel was FLOORED
+    // (not charged) unless they also name a charged panel. Kept bullets and the Visible Damage Summary are
+    // left exactly as written — batch 188 (Vincent, 24 Sep) removed the word-deleting neutraliser. Wrapped so
+    // it can never break the assessment.
     try {
       const _scrub = scrubFlooredProse(assessment);
-      if (_scrub.kcdDropped.length || _scrub.kcdChanges.length || _scrub.vdsChanges.length) {
-        console.log(`[FLOORED SCRUB] KCD dropped ${_scrub.kcdDropped.length}, neutralised KCD ${_scrub.kcdChanges.length} / VDS ${_scrub.vdsChanges.length}`);
+      if (_scrub.kcdDropped.length) {
+        console.log(`[FLOORED SCRUB] KCD dropped ${_scrub.kcdDropped.length} bullet(s) led by an uncharged panel`);
       }
     } catch (e) {
       console.warn(`[FLOORED SCRUB] skipped — ${e?.message || e}`);

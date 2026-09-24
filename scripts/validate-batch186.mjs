@@ -1,7 +1,7 @@
 // validate-batch186.mjs — batch 186 P1: a hyphenated word in a panel name stays one keyword ("body-side"), so the floored
 // scrub no longer matches BODY_SIDE_GLAZING on the bare word "body". £0, pure, no model calls. (P2 is report only.)
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-batch186.mjs
-import { panelKeywords, neutraliseVDS, scrubKCD } from '@/lib/flooredProseScrub.mjs';
+import { panelKeywords, scrubKCD } from '@/lib/flooredProseScrub.mjs';
 import { PANEL_DISPLAY } from '@/lib/panelEnum.mjs';
 
 let pass = 0, fail = 0;
@@ -22,12 +22,9 @@ console.log('\n-- the scrub, with BODY_SIDE_GLAZING floored --');
 {
   const costed = ['Rear quarter panel', 'Wheel arch moulding'];
   const floored = [GLAZING, 'Rear bumper', 'Sill'];
-  const t = 'creased and scuffed body panel';
-  ok('"creased and scuffed body panel" is not touched', neutraliseVDS(t, floored, costed).text === t);
-  for (const s of ['shattered body-side glass', 'shattered body side glass']) {
-    const r = neutraliseVDS(s, floored, costed);
-    ok(`"${s}" is still neutralised`, r.text === s.replace('shattered ', '') && r.changes.length === 1);
-  }
+  // batch 188: the neutraliser is removed, so its checks here are deleted. The keyword still drives the KCD lead match:
+  ok('"body-side" / "body side" still names the glazing as a KCD lead', scrubKCD('- Body-side glazing: shattered.', floored, costed).dropped.length === 1
+    && scrubKCD('- Body side glass: shattered.', floored, costed).dropped.length === 1);
   ok('plural tolerance kept (wordIn): a floored-only lead "Body sides" is dropped',
     scrubKCD('- Body sides: glass shattered.', floored, costed).dropped.length === 1);
   ok('…and a lead "Body panel" is not (no keyword "body")', scrubKCD('- Body panel: scuffed.', floored, costed).dropped.length === 0);
@@ -39,7 +36,7 @@ console.log('\n-- the scrub, with BODY_SIDE_GLAZING floored --');
   ].join('\n');
   const r = scrubKCD(KCD, floored, costed);
   ok('(EN23NJX) the bullet comes back whole', r.text === '- Rear quarter panel: creased and scuffed body panel requiring repair and blend into adjacent panels — main paint-labour driver.');
-  ok('(EN23NJX) no neutralise change; the two floored-lead bullets are still dropped', r.changes.length === 0 && r.dropped.length === 2);
+  ok('(EN23NJX) the two floored-lead bullets are still dropped', r.dropped.length === 2);
 }
 
 console.log(`\nbatch186: ${pass} passed, ${fail} failed`);
