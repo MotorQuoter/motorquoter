@@ -11,6 +11,7 @@ import { NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+import { pdfSafe } from '@/lib/pdfText.mjs';
 
 function getSupabase() {
   return createClient(
@@ -94,23 +95,52 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   let y = MARGIN;
 
-  // Helvetica uses WinAnsiEncoding: £ (U+00A3) maps to 0xA3 and renders correctly.
-  // Strip only characters outside Latin-1 (> 0xFF) which have no WinAnsi mapping.
-  const str = (v) => stripMd(v == null ? '' : String(v))
+  // batch 189 P1 (a)/(b) — ONE OWNER of the characters (lib/pdfText.mjs pdfSafe). Helvetica is WinAnsi: a Windows-1252
+  // character prints as itself; anything else is mapped to a readable form ("→" "->", "≈" "approx.", "−" "-"), never
+  // dropped and never junk. Every drawing and measuring call goes through it, so a string that skips str() (the eBay
+  // link label, slot details, table cells) is covered too; measuring uses the same mapped text that is drawn.
+  let pendingHeading = null;   // (e) a section heading waits for its first block — see sectionTitle below
+  for (const m of ['text', 'textWithLink', 'splitTextToSize', 'getTextWidth']) {
+    const orig = doc[m].bind(doc);
+    doc[m] = (t, ...rest) => {
+      if (m === 'text' || m === 'textWithLink') flushHeading();
+      return orig(Array.isArray(t) ? t.map(pdfSafe) : typeof t === 'string' ? pdfSafe(t) : t, ...rest);
+    };
+  }
+
+  const str = (v) => pdfSafe(stripMd(v == null ? '' : String(v))
     .replace(/—/g, '-')
     .replace(/–/g, '-')
     .replace(/&\s*þ/g, '-')
     .replace(/•/g, '-')
-    .replace(/\bGBP\b\s*/g, '£')
-    .replace(/[^\x00-\xFF]/g, '');
+    .replace(/\bGBP\b\s*/g, '£'));
 
-  // Fix 6: 5mm buffer on page breaks
+  // batch 189 P1 (c) — THE ONE WRAP PATH: set the font the text will be DRAWN in, then measure. Several blocks measured
+  // in whatever font the previous call left (a 7.5pt heading) and then drew at 8–9pt, so lines ran past the right margin
+  // (SV24YCN: the green "[OK] Verified clear" line and the VDS standfirst). fieldBlock already did this; now all do.
+  function wrapIn(text, width, style, size) {
+    doc.setFont('helvetica', style);
+    doc.setFontSize(size);
+    return doc.splitTextToSize(text, width);
+  }
+
+  // Fix 6: 5mm buffer on page breaks. batch 189 P1 (e): a pending section heading is placed WITH the first block that
+  // asks for room — both move to the next page together, so a heading never ends a page.
+  const HEADING_H = 13;
   function checkPage(needed = 10) {
-    if (y + needed > PAGE_H - MARGIN - 5) { doc.addPage(); y = MARGIN; }
+    if (y + (pendingHeading ? HEADING_H : 0) + needed > PAGE_H - MARGIN - 5) { doc.addPage(); y = MARGIN; }
+    flushHeading();
   }
 
   function sectionTitle(title) {
-    checkPage(14);
+    flushHeading();              // a heading with no block of its own still prints (as before)
+    pendingHeading = title;
+  }
+  function flushHeading() {
+    if (!pendingHeading) return;
+    const title = pendingHeading;
+    pendingHeading = null;
+    if (y + HEADING_H + 1 > PAGE_H - MARGIN - 5) { doc.addPage(); y = MARGIN; }
     y += 5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
@@ -164,24 +194,29 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   }
 
   // Fix 4 — Section 1: HEADER
+  // batch 189 P1 (d): the text used to be placed at y + 9 / y + 15 with y = MARGIN (20), i.e. baselines at 29 mm and
+  // 35 mm — "MOTORQUOTER" and the registration straddled the bottom of the 28 mm band and the second line sat below it.
+  // Unchanged since 3e8011d (17 May; main renders the same). The band's own coordinates now place all four lines
+  // fully inside it.
+  const HEADER_H = 28;
   doc.setFillColor(20, 20, 20);
-  doc.rect(0, 0, PAGE_W, 28, 'F');
+  doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(255, 255, 255);
-  doc.text('MOTORQUOTER', MARGIN, y + 9);
+  doc.text('MOTORQUOTER', MARGIN, 13);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(180, 180, 180);
-  doc.text('Damage Assessment Report', MARGIN, y + 15);
+  doc.text('Damage Assessment Report', MARGIN, 20);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.setTextColor(240, 90, 26);
-  doc.text(str(identifier) || 'Assessment', PAGE_W - MARGIN, y + 9, { align: 'right' });
+  doc.text(str(identifier) || 'Assessment', PAGE_W - MARGIN, 13, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(180, 180, 180);
-  doc.text(`${market === 'IE' ? 'IE' : 'GB'} Market - ${checkDate}`, PAGE_W - MARGIN, y + 15, { align: 'right' });
+  doc.text(`${market === 'IE' ? 'IE' : 'GB'} Market - ${checkDate}`, PAGE_W - MARGIN, 20, { align: 'right' });
 
   // Fix 2: set y explicitly — header is always 28mm + 6mm padding
   y = 34;
@@ -280,7 +315,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.text('SELLER NOTES — REVIEW REQUIRED', MARGIN + 2, y + 1);
       y += 6;
       for (const note of riskNotes) {
-        const noteWrapped = doc.splitTextToSize(`• ${note}`, CONTENT_W - 4);
+        const noteWrapped = wrapIn(`• ${note}`, CONTENT_W - 4, 'normal', 8.5);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8.5);
         doc.setTextColor(100, 40, 0);
@@ -303,7 +338,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     const allClearSet = new Set(slotData.allClear);
     const allClearSlots = slotData.groups.flatMap(g => g.slots).filter(s => allClearSet.has(s.id));
     if (allClearSlots.length > 0) {
-      const okLines = doc.splitTextToSize(`[OK] Verified clear - ${allClearSlots.map(s => s.label).join(', ')}`, CONTENT_W);
+      const okLines = wrapIn(`[OK] Verified clear - ${allClearSlots.map(s => s.label).join(', ')}`, CONTENT_W, 'bold', 8);
       checkPage(4.5 * okLines.length + 2);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(0, 130, 0);
       for (const line of okLines) { doc.text(str(line), MARGIN, y); y += 4.5; }
@@ -321,7 +356,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
         const c = (slot.verdict === 'confirmed' || slot.verdict === 'undamaged' || slot.verdict === 'dedicated-photo-intact') ? [0, 130, 0]
           : (slot.verdict === 'discrepancy' || slot.verdict === 'damaged') ? [180, 0, 0]
           : [180, 80, 0];
-        const lines = doc.splitTextToSize(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4);
+        const lines = wrapIn(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4, 'normal', 7.5);
         checkPage(4 * lines.length + 1);
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...c);
         for (const line of lines) { doc.text(str(line), MARGIN + 2, y); y += 4; }
@@ -355,14 +390,14 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.text(str(testLine), MARGIN, y);
       y += 5;
       for (const f of failures) {
-        const lines = doc.splitTextToSize(`FAIL: ${str(f.text)}`, CONTENT_W - 8);
+        const lines = wrapIn(`FAIL: ${str(f.text)}`, CONTENT_W - 8, 'normal', 7.5);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(180, 0, 0);
         for (const line of lines) { checkPage(4); doc.text(line, MARGIN + 4, y); y += 4; }
       }
       for (const a of advisories) {
-        const lines = doc.splitTextToSize(`> ${str(a.text)}`, CONTENT_W - 8);
+        const lines = wrapIn(`> ${str(a.text)}`, CONTENT_W - 8, 'normal', 7.5);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(120, 120, 120);
@@ -599,7 +634,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.text('VISIBLE DAMAGE SUMMARY', MARGIN, y);
       y += 4;
       if (assetIdLine) {
-        const assetLines = doc.splitTextToSize(str(assetIdLine).toUpperCase(), CONTENT_W);
+        const assetLines = wrapIn(str(assetIdLine).toUpperCase(), CONTENT_W, 'bold', 7.5);
         checkPage(assetLines.length * 4.5 + 3);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.5);
@@ -608,7 +643,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
         y += 2;
       }
       if (preamble) {
-        const preambleLines = doc.splitTextToSize(str(preamble), CONTENT_W);
+        const preambleLines = wrapIn(str(preamble), CONTENT_W, 'normal', 9);
         checkPage(preambleLines.length * 4.5 + 4);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
@@ -623,7 +658,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
         doc.setTextColor(80, 80, 80);
         doc.text(str(partName) + (action ? ` — ${action}` : ''), MARGIN, y);
         y += 4;
-        const proseLines = doc.splitTextToSize(str(prose), CONTENT_W - 4);
+        const proseLines = wrapIn(str(prose), CONTENT_W - 4, 'normal', 9);
         checkPage(proseLines.length * 4.5 + 3);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
@@ -1177,6 +1212,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     doc.text(`${FEEDBACK_STRINGS.pdf} ${FEEDBACK_URL}`, MARGIN, y);
   }
 
+  flushHeading();   // batch 189 P1 (e): a heading still pending at the end prints, as before
   return doc.output('arraybuffer');
 }
 
