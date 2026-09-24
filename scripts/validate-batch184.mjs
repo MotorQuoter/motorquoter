@@ -73,9 +73,11 @@ console.log('\n-- P2: the replacement in the Margin text --');
   ok('stamp carries before (with the tail), after and the rows', r.stamp.before.endsWith('check them on inspection.') && r.stamp.after.startsWith('The repair total is made up of') && r.stamp.rows.length === 2);
   const two = 'The repair is driven by the bonnet. The cost drivers are the grille.';
   ok('only the first driver sentence is replaced', codeOwnDriverSentence(two, rows).text.endsWith('The cost drivers are the grille.'));
-  const mix = 'The band position is mid, offset by a repair whose cost is dominated by two door shells.';
+  // batch 185: the old example ('The band position is mid, offset by a repair whose cost is dominated by two door shells.') is
+  // now shape A and is replaced by rule; a mixed sentence matching neither shape is still left as written and reported.
+  const mix = 'The repair is a moderate rebuild — bumper and mirror — with the swing depending on the radiator pack.';
   const m = codeOwnDriverSentence(mix, rows);
-  ok('a mixed sentence is left as written and reported', m.text === mix && m.stamp === null && m.held.length === 1);
+  ok('a mixed sentence matching neither batch 185 shape is left as written and reported', m.text === mix && m.stamp === null && m.held.length === 1);
   ok('no driver sentence → untouched, stamp null', codeOwnDriverSentence('Nothing here.', rows).stamp === null);
 
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');

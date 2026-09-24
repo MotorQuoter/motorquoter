@@ -6587,8 +6587,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // P3, whose panels are already recorded for the inspection list; its appended line goes with the replaced sentence.
         if (field === 'Margin Calculation') {
           const _dr = codeOwnDriverSentence(assessment[field], _chargedRows);
-          if (_dr.stamp) { assessment[field] = _dr.text; assessment._driverSentence = { surface: field, ..._dr.stamp }; console.log('[DRIVER] Margin driver sentence replaced from the charged ledger'); }
-          for (const h of _dr.held) console.log('[DRIVER] mixed sentence left as written (batch 184, for Vincent): ' + h.slice(0, 100));
+          // batch 185 P1: a mixed sentence of shape A (band position + driver clause) or B (rebuild list + swing clause) is
+          // replaced by rule (stamp.shape); any other mixed sentence is still held and logged.
+          if (_dr.stamp) { assessment[field] = _dr.text; assessment._driverSentence = { surface: field, ..._dr.stamp }; console.log(`[DRIVER] Margin driver sentence replaced from the charged ledger${_dr.stamp.shape ? ` (mixed, shape ${_dr.stamp.shape})` : ''}`); }
+          for (const h of _dr.held) console.log('[DRIVER] mixed sentence left as written (held, batch 185 — matches neither shape): ' + h.slice(0, 100));
         }
         // batch 175 (Vincent, 22 Sep): prose that says an uncosted panel is damaged is KEPT (it was true every time the
         // binder deleted it) and recorded; read from the text the buyer sees.
