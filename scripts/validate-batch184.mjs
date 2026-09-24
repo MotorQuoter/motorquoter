@@ -81,8 +81,10 @@ console.log('\n-- P2: the replacement in the Margin text --');
   ok('no driver sentence → untouched, stamp null', codeOwnDriverSentence('Nothing here.', rows).stamp === null);
 
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
-  ok('route: Margin only, from the one charged-row set, after 183 P3', /if \(field === 'Margin Calculation'\) \{\s*const _dr = codeOwnDriverSentence\(assessment\[field\], _chargedRows\);/.test(route)
-    && route.indexOf('codeOwnDriverSentence(assessment[field], _chargedRows)') > route.indexOf('assessment[field] = _cc.text;'));
+  // batch 189 P2: the driver step now runs BEFORE the claim binder (and so before 183 P3's text edit); a replaced
+  // sentence is still read by the P3 check. Old pin: "after 183 P3" (index of the driver call > index of `_cc.text`).
+  ok('route: Margin only, from the one charged-row set, before the claim binder (batch 189 P2)', /if \(field === 'Margin Calculation'\) \{\s*const _dr = codeOwnDriverSentence\(assessment\[field\], _chargedRows\);/.test(route)
+    && route.indexOf('codeOwnDriverSentence(assessment[field], _chargedRows)') < route.indexOf('bindClaimClasses(assessment[field], _claimCtx, mode)'));
   ok('route: stamp always (null when nothing replaced)', route.includes('assessment._driverSentence = null;'));
 }
 

@@ -6562,6 +6562,26 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         ['Recommended Action', 'speculation'],                                     // 4f C-3: full set
       ]) {
         if (!assessment[field]) continue;
+        // batch 184 P2 / 185 P1 / 189 P2 (Vincent, 23–24 Sep): the Margin "driven by" sentence is code-owned, from the charged
+        // rows, and it runs BEFORE the claim binder — the binder must never be the step that decides its fate (SV24YCN: the
+        // binder's action class read the noun "repair" as the bonnet's action and dropped the whole band-position sentence,
+        // so the driver step never saw it). The binder still checks the whole field afterwards, code sentence included.
+        // A replaced sentence's own "… per the Parts Breakdown" claim is still read by the 183 P3 check first, so a panel it
+        // names that is not charged keeps its inspection record exactly as when P3 ran before this step.
+        if (field === 'Margin Calculation') {
+          const _dr = codeOwnDriverSentence(assessment[field], _chargedRows);
+          // batch 185 P1: a mixed sentence of shape A (band position + driver clause) or B (rebuild list + swing clause) is
+          // replaced by rule (stamp.shape); any other mixed sentence is still held and logged.
+          if (_dr.stamp) {
+            for (const h of unbindUnchargedCostClaims(_dr.stamp.before, _chargedIds).hits) {
+              assessment._costClaimUncharged.push({ surface: field, sentence: h.sentence, after: h.after, panels: h.panels });
+              for (const pn of h.panels.filter(x => !x.charged)) _proseDamage.push({ panel: pn.name, panelId: pn.panelId, surface: field, sentence: h.after, _costClaim: true });
+            }
+            assessment[field] = _dr.text; assessment._driverSentence = { surface: field, ..._dr.stamp };
+            console.log(`[DRIVER] Margin driver sentence replaced from the charged ledger${_dr.stamp.shape ? ` (mixed, shape ${_dr.stamp.shape})` : ''}`);
+          }
+          for (const h of _dr.held) console.log('[DRIVER] mixed sentence left as written (held, batch 185 — matches neither shape): ' + h.slice(0, 100));
+        }
         const { text, dropped, keptWhole } = bindClaimClasses(assessment[field], _claimCtx, mode);
         for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.class, reason: d.reason });
         if (dropped.length) console.log(`[CLAIM BIND] ${field}: dropped ${dropped.length} sentence(s) [${dropped.map(d => d.class).join(', ')}]`);
@@ -6582,15 +6602,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.log(`[COST CLAIM] ${field}: "per the Parts Breakdown" removed; not charged: ${h.panels.filter(x => !x.charged).map(x => x.name).join(', ')}`);
         }
         assessment[field] = _cc.text;
-        // batch 184 P2 (Vincent, 23 Sep): the Margin "driven by" sentence is code-owned, from the charged rows. Runs after 183
-        // P3, whose panels are already recorded for the inspection list; its appended line goes with the replaced sentence.
-        if (field === 'Margin Calculation') {
-          const _dr = codeOwnDriverSentence(assessment[field], _chargedRows);
-          // batch 185 P1: a mixed sentence of shape A (band position + driver clause) or B (rebuild list + swing clause) is
-          // replaced by rule (stamp.shape); any other mixed sentence is still held and logged.
-          if (_dr.stamp) { assessment[field] = _dr.text; assessment._driverSentence = { surface: field, ..._dr.stamp }; console.log(`[DRIVER] Margin driver sentence replaced from the charged ledger${_dr.stamp.shape ? ` (mixed, shape ${_dr.stamp.shape})` : ''}`); }
-          for (const h of _dr.held) console.log('[DRIVER] mixed sentence left as written (held, batch 185 — matches neither shape): ' + h.slice(0, 100));
-        }
         // batch 175 (Vincent, 22 Sep): prose that says an uncosted panel is damaged is KEPT (it was true every time the
         // binder deleted it) and recorded; read from the text the buyer sees.
         for (const h of findProseDamageUncosted(assessment[field], _uncostedPanels, mode)) _proseDamage.push({ panel: h.panel, panelId: h.panelId, surface: field, sentence: h.sentence });

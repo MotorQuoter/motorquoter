@@ -74,5 +74,32 @@ console.log('\n-- P1: wiring --');
   ok('the eight wrap sites measure in their drawing font (wrapIn), none left measuring first', (src.match(/wrapIn\(/g) || []).length >= 9);
 }
 
+console.log('\n-- P2: the Margin driver sentence runs before the claim binder; shape A takes "whose cost drivers are" --');
+{
+  const { codeOwnDriverSentence, bindClaimClasses } = await import('@/lib/parts.mjs');
+  // SV24YCN's charged ledger (stored row 4bdffc9c, be3ce53 preview) and the model's raw Margin, verbatim
+  const R = (panelId, name, action, used, extra = {}) => ({ panelId, name, action, used, oem: null, ...extra });
+  const SV = [R('FRONT_BUMPER', 'Front bumper', 'replace', 200), R('GRILLE', 'Grille', 'replace', 90), R('BONNET', 'Bonnet', 'replace', 165),
+    R('SLAM_PANEL', 'Slam panel', 'replace', 50), R('FRONT_WING', 'Front wing', 'replace', 130), R('HEADLAMP', 'Headlamp', 'replace', 350),
+    R('RADIATOR_PACK', 'Radiator pack', 'replace', 300), R('WHEEL_ARCH_LINER', 'Wheel arch liner', 'replace', 35),
+    R('FRONT_STRUCTURE', 'Front structure', 'inspect', 500, { _structFloor: true }), R('SRS_AIRBAG', 'SRS airbag kit (deployed)', 'replace', 500),
+    R('FOG_LAMP', 'Front fog lamp', 'replace', 50), { name: 'Labour & paint (new & painted)', action: '—', used: null, oem: 1500, _codeLabour: true }];
+  const RAW = 'The band position reflects a desirable, near-delivery-age, low-mileage vehicle offset by a moderate front-corner repair whose cost drivers are the LED headlamp, cooling pack, bonnet and slam panel. The repair is a substantial front-end rebuild rather than light cosmetic work, and the front-structure and non-runner unknowns could add materially if the rails are deformed. If the chassis is straight, the itemised panel repair stands as costed; if the front rails are folded, structural work must be added on top. The margin picture depends heavily on resolving those two unknowns before committing to a bid.';
+  const r = codeOwnDriverSentence(RAW, SV);
+  const WANT = 'The band position reflects a desirable, near-delivery-age, low-mileage vehicle offset by a moderate front-corner repair. The repair total is made up of: the front structure allowance, the SRS airbag kit (replace), the headlamp (replace), the radiator pack (replace), 7 other lines and labour & paint.';
+  ok('shape A takes "whose cost drivers are" (SV24YCN)', r.stamp?.shape === 'A' && r.stamp.after === WANT);
+  ok('shape A takes "whose cost driver is" (singular)', codeOwnDriverSentence('The band position is mid, offset by a repair whose cost driver is the bonnet.', SV).stamp?.shape === 'A');
+  ok('(SV24YCN) the Margin, verbatim', r.text === `${WANT} The repair is a substantial front-end rebuild rather than light cosmetic work, and the front-structure and non-runner unknowns could add materially if the rails are deformed. If the chassis is straight, the itemised panel repair stands as costed; if the front rails are folded, structural work must be added on top. The margin picture depends heavily on resolving those two unknowns before committing to a bid.`);
+  const ctx = { lampType: null, allowedFigures: [], partActions: SV.filter((g) => !/labour/i.test(g.name)).map((g) => [g.name, g.action]), evVerdict: null };
+  ok('(SV24YCN) the binder then keeps the whole field — nothing of it is dropped', bindClaimClasses(r.text, ctx, 'speculation').dropped.length === 0);
+  ok('(SV24YCN) the binder on the RAW sentence alone still drops it (the order is what saves it)', bindClaimClasses(RAW, ctx, 'speculation').dropped.some((d) => d.class === 'action'));
+  const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
+  const loop = route.slice(route.indexOf("['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],"), route.indexOf('assessment._proseDamageUncosted = addProseDamageInspection('));
+  const iDriver = loop.indexOf('codeOwnDriverSentence(assessment[field], _chargedRows)'), iBind = loop.indexOf('bindClaimClasses(assessment[field], _claimCtx, mode)');
+  ok('route: in the per-field loop, the driver step comes BEFORE the claim binder', iDriver > 0 && iBind > 0 && iDriver < iBind);
+  ok('route: the driver step is called once', (route.match(/codeOwnDriverSentence\(assessment\[field\], _chargedRows\)/g) || []).length === 1);
+  ok('route: a replaced sentence is still read by the 183 P3 check (its panels keep their inspection record)', loop.includes('unbindUnchargedCostClaims(_dr.stamp.before, _chargedIds)'));
+}
+
 console.log(`\nbatch189: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
