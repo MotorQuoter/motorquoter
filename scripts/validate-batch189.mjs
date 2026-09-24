@@ -101,5 +101,19 @@ console.log('\n-- P2: the Margin driver sentence runs before the claim binder; s
   ok('route: a replaced sentence is still read by the 183 P3 check (its panels keep their inspection record)', loop.includes('unbindUnchargedCostClaims(_dr.stamp.before, _chargedIds)'));
 }
 
+console.log('\n-- P3: the checklist says what the bumper-off wing flag says --');
+{
+  const { seedChecklistFromFlags } = await import('@/lib/parts.mjs');
+  const REASON = 'Costed on the photographs. The front bumper is off on this side, so check the wing on inspection and strike the line if it is sound.';
+  const flag = { panelId: 'FRONT_WING', partName: 'Front wing', zone: 'front', weight: 'medium', reason: REASON, _bumperOffWhy: 'absent', _bumperOffLimit: true };
+  const out = seedChecklistFromFlags('1. Show the chassis leg.', [flag]);
+  ok('(SV24YCN) a _bumperOffLimit flag seeds the checklist with its reason, verbatim', out === `1. Show the chassis leg.\n2. ${REASON}`);
+  ok('…not the default "condition could not be confirmed from the listing photographs"', !/could not be confirmed/.test(out));
+  const noReason = seedChecklistFromFlags('1. x.', [{ ...flag, reason: '' }]);
+  ok('a _bumperOffLimit flag with no reason falls through to the default wording (as before)', /Show Front wing close-up — condition could not be confirmed/.test(noReason));
+  const aperture = seedChecklistFromFlags('1. x.', [{ panelId: 'HEADLAMP', partName: 'Headlamp', weight: 'medium', reason: 'Aperture wording.', _amalgAperture: true }]);
+  ok('the aperture branch (batch 165) is unchanged', aperture === '1. x.\n2. Aperture wording.');
+}
+
 console.log(`\nbatch189: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
