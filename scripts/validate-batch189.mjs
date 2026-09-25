@@ -92,7 +92,9 @@ console.log('\n-- P2: the Margin driver sentence runs before the claim binder; s
   ok('(SV24YCN) the Margin, verbatim', r.text === `${WANT} The repair is a substantial front-end rebuild rather than light cosmetic work, and the front-structure and non-runner unknowns could add materially if the rails are deformed. If the chassis is straight, the itemised panel repair stands as costed; if the front rails are folded, structural work must be added on top. The margin picture depends heavily on resolving those two unknowns before committing to a bid.`);
   const ctx = { lampType: null, allowedFigures: [], partActions: SV.filter((g) => !/labour/i.test(g.name)).map((g) => [g.name, g.action]), evVerdict: null };
   ok('(SV24YCN) the binder then keeps the whole field — nothing of it is dropped', bindClaimClasses(r.text, ctx, 'speculation').dropped.length === 0);
-  ok('(SV24YCN) the binder on the RAW sentence alone still drops it (the order is what saves it)', bindClaimClasses(RAW, ctx, 'speculation').dropped.some((d) => d.class === 'action'));
+  // batch 191 P1 changed this expectation: "a moderate front-corner repair" names the whole job, so the binder alone no
+  // longer drops the raw sentence (it used to: the order was what saved it). The driver step still runs first.
+  ok('(SV24YCN) the binder on the RAW sentence alone now keeps it (batch 191 P1: "repair" names the job)', !bindClaimClasses(RAW, ctx, 'speculation').dropped.some((d) => d.class === 'action'));
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
   const loop = route.slice(route.indexOf("['Key Cost Drivers', 'redflags'], ['Red Flags', 'redflags'],"), route.indexOf('assessment._proseDamageUncosted = addProseDamageInspection('));
   const iDriver = loop.indexOf('codeOwnDriverSentence(assessment[field], _chargedRows)'), iBind = loop.indexOf('bindClaimClasses(assessment[field], _claimCtx, mode)');
