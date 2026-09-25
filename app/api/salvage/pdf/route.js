@@ -138,6 +138,16 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     flushHeading();
   }
 
+  // batch 191 P2 — A LABEL NEVER ENDS A PAGE. A label-then-body block used to check the page for the label, print it,
+  // then check again for the body, so the body could move to the next page and leave the label behind (SV24YCN p4:
+  // "HIGH  SRS airbag (deployed)" alone, its reason on p5). Measure the body first; reserve label + body together, or
+  // label + the body's first 2 lines when the body alone is taller than a page (it then breaks line by line).
+  const PAGE_ROOM = PAGE_H - MARGIN - 5 - MARGIN;
+  function keepLabelWithBody(labelH, bodyLines, lineH, pad = 0) {
+    const whole = labelH + bodyLines * lineH + pad;
+    checkPage(whole <= PAGE_ROOM ? whole : labelH + Math.min(bodyLines, 2) * lineH);
+  }
+
   function sectionTitle(title) {
     flushHeading();              // a heading with no block of its own still prints (as before)
     pendingHeading = title;
@@ -354,15 +364,17 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       if (group.id === 'physical') continue;
       const shown = group.slots.filter(s => !allClearSet.has(s.id));
       if (shown.length === 0) continue;
-      checkPage(8);
+      // batch 191 P2: the group label is kept with its first slot line(s)
+      const slotLines = shown.map((slot) => wrapIn(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4, 'normal', 7.5));
+      keepLabelWithBody(4, slotLines[0].length, 4, 1);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
       doc.text(group.label.toUpperCase(), MARGIN, y);
       y += 4;
-      for (const slot of shown) {
+      for (const [si, slot] of shown.entries()) {
         const c = (slot.verdict === 'confirmed' || slot.verdict === 'undamaged' || slot.verdict === 'dedicated-photo-intact') ? [0, 130, 0]
           : (slot.verdict === 'discrepancy' || slot.verdict === 'damaged') ? [180, 0, 0]
           : [180, 80, 0];
-        const lines = wrapIn(`[${slot.verdict.toUpperCase()}] ${slot.label}: ${slot.detail}`, CONTENT_W - 4, 'normal', 7.5);
+        const lines = slotLines[si];
         checkPage(4 * lines.length + 1);
         doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...c);
         for (const line of lines) { doc.text(str(line), MARGIN + 2, y); y += 4; }
@@ -633,14 +645,21 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     if (!preamble && vdsParts.length === 0 && !assetIdLine) {
       fieldBlock('Visible Damage Summary', assessment['Visible Damage Summary']);
     } else {
-      checkPage(14);
+      // batch 191 P2: measure every block first; the heading is kept with the first block, each panel label with its prose.
+      const assetLines    = assetIdLine ? wrapIn(str(assetIdLine).toUpperCase(), CONTENT_W, 'bold', 7.5) : null;
+      const preambleLines = preamble ? wrapIn(str(preamble), CONTENT_W, 'normal', 9) : null;
+      const vdsProse      = vdsParts.map(({ prose }) => wrapIn(str(prose), CONTENT_W - 4, 'normal', 9));
+      // the heading and the asset-ID line are both labels: they stay with the preamble, or with the first panel label + prose
+      const labelH = 4 + (assetLines ? assetLines.length * 4.5 + 2 : 0);
+      if (preambleLines) keepLabelWithBody(labelH, preambleLines.length, 4.5, 4);
+      else if (vdsProse.length) keepLabelWithBody(labelH + 4, vdsProse[0].length, 4.5, 3);
+      else checkPage(Math.max(14, labelH));
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 100, 100);
       doc.text('VISIBLE DAMAGE SUMMARY', MARGIN, y);
       y += 4;
-      if (assetIdLine) {
-        const assetLines = wrapIn(str(assetIdLine).toUpperCase(), CONTENT_W, 'bold', 7.5);
+      if (assetLines) {
         checkPage(assetLines.length * 4.5 + 3);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7.5);
@@ -648,8 +667,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
         for (const line of assetLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
         y += 2;
       }
-      if (preamble) {
-        const preambleLines = wrapIn(str(preamble), CONTENT_W, 'normal', 9);
+      if (preambleLines) {
         checkPage(preambleLines.length * 4.5 + 4);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
@@ -657,15 +675,14 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
         for (const line of preambleLines) { checkPage(5); doc.text(line, MARGIN, y); y += 4.5; }
         y += 2;
       }
-      for (const { partName, action, prose } of vdsParts) {
-        checkPage(12);
+      for (const [vi, { partName, action }] of vdsParts.entries()) {
+        const proseLines = vdsProse[vi];
+        keepLabelWithBody(4, proseLines.length, 4.5, 3);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
         doc.setTextColor(80, 80, 80);
         doc.text(str(partName) + (action ? ` — ${action}` : ''), MARGIN, y);
         y += 4;
-        const proseLines = wrapIn(str(prose), CONTENT_W - 4, 'normal', 9);
-        checkPage(proseLines.length * 4.5 + 3);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
         doc.setTextColor(20, 20, 20);
@@ -924,15 +941,18 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
   // Inspection Flags — structured per-part flags (model + gate-generated), weight high→low
   const pdfFlags = withoutAnsweredLampDisclosure(buildBuyerFlags(assessment), edited);   // batch 114
   if (pdfFlags.length > 0) {
-    checkPage(14);
+    // batch 191 P2: each flag's reason is measured before its label; the heading is kept with the first flag.
+    const flagReasons = pdfFlags.map((f) => wrapIn(f.reason, CONTENT_W - 4, 'normal', 8));
+    keepLabelWithBody(6 + 4, flagReasons[0].length, 4, 3);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 100, 100);
     doc.text('INSPECTION FLAGS', MARGIN, y);
     y += 6;
-    for (const f of pdfFlags) {
+    for (const [fi, f] of pdfFlags.entries()) {
       const wc = f.weight === 'high' ? [192, 57, 43] : f.weight === 'medium' ? [184, 134, 11] : [136, 136, 136];
-      checkPage(12);
+      const reasonLines = flagReasons[fi];
+      keepLabelWithBody(4, reasonLines.length, 4, 3);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       doc.setTextColor(...wc);
@@ -945,9 +965,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(60, 60, 60);
-      const reasonLines = doc.splitTextToSize(f.reason, CONTENT_W - 4);
-      checkPage(reasonLines.length * 4 + 3);
       for (const line of reasonLines) {
+        checkPage(4);   // only bites on a reason taller than a page; the block reservation above covers the rest
         doc.text(line, MARGIN + 4, y);
         y += 4;
       }
@@ -1013,8 +1032,8 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     const dataXPos    = (i) => MARGIN + HAMMER_W + (i + 1) * dataColW;
     const colLabels   = [...(hasVat ? ['Hammer VAT'] : []), 'Copart Fees', ...(hasMargin ? ['Margin'] : [])];
 
-    // Header row
-    checkPage(8);
+    // Header row — batch 191 P2: kept with the first scenario row
+    checkPage(8 + (msc.length ? 7 : 0));
     doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
     doc.text('HAMMER', MARGIN, y);
     colLabels.forEach((h, i) => doc.text(h.toUpperCase(), dataXPos(i), y, { align: 'right' }));
@@ -1065,7 +1084,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     const HAM_W  = CONTENT_W * 0.35;
     const colW   = (CONTENT_W - HAM_W) / cols.length;
     const colX   = (i) => MARGIN + HAM_W + (i + 1) * colW;
-    checkPage(14);
+    checkPage(14 + (bf.length ? 11 : 0));   // batch 191 P2: the title and column row are kept with the first fee row
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(60, 60, 60);
     doc.text("Copart fees at SalvageGuide's predicted bids", MARGIN, y); y += 5;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);

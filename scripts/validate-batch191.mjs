@@ -59,5 +59,40 @@ console.log('\n-- P1: no registration / field / lot keying --');
   ok('_actionBoundToPart reads no field name', !/Margin|Exit|Red Flags|Visible Damage|Bidder|Key Cost/.test(fn));
 }
 
+console.log('\n-- P2: a label never ends a page (real renders, the flag list moved down 4 mm at a time) --');
+{
+  const { buildAssessmentPdf } = await import('@/app/api/salvage/pdf/route.js');
+  const { pdfLayout, labelsLastOnPage } = await import('./lib/pdfLayout.mjs');
+  const REASON = 'Airbags deployed - replacement from £500 (kit and fitting), depending on the number and location of the bags. Seatbelt pretensioners and the SRS control unit are commonly replaced with the bags. This must be checked before bidding.';
+  const vd = { vrm: 'SV24YCN', make: 'VAUXHALL', model: 'CROSSLAND', year: 2024 };
+  const mk = (filler, reason = REASON) => ({
+    'Visible Damage Summary': 'Front-corner impact.',
+    _slots: { flags: [], allClear: [], groups: [{ id: 'identity', label: 'Identity & Provenance', slots: Array.from({ length: filler }, (_, i) => ({ id: `f${i}`, label: `Filler ${i}`, verdict: 'unconfirmed', detail: 'x' })) }] },
+    _flaggedParts: [0, 1, 2, 3, 4].map((i) => ({ panelId: `P${i}`, partName: i ? `Flag ${i}` : 'SRS airbag (deployed)', weight: 'high', reason: i ? reason : REASON, _keep: true })),
+  });
+  let labelLast = [], apart = [], renders = 0, found = 0;
+  for (let n = 0; n <= 70; n++) {
+    const lay = pdfLayout(buildAssessmentPdf(mk(n), vd, 'GB', 'SV24YCN', '25/09/2026', null, null));
+    renders++;
+    labelLast.push(...labelsLastOnPage(lay).map((h) => `n=${n} p${h.page} "${h.text}"`));
+    const lab = lay.items.find((i) => i.text === 'SRS airbag (deployed)');
+    const rsn = lay.items.find((i) => /^Airbags deployed/.test(i.text) && lab && i.y > lab.y - 300);
+    if (lab && rsn) found++;
+    if (lab && rsn && lab.page !== rsn.page) apart.push(`n=${n}`);
+  }
+  ok(`no flag label / block label is the last line on a page over ${renders} variants${labelLast.length ? ' — ' + labelLast.slice(0, 3).join(' | ') : ''}`, labelLast.length === 0);
+  ok(`the SRS flag label and its reason render in every variant (${found}/${renders})`, found === renders);
+  ok(`"SRS airbag (deployed)" and "Airbags deployed – replacement from £500…" on the same page in every variant${apart.length ? ' — apart at ' + apart.join(',') : ''}`, apart.length === 0);
+  // a reason taller than a page: the label keeps at least its first 2 lines, the rest breaks line by line
+  const LONG = Array.from({ length: 90 }, (_, i) => `Line ${i} of a very long flag reason that must wrap.`).join(' ');
+  const tall = pdfLayout(buildAssessmentPdf({ ...mk(10), _flaggedParts: [{ panelId: 'X', partName: 'Tall flag', weight: 'high', reason: LONG, _keep: true }] }, vd, 'GB', 'SV24YCN', '25/09/2026', null, null));
+  const tl = tall.items.find((i) => i.text === 'Tall flag');
+  const after = tall.items.filter((i) => tl && i.page === tl.page && i.y > tl.y && /^Line \d/.test(i.text));
+  ok(`a reason taller than a page: the label keeps at least 2 reason lines on its page (${after.length})`, after.length >= 2);
+  ok('…and nothing of the tall reason is lost (Line 89 prints)', tall.items.some((i) => /Line 89 of/.test(i.text)));
+  const src = readFileSync(new URL('../app/api/salvage/pdf/route.js', import.meta.url), 'utf8');
+  ok('the flag loop measures the reason before printing the label (keepLabelWithBody)', /keepLabelWithBody\(4, reasonLines\.length, 4, 3\)/.test(src) && !/checkPage\(reasonLines\.length \* 4 \+ 3\)/.test(src));
+}
+
 console.log(`\nbatch191: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

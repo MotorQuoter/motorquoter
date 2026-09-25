@@ -45,3 +45,24 @@ export function pdfLayout(buf, pageH = 297) {
 // a sectionTitle heading: bold 7.5pt, grey 90/255 (0.353), upper case, at the left margin
 export const isSectionHeading = (it, margin = 20) =>
   it.style === 'bold' && Math.abs(it.size - 7.5) < 0.01 && /0\.353/.test(it.color) && it.text === it.text.toUpperCase() && Math.abs(it.x - margin) < 0.1;
+
+// batch 191 P2 — a block LABEL whose body must follow it on the same page: an Inspection Flags badge / part name (bold
+// 7pt), a VDS per-panel label (bold 8pt, grey 80/255), any bold 7.5pt upper-case label or table header (block headings,
+// slot-group labels, the fee table's column row), and the fee table's title.
+export const isBlockLabel = (it) => it.style === 'bold' && (
+  Math.abs(it.size - 7) < 0.01
+  || (Math.abs(it.size - 8) < 0.01 && /0\.31/.test(it.color))
+  || (Math.abs(it.size - 7.5) < 0.01 && it.text === it.text.toUpperCase() && /[A-Z]/.test(it.text))
+  || (Math.abs(it.size - 8.5) < 0.01 && /^Copart fees at/.test(it.text)));
+// every page but the last whose final printed line is labels only (the body went to the next page)
+export function labelsLastOnPage({ pages, items }) {
+  const out = [];
+  for (let p = 1; p < pages; p++) {
+    const on = items.filter((i) => i.page === p);
+    if (!on.length) continue;
+    const lastY = Math.max(...on.map((i) => i.y));
+    const line = on.filter((i) => Math.abs(i.y - lastY) < 0.1);
+    if (line.every(isBlockLabel)) out.push({ page: p, y: lastY, text: line.map((i) => i.text).join(' ') });
+  }
+  return out;
+}
