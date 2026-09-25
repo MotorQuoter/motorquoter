@@ -19,6 +19,7 @@ import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';
+import { fmtCopartErv } from '@/lib/copartErv.mjs';
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -1432,7 +1433,7 @@ export default function SalvageSuccessPage() {
                         </table>
                         {vehicleDetails?.estimatedRetail && (
                           <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-dim)', borderTop: '1px solid var(--border-dim)', paddingTop: 8 }}>
-                            Copart ERV: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{vehicleDetails.estimatedRetail}</span> — vendor-type interpretation in assessment above
+                            Copart ERV: <span style={{ color: 'var(--text)', fontWeight: 600 }}>{fmtCopartErv(vehicleDetails.estimatedRetail)}</span> — vendor-type interpretation in assessment above
                           </div>
                         )}
                         {(src === 'age_estimate' || src === 'age_anomaly') && (

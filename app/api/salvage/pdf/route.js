@@ -12,6 +12,7 @@ import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 import { pdfSafe } from '@/lib/pdfText.mjs';
+import { fmtCopartErv } from '@/lib/copartErv.mjs';
 
 function getSupabase() {
   return createClient(
@@ -113,7 +114,12 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     .replace(/–/g, '-')
     .replace(/&\s*þ/g, '-')
     .replace(/•/g, '-')
-    .replace(/\bGBP\b\s*/g, '£'));
+    // batch 190: a code glued to a number ("13,250.00GBP", "GBP8,120.50") has no word boundary, so the old /\bGBP\b/
+    // never fired on it. Code before or after a number → one leading "£"; a bare code → "£"; never "££".
+    .replace(/(?:£\s*)?(?<![A-Za-z])GBP\s*(?:£\s*)?(?=\d)/g, '£')
+    .replace(/(?:£\s*)?(\d[\d,]*(?:\.\d+)?)\s*GBP(?![A-Za-z])/g, '£$1')
+    .replace(/\bGBP\b/g, '£')
+    .replace(/£(?:\s*£)+/g, '£'));
 
   // batch 189 P1 (c) — THE ONE WRAP PATH: set the font the text will be DRAWN in, then measure. Several blocks measured
   // in whatever font the previous call left (a 7.5pt heading) and then drew at 8–9pt, so lines ran past the right margin
@@ -515,7 +521,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     if (vd.estimatedRetail) {
       checkPage(8); y += 2;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 120, 120);
-      doc.text(`Copart ERV: ${str(vd.estimatedRetail)} — vendor-type interpretation in assessment`, MARGIN, y); y += 6;
+      doc.text(`Copart ERV: ${str(fmtCopartErv(vd.estimatedRetail))} — vendor-type interpretation in assessment`, MARGIN, y); y += 6;
     }
     if (src === 'age_estimate' || src === 'age_anomaly') {
       checkPage(12);

@@ -171,10 +171,12 @@ Free lookups don't require payment; Standard/Pro redirect to Stripe. In payment-
 - Cached results include `_cached: true` to distinguish from live calls
 
 ## Known Issues — PDF
-- Repair Range banner showing GBP instead of £
-- Two £ signs slipping through in WhatsApp checklist items
-- Vehicle Details section ordering inconsistent (Highlights/Additional Info labels appearing)
-- GBP 8,120.50 estimated retail value formatting in Vehicle Details
+None open. Checked 25 Sep 2026 (batch 190) against renders of the 14 replay lots + the SV24YCN stored row, with the
+checklist hidden and shown:
+- Repair Range banner "GBP", "££" in WhatsApp checklist items, Vehicle Details "Highlights/Additional Info" labels or
+  inconsistent ordering: **not found** (0 "GBP", 0 "££"; one field order on every lot).
+- Estimated retail value "GBP": **fixed**. Copart glues the code on ("£13,250.00GBP"). The Copart ERV now prints
+  through `fmtCopartErv()` (`lib/copartErv.mjs`, PDF + web report), and the PDF's `str()` catches a code glued to a number.
 
 ---
 
