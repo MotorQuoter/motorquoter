@@ -371,9 +371,11 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   // costed" — but it now pins the shared call, and it fails if anyone re-inlines the old spelling.
   // batch 175 added a FIFTH: the uncosted panels prose damage is checked against exclude every charged panel (a repaired
   // panel is in the repair total, so "not in the repair total" would be false for it).
-  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor, the wheel checklist line and the prose-damage uncosted list',
-     // count USES, not `isChargedRow(` — two pass it by reference, `.filter(isChargedRow)`
-     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 5
+  // batch 199 added a SIXTH: a Copart-declared fault whose panel the ledger already charges is not called "not costed"
+  // (applyDeclaredFaults, passed by reference).
+  ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor, the wheel checklist line, the prose-damage uncosted list and the declared-fault "not costed" test',
+     // count USES, not `isChargedRow(` — three pass it by reference (`.filter(isChargedRow)`, `{ isChargedRow }`)
+     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 6
      && /import \{ rowKeyFor, isChargedRow \} from '@\/lib\/ledgerEdits\.mjs';/.test(route)
      && !/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/.test(route));
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the

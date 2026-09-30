@@ -708,6 +708,12 @@ export default function SalvageSuccessPage() {
                     Adjusted by you — we assessed £{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}
                   </div>
                 )}
+                {/* batch 199: the figure says which Copart-declared faults it leaves out (lib/declaredFaults.mjs wording) */}
+                {assessment._declaredFaults?.exclusion && (
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginTop: 4 }}>
+                    {assessment._declaredFaults.exclusion}
+                  </div>
+                )}
               </div>
             )}
 

@@ -13,6 +13,7 @@ import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 import { pdfSafe } from '@/lib/pdfText.mjs';
 import { fmtCopartErv } from '@/lib/copartErv.mjs';
+import { DECLARED_FAULTS_HEADING, keysDetailText } from '@/lib/declaredFaults.mjs';   // batch 199
 
 function getSupabase() {
   return createClient(
@@ -266,7 +267,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       ['Category', vd.category],
       ['Run Condition', vd.runCondition],
       ['Odometer', vd.odometer ? `${vd.odometer} miles` : null],
-      ['Keys', vd.keys],
+      ['Keys', keysDetailText(vd.keys, assessment._declaredFaults?.keys)],   // batch 199: + the notes' key lines
       ['Fuel', vd.fuel],
       ['Transmission', vd.transmission],
       ['Primary Damage', vd.primaryDamage],
@@ -295,48 +296,27 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.line(MARGIN, y - 3, PAGE_W - MARGIN, y - 3);
     }
 
-    // Seller notes — filtered, only show if genuine risk info present
-    const IGNORE_PATTERNS = [
-      /engine starts/i, /has keys/i, /keys available/i,
-      /cat\s*[a-z]\s*repairable/i, /repairable structural/i,
-      /\d{3,6}\s*miles?/i, /v5 reference/i, /v5c/i,
-      /copart verified/i, /run condition/i, /there are keys/i,
-      /^highlights/i, /^additional info/i,
-    ];
-    const RISK_PATTERNS = [
-      /knock/i, /gearbox/i, /transmission/i, /slipping/i,
-      /flood/i, /fire/i, /theft/i, /stolen/i,
-      /airbag/i, /deployed/i, /mileage discrepan/i,
-      /structural repair/i, /previously repaired/i,
-      /no brakes/i, /brake/i, /abs/i, /engine management/i,
-      /oil leak/i, /coolant/i, /overheating/i,
-    ];
-
-    const rawNotes = str(vd.damageDescription || '');
-    const noteLines = rawNotes.split(/\n/).map(l => l.trim()).filter(Boolean);
-    const riskNotes = noteLines.filter(line => {
-      const isIgnored = IGNORE_PATTERNS.some(p => p.test(line));
-      const isRisk = RISK_PATTERNS.some(p => p.test(line));
-      return !isIgnored && (isRisk || (!isIgnored && line.length > 20));
-    });
-
-    if (riskNotes.length > 0) {
+    // batch 199 (Vincent, 30 Sep): the old "Seller notes" box read the cleaned listing blob, which never held Copart's
+    // notes (they sit below the VAT line) — on the CX-3 it printed only the listing title. It is replaced by the
+    // Copart-declared faults, in the FIXED wording of lib/declaredFaults.mjs (never a raw paste line). None is costed.
+    const declared = assessment._declaredFaults?.faults || [];
+    if (declared.length > 0) {
+      const wrapped = declared.map(f => wrapIn(`• ${f.label.charAt(0).toUpperCase()}${f.label.slice(1)}`, CONTENT_W - 4, 'normal', 8.5));
+      const bodyLines = wrapped.reduce((n, w) => n + w.length, 0);
       y += 3;
-      checkPage(10 + riskNotes.length * 5);
+      checkPage(10 + bodyLines * 4.5);
       doc.setFillColor(255, 243, 230);
-      doc.rect(MARGIN, y - 3, CONTENT_W, 6 + riskNotes.length * 5, 'F');
+      doc.rect(MARGIN, y - 3, CONTENT_W, 7 + bodyLines * 4.5, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(180, 80, 0);
-      doc.text('SELLER NOTES — REVIEW REQUIRED', MARGIN + 2, y + 1);
+      doc.text(DECLARED_FAULTS_HEADING.toUpperCase(), MARGIN + 2, y + 1);
       y += 6;
-      for (const note of riskNotes) {
-        const noteWrapped = wrapIn(`• ${note}`, CONTENT_W - 4, 'normal', 8.5);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.setTextColor(100, 40, 0);
-        for (const line of noteWrapped) {
-          checkPage(5);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 40, 0);
+      for (const w of wrapped) {
+        for (const line of w) {
           doc.text(line, MARGIN + 2, y);
           y += 4.5;
         }
@@ -584,9 +564,19 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       : [];
     // Grow the banner to fit the sentence rather than truncate it — the sentence matters more than the
     // layout (Vincent, batch 106 §5).
-    const bannerH = edited.applied ? 24
+    let bannerH = edited.applied ? 24
       : discardedLines.length ? 24 + (discardedLines.length - 1) * 3.2
       : 19;
+    // batch 199: the figure says what it leaves out — "Excludes Copart-declared faults: …" (lib/declaredFaults.mjs),
+    // printed under everything else in the banner, which grows to fit it.
+    const exclusion = assessment._declaredFaults?.exclusion || '';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    const exclLines = exclusion ? doc.splitTextToSize(exclusion, CONTENT_W - 8) : [];
+    // Offsets below are from the banner's text origin (y after the `y += 3` below): the last existing line sits at +12
+    // (the figure), +18 (the "Adjusted" line) or +18 and down (the discarded-edits sentence).
+    const exclOff = (edited.applied ? 18 : discardedLines.length ? 18 + (discardedLines.length - 1) * 3.2 : 12) + 5;
+    if (exclLines.length) bannerH = Math.max(bannerH, exclOff + (exclLines.length - 1) * 3.2 + 6);
     checkPage(bannerH + 7);
     y += 3;
     doc.setFillColor(240, 90, 26);
@@ -609,6 +599,12 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.setFontSize(6.5);
       doc.setTextColor(255, 220, 200);
       doc.text(discardedLines, MARGIN + 4, y + 18, { lineHeightFactor: 1.15 });
+    }
+    if (exclLines.length) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(exclLines, MARGIN + 4, y + exclOff, { lineHeightFactor: 1.15 });
     }
     y += bannerH + 4;
   }
