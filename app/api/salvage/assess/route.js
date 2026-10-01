@@ -35,8 +35,8 @@ import {
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
-import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';
-import { applyDeclaredFaults } from '@/lib/declaredFaults.mjs';   // batch 199   // batch 163 T2 — the one "is this panel charged?" check
+import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
+import { stampCopartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -6684,12 +6684,14 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       }
     }
 
-    // ── batch 199: Copart-declared faults — FLAG, NEVER COST (Vincent, 30 Sep) ──
-    // The "View Notes" lines below the paste's VAT line. lib/declaredFaults.mjs owns the fixed list and the wording;
-    // only the fixed wording of a matched phrase reaches the buyer — never a raw line (that section can carry the
-    // account holder's name and email). Code-owned, AFTER both model calls, like the provenance line above. The ledger
-    // is NOT touched: no row, parts_sum unchanged. A fault whose panel the photos already cost is not called "not costed".
-    applyDeclaredFaults(assessment, enrichedVd.rawCopartPaste, { isChargedRow, catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null });
+    // ── batch 202: the auction's notes, shown AS WRITTEN (Vincent, 1 Oct) ──
+    // lib/copartNotes.mjs owns it: the "Additional notes" box if the buyer filled it, else (Copart only) the upper-case
+    // lines below the paste's VAT line. Stamped once here, AFTER both model calls — the notes never reach a prompt and
+    // never touch the ledger. Two code-owned lines (pyro fuses, stolen-recovered) go into Red Flags + the checklist.
+    {
+      const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null });
+      console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} — shown as written, not costed, not in any prompt`);
+    }
 
     // ── Sale-date → booking-reminder stamp (4f C-6) ───────────────────────────
     // enrichedVd.saleDate is { ms, offsetH } on a successful STRICT parse of the one observed Copart

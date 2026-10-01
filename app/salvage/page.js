@@ -41,7 +41,7 @@ function listingCopy(source) {
 export default function SalvagePage() {
   const router = useRouter();
   const [images, setImages] = useState([]);
-  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '', bodyStyle: '' });
+  const [details, setDetails] = useState({ vrm: '', make: '', model: '', year: '', lotNumber: '', damageDescription: '', bodyStyle: '', copartNotes: '' });   // batch 202: + copartNotes (the Additional notes box)
   const market = 'GB';   // Salvage is UK-only — no market state, no toggle (server rejects IE too).
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -627,6 +627,25 @@ export default function SalvagePage() {
                 Auto-extracted — VRM: <strong style={{ color: 'var(--text)' }}>{details.vrm}</strong>{details.lotNumber ? ` · Lot: ${details.lotNumber}` : ''}
               </div>
             )}
+          </div>
+
+          {/* batch 202 (Vincent, 1 Oct): Additional notes — every auction source. Shown in the report exactly as written
+              (lib/copartNotes.mjs); never costed, never sent to the model. Copart lots fall back to the notes on the
+              pasted page when this is blank. */}
+          <div>
+            <div className="field-label">Additional notes <span>(optional)</span></div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 6, lineHeight: 1.4 }}>
+              Paste the auction&apos;s notes about the vehicle (on Copart, click &quot;View Notes&quot; and copy them), or anything else you know about it. Shown in your report exactly as written.
+              {auctionSource === 'copart' && (
+                <div style={{ marginTop: 4 }}>Leave blank and we&apos;ll pick up Copart&apos;s notes from the page you pasted above.</div>
+              )}
+            </div>
+            <textarea
+              className="textarea-input"
+              placeholder={'e.g.\nTRANSMISSION FAULT\nUNDERCARRIAGE DAMAGE'}
+              value={details.copartNotes}
+              onChange={e => setDetails(p => ({ ...p, copartNotes: e.target.value }))}
+            />
           </div>
 
           {/* Photos — ZIP drop zone */}

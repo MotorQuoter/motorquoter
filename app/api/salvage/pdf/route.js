@@ -13,7 +13,7 @@ import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 import { pdfSafe } from '@/lib/pdfText.mjs';
 import { fmtCopartErv } from '@/lib/copartErv.mjs';
-import { DECLARED_FAULTS_HEADING, keysDetailText } from '@/lib/declaredFaults.mjs';   // batch 199
+import { NOTES_HEADING, NOTES_SOURCE_LINE, NOTES_NOT_COSTED, keysFromNotes, keysDetailText } from '@/lib/copartNotes.mjs';   // batch 202
 
 function getSupabase() {
   return createClient(
@@ -267,7 +267,7 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       ['Category', vd.category],
       ['Run Condition', vd.runCondition],
       ['Odometer', vd.odometer ? `${vd.odometer} miles` : null],
-      ['Keys', keysDetailText(vd.keys, assessment._declaredFaults?.keys)],   // batch 199: + the notes' key lines
+      ['Keys', keysDetailText(vd.keys, keysFromNotes(assessment._copartNotes?.lines))],   // batch 202: + the notes' key lines
       ['Fuel', vd.fuel],
       ['Transmission', vd.transmission],
       ['Primary Damage', vd.primaryDamage],
@@ -296,29 +296,36 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       doc.line(MARGIN, y - 3, PAGE_W - MARGIN, y - 3);
     }
 
-    // batch 199 (Vincent, 30 Sep): the old "Seller notes" box read the cleaned listing blob, which never held Copart's
-    // notes (they sit below the VAT line) — on the CX-3 it printed only the listing title. It is replaced by the
-    // Copart-declared faults, in the FIXED wording of lib/declaredFaults.mjs (never a raw paste line). None is costed.
-    const declared = assessment._declaredFaults?.faults || [];
-    if (declared.length > 0) {
-      const wrapped = declared.map(f => wrapIn(`• ${f.label.charAt(0).toUpperCase()}${f.label.slice(1)}`, CONTENT_W - 4, 'normal', 8.5));
-      const bodyLines = wrapped.reduce((n, w) => n + w.length, 0);
+    // batch 202 (Vincent, 1 Oct): the auction's notes AS WRITTEN — from the stamp (lib/copartNotes.mjs), never
+    // re-derived here. Replaces the old "Seller notes" box, which read the cleaned listing blob and never held Copart's
+    // notes (they sit below the VAT line; on the CX-3 it printed only the listing title). A report stamped before
+    // batch 202 has no _copartNotes and shows no box (ruled: old reports are not back-filled). A long list (CK75ONW: 43
+    // lines) runs over a page, so the tint is drawn strip by strip with each line, not as one rectangle up front.
+    const notes = assessment._copartNotes;
+    if (notes?.lines?.length > 0) {
+      const LINE_H = 4.5;
+      const strip = (h) => { doc.setFillColor(255, 243, 230); doc.rect(MARGIN, y - 3.5, CONTENT_W, h, 'F'); };
       y += 3;
-      checkPage(10 + bodyLines * 4.5);
-      doc.setFillColor(255, 243, 230);
-      doc.rect(MARGIN, y - 3, CONTENT_W, 7 + bodyLines * 4.5, 'F');
+      checkPage(6 + 2 * LINE_H);
+      strip(6);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(180, 80, 0);
-      doc.text(DECLARED_FAULTS_HEADING.toUpperCase(), MARGIN + 2, y + 1);
+      doc.text(NOTES_HEADING.toUpperCase(), MARGIN + 2, y);
       y += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(100, 40, 0);
-      for (const w of wrapped) {
-        for (const line of w) {
+      const body = [
+        { text: NOTES_SOURCE_LINE[notes.source] || '', style: 'italic', colour: [140, 90, 50] },
+        ...notes.lines.map(l => ({ text: str(l), style: 'normal', colour: [100, 40, 0] })),
+      ].filter(b => b.text);
+      for (const b of body) {
+        for (const line of wrapIn(b.text, CONTENT_W - 4, b.style, 8.5)) {
+          checkPage(LINE_H);
+          strip(LINE_H);
+          doc.setFont('helvetica', b.style);
+          doc.setFontSize(8.5);
+          doc.setTextColor(...b.colour);
           doc.text(line, MARGIN + 2, y);
-          y += 4.5;
+          y += LINE_H;
         }
       }
       y += 4;
@@ -567,9 +574,9 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
     let bannerH = edited.applied ? 24
       : discardedLines.length ? 24 + (discardedLines.length - 1) * 3.2
       : 19;
-    // batch 199: the figure says what it leaves out — "Excludes Copart-declared faults: …" (lib/declaredFaults.mjs),
+    // batch 202: when the report shows notes, the figure says they are not in it unless itemised (lib/copartNotes.mjs),
     // printed under everything else in the banner, which grows to fit it.
-    const exclusion = assessment._declaredFaults?.exclusion || '';
+    const exclusion = assessment._copartNotes?.lines?.length > 0 ? NOTES_NOT_COSTED : '';
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
     const exclLines = exclusion ? doc.splitTextToSize(exclusion, CONTENT_W - 8) : [];

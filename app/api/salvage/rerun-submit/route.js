@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { carryForwardNotes } from '@/lib/copartNotes.mjs';   // batch 202
 
 export const maxDuration = 300;
 
@@ -69,6 +70,9 @@ export async function POST(request) {
         // a possibly paste-less rerun form. A rerun re-derives the whole Copart block from it
         // via normaliseLot — it must NOT be replaced/discarded by the form submit.
         rawCopartPaste: (session.vehicle_details?.rawCopartPaste || vehicleDetails?.rawCopartPaste) || null,
+        // batch 202: the Additional notes box — the re-run form is not prefilled, so an empty box keeps the stored
+        // notes and new text replaces them (lib/copartNotes.mjs carryForwardNotes).
+        copartNotes: carryForwardNotes(session.vehicle_details?.copartNotes, vehicleDetails?.copartNotes),
         ...(session.vehicle_details?.promoToken && { promoToken: session.vehicle_details.promoToken }),
       },
       market: market || 'GB',

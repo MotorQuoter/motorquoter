@@ -18,6 +18,7 @@ import { NO_VALUATION_NOTE } from '@/config/booking.mjs';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 import { FEEDBACK_URL, FEEDBACK_STRINGS } from '@/config/feedback.mjs';
 import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
+import { NOTES_HEADING, NOTES_SOURCE_LINE, NOTES_NOT_COSTED } from '@/lib/copartNotes.mjs';   // batch 202
 import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';
 import { fmtCopartErv } from '@/lib/copartErv.mjs';
 
@@ -708,10 +709,10 @@ export default function SalvageSuccessPage() {
                     Adjusted by you — we assessed £{Number(assessment._partsReconciliation.parts_sum).toLocaleString('en-GB')}
                   </div>
                 )}
-                {/* batch 199: the figure says which Copart-declared faults it leaves out (lib/declaredFaults.mjs wording) */}
-                {assessment._declaredFaults?.exclusion && (
+                {/* batch 202: when the report shows notes, the figure says they are not in it unless itemised */}
+                {assessment._copartNotes?.lines?.length > 0 && (
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', marginTop: 4 }}>
-                    {assessment._declaredFaults.exclusion}
+                    {NOTES_NOT_COSTED}
                   </div>
                 )}
               </div>
@@ -884,6 +885,24 @@ export default function SalvageSuccessPage() {
                 </div>
               );
             })()}
+
+            {/* batch 202: the auction's notes AS WRITTEN — read from the assessment-time stamp (lib/copartNotes.mjs), never
+                re-derived here. A report stamped before batch 202 has none and shows nothing (ruled). */}
+            {assessment._copartNotes?.lines?.length > 0 && (
+              <div className="section">
+                <div className="section-title">{NOTES_HEADING}</div>
+                <div className="section-body">
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', fontStyle: 'italic', marginBottom: 8 }}>
+                    {NOTES_SOURCE_LINE[assessment._copartNotes.source]}
+                  </div>
+                  <div style={{ background: 'rgba(240,90,26,0.08)', border: '1px solid rgba(240,90,26,0.25)', borderRadius: 8, padding: '10px 12px' }}>
+                    {assessment._copartNotes.lines.map((l, i) => (
+                      <div key={i} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text)', overflowWrap: 'anywhere' }}>{l}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Damage Assessment section */}
             <div className="section">
