@@ -67,28 +67,37 @@ test('no notes anywhere → none', () => {
   assert.deepEqual(copartNotes({}), { source: 'none', lines: [] });
 });
 
-test('code lines: stolen and pyro fire from the paste AND from the box; pyro first; Copart wording verbatim', () => {
-  const fromPaste = copartNotesCodeLines(copartNotes({ rawCopartPaste: STOLEN + '\n' }).lines, 'copart');
-  assert.deepEqual(fromPaste, [CODE_LINE_WORDING.STOLEN.copart]);
-  assert.deepEqual(copartNotesCodeLines(copartNotes({ rawCopartPaste: PYRO }).lines, 'copart'), [CODE_LINE_WORDING.PYRO.copart]);
-  const both = copartNotesCodeLines(copartNotes({ copartNotes: 'stolen recovered vehicle\npyro fuses bypassed' }).lines, 'copart');
-  assert.deepEqual(both, [CODE_LINE_WORDING.PYRO.copart, CODE_LINE_WORDING.STOLEN.copart]);
+// batch 203 (Vincent, 1 Oct): the wording follows the notes SOURCE, never the auction source. Copart wording only when
+// the notes came from the Copart page; the box is the buyer's words, so it always gets the neutral wording.
+const codeLinesFor = (vd) => { const n = copartNotes(vd); return copartNotesCodeLines(n.lines, n.source); };
+
+test('code lines: PASTE on a Copart lot → Copart wording; pyro first; wording verbatim', () => {
+  assert.deepEqual(codeLinesFor({ auctionSource: 'copart', rawCopartPaste: STOLEN + '\n' }), [CODE_LINE_WORDING.STOLEN.copart]);
+  assert.deepEqual(codeLinesFor({ rawCopartPaste: PYRO }), [CODE_LINE_WORDING.PYRO.copart]);   // legacy row, no auctionSource
+  assert.deepEqual(codeLinesFor({ rawCopartPaste: STOLEN + '\nPYRO FUSES BYPASSED' }), [CODE_LINE_WORDING.PYRO.copart, CODE_LINE_WORDING.STOLEN.copart]);
   assert.match(CODE_LINE_WORDING.STOLEN.copart, /^Copart record this vehicle as stolen and recovered\. Before bidding, ask Copart to confirm the registration number \(VRM\) and chassis number \(VIN\)/);
   assert.match(CODE_LINE_WORDING.PYRO.copart, /^Copart declare the high-voltage pyro fuses have been bypassed for inspection\. Safety item — /);
 });
 
-test('code lines: non-Copart wording ("The notes record" / "ask the auction house" / "The notes say"), no "Copart"', () => {
-  const l = copartNotesCodeLines(['PYRO FUSE BYPASSED', 'STOLEN RECOVERED'], 'iaa');
-  assert.deepEqual(l, [CODE_LINE_WORDING.PYRO.other, CODE_LINE_WORDING.STOLEN.other]);
+test('code lines: BOX on a Copart lot → neutral wording (the buyer\'s words are never Copart\'s), no "Copart"', () => {
+  const l = codeLinesFor({ auctionSource: 'copart', rawCopartPaste: STOLEN, copartNotes: 'Seller says: stolen recovered\npyro fuses bypassed' });
+  assert.deepEqual(l, [CODE_LINE_WORDING.PYRO.neutral, CODE_LINE_WORDING.STOLEN.neutral]);
+  for (const s of l) assert.ok(!/Copart/.test(s), s);
+});
+
+test('code lines: BOX on a non-Copart lot → neutral wording ("The notes say" / "The notes record" / "ask the auction house")', () => {
+  const l = codeLinesFor({ auctionSource: 'iaa', copartNotes: 'PYRO FUSE BYPASSED\nSTOLEN RECOVERED' });
+  assert.deepEqual(l, [CODE_LINE_WORDING.PYRO.neutral, CODE_LINE_WORDING.STOLEN.neutral]);
   for (const s of l) assert.ok(!/Copart/.test(s), s);
   assert.match(l[0], /^The notes say the high-voltage pyro fuses/);
   assert.match(l[1], /^The notes record this vehicle as stolen and recovered\. Before bidding, ask the auction house to confirm/);
+  assert.deepEqual(codeLinesFor({ auctionSource: 'iaa', rawCopartPaste: STOLEN }), [], 'non-Copart paste is never read');
 });
 
 test('engine pushed → box only: no code line, nothing else', () => {
   const n = copartNotes({ rawCopartPaste: ENGINE_PUSHED });
   assert.deepEqual(n.lines, ['PLEASE SEE IMAGES FOR TRANSMISSION TYPE', 'ENGINE PUSHED TO OFFSIDE MAKING BELT RUB']);
-  assert.deepEqual(copartNotesCodeLines(n.lines, 'copart'), []);
+  assert.deepEqual(copartNotesCodeLines(n.lines, n.source), []);
 });
 
 test('stamp: no money moves; code lines top of Red Flags below a Cat A/B stop line; checklist appended; idempotent; model lines never dropped', () => {
