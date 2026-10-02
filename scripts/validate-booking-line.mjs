@@ -12,7 +12,9 @@ function check(label, cond) { if (cond) { console.log(`  PASS — ${label}`); pa
 console.log('── computeBookingLine states (Date.now()-relative) ──');
 check("open (sale >48h away) → 'deadline'",          computeBookingLine({ _saleDateMs: now + 100 * H, _saleDateOffsetH: 1 }).state === 'deadline');
 check("closed (sale <48h away) → 'window-closed'",   computeBookingLine({ _saleDateMs: now + 10 * H,  _saleDateOffsetH: 1 }).state === 'window-closed');
-check("past (sale already gone) → 'past-generic'",   computeBookingLine({ _saleDateMs: now - 5 * H,   _saleDateOffsetH: 1 }).state === 'past-generic');
+// batch 205: "past" now means the sale DAY has ended (lib/saleTiming.mjs). 5h ago can be the same sale day, so
+// the case uses 48h ago, which is always an earlier day; same-day cases live in validate-sale-day-end.
+check("past (sale day gone) → 'past-generic'",       computeBookingLine({ _saleDateMs: now - 48 * H,  _saleDateOffsetH: 1 }).state === 'past-generic');
 check("absent sale date → 'absent-generic'",         computeBookingLine({ _saleDateMs: null }).state === 'absent-generic');
 check("unparseable (NaN) → 'unparseable-generic'",   computeBookingLine({ _saleDateMs: NaN }).state === 'unparseable-generic');
 // Shut states no longer carry a booking line — the section is suppressed and checklistWarning owns the text.

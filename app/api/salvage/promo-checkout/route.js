@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normaliseLot } from '@/lib/normaliseLot';
+import { isSalePassed } from '@/lib/saleTiming.mjs';
 import { SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '@/config/booking.mjs';
 
 function getSupabase() {
@@ -45,9 +46,10 @@ export async function POST(request) {
 
     // Sale-passed reject gate (Commit 4): computed once from the raw paste already in
     // vehicleDetails. null saleDate (absent/unparseable) never fires. Free path rejects before the
-    // atomic consume; promo path before the increment (skipped for bypass codes).
+    // atomic consume; promo path before the increment (skipped for bypass codes). "Passed" = after the
+    // END OF THE SALE DAY in the sale's own time zone (lib/saleTiming.mjs), not after the lane start.
     const _saleDate = normaliseLot(vehicleDetails || {}).saleDate;
-    const _salePassed = !!(_saleDate && _saleDate.ms < Date.now());
+    const _salePassed = isSalePassed(_saleDate);
 
     const supabase = getSupabase();
     let payment_kind;

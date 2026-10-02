@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { PRICING, ROI_TIERS } from '@/config/pricing';
 import { normaliseLot } from '@/lib/normaliseLot';
+import { isSalePassed } from '@/lib/saleTiming.mjs';
 import { SALE_PASSED_REJECT_PAID } from '@/config/booking.mjs';
 
 function getSupabase() {
@@ -73,9 +74,10 @@ export async function POST(request) {
     // Sale-passed reject gate: if the auction has already happened, an assessment can't inform a
     // bid. Reject before any DB row or Stripe session is created (no orphan pending_payment row).
     // saleDate is computed on the spot from the raw paste already in vehicleDetails; null saleDate
-    // (absent/unparseable) never fires.
+    // (absent/unparseable) never fires. "Passed" = after the END OF THE SALE DAY in the sale's own time
+    // zone (lib/saleTiming.mjs): Copart's date is the lane start, and the lot may run hours later.
     const _saleDate = normaliseLot(vehicleDetails || {}).saleDate;
-    if (_saleDate && _saleDate.ms < Date.now()) {
+    if (isSalePassed(_saleDate)) {
       return NextResponse.json({ error: SALE_PASSED_REJECT_PAID }, { status: 409 });
     }
 
