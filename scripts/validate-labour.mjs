@@ -66,10 +66,10 @@ eq('structural HIGH band', [STRUCTURAL_BAND_HIGH.low, STRUCTURAL_BAND_HIGH.high]
 eq('structural present → money=top 2500', structuralAllowance(true), { low: 2300, high: 2500, money: 2500 });
 eq('structural absent → null', structuralAllowance(false), null);
 
-// §6 range — panel work only, −15/+25, money=top; effective ×1.25
+// §6 range — panel work only, −15/+25 shown; batch 208 B: money = the MIDDLE (×1.00), not the top
 eq('range pct', [RANGE_LOW_PCT, RANGE_HIGH_PCT], [0.85, 1.25]);
-eq('panelWorkRange(1000)', panelWorkRange(1000), { low: 850, high: 1250, money: 1250 });
-ok('effective labour = ×1.25', panelWorkRange(2000).money === 2500);
+eq('panelWorkRange(1000)', panelWorkRange(1000), { low: 850, high: 1250, money: 1000 });
+ok('batch 208 B: effective labour = ×1.00 (the middle), not the ×1.25 top', panelWorkRange(2000).money === 2000);
 
 // §4 no double-count — structural NOT re-ranged; total = panelWorkTop + structuralTop
 eq('labourMoney panel 1250 + structural 2500 = 3750', labourMoney({ panelWorkTop: 1250, structuralTop: 2500 }), 3750);
@@ -88,8 +88,8 @@ import { assembleColumns } from '../lib/labour.mjs';
   ]);
   eq('columns: new+painted PW = 1100 (800+300, flattened together)', c.panelWorkNewPainted, 1100);
   eq('columns: second-hand PW = 970 (welded 800 + bolt-on 170)', c.panelWorkSecondHand, 970);
-  eq('columns: new+painted money=top 1375', c.newPainted.money, 1375);
-  eq('columns: second-hand money=top 1213', c.secondHand.money, 1213);
+  eq('columns: new+painted money=middle 1100 (batch 208 B)', c.newPainted.money, 1100);
+  eq('columns: second-hand money=middle 970 (batch 208 B)', c.secondHand.money, 970);
   ok('columns: money drives off the HIGHER (new+painted) column', c.newPainted.money > c.secondHand.money);
 }
 {
@@ -122,19 +122,19 @@ import { assembleColumns } from '../lib/labour.mjs';
     { panelId: 'FRONT_WING', zone: 'flank-damaged-side', severity: 'SEVERE', action: 'replace' },
   ];
   const c = assembleColumns(amz);
-  eq('AMZ3790: new+painted range UNCHANGED (money) 1615–2375', c.newPainted, { low: 1615, high: 2375, money: 2375 });
+  eq('AMZ3790: new+painted range UNCHANGED 1615–2375, money = middle 1900 (batch 208 B)', c.newPainted, { low: 1615, high: 2375, money: 1900 });
   eq('AMZ3790: second-hand PW = door £700 painted + 3 × £170 = 1210 (was 680)', c.panelWorkSecondHand, 1210);
-  eq('AMZ3790: second-hand range 1029–1513 (was 578–850)', c.secondHand, { low: 1029, high: 1513, money: 1513 });
-  eq('AMZ3790: computeLabour money still 2375 — the fix is display only', computeLabour({ bodyPanels: amz }).panelWorkMoney, 2375);
+  eq('AMZ3790: second-hand range 1029–1513 (was 578–850), money = middle 1210', c.secondHand, { low: 1029, high: 1513, money: 1210 });
+  eq('AMZ3790: computeLabour money = the middle 1900 (batch 208 B; was the 2375 top)', computeLabour({ bodyPanels: amz }).panelWorkMoney, 1900);
 
   const { labourDisplayLines, LABOUR_RANGE_ADDENDUM } = await import('../lib/labour.mjs');
   const d = labourDisplayLines(c);
-  eq('display: the approved range sub-line', d.range, 'Estimate £1,615 - £2,375 · the total uses the top');
+  eq('display: the range sub-line says the total uses the MIDDLE (batch 208 B)', d.range, 'Estimate £1,615 - £2,375 · the total uses the middle');
   eq('display: the second-hand sub-line', d.secondHand, 'With second-hand colour-matched panels: £1,029 - £1,513 · for comparison, not in the total');
   // batch 161 E4 (Vincent, 19 Sep): the closing sentence was re-approved. It used to say "If your repairer
   // quotes less, remove the line and add their figure" — two steps, and since batch 158 A2 took the controls
   // off the labour row it named a button that was not there. It now names the one control that does the job.
-  eq('display: the approved addendum, verbatim', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the top of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
+  eq('display: the addendum, verbatim (batch 208 B: use the middle of that range)', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the middle of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
   ok('display: all three lines are Latin-1 (the PDF drops anything else)', [d.range, d.secondHand, d.addendum].every((s) => !/[^\x00-\xFF]/.test(s)));
   ok('display: no columns (a pre-batch-92 report) → no lines', labourDisplayLines(null) === null && labourDisplayLines({}) === null);
 
@@ -145,21 +145,21 @@ import { assembleColumns } from '../lib/labour.mjs';
       { panelId: 'FRONT_BUMPER', name: 'Front bumper', action: 'replace', oem: 290, used: 160 },
       { panelId: 'FRONT_DOOR', name: 'Front door', action: 'repair', oem: null, used: null, _repairNoPart: true },
       { panelId: 'FRONT_WING', name: 'Front wing', action: 'replace', oem: 175, used: 95 },
-      { name: 'Labour & paint (new & painted)', action: '—', oem: 2375, used: null, _codeLabour: true },
+      { name: 'Labour & paint (new & painted)', action: '—', oem: 1900, used: null, _codeLabour: true },
     ],
-    _partsReconciliation: { parts_sum: 2630 },
+    _partsReconciliation: { parts_sum: 2155 },
     _labourBodyPanels: amz.filter((p) => p.panelId !== 'BONNET'),
     _labourTellCount: 0,
     _labourColumns: c,
   };
   const e0 = applyEdits(assessment, null);
-  eq('edit layer, no edits: the stored range', e0.labourDisplay?.range, 'Estimate £1,615 - £2,375 · the total uses the top');
+  eq('edit layer, no edits: the stored range', e0.labourDisplay?.range, 'Estimate £1,615 - £2,375 · the total uses the middle');
   const doorKey = e0.rows.find((r) => r.panelId === 'FRONT_DOOR')._rowKey;
   const e1 = applyEdits(assessment, { stamp: e0.stamp, strikes: [doorKey] });
   const lab1 = e1.rows.find((r) => r._codeLabour);
-  ok('edit layer, door struck: the range is RE-DERIVED from the recomputed panel work, and its top IS the row figure',
-     e1.labourDisplay?.range === `Estimate £${(lab1.oem * 0.85 / 1.25).toLocaleString('en-GB')} - £${lab1.oem.toLocaleString('en-GB')} · the total uses the top`);
-  eq('edit layer, door struck: recomputed range line', e1.labourDisplay?.range, 'Estimate £1,020 - £1,500 · the total uses the top');
+  ok('edit layer, door struck: the range is RE-DERIVED from the recomputed panel work, and its MIDDLE IS the row figure (batch 208 B)',
+     e1.labourDisplay?.range === `Estimate £${Math.round(lab1.oem * 0.85).toLocaleString('en-GB')} - £${Math.round(lab1.oem * 1.25).toLocaleString('en-GB')} · the total uses the middle`);
+  eq('edit layer, door struck: recomputed range line', e1.labourDisplay?.range, 'Estimate £1,020 - £1,500 · the total uses the middle');
   const labKey = e0.rows.find((r) => r._codeLabour)._rowKey;
   const e2 = applyEdits(assessment, { stamp: e0.stamp, strikes: [labKey] });
   ok('edit layer, labour line struck: no range and no addendum (the claim would be false)', e2.labourDisplay === null);
@@ -183,10 +183,10 @@ ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
     ],
     structuralTellCount: 2,
   });
-  // new+painted flatten (front): dearest 700 + 300 = 1000 → ×1.25 = 1250; NO structural (withdrawn)
-  eq('computeLabour panelWorkMoney (1000×1.25)', r.panelWorkMoney, 1250);
+  // new+painted flatten (front): dearest 700 + 300 = 1000 → money ×1.00 = 1000 (batch 208 B); NO structural (withdrawn)
+  eq('computeLabour panelWorkMoney (1000, the middle)', r.panelWorkMoney, 1000);
   eq('computeLabour structural WITHDRAWN → null even at ≥2 tells', r.structural, null);
-  eq('computeLabour total labourMoney = panel work only', r.labourMoney, 1250);
+  eq('computeLabour total labourMoney = panel work only', r.labourMoney, 1000);
 }
 { const { STRUCTURAL_ALLOWANCE_ENABLED } = await import('../lib/labour.mjs');
   ok('STRUCTURAL_ALLOWANCE_ENABLED is false (withdrawn)', STRUCTURAL_ALLOWANCE_ENABLED === false);
@@ -196,7 +196,7 @@ ok('NOT body panel SLAM_PANEL', !isBodyPanel('SLAM_PANEL'));
   // only 1 named tell → NO structural allowance
   const r = computeLabour({ bodyPanels: [{ panelId: 'FRONT_DOOR', zone: 'front', severity: 'MODERATE', action: 'repair' }], structuralTellCount: 1 });
   eq('computeLabour 1 tell → no structural', r.structural, null);
-  eq('computeLabour 1 tell labourMoney = panel work only (700×1.25=875)', r.labourMoney, 875);
+  eq('computeLabour 1 tell labourMoney = panel work only (700, the middle)', r.labourMoney, 700);
 }
 
 // SRS fitting rider (spec §10) — tiered, Vincent's numbers, no interpolation
@@ -207,9 +207,9 @@ eq('SRS T3 = 1000', SRS_FITTING.T3, 1000);
 eq('srsFitting(null) = 0', srsFitting(null), 0);
 ok('SRS curve accelerates (not linear — the £450 lesson)', SRS_FITTING.T3 - SRS_FITTING.T2 > SRS_FITTING.T2 - SRS_FITTING.T1);
 {
-  // full: 1 body panel (700 moderate), <2 tells, T3 airbag → 700×1.25 + 0 structural + 1000 SRS = 1875
+  // full: 1 body panel (700 moderate), <2 tells, T3 airbag → 700 (middle) + 0 structural + 1000 SRS = 1700
   const r = computeLabour({ bodyPanels: [{ panelId: 'BONNET', zone: 'front', severity: 'MODERATE', action: 'repair' }], structuralTellCount: 1, srsTier: 'T3' });
-  eq('computeLabour with SRS T3 (875 + 1000)', r.labourMoney, 1875);
+  eq('computeLabour with SRS T3 (700 + 1000)', r.labourMoney, 1700);
   eq('computeLabour srsFitting field', r.srsFitting, 1000);
 }
 
@@ -238,12 +238,12 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   ok('SD72HXH: two changes reported', ch.length === 2);
   ok('non-panel rows (labour) untouched', rows[2].oem === 1400 && rows[2].action === '—');
 
-  // The panel work still charges them: MODERATE £700 each, zone-flattened (dearest full, extra half) × 1.25.
+  // The panel work still charges them: MODERATE £700 each, zone-flattened (dearest full, extra half), money at the middle.
   const lab = computeLabour({ bodyPanels: [
     { panelId: 'FRONT_DOOR', zone: 'flank-damaged-side', severity: 'MODERATE', action: 'repair' },
     { panelId: 'REAR_DOOR', zone: 'flank-damaged-side', severity: 'MODERATE', action: 'repair' },
   ] });
-  eq('SD72HXH: the repair is still costed in panel work — (700 + 350) × 1.25', lab.panelWorkMoney, 1313);
+  eq('SD72HXH: the repair is still costed in panel work — 700 + 350 (the middle)', lab.panelWorkMoney, 1050);
 
   const minor = [{ panelId: 'FRONT_WING', name: 'Front wing', action: 'replace', oem: 290, used: 165 }];
   applyGradeOwnsAction(minor, new Map([['FRONT_WING', 'MINOR']]));
@@ -253,9 +253,24 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   applyGradeOwnsAction(severe, new Map([['FRONT_DOOR', 'SEVERE']]));
   ok('SEVERE bolt-on → replace, part KEPT (spec: "On SEVERE the PART cost is separate")', severe[0].action === 'replace' && severe[0].used === 330 && !severe[0]._repairNoPart);
 
+  // batch 208 A (Vincent, 2 Oct): the model's "repair" STANDS unless SEVERE_OVERRIDE_THRESHOLD (2) photos read it SEVERE.
   const sevRepair = [{ panelId: 'BONNET', name: 'Bonnet', action: 'repair', oem: 500, used: 280 }];
-  applyGradeOwnsAction(sevRepair, new Map([['BONNET', 'SEVERE']]));
-  ok('SEVERE with a model "repair" word → the GRADE wins: replace, part kept', sevRepair[0].action === 'replace' && sevRepair[0].used === 280 && sevRepair[0]._modelAction === 'repair');
+  applyGradeOwnsAction(sevRepair, new Map([['BONNET', 'SEVERE']]), new Map([['BONNET', 1]]));
+  ok('A: bolt-on, model repair, 1 SEVERE photo → stays REPAIR, no part', sevRepair[0].action === 'repair' && (sevRepair[0].used ?? sevRepair[0].oem ?? 0) === 0 && sevRepair[0]._repairNoPart === true && sevRepair[0]._severeRepairKept === true && sevRepair[0]._modelPart?.used === 280);
+  const sevRepair2 = [{ panelId: 'BONNET', name: 'Bonnet', action: 'repair', oem: 500, used: 280 }];
+  applyGradeOwnsAction(sevRepair2, new Map([['BONNET', 'SEVERE']]), new Map([['BONNET', 2]]));
+  ok('A: bolt-on, model repair, 2 SEVERE photos → REPLACE, part kept', sevRepair2[0].action === 'replace' && sevRepair2[0].used === 280 && sevRepair2[0]._modelAction === 'repair');
+  const sevRepair0 = [{ panelId: 'BONNET', name: 'Bonnet', action: 'repair', oem: 500, used: 280 }];
+  applyGradeOwnsAction(sevRepair0, new Map([['BONNET', 'SEVERE']]));
+  ok('A: no vote count supplied → counts as 0 → stays repair (never upgraded on a missing count)', sevRepair0[0].action === 'repair' && sevRepair0[0]._repairNoPart === true);
+  {
+    const { SEVERE_OVERRIDE_THRESHOLD } = await import('../lib/labour.mjs');
+    eq('A: the threshold has one owner (lib/labour.mjs) = 2', SEVERE_OVERRIDE_THRESHOLD, 2);
+    const { readFileSync: _rf } = await import('node:fs');
+    const _route = _rf('app/api/salvage/assess/route.js', 'utf8');
+    ok('A: route.js imports the threshold and no longer defines it',
+       _route.includes("SEVERE_OVERRIDE_THRESHOLD } from '@/lib/labour.mjs'") && !/const SEVERE_OVERRIDE_THRESHOLD\s*=/.test(_route));
+  }
 
   const modRepair = [{ panelId: 'REAR_DOOR', name: 'Rear door', action: 'repair', oem: 500, used: 250 }];
   applyGradeOwnsAction(modRepair, new Map([['REAR_DOOR', 'MODERATE']]));
@@ -271,10 +286,15 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
       ok(`WELDED ${pid} ${g} → repair, labour only, NO panel bought (the model's "replace" moves no money)`,
          w[0].action === 'repair' && (w[0].used ?? w[0].oem ?? 0) === 0 && w[0]._repairNoPart === true && w[0]._modelPart?.used === 220);
     }
+    // batch 208 A: a WELDED panel the model wrote as repair is NEVER upgraded, whatever the SEVERE count.
     const s = [{ panelId: pid, name: pid, action: 'repair', oem: 400, used: 220 }];
-    applyGradeOwnsAction(s, new Map([[pid, 'SEVERE']]));
-    ok(`WELDED ${pid} SEVERE → replace at NEW: money reads oem £400, never used £220`,
-       s[0].action === 'replace' && (s[0].used ?? s[0].oem ?? 0) === 400 && s[0]._weldedAtNew?.used === 220 && s[0]._modelAction === 'repair');
+    applyGradeOwnsAction(s, new Map([[pid, 'SEVERE']]), new Map([[pid, 3]]));
+    ok(`A: WELDED ${pid}, model repair, 3 SEVERE photos → REPAIR, no part, no new price`,
+       s[0].action === 'repair' && (s[0].used ?? s[0].oem ?? 0) === 0 && s[0]._repairNoPart === true && !s[0]._weldedAtNew && s[0]._modelPart?.used === 220);
+    const sr = [{ panelId: pid, name: pid, action: 'replace', oem: 400, used: 220 }];
+    applyGradeOwnsAction(sr, new Map([[pid, 'SEVERE']]), new Map([[pid, 1]]));
+    ok(`A: WELDED ${pid}, model replace → replace at NEW: money reads oem £400, never used £220`,
+       sr[0].action === 'replace' && (sr[0].used ?? sr[0].oem ?? 0) === 400 && sr[0]._weldedAtNew?.used === 220);
   }
   {
     // SF69YBB's live shape: a _gOwned quarter, SEVERE, replace, Executive band 320/175 → +£145.
@@ -313,7 +333,7 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
     eq('Q4: priced as a welded REPLACE at NEW — money £320, not the £175 used', (rows[1].used ?? rows[1].oem ?? 0), 320);
     ok('Q4: action replace, a new panel is bought (not a £0 repair)', rows[1].action === 'replace' && !rows[1]._repairNoPart);
     const lab = computeLabour({ bodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: sev.get('REAR_QUARTER'), action: rows[1].action }] });
-    eq('Q4: welded replace labour £800 × 1.25 (not the old MODERATE default path)', lab.panelWorkMoney, 1000);
+    eq('Q4: welded replace labour £800 at the middle (not the old MODERATE default path)', lab.panelWorkMoney, 800);
     const pre = new Map([['REAR_QUARTER', 'MINOR']]);
     const p2 = promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(), sevByPanel: pre, zoneByPanel: new Map(), entry: { oem: 320, used: 175 }, name: 'Rear quarter panel' });
     ok('Q4: a grade already held for the quarter is overridden to SEVERE and reported', p2?.gradeWas === 'MINOR' && pre.get('REAR_QUARTER') === 'SEVERE');
@@ -321,7 +341,7 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
     ok('Q4: an already-costed quarter is not promoted twice', promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(['REAR_QUARTER']), sevByPanel: new Map(), zoneByPanel: new Map(), entry: { oem: 320, used: 175 }, name: 'x' }) === null);
     const { readFileSync } = await import('node:fs');
     const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
-    ok('route: the Q4 promotion goes through the owner, before the grade rule', route.indexOf('promoteFlaggedQuarter({') > 0 && route.indexOf('promoteFlaggedQuarter({') < route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)'));
+    ok('route: the Q4 promotion goes through the owner, before the grade rule', route.indexOf('promoteFlaggedQuarter({') > 0 && route.indexOf('promoteFlaggedQuarter({') < route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel, severeVotesByPanel)'));
     ok('route: the old inline ungraded push is gone', !/gatedParts\.push\(\{ panelId: PANEL\.REAR_QUARTER/.test(route));
   }
 
@@ -360,8 +380,8 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   const door = cards.find((c) => c.panelId === 'FRONT_DOOR');
   ok('Damage card: the repaired door carries the note (never a bare £0 that reads as free)', door.note === REPAIR_NO_PART_NOTE && door.action === 'repair');
   const route = readFileSync('app/api/salvage/assess/route.js', 'utf8');
-  ok('route: the rule runs inside the labour block, before bodyPanels', route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') > 0
-     && route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel)') < route.indexOf('const bodyPanels = gatedParts'));
+  ok('route: the rule runs inside the labour block, before bodyPanels', route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel, severeVotesByPanel)') > 0
+     && route.indexOf('applyGradeOwnsAction(gatedParts, sevByPanel, severeVotesByPanel)') < route.indexOf('const bodyPanels = gatedParts'));
   // batch 147 X2 added a THIRD use of the same principle: the damagedPanels set that decides whether a
   // structure floor applies. A repaired panel is costed damage (its cost sits in panel work), so it
   // licenses a structure floor exactly as a replaced one does.

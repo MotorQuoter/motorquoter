@@ -14,7 +14,7 @@ const FEE_STACKS = { copart: copartFeeStack, iaa: iaaFeeStack };
 import { buildInvestmentBlock } from '@/lib/investmentBlock';
 import { buildDamageCards } from '@/lib/damageCards';
 import { scrubFlooredProse } from '@/lib/flooredProseScrub.mjs';
-import { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel } from '@/lib/structureFloor.mjs';   // batch 149 Y3 — one owner, shared with the edit layer
+import { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel, structureFloorDecision } from '@/lib/structureFloor.mjs';   // batch 149 Y3 — one owner, shared with the edit layer
 import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
@@ -41,7 +41,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -2365,7 +2365,8 @@ function splitGroupsByInstance(rawGroups, correspondenceMap) {
 }
 
 const MINOR_COSMETIC_FLAG_THRESHOLD = 2; // min MINOR-only damaged votes to trigger cosmetic flag (two-vote minimum; a single unsupported MINOR clears — LP71NSU boot-lid phantom)
-const SEVERE_OVERRIDE_THRESHOLD     = 2; // min SEVERE votes to fire the no-floor cost override (provisional — lone SEVERE floors to inspect; lower to 1 if real destroyed parts floor wrongly)
+// SEVERE_OVERRIDE_THRESHOLD (min SEVERE votes to fire the no-floor cost override) — owner moved to lib/labour.mjs (batch 208 A),
+// which also uses it to decide when a model REPAIR on a bolt-on panel may become a replace. Imported above.
 const STICKY_COST_THRESHOLD         = 0.70; // min damaged/resolving ratio to RESCUE a disagree-floored COST panel back to cost (post-amalgamate sticky pass; tunable — see [AMALG][STICKY])
 
 export function amalgamate(groups, viewPanelSets) {   // batch 171: exported (read-only) for validate-batch171
@@ -5366,6 +5367,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.log(`[ZERO-RULE][EV] ${f.panelId} → HIGH limit-only flag (no cost, no band)`);
         }
       }
+      // batch 208 D (Vincent, 2 Oct): AT MOST ONE £500 structure floor per report (lib/structureFloor.mjs owns the count).
+      // The first structure panel that qualifies, in coreObs.flaggedParts order, takes it; any other qualifying structure
+      // panel keeps its inspection flag (structural/inspection-class wording, "not included in the repair cost"), no money.
+      const _structFloorsTaken = [];
       for (const f of (coreObs.flaggedParts || [])) {
         const pid = f.panelId;
         if (!pid || alreadyCosted.has(pid)) continue;                 // no panel, or already in the money → never double
@@ -5386,13 +5391,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         }
         if (isFlagClassRead) {
           // batch 147 X2 — the zone must show damage beyond its own bumper, or there is no floor.
-          const _sf = structureFloorApplies(pid, damagedPanels);
-          if (!_sf.apply) {
+          // batch 208 D — and only one floor per report.
+          const _sf = structureFloorDecision(pid, damagedPanels, _structFloorsTaken);
+          if (_sf.why === 'zone-bumper-only') {
             // Flag RETAINED at £0 — the buyer is still told to look at the structure; it just is not charged.
             console.log(`[ZERO-RULE][A] ${pid} → NO floor (batch 147 X2) — the only damage in this zone is ${_sf.bumperCosted ? 'the bumper' : 'none'}; flag retained at £0`);
             continue;
           }
           if (STRUCT_FLOOR_ZONE[pid]) console.log(`[ZERO-RULE][A] ${pid} zone damage beyond the bumper: [${_sf.otherDamage.join(', ')}] → floor applies`);
+          if (_sf.why === 'one-per-report') {
+            console.log(`[ZERO-RULE][A] ${pid} → NO floor (batch 208 D) — ${_sf.takenBy} already carries the report's one £${ZERO_RULE_STRUCT_FLOOR} floor; flag retained at £0`);
+            continue;
+          }
+          _structFloorsTaken.push(pid);
           // A — positive structural read → £500 FLOOR (never a complete figure)
           injected = { panelId: pid, name: PANEL_DISPLAY[pid] || f.partName || pid, action: 'inspect',
             oem: null, used: ZERO_RULE_STRUCT_FLOOR, _tableMandated: true, _structFloor: true, _zeroRule: 'A' };
@@ -5918,7 +5929,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     {
       // Fix B — fogs follow the bumper. Bumper gone ⇒ that end's fogs costed (seeded from the fog price
       // band, or flagged if no band) up to its count — front 2, rear 1 (batch 167; one owner,
-      // FOG_LAMPS_PER_END in lib/partsCompleteness.mjs). Bumper intact + one front fog ⇒ "check the second".
+      // FOG_LAMPS_PER_END in lib/partsCompleteness.mjs). Bumper intact ⇒ nothing (batch 208 C dropped the pairing flag).
       // "Gone" = v2.0's AUTHORITATIVE bumper-off signal (aperture exposed OR ledger-severe), NOT any
       // costed bumper `replace`. The pre-v2.0 module OR'd in a costed-replace fallback; the batch-65
       // fixture survey showed that over-firing on 4 of 11 lots (a cosmetic replace is not "gone" and
@@ -6026,9 +6037,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const isLabour = (nm) => /labour|paint|prep/i.test(nm || '');
       const sevByPanel  = new Map();
       const zoneByPanel = new Map();
+      // batch 208 A — how many photos graded each panel SEVERE (from the per-view grades the entry carries, batch 160 C).
+      // applyGradeOwnsAction upgrades a model REPAIR on a bolt-on panel only at SEVERE_OVERRIDE_THRESHOLD of these.
+      const severeVotesByPanel = new Map();
       for (const cp of coreObs.costedParts) {
         if (cp.panelId && cp._ledgerSeverity) sevByPanel.set(cp.panelId, cp._ledgerSeverity);
         if (cp.panelId && cp.zone)            zoneByPanel.set(cp.panelId, cp.zone);
+        if (cp.panelId && Array.isArray(cp._perViewGrades)) {
+          const n = cp._perViewGrades.filter(g => g.sev === 'SEVERE').length;
+          severeVotesByPanel.set(cp.panelId, Math.max(n, severeVotesByPanel.get(cp.panelId) || 0));
+        }
       }
 
       // Q4 (flagged→costed): the flagged £0 quarter gets its band-default part cost + welded labour, flag
@@ -6053,7 +6071,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // owner — repair buys no panel, replace is priced at NEW (oem). Runs before bodyPanels so labour sees the
       // grade-owned action; lib/labour.mjs owns the rule and its exclusions (_zeroRule, ungraded).
       {
-        const _gradeChanges = applyGradeOwnsAction(gatedParts, sevByPanel);
+        const _gradeChanges = applyGradeOwnsAction(gatedParts, sevByPanel, severeVotesByPanel);
         for (const c of _gradeChanges) console.log(`[GRADE→ACTION] ${c.panelId} ${c.grade}: ${c.from} → ${c.to}`);
       }
 

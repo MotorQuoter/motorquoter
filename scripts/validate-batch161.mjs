@@ -150,8 +150,8 @@ ok('striking the labour row also hides them (unchanged behaviour)', removed.labo
 
 // ── E4 — the addendum ───────────────────────────────────────────────────────────────────────────────
 console.log('\n-- E4: the approved addendum --');
-ok('the addendum is Vincent\'s approved text, verbatim', LABOUR_RANGE_ADDENDUM
-  === 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the top of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
+ok('the addendum is Vincent\'s approved text, verbatim (batch 208 B: "the middle of that range")', LABOUR_RANGE_ADDENDUM
+  === 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the middle of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
 ok('it no longer instructs a two-step remove-and-add', !/remove the line and add their figure/.test(LABOUR_RANGE_ADDENDUM));
 ok('it names the control that now exists', /press Change on this line and enter it/.test(LABOUR_RANGE_ADDENDUM));
 ok('the one owner still serves it to both surfaces', labourDisplayLines(ASSESSMENT._labourColumns).addendum === LABOUR_RANGE_ADDENDUM);

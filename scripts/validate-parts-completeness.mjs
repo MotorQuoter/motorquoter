@@ -113,16 +113,20 @@ test('Fix B: bumper GONE + one front fog → clone the second fog (cost pairs)',
   assert.equal(sumUsed([...costed, ...costedToAdd]), before + 80); // parts_sum moves by exactly one fog
 });
 
-test('Fix B: bumper INTACT + one front fog → no cost, one "check second" flag', () => {
-  const costed = [fog('front'), { panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'repair', used: 150 }];
+// batch 208 C (Vincent, 2 Oct): the "Second … fog lamp — … bumper intact, pairing not assumed" flag is DROPPED, front
+// and rear. A costed fog behind a fitted (even damaged-and-costed) bumper adds nothing — no cost, no flag.
+test('Fix B: bumper INTACT (fitted, costed) + one front fog → no cost, NO pairing flag (batch 208 C)', () => {
+  const costed = [fog('front'), { panelId: PANEL.FRONT_BUMPER, name: 'Front bumper', action: 'replace', used: 240 }];
   const before = sumUsed(costed);
   const { costedToAdd, flagsToAdd } = applyFogBumperRule({ costedParts: costed, frontBumperGone: false });
   assert.equal(costedToAdd.length, 0);
   assert.equal(sumUsed([...costed, ...costedToAdd]), before);      // parts_sum UNCHANGED
-  assert.equal(flagsToAdd.length, 1);
-  assert.match(flagsToAdd[0].partName, /second front fog/i);
-  assert.equal(flagsToAdd[0]._fogCheck, true);
-  assert.equal(flagsToAdd[0].used ?? null, null);                 // a flag, not a cost
+  assert.equal(flagsToAdd.length, 0);
+  assert.ok(!flagsToAdd.some((f) => /pairing not assumed/.test(f.reason || '')));
+});
+test('Fix B: rear bumper intact + one rear fog → no flag either (batch 208 C, front and rear)', () => {
+  const { flagsToAdd } = applyFogBumperRule({ costedParts: [{ ...fog('rear'), name: 'Rear fog lamp' }], rearBumperGone: false });
+  assert.equal(flagsToAdd.length, 0);
 });
 
 // batch 167 (Vincent, 21 Sep): the rear end carries ONE fog lamp. This test used to assert a clone of the

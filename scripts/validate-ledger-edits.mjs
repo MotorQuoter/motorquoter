@@ -389,7 +389,8 @@ console.log('\n(L) LAMP-TYPE CORRECTION — batch 114');
 // imported by both) over the surviving costed rows.
 console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
 {
-  // SF69YBB's ledger exactly as the £0 replay produces it at HEAD (parts_sum £5,525).
+  // SF69YBB's ledger shape (was parts_sum £5,525 with labour at the ×1.25 top). batch 208 B: labour is written at the
+  // MIDDLE now, so the labour row is £2,000 (£2,500 / 1.25) and parts_sum £5,025. The floor arithmetic is unchanged.
   const SF_ROWS = [
     { panelId: 'FRONT_BUMPER',   name: 'Front bumper',       used: 200, oem: 365 },
     { panelId: 'GRILLE',         name: 'Grille',             used: 70,  oem: 160 },
@@ -402,7 +403,7 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
     { panelId: 'FRONT_STRUCTURE', name: 'Front structure',   used: 500, oem: null, _structFloor: true, _zeroRule: 'A' },
     { panelId: 'WHEEL',          name: 'Wheel',              used: 200, oem: null },
     { panelId: 'REAR_STRUCTURE', name: 'Rear structure',     used: 500, oem: null, _structFloor: true, _zeroRule: 'A' },
-    { name: 'Labour & paint (new & painted)', used: null, oem: 2500, _codeLabour: true },
+    { name: 'Labour & paint (new & painted)', used: null, oem: 2000, _codeLabour: true },
   ];
   const SF_BODY = [
     { panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'replace' },
@@ -411,7 +412,7 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
   ];
   const sf = {
     _reconciledParts: SF_ROWS,
-    _partsReconciliation: { parts_sum: 5525 },
+    _partsReconciliation: { parts_sum: 5025 },
     _labourBodyPanels: SF_BODY,
     _labourTellCount: 0,
     _marginScenarios: null, _investmentBlock: null, _salvageGuide: null,
@@ -423,14 +424,14 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
 
   // NO-EDIT PARITY first — nothing runs when there is no layer.
   const sfNone = applyEdits(sf, null);
-  ok('Y3: SF69YBB no-edit parity — £5,525, delta 0, no floor dropped',
-     sfNone.partsSum === 5525 && sfNone.delta === 0 && sfNone.structFloorsDropped.length === 0);
+  ok('Y3: SF69YBB no-edit parity — £5,025, delta 0, no floor dropped',
+     sfNone.partsSum === 5025 && sfNone.delta === 0 && sfNone.structFloorsDropped.length === 0);
 
   // THE CASE: strike the rear quarter → rear zone is bumper-only → the rear floor drops too.
   const sfStruck = applyEdits(sf, { stamp: sfStamp, strikes: [qKey], adds: [] });
-  ok('Y3: SF69YBB strike the quarter → £3,705', sfStruck.partsSum === 3705);
-  ok('Y3: and that is £320 part + £1,000 labour + £500 floor',
-     sfStruck.delta === -1820 && sfStruck.labourDelta === -1000 && sfStruck.structFloorDelta === -500);
+  ok('Y3: SF69YBB strike the quarter → £3,405', sfStruck.partsSum === 3405);
+  ok('Y3: and that is £320 part + £800 labour (middle) + £500 floor',
+     sfStruck.delta === -1620 && sfStruck.labourDelta === -800 && sfStruck.structFloorDelta === -500);
   ok('Y3: exactly one floor dropped, and it is the REAR one',
      sfStruck.structFloorsDropped.length === 1 && sfStruck.structFloorsDropped[0].panelId === 'REAR_STRUCTURE');
   ok('Y3: the FRONT floor survives — the front zone still has grille, slam panel, rad pack, lamps',
@@ -444,19 +445,19 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
 
   // UN-STRIKE — the floor comes back. Nothing is persisted; it is recomputed from the layer every read.
   const sfBack = applyEdits(sf, { stamp: sfStamp, strikes: [], adds: [] });
-  ok('Y3: un-strike → £5,525 and the floor returns',
-     sfBack.partsSum === 5525 && sfBack.structFloorsDropped.length === 0
+  ok('Y3: un-strike → £5,025 and the floor returns',
+     sfBack.partsSum === 5025 && sfBack.structFloorsDropped.length === 0
      && sfBack.rows.every((r) => !r._structFloorDropped));
 
   // A buyer can still strike a structure floor DIRECTLY, and it is not double-counted.
   const sfDirect = applyEdits(sf, { stamp: sfStamp, strikes: [rearFloorKey], adds: [] });
-  ok('Y3: striking the floor row directly still works — £5,025, counted once',
-     sfDirect.partsSum === 5025 && sfDirect.structFloorDelta === 0);
+  ok('Y3: striking the floor row directly still works — £4,525, counted once',
+     sfDirect.partsSum === 4525 && sfDirect.structFloorDelta === 0);
 
   // A buyer-ADDED line is not a detection of damage and cannot hold a floor up.
   const sfAdd = applyEdits(sf, { stamp: sfStamp, strikes: [qKey], adds: [{ id: 'a', text: 'rear repair', amount: 400 }] });
   ok('Y3: a buyer-added line does not keep the floor alive',
-     sfAdd.structFloorDelta === -500 && sfAdd.partsSum === 4105);
+     sfAdd.structFloorDelta === -500 && sfAdd.partsSum === 3805);
 
   // FRONT-ZONE CASE: strike every front member except the bumper → the front floor drops.
   const frontMembers = ['GRILLE', 'SLAM_PANEL', 'RADIATOR_PACK', 'HEADLAMP'];
@@ -470,13 +471,13 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
   // Cat A/B still refuses every edit, floors included.
   const sfCatAB = applyEdits({ ...sf, _catABHardStop: 'B' }, { stamp: sfStamp, strikes: [qKey], adds: [] });
   ok('Y3: Cat A/B still refuses — nothing struck, no floor dropped, total unmoved',
-     sfCatAB.notEditable === true && sfCatAB.partsSum === 5525
+     sfCatAB.notEditable === true && sfCatAB.partsSum === 5025
      && sfCatAB.delta === 0 && sfCatAB.structFloorDelta === 0 && sfCatAB.structFloorsDropped.length === 0);
 
   // A stale layer applies nothing either.
   const sfStale = applyEdits(sf, { stamp: 'not-the-stamp', strikes: [qKey], adds: [] });
   ok('Y3: a stale edit layer drops no floor and moves nothing',
-     sfStale.stampMismatch === true && sfStale.partsSum === 5525 && sfStale.structFloorDelta === 0);
+     sfStale.stampMismatch === true && sfStale.partsSum === 5025 && sfStale.structFloorDelta === 0);
 
   // ONE OWNER — the edit layer must not carry its own copy of the rule.
   const editSrc = readFileSync(join(ROOT, 'lib/ledgerEdits.mjs'), 'utf8');

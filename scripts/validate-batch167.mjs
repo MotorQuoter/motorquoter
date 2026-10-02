@@ -62,7 +62,8 @@ ok('route.js carries no fog count of its own (no special case there)',
 }
 {
   const r = applyFogBumperRule({ costedParts: [frontFog()], frontBumperGone: false, fogSeed: SEED });
-  ok('front intact + 1 fog → "Second front fog lamp" flag (unchanged)', r.flagsToAdd.length === 1 && /second front fog/i.test(r.flagsToAdd[0].partName));
+  // batch 208 C (Vincent, 2 Oct): the "Second … fog lamp — … bumper intact, pairing not assumed" flag is DROPPED.
+  ok('front intact + 1 fog → NO flag, no cost (batch 208 C)', r.flagsToAdd.length === 0 && r.costedToAdd.length === 0);
 }
 {
   const r = applyFogBumperRule({ costedParts: [bumper(PANEL.FRONT_BUMPER)], frontBumperGone: true, frontBumperConfirmed: false, fogSeed: SEED });
