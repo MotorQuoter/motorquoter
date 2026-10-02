@@ -127,14 +127,15 @@ import { assembleColumns } from '../lib/labour.mjs';
   eq('AMZ3790: second-hand range 1029–1513 (was 578–850), money = middle 1210', c.secondHand, { low: 1029, high: 1513, money: 1210 });
   eq('AMZ3790: computeLabour money = the middle 1900 (batch 208 B; was the 2375 top)', computeLabour({ bodyPanels: amz }).panelWorkMoney, 1900);
 
-  const { labourDisplayLines, LABOUR_RANGE_ADDENDUM } = await import('../lib/labour.mjs');
+  const { labourDisplayLines, labourRangeAddendum } = await import('../lib/labour.mjs');
   const d = labourDisplayLines(c);
-  eq('display: the range sub-line says the total uses the MIDDLE (batch 208 B)', d.range, 'Estimate £1,615 - £2,375 · the total uses the middle');
+  eq('display: the range sub-line NAMES the figure in the total (batch 209 2)', d.range, 'Estimate £1,615 - £2,375 · the total uses £1,900');
   eq('display: the second-hand sub-line', d.secondHand, 'With second-hand colour-matched panels: £1,029 - £1,513 · for comparison, not in the total');
   // batch 161 E4 (Vincent, 19 Sep): the closing sentence was re-approved. It used to say "If your repairer
   // quotes less, remove the line and add their figure" — two steps, and since batch 158 A2 took the controls
   // off the labour row it named a button that was not there. It now names the one control that does the job.
-  eq('display: the addendum, verbatim (batch 208 B: use the middle of that range)', LABOUR_RANGE_ADDENDUM, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the middle of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
+  eq('display: the addendum, verbatim, naming the figure (batch 209 2)', d.addendum, 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use £1,900 from that range. If your repairer quotes a different figure, press Change on this line and enter it.');
+  ok('display: one owner builds the addendum', d.addendum === labourRangeAddendum(1900));
   ok('display: all three lines are Latin-1 (the PDF drops anything else)', [d.range, d.secondHand, d.addendum].every((s) => !/[^\x00-\xFF]/.test(s)));
   ok('display: no columns (a pre-batch-92 report) → no lines', labourDisplayLines(null) === null && labourDisplayLines({}) === null);
 
@@ -151,15 +152,16 @@ import { assembleColumns } from '../lib/labour.mjs';
     _labourBodyPanels: amz.filter((p) => p.panelId !== 'BONNET'),
     _labourTellCount: 0,
     _labourColumns: c,
+    _labourBasis: 'middle',   // batch 209 1 — a new-code report is stamped
   };
   const e0 = applyEdits(assessment, null);
-  eq('edit layer, no edits: the stored range', e0.labourDisplay?.range, 'Estimate £1,615 - £2,375 · the total uses the middle');
+  eq('edit layer, no edits: the stored range', e0.labourDisplay?.range, 'Estimate £1,615 - £2,375 · the total uses £1,900');
   const doorKey = e0.rows.find((r) => r.panelId === 'FRONT_DOOR')._rowKey;
   const e1 = applyEdits(assessment, { stamp: e0.stamp, strikes: [doorKey] });
   const lab1 = e1.rows.find((r) => r._codeLabour);
   ok('edit layer, door struck: the range is RE-DERIVED from the recomputed panel work, and its MIDDLE IS the row figure (batch 208 B)',
-     e1.labourDisplay?.range === `Estimate £${Math.round(lab1.oem * 0.85).toLocaleString('en-GB')} - £${Math.round(lab1.oem * 1.25).toLocaleString('en-GB')} · the total uses the middle`);
-  eq('edit layer, door struck: recomputed range line', e1.labourDisplay?.range, 'Estimate £1,020 - £1,500 · the total uses the middle');
+     e1.labourDisplay?.range === `Estimate £${Math.round(lab1.oem * 0.85).toLocaleString('en-GB')} - £${Math.round(lab1.oem * 1.25).toLocaleString('en-GB')} · the total uses £${lab1.oem.toLocaleString('en-GB')}`);
+  eq('edit layer, door struck: recomputed range line', e1.labourDisplay?.range, 'Estimate £1,020 - £1,500 · the total uses £1,200');
   const labKey = e0.rows.find((r) => r._codeLabour)._rowKey;
   const e2 = applyEdits(assessment, { stamp: e0.stamp, strikes: [labKey] });
   ok('edit layer, labour line struck: no range and no addendum (the claim would be false)', e2.labourDisplay === null);
@@ -269,7 +271,7 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
     const { readFileSync: _rf } = await import('node:fs');
     const _route = _rf('app/api/salvage/assess/route.js', 'utf8');
     ok('A: route.js imports the threshold and no longer defines it',
-       _route.includes("SEVERE_OVERRIDE_THRESHOLD } from '@/lib/labour.mjs'") && !/const SEVERE_OVERRIDE_THRESHOLD\s*=/.test(_route));
+       /SEVERE_OVERRIDE_THRESHOLD[^}]*\} from '@\/lib\/labour\.mjs'/.test(_route) && !/const SEVERE_OVERRIDE_THRESHOLD\s*=/.test(_route));
   }
 
   const modRepair = [{ panelId: 'REAR_DOOR', name: 'Rear door', action: 'repair', oem: 500, used: 250 }];
@@ -330,10 +332,12 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
     ok('Q4: every body-panel row now holds a grade', rows.every((r) => sev.has(r.panelId)));
     eq('Q4: zone taken from the flag', zones.get('REAR_QUARTER'), 'rear');
     applyGradeOwnsAction(rows, sev);
-    eq('Q4: priced as a welded REPLACE at NEW — money £320, not the £175 used', (rows[1].used ?? rows[1].oem ?? 0), 320);
-    ok('Q4: action replace, a new panel is bought (not a £0 repair)', rows[1].action === 'replace' && !rows[1]._repairNoPart);
+    // batch 209 3 (Vincent, 2 Oct): ruling A applies where the model wrote no row — the promoted welded quarter is a
+    // REPAIR, no part, no new price (it used to be a welded replace at NEW, £320).
+    eq('Q4: a REPAIR — no part (was replace at NEW £320)', (rows[1].used ?? rows[1].oem ?? 0), 0);
+    ok('Q4: action repair, no panel bought, no new-price switch', rows[1].action === 'repair' && rows[1]._repairNoPart === true && !rows[1]._weldedAtNew);
     const lab = computeLabour({ bodyPanels: [{ panelId: 'REAR_QUARTER', zone: 'rear', severity: sev.get('REAR_QUARTER'), action: rows[1].action }] });
-    eq('Q4: welded replace labour £800 at the middle (not the old MODERATE default path)', lab.panelWorkMoney, 800);
+    eq('Q4: welded repair labour £800 at the middle (not the old MODERATE default path)', lab.panelWorkMoney, 800);
     const pre = new Map([['REAR_QUARTER', 'MINOR']]);
     const p2 = promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(), sevByPanel: pre, zoneByPanel: new Map(), entry: { oem: 320, used: 175 }, name: 'Rear quarter panel' });
     ok('Q4: a grade already held for the quarter is overridden to SEVERE and reported', p2?.gradeWas === 'MINOR' && pre.get('REAR_QUARTER') === 'SEVERE');

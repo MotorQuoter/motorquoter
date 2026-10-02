@@ -41,7 +41,7 @@ import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
-import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD } from '@/lib/labour.mjs';
+import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -5262,7 +5262,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         console.log(`[G INJECT] ${e.panelId} floored — no table entry for band "${bandKey}"`);
         continue;
       }
-      const action = e._gSeverity === 'SEVERE' ? 'replace' : 'repair';
+      // batch 209 3 (Vincent, 2 Oct): ruling A applies where the model wrote no row. A code-injected BODY panel enters as
+      // a REPAIR and applyGradeOwnsAction (lib/labour.mjs, SEVERE_OVERRIDE_THRESHOLD) decides: a bolt-on becomes replace
+      // only with ≥2 SEVERE photos; a welded panel is never upgraded. Non-body parts (mirror, glass…) are unchanged.
+      const action = isBodyPanel(e.panelId) ? 'repair' : (e._gSeverity === 'SEVERE' ? 'replace' : 'repair');
       // Strip any model-emitted row for this panel — model's row is non-deterministic (some runs
       // emit it, others don't). Code owns the cost for _gOwned panels via injection; the model
       // row would double-count if present. Reverse-iterate to splice safely in-place.
@@ -6132,6 +6135,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
       const labour = computeLabour({ bodyPanels, structuralTellCount: tellCount, srsTier });
       assessment._labourColumns    = labour.columns;
+      assessment._labourBasis      = LABOUR_BASIS_CURRENT;   // batch 209 1 — the basis this report's labour was priced on
       assessment._labourStructural = labour.structural;
       assessment._labourSrsFitting = labour.srsFitting;
       assessment._labourTellCount  = tellCount;

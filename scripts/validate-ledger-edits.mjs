@@ -413,6 +413,7 @@ console.log('\n(Y3) STRUCTURE FLOOR FOLLOWS A STRIKE');
   const sf = {
     _reconciledParts: SF_ROWS,
     _partsReconciliation: { parts_sum: 5025 },
+    _labourBasis: 'middle',   // batch 209 1 — written at the middle, so the edit layer re-prices at the middle
     _labourBodyPanels: SF_BODY,
     _labourTellCount: 0,
     _marginScenarios: null, _investmentBlock: null, _salvageGuide: null,

@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'fs';
 import { presenceMissingReason, M1_COST_DISPUTED, M1_DISPUTED_COSTED_REASON } from '@/app/api/salvage/assess/route.js';
 import * as ROUTE from '@/app/api/salvage/assess/route.js';
 import { dropNotVisibleForCharged, seedChecklistFromFlags, buildBuyerFlags } from '@/lib/parts.mjs';
-import { applyFogBumperRule, frontImpactIsOneCorner, FOG_SECOND_ONE_CORNER_LINE } from '@/lib/partsCompleteness.mjs';
+import { applyFogBumperRule, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 import { buildMileageCorroborationSlot, noMotUnderThree } from '@/lib/mileageCorroboration.mjs';
 import { PANEL_CLASS, PANEL_BEHAVIOUR } from '@/lib/panelEnum.mjs';
 
@@ -62,22 +62,23 @@ console.log('\n-- P3: the front fog count follows the corners struck --');
   const seed = { used: 50, oem: null };
   const one = applyFogBumperRule({ costedParts: [], frontBumperGone: true, frontBumperConfirmed: true, fogSeed: seed, frontOneCorner: true });
   ok('bumper gone + one corner → ONE front fog seeded', one.costedToAdd.length === 1 && one.costedToAdd[0].used === 50);
-  ok('…and the second-fog line, verbatim', one.flagsToAdd.length === 1 && one.flagsToAdd[0].reason === 'Second front fog lamp — confirm it is present and undamaged.' && FOG_SECOND_ONE_CORNER_LINE === one.flagsToAdd[0].reason);
+  // batch 209 4 (Vincent, 2 Oct): the "Second front fog lamp — confirm it is present and undamaged." line is DROPPED.
+  ok('…and NO second-fog line (batch 209 4)', one.flagsToAdd.length === 0);
   const two = applyFogBumperRule({ costedParts: [], frontBumperGone: true, frontBumperConfirmed: true, fogSeed: seed, frontOneCorner: false });
   ok('bumper gone + full width → TWO (the 31 Jul rule holds)', two.costedToAdd.length === 2 && two.flagsToAdd.length === 0);
   const modelOne = applyFogBumperRule({ costedParts: [{ panelId: 'FOG_LAMP', name: 'Fog lamp', used: 40 }], frontBumperGone: true, frontBumperConfirmed: true, fogSeed: seed, frontOneCorner: true });
-  ok('one corner, the model already costed one fog → nothing added, the second is asked about', modelOne.costedToAdd.length === 0 && modelOne.flagsToAdd.length === 1);
+  ok('one corner, the model already costed one fog → nothing added, no second-fog line (batch 209 4)', modelOne.costedToAdd.length === 0 && modelOne.flagsToAdd.length === 0);
   const unconf = applyFogBumperRule({ costedParts: [], frontBumperGone: true, frontBumperConfirmed: false, fogSeed: seed, frontOneCorner: true });
   ok('unconfirmed bumper branch unchanged (flag, no cost)', unconf.costedToAdd.length === 0 && unconf.flagsToAdd[0]._fogUnconfirmedParent === true);
   const rear = applyFogBumperRule({ costedParts: [], rearBumperGone: true, rearBumperConfirmed: true, fogSeed: seed, frontOneCorner: true });
   ok('rear unchanged (one rear fog)', rear.costedToAdd.length === 1 && rear.costedToAdd[0].zone === 'rear' && rear.flagsToAdd.length === 0);
-  ok('the checklist carries the line verbatim', seedChecklistFromFlags('1. x', one.flagsToAdd).includes('2. Second front fog lamp — confirm it is present and undamaged.'));
+  ok('the checklist gains no second-fog item (batch 209 4)', !seedChecklistFromFlags('1. x', one.flagsToAdd).includes('Second front fog lamp'));
   ok('route: the fog rule gets the one-corner test; the headlamp count is stamped',
     route.includes('frontOneCorner: frontImpactIsOneCorner(assessment._lampObs?.damageSpan, assessment._damagedHeadlampsSeen)') && route.includes('assessment._damagedHeadlampsSeen = _damagedLampsSeen;'));
   if (SV) {
     ok('(SV24YCN) stored span is single_corner; the log shows at most 1 damaged headlamp per view → one corner', SV._lampObs.damageSpan === 'single_corner' && frontImpactIsOneCorner(SV._lampObs.damageSpan, 1));
     const r = applyFogBumperRule({ costedParts: SV._reconciledParts.filter((p) => p.panelId !== 'FOG_LAMP'), frontBumperGone: true, frontBumperConfirmed: true, fogSeed: seed, frontOneCorner: true });
-    ok('(SV24YCN) the stored £50 ×2 becomes £50 ×1 + the second-fog line', SV._reconciledParts.filter((p) => p.panelId === 'FOG_LAMP').length === 2 && r.costedToAdd.length === 1 && r.flagsToAdd.length === 1);
+    ok('(SV24YCN) the stored £50 ×2 becomes £50 ×1, and no second-fog line (batch 209 4)', SV._reconciledParts.filter((p) => p.panelId === 'FOG_LAMP').length === 2 && r.costedToAdd.length === 1 && r.flagsToAdd.length === 0);
   }
 }
 

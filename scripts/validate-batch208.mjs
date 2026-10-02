@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import {
   applyGradeOwnsAction, SEVERE_OVERRIDE_THRESHOLD, panelWorkRange, computeLabour, labourDisplayLines,
-  LABOUR_RANGE_ADDENDUM, RANGE_MONEY_PCT,
+  labourRangeAddendum, RANGE_MONEY_PCT,
 } from '../lib/labour.mjs';
 import { applyFogBumperRule } from '../lib/partsCompleteness.mjs';
 import { structureFloorDecision, STRUCT_FLOORS_PER_REPORT } from '../lib/structureFloor.mjs';
@@ -18,7 +18,7 @@ const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.
 
 console.log('── A. the model\'s "repair" stands ──');
 ok('threshold owner: lib/labour.mjs SEVERE_OVERRIDE_THRESHOLD = 2', SEVERE_OVERRIDE_THRESHOLD === 2);
-ok('route.js imports it and does not define its own', route.includes("SEVERE_OVERRIDE_THRESHOLD } from '@/lib/labour.mjs'") && !/const SEVERE_OVERRIDE_THRESHOLD\s*=/.test(route));
+ok('route.js imports it and does not define its own', /SEVERE_OVERRIDE_THRESHOLD[^}]*\} from '@\/lib\/labour\.mjs'/.test(route) && !/const SEVERE_OVERRIDE_THRESHOLD\s*=/.test(route));
 {
   const r = [{ panelId: 'REAR_BUMPER', name: 'Rear bumper', action: 'repair', oem: 410, used: 225 }];
   applyGradeOwnsAction(r, sev('REAR_BUMPER', 'SEVERE'), votes('REAR_BUMPER', 1));
@@ -64,8 +64,8 @@ ok('RANGE_MONEY_PCT = 1.00', RANGE_MONEY_PCT === 1);
   const L = computeLabour({ bodyPanels: [{ panelId: 'FRONT_BUMPER', zone: 'front', severity: 'SEVERE', action: 'replace' }] });
   ok('computeLabour money = the middle (£600, not £750)', L.panelWorkMoney === 600 && L.labourMoney === 600);
   const d = labourDisplayLines({ newPainted: panelWorkRange(3300), secondHand: panelWorkRange(2050) });
-  ok('range line says "the total uses the middle"', d.range === 'Estimate £2,805 - £4,125 · the total uses the middle');
-  ok('addendum says "use the middle of that range"', /all use the middle of that range\./.test(LABOUR_RANGE_ADDENDUM) && d.addendum === LABOUR_RANGE_ADDENDUM);
+  ok('range line names the figure in the total (batch 209 2: "the total uses £3,300")', d.range === 'Estimate £2,805 - £4,125 · the total uses £3,300');
+  ok('addendum names the same figure', d.addendum === labourRangeAddendum(3300) && /all use £3,300 from that range\./.test(d.addendum));
 }
 {
   const files = ['lib/labour.mjs', 'lib/ledgerEdits.mjs', 'lib/damageCards.mjs', 'app/api/salvage/pdf/route.js', 'app/salvage/success/page.js', 'app/api/salvage/assess/route.js'];

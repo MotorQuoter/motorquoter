@@ -15,7 +15,8 @@
 // Run: node --loader ./scripts/lib/alias-loader.mjs scripts/validate-batch161.mjs
 import { readFileSync } from 'fs';
 import { applyEdits, rowKeyFor, ledgerHash, figureOf, amendableRow } from '../lib/ledgerEdits.mjs';
-import { LABOUR_RANGE_ADDENDUM, partsTableCells, labourDisplayLines } from '../lib/labour.mjs';
+import { labourRangeAddendum, partsTableCells, labourDisplayLines } from '../lib/labour.mjs';
+const LABOUR_RANGE_ADDENDUM = labourDisplayLines({ newPainted: { low: 2083, high: 3063, money: 3063 } }).addendum;   // batch 209 2: built with the figure
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { if (cond) { pass++; console.log(`  PASS  ${name}`); } else { fail++; console.log(`  FAIL  ${name}`); } };
@@ -150,11 +151,11 @@ ok('striking the labour row also hides them (unchanged behaviour)', removed.labo
 
 // ── E4 — the addendum ───────────────────────────────────────────────────────────────────────────────
 console.log('\n-- E4: the approved addendum --');
-ok('the addendum is Vincent\'s approved text, verbatim (batch 208 B: "the middle of that range")', LABOUR_RANGE_ADDENDUM
-  === 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use the middle of that range. If your repairer quotes a different figure, press Change on this line and enter it.');
+ok('the addendum is Vincent\'s approved text, verbatim (batch 209 2: it names the figure in the total)', LABOUR_RANGE_ADDENDUM
+  === 'Labour & paint is an estimate, shown as a range. The repair total, margins and bid ceilings all use £3,063 from that range. If your repairer quotes a different figure, press Change on this line and enter it.');
 ok('it no longer instructs a two-step remove-and-add', !/remove the line and add their figure/.test(LABOUR_RANGE_ADDENDUM));
 ok('it names the control that now exists', /press Change on this line and enter it/.test(LABOUR_RANGE_ADDENDUM));
-ok('the one owner still serves it to both surfaces', labourDisplayLines(ASSESSMENT._labourColumns).addendum === LABOUR_RANGE_ADDENDUM);
+ok('the one owner still serves it to both surfaces', labourDisplayLines(ASSESSMENT._labourColumns).addendum === labourRangeAddendum(3063));
 
 // ── E5 — the PDF prints the buyer's figure ──────────────────────────────────────────────────────────
 console.log('\n-- E5: the PDF cell for an amended labour row --');
