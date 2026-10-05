@@ -111,7 +111,9 @@ console.log('\n-- P5: odometer read stored; wording for a car with no MOT yet --
   ok('photo differs / null → today\'s wording', /only mileage source available for this lot; nothing independent corroborates it$/.test(differ.detail));
   const older = buildMileageCorroborationSlot(vd({ _noMotUnder3: false, _photoOdometerAgrees: true }), 14968, 'listing_odometer');
   ok('older car → today\'s wording', /only mileage source available/.test(older.detail));
-  ok('route: the photo read is stamped every time, null included', route.includes('assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };') && route.includes('_photoOdoRaw = raw;'));
+  // batch 222: the read moved into readPhotoOdometer, which returns raw (the TEXT block); the caller stamps it unchanged.
+  ok('route: the photo read is stamped every time, null included', route.includes('assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };')
+    && route.includes('const _photoOdoRaw = _odoRead.raw;') && route.includes("raw = ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();"));
   ok('route: agreement is exact; under 3 = no DVSA mileage and < 3 years by registration year (lib helper; the route stays clock-free)',
     route.includes('enrichedVd._photoOdometerAgrees = photoOdometer != null && photoOdometer === _listedNum;')
     && route.includes('enrichedVd._noMotUnder3 = noMotUnderThree(enrichedVd.year, _dvsaMileagePresent);')

@@ -7,7 +7,7 @@ export const MODELS = {
   plateScan:        'claude-sonnet-5',             // platescan/route.js — number-plate OCR
   assessPrimary:    'claude-opus-4-8',             // salvage/assess/route.js — 11 Opus call sites
   assessLight:      'claude-haiku-4-5',            // salvage/assess/route.js — lighter Haiku vision reads
-  assessLightDated: 'claude-haiku-4-5-20251001',   // salvage/assess/route.js:2936 — Haiku dated snapshot pin
+  assessLightDated: 'claude-haiku-4-5-20251001',   // salvage/assess/route.js readPhotoOdometer — Haiku dated snapshot pin
 };
 
 // Distinct set (dedup by value) — the canary's live-check list. Currently 4 strings.

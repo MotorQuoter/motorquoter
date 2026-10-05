@@ -1201,8 +1201,20 @@ const STICKER_LEGIBLE = STICKER_ENUM.filter(s => s !== '' && s !== 'UNREADABLE')
 // weakest call). It never names a side, so the struck-side probe (P2) deliberately does not match it.
 const FRAME_ZONE_ENUM = ['front', 'rear', 'nearside', 'offside', 'flank', 'roof', 'interior', 'detail'];
 
-async function runFrameZoneId(images, onExhaust) {
+// batch 222 — the frame-zone and photo-odometer Haiku reads failed SILENTLY (a log line, no alert, no abort), so a retired
+// or broken model would hide until the daily canary. Each failure path now sends an ops alert through the existing
+// sendOpsAlert (never throws, time-boxed, throttled per kind), then fails exactly as before.
+const FRAME_ZONE_ALERT = 'MotorQuoter: frame-zone (Haiku) call failing';
+const PHOTO_ODO_ALERT = 'MotorQuoter: photo-odometer (Haiku) call failing';
+async function alertLightCallFailure(kind, subject, model, reason, status = null, err = null) {
+  const detail = [reason, status != null ? `status ${status}` : null,
+    err ? `${err.type || ''}: ${err.message || ''}` : null, `Model: ${model}`].filter(Boolean).join(' — ');
+  await sendOpsAlert(kind, subject, detail);
+}
+
+export async function runFrameZoneId(images, onExhaust) {   // batch 222: exported for validate-batch222
   const emptyFail = { ok: false, frames: [] };
+  const alert = (reason, status, err) => alertLightCallFailure('claude-frame-zone', FRAME_ZONE_ALERT, MODELS.assessLight, reason, status, err);
   try {
     const blocks = await Promise.all(images.slice(0, 35).map(resizeToHaikuSafe));
     const n = blocks.length;
@@ -1225,18 +1237,23 @@ Return a raw JSON object only, no other text:
         messages: [{ role: 'user', content: [...blocks, { type: 'text', text: prompt }] }],
       }),
     }));
-    if (exhausted) { onExhaust?.(); return emptyFail; }
-    if (!res?.ok) { console.warn('[FRAME ZONE] API error:', res?.status); return emptyFail; }
+    if (exhausted) { onExhaust?.(); await alert('529 exhausted', res?.status); return emptyFail; }
+    if (!res?.ok) {
+      console.warn('[FRAME ZONE] API error:', res?.status);
+      const errBody = await res?.json().catch(() => null);   // body read only on this failing branch
+      await alert(res ? 'API error' : 'request failed (network)', res?.status, errBody?.error);
+      return emptyFail;
+    }
     const apiData = await res.json();
     console.log('[TOKEN LOG] frame-zone Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
-    if (apiData.stop_reason === 'max_tokens') { console.warn('[FRAME ZONE] max_tokens — truncated; failed state'); return emptyFail; }
-    if (apiData.stop_reason === 'refusal')   { console.warn('[FRAME ZONE] refusal — content policy; failed state'); return emptyFail; }
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[FRAME ZONE] max_tokens — truncated; failed state'); await alert('stop_reason max_tokens — reply truncated'); return emptyFail; }
+    if (apiData.stop_reason === 'refusal')   { console.warn('[FRAME ZONE] refusal — content policy; failed state'); await alert('stop_reason refusal'); return emptyFail; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) { console.warn('[FRAME ZONE] no JSON object in response; failed state'); return emptyFail; }
+    if (!m) { console.warn('[FRAME ZONE] no JSON object in response; failed state'); await alert('no JSON object in the reply'); return emptyFail; }
     const parsed = JSON.parse(m[0]);
     const rawFrames = Array.isArray(parsed.frames) ? parsed.frames : null;
-    if (!rawFrames) { console.warn('[FRAME ZONE] no frames array; failed state'); return emptyFail; }
+    if (!rawFrames) { console.warn('[FRAME ZONE] no frames array; failed state'); await alert('no frames array in the reply'); return emptyFail; }
     const seen = new Set();
     const frames = [];
     for (const f of rawFrames) {
@@ -1258,8 +1275,80 @@ Return a raw JSON object only, no other text:
     return { ok: true, frames };
   } catch (err) {
     console.warn('[FRAME ZONE] error:', err.message);
+    await alert('threw', null, { message: err.message });
     return emptyFail;
   }
+}
+
+// Pre-extraction pass (#62): Haiku reads the dashboard odometer before Brego valuation. batch 222: moved here unchanged
+// from runAssessment (exported for validate-batch222), plus (1) an ops alert on 529-exhausted / non-2xx / a thrown error,
+// and (2) the reply is read from its TEXT block, not content[0] — a model that thinks puts a thinking block first, and
+// content[0].text would then be '' (a silent null mileage). Returns { photoOdometer, raw }; may set
+// enrichedVd.photoMileageFlag (divergence), exactly as before.
+export async function readPhotoOdometer(images, enrichedVd) {
+  let photoOdometer = null;
+  let raw = null;
+  const alert = (reason, status, err) => alertLightCallFailure('claude-photo-odometer', PHOTO_ODO_ALERT, MODELS.assessLightDated, reason, status, err);
+  try {
+    const preExtractBlocks = await Promise.all(images.map(resizeToHaikuSafe));
+    const { res: haikuRes, exhausted: haikuOdoExhausted } = await with529Retry('haiku-odo', () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODELS.assessLightDated,
+        max_tokens: 200,
+        system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
+        messages: [{ role: 'user', content: preExtractBlocks }],
+      }),
+    }));
+    if (haikuOdoExhausted) {
+      await alert('529 exhausted', haikuRes?.status);
+    } else if (!haikuRes?.ok) {
+      const errBody = await haikuRes?.json().catch(() => null);   // body read only on this failing branch
+      await alert(haikuRes ? 'API error' : 'request failed (network)', haikuRes?.status, errBody?.error);
+    } else {
+      const haikuData = await haikuRes.json();
+      raw = ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();
+      const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
+        .map(n => parseInt(n, 10))
+        .filter(n => n >= 1 && n <= 999999);
+      const uniq = [...new Set(nums)];
+      // batch 75 §2b — CROSS-CHECK, don't discard. A cluster shot routinely shows odometer AND trip
+      // AND range; the old `uniq.length === 1 ? uniq[0] : NaN` threw a legible reading away whenever a
+      // second number appeared, silently falling back to the listing. Per assessmentEngine.js:24 the
+      // photo is the CROSS-CHECK, not the valuation basis — so confirm or diverge, never silently drop:
+      //   • exactly one number                     → use it (unchanged)
+      //   • several, exactly ONE ≈ listing (±tol)   → that IS the odometer, the rest were trip/range
+      //   • several, none (or >1) ≈ listing         → real divergence → §24 flag; photoOdometer stays null
+      //   • none                                    → fall back to listing (unchanged)
+      const listedForCheck = (() => {
+        const r = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
+        if (r == null) return NaN;
+        const m = String(r).replace(/,/g, '').match(/\d+/);
+        return m ? parseInt(m[0], 10) : NaN;
+      })();
+      const odoDecision = resolvePhotoOdometerReading(uniq, listedForCheck);
+      if (odoDecision.value !== null) {
+        photoOdometer = odoDecision.value;
+        if (uniq.length > 1) console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — one ≈ listing ${listedForCheck} → confirmed ${photoOdometer}`);
+      } else if (odoDecision.diverged) {
+        // Divergence — do NOT set photoOdometer (valuation anchors on the listing); raise the §24
+        // divergence flag rather than silently discard the reading.
+        enrichedVd.photoMileageFlag = `Dash photo appears to show ${uniq.map(n => n.toLocaleString()).join(' / ')} miles; listing shows ${listedForCheck.toLocaleString()} miles — photo legibility is limited, verify before bidding.`;
+        console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — none/ambiguous ≈ listing ${listedForCheck} → divergence flagged, photoOdometer null`);
+      }
+      // else: no numbers, or multi-number with no listing to check → photoOdometer stays null.
+    }
+    // exhausted or non-2xx: photoOdometer stays null, downstream hierarchy takes over
+  } catch (err) {
+    // Haiku threw — photoOdometer stays null
+    await alert('threw', null, { message: err?.message });
+  }
+  return { photoOdometer, raw };
 }
 
 // Targeted sticker re-read (Opus, FULL resolution) on the identified frame(s); falls back to the
@@ -3722,60 +3811,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     if (roiData) enrichedVd.roiData = roiData;
 
     // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
-    let photoOdometer = null;
-    let _photoOdoRaw = null;   // batch 177 P5 — the Haiku reply, verbatim, stamped on the assessment every time
-    try {
-      const preExtractBlocks = await Promise.all(images.map(resizeToHaikuSafe));
-      const { res: haikuRes, exhausted: haikuOdoExhausted } = await with529Retry('haiku-odo', () => fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: MODELS.assessLightDated,
-          max_tokens: 200,
-          system: 'Read the vehicle\'s dashboard/odometer from these auction photos. Respond with ONLY the total mileage as a bare integer — no words, no markdown, no explanation, no units. Example valid responses: 131828 or 87450. If no odometer is clearly readable in any photo, respond with exactly one word: null. Do not write anything else.',
-          messages: [{ role: 'user', content: preExtractBlocks }],
-        }),
-      }));
-      if (!haikuOdoExhausted && haikuRes?.ok) {
-        const haikuData = await haikuRes.json();
-        const raw = (haikuData.content?.[0]?.text || '').trim();
-        _photoOdoRaw = raw;
-        const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
-          .map(n => parseInt(n, 10))
-          .filter(n => n >= 1 && n <= 999999);
-        const uniq = [...new Set(nums)];
-        // batch 75 §2b — CROSS-CHECK, don't discard. A cluster shot routinely shows odometer AND trip
-        // AND range; the old `uniq.length === 1 ? uniq[0] : NaN` threw a legible reading away whenever a
-        // second number appeared, silently falling back to the listing. Per assessmentEngine.js:24 the
-        // photo is the CROSS-CHECK, not the valuation basis — so confirm or diverge, never silently drop:
-        //   • exactly one number                     → use it (unchanged)
-        //   • several, exactly ONE ≈ listing (±tol)   → that IS the odometer, the rest were trip/range
-        //   • several, none (or >1) ≈ listing         → real divergence → §24 flag; photoOdometer stays null
-        //   • none                                    → fall back to listing (unchanged)
-        const listedForCheck = (() => {
-          const r = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
-          if (r == null) return NaN;
-          const m = String(r).replace(/,/g, '').match(/\d+/);
-          return m ? parseInt(m[0], 10) : NaN;
-        })();
-        const odoDecision = resolvePhotoOdometerReading(uniq, listedForCheck);
-        if (odoDecision.value !== null) {
-          photoOdometer = odoDecision.value;
-          if (uniq.length > 1) console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — one ≈ listing ${listedForCheck} → confirmed ${photoOdometer}`);
-        } else if (odoDecision.diverged) {
-          // Divergence — do NOT set photoOdometer (valuation anchors on the listing); raise the §24
-          // divergence flag rather than silently discard the reading.
-          enrichedVd.photoMileageFlag = `Dash photo appears to show ${uniq.map(n => n.toLocaleString()).join(' / ')} miles; listing shows ${listedForCheck.toLocaleString()} miles — photo legibility is limited, verify before bidding.`;
-          console.log(`[HAIKU ODO] multi-number ${JSON.stringify(uniq)} — none/ambiguous ≈ listing ${listedForCheck} → divergence flagged, photoOdometer null`);
-        }
-        // else: no numbers, or multi-number with no listing to check → photoOdometer stays null.
-      }
-      // exhausted or non-2xx: photoOdometer stays null, downstream hierarchy takes over
-    } catch { /* Haiku threw — photoOdometer stays null */ }
+    // batch 222: the read moved, unchanged, into readPhotoOdometer (module scope) so a validator can drive its failure paths.
+    const _odoRead = await readPhotoOdometer(images, enrichedVd);
+    let photoOdometer = _odoRead.photoOdometer;
+    const _photoOdoRaw = _odoRead.raw;   // batch 177 P5 — the Haiku reply, verbatim, stamped on the assessment every time
 
     // Sanity-check photo read against last DVSA MOT mileage (valuation hygiene only).
     // Must run before photoMileageFlag so a nulled-out read doesn't produce a misleading flag.
