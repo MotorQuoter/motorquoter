@@ -610,9 +610,17 @@ export default function SalvagePage() {
             DAMAGE<br /><span>ASSESSMENT</span>
           </h1>
           <p className="hero-sub">Upload auction listing photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
-          <div className="price-badge">
-            <span className="price-badge-amount">{displaySymbol}{displayAmount.toFixed(2)}</span>
-            <span className="price-badge-label">per assessment · no subscription</span>
+          {/* batch 227 — the free-report link sits centred under the price badge; hidden while a free report is held or on a re-run. */}
+          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div className="price-badge">
+              <span className="price-badge-amount">{displaySymbol}{displayAmount.toFixed(2)}</span>
+              <span className="price-badge-label">per assessment · no subscription</span>
+            </div>
+            {!freeReportToken && !isRerun && (
+              <a href="/salvage/free-report" style={{ marginTop: 8, fontSize: 13, fontWeight: 700, color: 'var(--orange)', textAlign: 'center' }}>
+                {FREE_REPORT_STRINGS.freeLinkOnSalvage}
+              </a>
+            )}
           </div>
         </div>
 

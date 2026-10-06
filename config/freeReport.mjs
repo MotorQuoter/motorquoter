@@ -33,6 +33,8 @@ export const FREE_REPORT_STRINGS = {
   linkFailed:    "That link didn't work. Links last 24 hours. Enter your email again below and we'll send you a fresh one.",
   linkFailedCta: 'Get a fresh link',
   alreadyUsed:   (price, symbol = '£') => `This free report has already been used. Further reports are ${symbol}${Number(price).toFixed(2)}.`,
+  // batch 227 — the line under the /salvage price badge that links to /salvage/free-report.
+  freeLinkOnSalvage: 'First report free — get your free link',
 };
 
 // batch 225 — the one line /salvage/free-report shows for ?free_error=<reason>. already_used → the used-report line;
