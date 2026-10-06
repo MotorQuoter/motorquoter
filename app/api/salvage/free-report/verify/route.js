@@ -38,12 +38,13 @@ async function syncBrevoContact(email, marketingOptIn) {
   }
 }
 
+// batch 225 — a failed confirm link goes back to the email form (/salvage/free-report), which says why.
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const sig = searchParams.get('sig');
   const v = verifyLink(sig, Date.now());
   if (!v.ok) {
-    return NextResponse.redirect(`${baseUrl()}/salvage?free_error=${encodeURIComponent(v.reason)}`);
+    return NextResponse.redirect(`${baseUrl()}/salvage/free-report?free_error=${encodeURIComponent(v.reason)}`);
   }
 
   const supabase = getSupabase();
@@ -66,10 +67,10 @@ export async function GET(request) {
       if (existing && !existing.consumed_at) {
         return NextResponse.redirect(freeReportReadyLink(baseUrl(), existing.token));
       }
-      return NextResponse.redirect(`${baseUrl()}/salvage?free_error=already_used`);
+      return NextResponse.redirect(`${baseUrl()}/salvage/free-report?free_error=already_used`);
     }
     console.error('[FREE REPORT] token insert failed:', JSON.stringify(error));
-    return NextResponse.redirect(`${baseUrl()}/salvage?free_error=issue_failed`);
+    return NextResponse.redirect(`${baseUrl()}/salvage/free-report?free_error=issue_failed`);
   }
 
   // Marketing mirror — opt-in only, best-effort; token issuance already succeeded and never blocks.

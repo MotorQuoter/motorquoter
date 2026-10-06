@@ -1,13 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
+import { useState, useSyncExternalStore } from 'react';
+import { FREE_REPORT_STRINGS, freeErrorLine } from '@/config/freeReport.mjs';
+import { PRICING } from '@/config/pricing';
+
+const noSubscribe = () => () => {}; // the query string does not change while the page is open
 
 export default function FreeReportPage() {
   const [email, setEmail] = useState('');
   const [optIn, setOptIn] = useState(false); // ruling: UNTICKED by default
   const [status, setStatus] = useState('idle'); // idle | sending | done | error
   const [message, setMessage] = useState('');
+  // batch 225: why a confirm link failed (?free_error=<reason>). Read from the URL on the client; null on the server.
+  const freeErrorReason = useSyncExternalStore(noSubscribe, () => new URLSearchParams(window.location.search).get('free_error'), () => null);
+  const freeError = freeErrorLine(freeErrorReason, PRICING.salvageAssessment.price);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -42,6 +48,13 @@ export default function FreeReportPage() {
         <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-dim, #a8a29e)', marginBottom: 20 }}>
           {FREE_REPORT_STRINGS.requestForm}
         </p>
+
+        {freeError && status !== 'done' && (
+          <div style={{ padding: '12px 14px', borderRadius: 10, marginBottom: 16, fontSize: 14, lineHeight: 1.5,
+            background: 'var(--bg2, #1a1a1d)', border: '1.5px solid #f87171' }}>
+            {freeError}
+          </div>
+        )}
 
         {status === 'done' ? (
           <div style={{ padding: 16, borderRadius: 12, background: 'var(--bg2, #1a1a1d)',

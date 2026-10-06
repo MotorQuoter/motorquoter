@@ -6,6 +6,7 @@ import { PRICING } from '@/config/pricing';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { isRoiPlate } from '@/lib/roiPlate';
 import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
+import { checkFreeReportToken } from '@/lib/freeReportStatus.mjs';
 
 const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const MAX_PHOTOS = 40;          // shared ceiling: individual-photo path and zip path both cap here
@@ -58,6 +59,7 @@ export default function SalvagePage() {
   const [rerunSessionId, setRerunSessionId] = useState('');
   const [rerunPromoToken, setRerunPromoToken] = useState('');
   const [freeReportToken, setFreeReportToken] = useState(''); // Commit 3: single-use free-report credential from the verify redirect
+  const [freeNotice, setFreeNotice] = useState(null); // batch 225: 'alreadyUsed' | 'linkFailed' after the on-load token check
   const [auctionSource, setAuctionSource] = useState('copart');
   const [copartMileage, setCopartMileage] = useState('');
   const [promoInput, setPromoInput] = useState('');
@@ -99,7 +101,13 @@ export default function SalvagePage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('cancelled') === 'true') setCancelled(true);
     const frt = params.get('free_report_token');
-    if (frt) setFreeReportToken(frt);
+    if (frt) {
+      setFreeReportToken(frt);
+      // batch 225 — catch a used or unknown free report on arrival, before any upload. A failed check changes nothing.
+      checkFreeReportToken(frt).then(r => {
+        if (!r.keep) { setFreeReportToken(''); setFreeNotice(r.notice); }
+      });
+    }
     const rerunId = params.get('rerun');
     const rerunVrm = params.get('vrm');
     if (rerunId) {
@@ -889,6 +897,14 @@ export default function SalvagePage() {
           )}
 
           {error && <div className="error-box">⚠️ {error}</div>}
+          {/* batch 225 — the on-load token check said this free report is used, or the link is unknown. */}
+          {freeNotice && (
+            <div className="error-box">
+              {freeNotice === 'alreadyUsed'
+                ? FREE_REPORT_STRINGS.alreadyUsed(price, displaySymbol)
+                : <>{FREE_REPORT_STRINGS.linkFailed} <a href="/salvage/free-report" style={{ color: 'var(--orange)', fontWeight: 700 }}>{FREE_REPORT_STRINGS.linkFailedCta}</a></>}
+            </div>
+          )}
 
           <button
             className="btn-pay"

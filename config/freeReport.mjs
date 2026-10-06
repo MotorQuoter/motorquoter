@@ -29,7 +29,18 @@ export const FREE_REPORT_STRINGS = {
   readyBody:    "Your free salvage assessment is waiting. Open the button below on whichever device has the auction photos. It works until you use it, so there's no rush. Paste the auction listing, add the photos, and you'll get the itemised repair, what the car is worth fixed, the auction fees and the most you can bid to break even.",
   readyButton:  'Start my free report',
   readyOnPage:  "We've emailed you this link too. If you close this page, open that email and tap the button again. Your free report stays there until you use it.",
+  // batch 225 — why a link failed, and a used free report. alreadyUsed takes the price from PRICING (never a literal).
+  linkFailed:    "That link didn't work. Links last 24 hours. Enter your email again below and we'll send you a fresh one.",
+  linkFailedCta: 'Get a fresh link',
+  alreadyUsed:   (price, symbol = '£') => `This free report has already been used. Further reports are ${symbol}${Number(price).toFixed(2)}.`,
 };
+
+// batch 225 — the one line /salvage/free-report shows for ?free_error=<reason>. already_used → the used-report line;
+// every other reason (malformed, bad-signature, expired, issue_failed) and any unknown value → linkFailed. No reason → null.
+export function freeErrorLine(reason, price, symbol = '£') {
+  if (!reason) return null;
+  return reason === 'already_used' ? FREE_REPORT_STRINGS.alreadyUsed(price, symbol) : FREE_REPORT_STRINGS.linkFailed;
+}
 
 // Static disposable / temporary-email domain blocklist (code-owned, in repo). Inherently
 // incomplete — new throwaway domains appear; this is a coarse first filter, not a guarantee.
