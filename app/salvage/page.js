@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { PRICING } from '@/config/pricing';
 import { formatOdometer } from '@/lib/odometerDisplay';
 import { isRoiPlate } from '@/lib/roiPlate';
+import { FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
 
 const ZIP_IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const MAX_PHOTOS = 40;          // shared ceiling: individual-photo path and zip path both cap here
@@ -906,6 +907,12 @@ export default function SalvagePage() {
                       ? '✓ Get my free assessment'
                       : `🔨 Pay ${displaySymbol}${displayAmount.toFixed(2)} and Assess`}
           </button>
+          {/* batch 224 — a link opened inside a phone's mail app is lost on going back to the email; the ready email carries it too. */}
+          {freeReportToken && (
+            <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.5, color: 'var(--text-dim)', textAlign: 'center' }}>
+              {FREE_REPORT_STRINGS.readyOnPage}
+            </div>
+          )}
         </div>
 
         <p className="footer-note">

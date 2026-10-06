@@ -23,6 +23,12 @@ export const FREE_REPORT_STRINGS = {
   neutral:      'If that address is eligible, a verification link is on its way. Check your inbox and spam folder.',
   globalCap:    "Today's free reports have all been claimed — more available tomorrow.",
   disposable:   'Please use a non-disposable email address so we can send your verification link.',
+  // batch 224 — the "your free report is ready" email (sent on confirm, and again when an unused address asks
+  // again) and the line under the submit button. Code-owned, verbatim from the brief.
+  readySubject: 'Your free MotorQuoter salvage report is ready',
+  readyBody:    "Your free salvage assessment is waiting. Open the button below on whichever device has the auction photos. It works until you use it, so there's no rush. Paste the auction listing, add the photos, and you'll get the itemised repair, what the car is worth fixed, the auction fees and the most you can bid to break even.",
+  readyButton:  'Start my free report',
+  readyOnPage:  "We've emailed you this link too. If you close this page, open that email and tap the button again. Your free report stays there until you use it.",
 };
 
 // Static disposable / temporary-email domain blocklist (code-owned, in repo). Inherently
@@ -33,4 +39,5 @@ export const DISPOSABLE_DOMAINS = new Set([
   'sharklasers.com', 'maildrop.cc', 'dispostable.com', 'mailnesia.com', 'mintemail.com',
   'mohmal.com', 'emailondeck.com', 'tempinbox.com', 'spamgourmet.com', 'mytemp.email',
   'discard.email', 'moakt.com', 'tempr.email', 'burnermail.io', 'guerrillamailblock.com',
+  'dreameg.com', // batch 224
 ]);

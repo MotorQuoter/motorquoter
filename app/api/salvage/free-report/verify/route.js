@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { verifyLink, clientIp } from '@/lib/freeReport.mjs';
 import { FREE_REPORT_BREVO_LIST_ID } from '@/config/freeReport.mjs';
+import { sendFreeReportReadyEmail, freeReportReadyLink } from '../readyEmail.mjs';
 
 function getSupabase() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -63,7 +64,7 @@ export async function GET(request) {
       const { data: existing } = await supabase.from('free_report_tokens')
         .select('token, consumed_at').eq('email_normalised', v.email).maybeSingle();
       if (existing && !existing.consumed_at) {
-        return NextResponse.redirect(`${baseUrl()}/salvage?free_report_token=${existing.token}`);
+        return NextResponse.redirect(freeReportReadyLink(baseUrl(), existing.token));
       }
       return NextResponse.redirect(`${baseUrl()}/salvage?free_error=already_used`);
     }
@@ -77,5 +78,13 @@ export async function GET(request) {
       .update({ brevo_synced_at: new Date().toISOString() }).eq('token', token);
   }
 
-  return NextResponse.redirect(`${baseUrl()}/salvage?free_report_token=${token}`);
+  // batch 224 — email the direct link too, so a person who leaves the page can get back to an unused report.
+  // A send failure never blocks the redirect. (The 23505 re-verify branch above sends nothing new.)
+  try {
+    await sendFreeReportReadyEmail(v.email, token, baseUrl());
+  } catch (err) {
+    console.error('[FREE REPORT] ready email send failed:', err.message);
+  }
+
+  return NextResponse.redirect(freeReportReadyLink(baseUrl(), token));
 }

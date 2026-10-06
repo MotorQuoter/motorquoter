@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normaliseEmail, emailDomain, isValidEmail, signLink, clientIp } from '@/lib/freeReport.mjs';
 import { sendTransactionalEmail } from '@/lib/email.mjs';
+import { sendFreeReportReadyEmail } from '../readyEmail.mjs';
 import {
   FREE_REPORT_IP_LIMIT_PER_DAY, FREE_REPORT_GLOBAL_LIMIT_PER_DAY, FREE_REPORT_LINK_TTL_HOURS,
   FREE_REPORT_REQUEST_PRUNE_DAYS, FREE_REPORT_STRINGS, DISPOSABLE_DOMAINS,
@@ -76,10 +77,21 @@ export async function POST(request) {
     return NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.globalCap });
   }
 
-  // Already issued for this email → neutral, no send, no request recorded (no cost, no oracle).
+  // Already issued for this email (batch 224). Used → neutral, no send, no request recorded. Unused → record
+  // the request (so the caps above count it) and email their EXISTING token again. Same outward response either
+  // way (no oracle); the rate limits above already ran, so a resend is capped like any other request.
   const { data: existing } = await supabase.from('free_report_tokens')
-    .select('id').eq('email_normalised', normalised).maybeSingle();
-  if (existing) return neutral();
+    .select('token, consumed_at').eq('email_normalised', normalised).maybeSingle();
+  if (existing) {
+    if (existing.consumed_at) return neutral();
+    await supabase.from('free_report_requests').insert({ ip });
+    try {
+      await sendFreeReportReadyEmail(normalised, existing.token, baseUrl());
+    } catch (err) {
+      console.error('[FREE REPORT] ready email send failed:', err.message);
+    }
+    return neutral();
+  }
 
   // Record the request (rate-limit accounting) then send the signed link. No token row until verify.
   await supabase.from('free_report_requests').insert({ ip });

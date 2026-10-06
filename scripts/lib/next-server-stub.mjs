@@ -4,4 +4,5 @@
 // runtime; this stub merely satisfies the top-level import. Dev tooling only. (Cowork §7/§8.)
 export const NextResponse = {
   json: (body, init) => ({ __nextResponseStub: true, body, init }),
+  redirect: (url) => ({ __nextResponseStub: true, redirect: url }), // batch 224: validate-batch224 drives the verify GET
 };
