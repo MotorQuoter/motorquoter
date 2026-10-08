@@ -32,7 +32,7 @@ async function sendVerificationEmail(to, verifyUrl) {
 }
 
 // batch 229 — the permanent record of where accepted requests came from (free_report_attribution; never pruned,
-// no email, no IP). One row per accepted request: outcome 'requested' | 'resent' | 'capped'. Best-effort: a failed
+// no email, no IP). One row per accepted request: outcome 'requested' | 'resent' | 'capped' | 'used'. Best-effort: a failed
 // insert (or a missing table) is logged and never changes the response.
 async function recordAttribution(supabase, utm, outcome) {
   try {
@@ -99,7 +99,10 @@ export async function POST(request) {
   const { data: existing } = await supabase.from('free_report_tokens')
     .select('token, consumed_at').eq('email_normalised', normalised).maybeSingle();
   if (existing) {
-    if (existing.consumed_at) return neutral();
+    if (existing.consumed_at) {
+      await recordAttribution(supabase, utm, 'used'); // batch 230 — counted; still neutral, no send
+      return neutral();
+    }
     await supabase.from('free_report_requests').insert({ ip });
     await recordAttribution(supabase, utm, 'resent');
     try {

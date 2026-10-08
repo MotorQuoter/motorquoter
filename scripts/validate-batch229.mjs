@@ -189,7 +189,8 @@ const sigFromEmail = () => {
 {
   reset({ tokens: [{ email_normalised: 'used@b.co', token: 'tok-used', consumed_at: '2026-10-01T00:00:00Z' }] });
   const r = await requestPOST(req({ email: 'used@b.co', ...META }));
-  check('already used: no row (not one of the three outcomes — flagged in handoff), neutral', db.attr.length === 0 && isNeutral(r));
+  check('already used (batch 230): one row, outcome used, neutral, no send', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'used' })
+    && isNeutral(r) && smtpSends().length === 0);
 }
 {
   reset();
@@ -255,7 +256,7 @@ check('root layout mounts <UtmCapture /> (every page load)', /import UtmCapture 
 check('UtmCapture is a client component calling captureUtm(window.location.search, …)', captureSrc.startsWith("'use client'")
   && /captureUtm\(window\.location\.search, storage\)/.test(captureSrc) && /return null;/.test(captureSrc));
 check('free-report form POSTs the stored values', /readStoredUtm\(storage\)/.test(pageSrc) && /JSON\.stringify\(\{ email, marketingOptIn: optIn, \.\.\.utm \}\)/.test(pageSrc));
-check('request route: exactly 4 attribution writes (requested, resent, 2× capped)', (requestSrc.match(/recordAttribution\(supabase, utm, '/g) || []).length === 4);
+check('request route: exactly 5 attribution writes (requested, resent, used, 2× capped)', (requestSrc.match(/recordAttribution\(supabase, utm, '/g) || []).length === 5);
 const cfgSrc = readFileSync('config/freeReport.mjs', 'utf8');
 check('rate limits unchanged (3 per IP, 100 global)', /FREE_REPORT_IP_LIMIT_PER_DAY\s+=\s+3;/.test(cfgSrc) && /FREE_REPORT_GLOBAL_LIMIT_PER_DAY\s+=\s+100;/.test(cfgSrc));
 const sql = readFileSync('migrations/20261008_free_report_attribution.sql', 'utf8');
