@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore } from 'react';
 import { FREE_REPORT_STRINGS, freeErrorLine } from '@/config/freeReport.mjs';
 import { PRICING } from '@/config/pricing';
+import { readStoredUtm } from '@/lib/utm.mjs';
 
 const noSubscribe = () => () => {}; // the query string does not change while the page is open
 
@@ -20,11 +21,15 @@ export default function FreeReportPage() {
     if (status === 'sending') return;
     setStatus('sending');
     setMessage('');
+    // batch 229 — where this visitor came from (captured on arrival by app/UtmCapture.js); all null when absent.
+    let storage = null;
+    try { storage = window.sessionStorage; } catch { /* blocked — no attribution */ }
+    const utm = readStoredUtm(storage);
     try {
       const res = await fetch('/api/salvage/free-report/request', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, marketingOptIn: optIn }),
+        body: JSON.stringify({ email, marketingOptIn: optIn, ...utm }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {

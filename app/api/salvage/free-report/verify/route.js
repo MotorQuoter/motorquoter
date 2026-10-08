@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { verifyLink, clientIp } from '@/lib/freeReport.mjs';
+import { hasUtm } from '@/lib/utm.mjs';
 import { FREE_REPORT_BREVO_LIST_ID } from '@/config/freeReport.mjs';
 import { sendFreeReportReadyEmail, freeReportReadyLink } from '../readyEmail.mjs';
 
@@ -71,6 +72,14 @@ export async function GET(request) {
     }
     console.error('[FREE REPORT] token insert failed:', JSON.stringify(error));
     return NextResponse.redirect(`${baseUrl()}/salvage/free-report?free_error=issue_failed`);
+  }
+
+  // batch 229 — where this person came from, carried in the signed link. A separate best-effort write (like
+  // brevo_synced_at below) so the token insert above is unchanged and a failed UTM write never blocks issuance.
+  // Untagged links write nothing. The 23505 re-verify branch above never overwrites the first record.
+  if (hasUtm(v.utm)) {
+    const { error: utmError } = await supabase.from('free_report_tokens').update(v.utm).eq('token', token);
+    if (utmError) console.error('[FREE REPORT] token utm write failed:', utmError.code || '', utmError.message || '');
   }
 
   // Marketing mirror — opt-in only, best-effort; token issuance already succeeded and never blocks.

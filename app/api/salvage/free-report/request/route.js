@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { normaliseEmail, emailDomain, isValidEmail, signLink, clientIp } from '@/lib/freeReport.mjs';
+import { cleanUtm } from '@/lib/utm.mjs';
 import { sendTransactionalEmail } from '@/lib/email.mjs';
 import { sendFreeReportReadyEmail } from '../readyEmail.mjs';
 import {
@@ -30,6 +31,18 @@ async function sendVerificationEmail(to, verifyUrl) {
   });
 }
 
+// batch 229 — the permanent record of where accepted requests came from (free_report_attribution; never pruned,
+// no email, no IP). One row per accepted request: outcome 'requested' | 'resent' | 'capped'. Best-effort: a failed
+// insert (or a missing table) is logged and never changes the response.
+async function recordAttribution(supabase, utm, outcome) {
+  try {
+    const { error } = await supabase.from('free_report_attribution').insert({ ...utm, outcome });
+    if (error) console.error('[FREE REPORT] attribution insert failed:', error.code || '', error.message || '');
+  } catch (err) {
+    console.error('[FREE REPORT] attribution insert failed:', err.message);
+  }
+}
+
 // Neutral success — identical for new, repeat, and per-IP-limited addresses (enumeration-safe, no oracle).
 const neutral = () => NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.neutral });
 
@@ -39,6 +52,7 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
   const { email, marketingOptIn } = body || {};
+  const utm = cleanUtm(body); // batch 229 — strings only, trimmed, 100-char cap; anything else → null. Never rejects.
   if (!isValidEmail(email)) {
     return NextResponse.json({ error: 'Please enter a valid email address.' }, { status: 400 });
   }
@@ -67,6 +81,7 @@ export async function POST(request) {
   if ((ipCount ?? 0) >= FREE_REPORT_IP_LIMIT_PER_DAY) {
     const ipHash = createHash('sha256').update(String(ip)).digest('hex').slice(0, 10);
     console.log(`[FREE REPORT][CAP] per-IP suppressed — cap=${FREE_REPORT_IP_LIMIT_PER_DAY} window=24h bucket=${bucket} ipHash=${ipHash}`);
+    await recordAttribution(supabase, utm, 'capped');
     return neutral(); // no oracle for the per-IP cap — outward response unchanged
   }
 
@@ -74,6 +89,7 @@ export async function POST(request) {
     .select('*', { count: 'exact', head: true }).gt('created_at', dayAgoISO);
   if ((globalCount ?? 0) >= FREE_REPORT_GLOBAL_LIMIT_PER_DAY) {
     console.log(`[FREE REPORT][CAP] global suppressed — cap=${FREE_REPORT_GLOBAL_LIMIT_PER_DAY} window=24h bucket=${bucket}`);
+    await recordAttribution(supabase, utm, 'capped');
     return NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.globalCap });
   }
 
@@ -85,6 +101,7 @@ export async function POST(request) {
   if (existing) {
     if (existing.consumed_at) return neutral();
     await supabase.from('free_report_requests').insert({ ip });
+    await recordAttribution(supabase, utm, 'resent');
     try {
       await sendFreeReportReadyEmail(normalised, existing.token, baseUrl());
     } catch (err) {
@@ -95,9 +112,10 @@ export async function POST(request) {
 
   // Record the request (rate-limit accounting) then send the signed link. No token row until verify.
   await supabase.from('free_report_requests').insert({ ip });
+  await recordAttribution(supabase, utm, 'requested');
 
   const expMs = nowMs + FREE_REPORT_LINK_TTL_HOURS * 3600 * 1000;
-  const sig = signLink({ email: normalised, optIn: !!marketingOptIn, expMs });
+  const sig = signLink({ email: normalised, optIn: !!marketingOptIn, expMs, utm });
   const verifyUrl = `${baseUrl()}/api/salvage/free-report/verify?sig=${encodeURIComponent(sig)}`;
   try {
     await sendVerificationEmail(normalised, verifyUrl);
