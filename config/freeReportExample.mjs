@@ -16,7 +16,7 @@ export const FREE_REPORT_EXAMPLE = {
   label: 'Example: a real MotorQuoter report on a Copart lot',
   vehicle: '2024 VAUXHALL CROSSLAND ULTIMATE TURBO AUTO',
   damage: 'Front End / Undercarriage',
-  note: "The report's estimate from the auction photos. You can strike or add any line.",
+  note: "The report's estimate from the auction photos. You can strike or add any line, or amend any figure.",
   rows: [
     { name: 'Front bumper (replace)', figure: '£200' },
     { name: 'Grille (replace)', figure: '£90' },
@@ -27,7 +27,7 @@ export const FREE_REPORT_EXAMPLE = {
     { name: 'Radiator pack (replace)', figure: '£300' },
     { name: 'Wheel arch liner (replace)', figure: '£35' },
     { name: 'Front structure (inspect)', figure: 'from £500' },
-    { name: 'SRS airbag kit (deployed) (replace)', figure: 'from £500' },
+    { name: 'SRS airbag kit (deployed)', figure: 'from £500' },
     { name: 'Front fog lamp (replace)', figure: '£50' },
     { name: 'Labour & paint (new & painted)', figure: '£1,500' },
   ],

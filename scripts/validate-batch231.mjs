@@ -52,7 +52,8 @@ check('vehicle line = year make model', EX.vehicle === [vd.year, vd.make, vd.mod
 check('damage = primaryDamage / secondaryDamage', EX.damage === `${vd.primaryDamage} / ${vd.secondaryDamage}`);
 check('all 12 stored rows, same order', EX.rows.length === 12 && STORED._reconciledParts.length === 12);
 STORED._reconciledParts.forEach((p, i) => {
-  const name = p._codeLabour ? p.name : `${p.name} (${p.action})`;
+  // batch 234 (Vincent): the airbag row is labelled by its own name — no trailing "(replace)"
+  const name = p._codeLabour || p._srsFloor ? p.name : `${p.name} (${p.action})`;
   check(`row ${i + 1} ${name} = ${printed(p)}`, EX.rows[i]?.name === name && EX.rows[i]?.figure === printed(p));
 });
 const rowSum = STORED._reconciledParts.reduce((a, p) => a + (p.used ?? p.oem), 0);
@@ -84,6 +85,7 @@ const shown = exampleRows();
 const sorted = EX.rows.map((r) => pounds(r.figure)).sort((x, y) => y - x);
 check('12 rows → 4 shown + "+ 8 more lines"', shown.rows.length === 4 && shown.more === 8);
 check('the 4 shown are the 4 largest', shown.rows.map((r) => pounds(r.figure)).join() === sorted.slice(0, 4).join());
+check('airbag row label has no trailing "(replace)"', EX.rows.some((r) => r.name === 'SRS airbag kit (deployed)') && !JSON.stringify(EX).includes('(deployed) (replace)'));
 check('shown: Labour £1,500, both from £500 floors, Headlamp £350',
   shown.rows.map((r) => r.figure).join('|') === '£1,500|from £500|from £500|£350');
 check('every £500 shown on the card is "from £500"', shown.rows.filter((r) => pounds(r.figure) === 500).every((r) => r.figure.startsWith('from ')));
@@ -96,7 +98,7 @@ console.log('\n[3] page source');
 const page = readFileSync(new URL('../app/salvage/free-report/page.js', import.meta.url), 'utf8');
 const uses = page.match(/<ExampleReport \/>/g) || [];
 check('card rendered once', uses.length === 1);
-check('estimate note in the constant', EX.note === "The report's estimate from the auction photos. You can strike or add any line.");
+check('estimate note in the constant', EX.note === "The report's estimate from the auction photos. You can strike or add any line, or amend any figure.");
 check('note rendered once, directly under the vehicle line', (page.match(/\{EX\.note\}/g) || []).length === 1
   && page.indexOf('{EX.note}') > page.indexOf('{EX.damage}') && page.indexOf('{EX.note}') < page.indexOf('{rows.map('));
 check('card sits after the intro sentence', page.indexOf('<ExampleReport />') > page.indexOf('{FREE_REPORT_STRINGS.requestForm}'));
