@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { verifyLink, clientIp } from '@/lib/freeReport.mjs';
+import { verifyLink, clientIp, syncBrevoContact } from '@/lib/freeReport.mjs';
 import { hasUtm } from '@/lib/utm.mjs';
 import { FREE_REPORT_BREVO_LIST_ID } from '@/config/freeReport.mjs';
 import { sendFreeReportReadyEmail, freeReportReadyLink } from '../readyEmail.mjs';
@@ -13,30 +13,6 @@ function getSupabase() {
 function baseUrl() {
   return process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
-}
-
-// Marketing MIRROR (Supabase is the truth). Best-effort Brevo contact upsert; never blocks issuance.
-// Returns true only on a confirmed sync so the caller can stamp brevo_synced_at.
-async function syncBrevoContact(email, marketingOptIn) {
-  if (!marketingOptIn) return false;
-  const key = process.env.BREVO_API_KEY;
-  if (!key) return false;
-  try {
-    const res = await fetch('https://api.brevo.com/v3/contacts', {
-      method: 'POST',
-      headers: { 'api-key': key, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({
-        email,
-        updateEnabled: true,
-        ...(FREE_REPORT_BREVO_LIST_ID ? { listIds: [FREE_REPORT_BREVO_LIST_ID] } : {}),
-      }),
-    });
-    // 201 create / 204 update = success; 400 "already associated" is also effectively synced.
-    return res.ok || res.status === 204;
-  } catch (err) {
-    console.error('[FREE REPORT] Brevo contact sync failed:', err.message);
-    return false;
-  }
 }
 
 // batch 225 — a failed confirm link goes back to the email form (/salvage/free-report), which says why.
@@ -83,7 +59,7 @@ export async function GET(request) {
   }
 
   // Marketing mirror — opt-in only, best-effort; token issuance already succeeded and never blocks.
-  if (await syncBrevoContact(v.email, v.optIn)) {
+  if (await syncBrevoContact(v.email, v.optIn, FREE_REPORT_BREVO_LIST_ID)) {
     await supabase.from('free_report_tokens')
       .update({ brevo_synced_at: new Date().toISOString() }).eq('token', token);
   }

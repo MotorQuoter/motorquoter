@@ -7,6 +7,11 @@ export const FREE_REPORT_IP_LIMIT_PER_DAY     = 3;   // verification-email reque
 export const FREE_REPORT_GLOBAL_LIMIT_PER_DAY = 100;  // global cap, counted at the request route
 export const FREE_REPORT_LINK_TTL_HOURS       = 24;  // signed-link lifetime (matches email copy)
 export const FREE_REPORT_REQUEST_PRUNE_DAYS   = 2;   // opportunistic prune of free_report_requests
+// batch 236 — free reports RUN (tokens consumed) in a rolling 24h, checked in promo-checkout before the consume.
+// Each run is ~£1.60 of model calls; this is the cost guard now that there is no confirm-email step.
+export const FREE_REPORT_RUN_LIMIT_PER_DAY    = 20;
+// batch 236 — every free report used emails this address (no customer email in the alert).
+export const FREE_REPORT_ALERT_TO = 'vincent@motorquoter.app';
 
 // Brevo marketing list (optional). Empty → contact is created/updated without list membership
 // (consent still recorded on the token row, which is the source of truth). Set later if wanted.
@@ -16,13 +21,15 @@ export const FREE_REPORT_BREVO_LIST_ID = null;
 // The disposable string is CC-picked (ruling delegated) and open to your reword — non-blocking.
 export const FREE_REPORT_STRINGS = {
   marking:      'Free sample report — your complimentary MotorQuoter assessment.',
-  requestForm:  "Get your first assessment free. Enter your email and we'll send you a verification link — one free report per buyer, no card needed.",
+  requestForm:  'Get your first assessment free. Enter your email and start straight away - one free report per buyer, no card needed.',
   consent:      'Send me occasional salvage buying tips and MotorQuoter updates. You can unsubscribe at any time.',
+  // legacy - confirm step dropped batch 236 (verify/route.js still serves links already sent)
   emailSubject: 'Your free MotorQuoter report — confirm your email',
+  // legacy - confirm step dropped batch 236
   emailBody:    "Tap the button below to confirm your email and unlock your free salvage assessment. This link expires in 24 hours. If you didn't request this, ignore this email — nothing will be sent.",
-  neutral:      'If that address is eligible, a verification link is on its way. Check your inbox and spam folder.',
+  neutral:      'Too many requests from this connection today. Please try again tomorrow.', // batch 236 — now the per-IP cap reply only
   globalCap:    "Today's free reports have all been claimed — more available tomorrow.",
-  disposable:   'Please use a non-disposable email address so we can send your verification link.',
+  disposable:   'Please use a non-disposable email address.',
   // batch 224 — the "your free report is ready" email (sent on confirm, and again when an unused address asks
   // again) and the line under the submit button. Code-owned, verbatim from the brief.
   readySubject: 'Your free MotorQuoter salvage report is ready',
@@ -35,6 +42,8 @@ export const FREE_REPORT_STRINGS = {
   alreadyUsed:   (price, symbol = '£') => `This free report has already been used. Further reports are ${symbol}${Number(price).toFixed(2)}.`,
   // batch 227 — the line under the /salvage price badge that links to /salvage/free-report.
   freeLinkOnSalvage: 'First report free — get your free link',
+  // batch 236 — the rolling-24h run cap is reached. The token is NOT consumed, so it still works tomorrow.
+  runCap: "Today's free reports have all been used. Your free report is still yours - come back tomorrow and it will be waiting.",
 };
 
 // batch 225 — the one line /salvage/free-report shows for ?free_error=<reason>. already_used → the used-report line;

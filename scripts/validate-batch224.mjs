@@ -84,7 +84,7 @@ check(`exactly one file builds "/salvage?free_report_token=\${…}" (found: ${bu
 const verifySrc = readFileSync('app/api/salvage/free-report/verify/route.js', 'utf8');
 const requestSrc = readFileSync('app/api/salvage/free-report/request/route.js', 'utf8');
 check('verify route imports the owner (send + link for its redirects)', /import \{ sendFreeReportReadyEmail, freeReportReadyLink \} from '\.\.\/readyEmail\.mjs'/.test(verifySrc));
-check('request route imports sendFreeReportReadyEmail', /import \{ sendFreeReportReadyEmail \} from '\.\.\/readyEmail\.mjs'/.test(requestSrc));
+check('request route imports the owner (send + link for readyUrl)', /import \{ sendFreeReportReadyEmail, freeReportReadyLink \} from '\.\.\/readyEmail\.mjs'/.test(requestSrc)); // batch 236
 check('builder shape', freeReportReadyLink('https://x.test', 'abc-123') === 'https://x.test/salvage?free_report_token=abc-123');
 {
   const sent = [];
@@ -93,8 +93,9 @@ check('builder shape', freeReportReadyLink('https://x.test', 'abc-123') === 'htt
   check('ready email: subject is readySubject', m.subject === FREE_REPORT_STRINGS.readySubject);
   check('ready email: body carries readyBody + readyButton + the link', m.htmlContent?.includes(FREE_REPORT_STRINGS.readyBody)
     && m.htmlContent.includes(`>${FREE_REPORT_STRINGS.readyButton}</a>`) && m.htmlContent.includes('href="https://x.test/salvage?free_report_token=tok-1"'));
-  const confirmStyle = requestSrc.replace(/`\s*\+\s*`/g, '').match(/style="([^"]+)"/)?.[1]; // join the split template literals
-  check('ready button styled exactly like the confirm button', !!confirmStyle && m.htmlContent.includes(`style="${confirmStyle}"`));
+  // batch 236 — the confirm email is gone from request/route.js, so the button style is pinned to the confirm button's literal.
+  const confirmStyle = 'display:inline-block;padding:12px 20px;background:#f05a1a;color:#fff;text-decoration:none;border-radius:8px;font-weight:600';
+  check('ready button styled exactly like the (retired) confirm button', m.htmlContent.includes(`style="${confirmStyle}"`));
 }
 
 // ── 2. verify (confirm) ──────────────────────────────────────────────────────────────────────────────
@@ -132,6 +133,10 @@ const vreq = (email) => new Request(`https://app.test/api/salvage/free-report/ve
 console.log('\n── request: asking again ──');
 const neutralBody = { ok: true, message: FREE_REPORT_STRINGS.neutral };
 const isNeutral = (r) => JSON.stringify(r.body) === JSON.stringify(neutralBody) && r.init === undefined;
+// batch 236 — no confirm email: an unused or new address gets its link back; a used one gets the alreadyUsed line.
+const isReady = (r, tok) => r.body?.ok === true && r.body.readyUrl === `https://app.test/salvage?free_report_token=${tok}` && r.init === undefined;
+const { PRICING } = await import('../config/pricing.js');
+const isUsed = (r) => r.body?.ok === false && r.body.message === FREE_REPORT_STRINGS.alreadyUsed(PRICING.salvageAssessment.price);
 {
   reset({ tokens: [{ email_normalised: 'old@b.co', token: 'tok-old', consumed_at: null }] });
   const r = await requestPOST(req({ email: 'Old+x@B.co' }));
@@ -140,24 +145,26 @@ const isNeutral = (r) => JSON.stringify(r.body) === JSON.stringify(neutralBody) 
   check('issued + unused: ready email with the EXISTING token', s.length === 1 && s[0].body.to[0].email === 'old@b.co'
     && s[0].body.subject === FREE_REPORT_STRINGS.readySubject && s[0].body.htmlContent.includes('free_report_token=tok-old'));
   check('issued + unused: no new token row', db.tokens.length === 1);
-  check('issued + unused: neutral()', isNeutral(r));
+  check('issued + unused: readyUrl for the EXISTING token', isReady(r, 'tok-old'));
 }
 {
   reset({ tokens: [{ email_normalised: 'old@b.co', token: 'tok-old', consumed_at: null }], failBrevo: true }); errs.length = 0;
   const r = await requestPOST(req({ email: 'old@b.co' }));
-  check('issued + unused + send failure: still neutral(), logged', isNeutral(r) && errs.some(e => e.startsWith('[FREE REPORT] ready email send failed:')));
+  check('issued + unused + send failure: still readyUrl, logged', isReady(r, 'tok-old') && errs.some(e => e.startsWith('[FREE REPORT] ready email send failed:')));
 }
 {
   reset({ tokens: [{ email_normalised: 'old@b.co', token: 'tok-old', consumed_at: '2026-10-01T00:00:00Z' }] });
   const r = await requestPOST(req({ email: 'old@b.co' }));
-  check('issued + used: NO send, NO request row, neutral()', smtpSends().length === 0 && db.requests.length === 0 && isNeutral(r));
+  check('issued + used: NO send, NO request row, alreadyUsed line with the pricing.js price', smtpSends().length === 0 && db.requests.length === 0 && isUsed(r));
 }
 {
   reset();
   const r = await requestPOST(req({ email: 'fresh@b.co' }));
   const s = smtpSends();
-  check('not issued: unchanged — confirm email (emailSubject), request row, neutral()', s.length === 1
-    && s[0].body.subject === FREE_REPORT_STRINGS.emailSubject && db.requests.length === 1 && isNeutral(r));
+  const tok = db.tokens[0]?.token;
+  check('not issued (batch 236): token row + ready email (readySubject, no confirm email) + request row + readyUrl', db.tokens.length === 1 && !!tok
+    && s.length === 1 && s[0].body.subject === FREE_REPORT_STRINGS.readySubject && s[0].body.htmlContent.includes(`free_report_token=${tok}`)
+    && db.requests.length === 1 && isReady(r, tok));
 }
 {
   reset({ tokens: [{ email_normalised: 'old@b.co', token: 'tok-old', consumed_at: null }],
@@ -171,9 +178,9 @@ const isNeutral = (r) => JSON.stringify(r.body) === JSON.stringify(neutralBody) 
   const gcapIdx = requestSrc.indexOf('FREE_REPORT_GLOBAL_LIMIT_PER_DAY) {');
   const issuedIdx = requestSrc.indexOf(".from('free_report_tokens')");
   check('source order: per-IP cap < global cap < already-issued lookup', capIdx > 0 && gcapIdx > capIdx && issuedIdx > gcapIdx);
-  const branch = requestSrc.slice(issuedIdx, requestSrc.indexOf('// Record the request (rate-limit accounting)'));
+  const branch = requestSrc.slice(issuedIdx, requestSrc.indexOf('// batch 236 — record the request'));
   const returns = branch.match(/return [^;]+;/g) || [];
-  check(`issued branch: every return is neutral() (${returns.join(' | ')})`, returns.length === 2 && returns.every(x => x === 'return neutral();'));
+  check(`issued branch: used → alreadyUsed, unused → ready (${returns.join(' | ')})`, returns.join('|') === 'return alreadyUsed();|return ready(existing.token);');
 }
 
 // ── 4. strings, blocklist, page ──────────────────────────────────────────────────────────────────────

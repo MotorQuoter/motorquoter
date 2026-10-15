@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
-import { normaliseEmail, emailDomain, isValidEmail, signLink, clientIp } from '@/lib/freeReport.mjs';
-import { cleanUtm } from '@/lib/utm.mjs';
-import { sendTransactionalEmail } from '@/lib/email.mjs';
-import { sendFreeReportReadyEmail } from '../readyEmail.mjs';
+import { normaliseEmail, emailDomain, isValidEmail, clientIp, syncBrevoContact } from '@/lib/freeReport.mjs';
+import { cleanUtm, hasUtm } from '@/lib/utm.mjs';
+import { PRICING } from '@/config/pricing';
+import { sendFreeReportReadyEmail, freeReportReadyLink } from '../readyEmail.mjs';
 import {
-  FREE_REPORT_IP_LIMIT_PER_DAY, FREE_REPORT_GLOBAL_LIMIT_PER_DAY, FREE_REPORT_LINK_TTL_HOURS,
-  FREE_REPORT_REQUEST_PRUNE_DAYS, FREE_REPORT_STRINGS, DISPOSABLE_DOMAINS,
+  FREE_REPORT_IP_LIMIT_PER_DAY, FREE_REPORT_GLOBAL_LIMIT_PER_DAY,
+  FREE_REPORT_REQUEST_PRUNE_DAYS, FREE_REPORT_STRINGS, FREE_REPORT_BREVO_LIST_ID, DISPOSABLE_DOMAINS,
 } from '@/config/freeReport.mjs';
 
 function getSupabase() {
@@ -17,18 +17,6 @@ function getSupabase() {
 function baseUrl() {
   return process.env.NEXT_PUBLIC_APP_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://motorquoter.app');
-}
-
-// Verification email — the shared transactional sender (lib/email.mjs), one Brevo caller for the app.
-async function sendVerificationEmail(to, verifyUrl) {
-  await sendTransactionalEmail({
-    to,
-    subject: FREE_REPORT_STRINGS.emailSubject,
-    htmlContent:
-      `<p>${FREE_REPORT_STRINGS.emailBody}</p>` +
-      `<p><a href="${verifyUrl}" style="display:inline-block;padding:12px 20px;background:#f05a1a;color:#fff;` +
-      `text-decoration:none;border-radius:8px;font-weight:600">Confirm your email</a></p>`,
-  });
 }
 
 // batch 229 — the permanent record of where accepted requests came from (free_report_attribution; never pruned,
@@ -43,8 +31,22 @@ async function recordAttribution(supabase, utm, outcome) {
   }
 }
 
-// Neutral success — identical for new, repeat, and per-IP-limited addresses (enumeration-safe, no oracle).
+// Per-IP cap reply (batch 236: new and repeat addresses now get their link straight back, not this).
 const neutral = () => NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.neutral });
+// batch 236 — no confirm email (Vincent, 15 Oct): the page goes straight to readyUrl. The cost guards are the 20/day
+// run cap and the alert on every use (promo-checkout). Vincent accepted that this and the alreadyUsed reply tell a
+// visitor whether an address has used its free report.
+const ready = (token) => NextResponse.json({ ok: true, readyUrl: freeReportReadyLink(baseUrl(), token) });
+const alreadyUsed = () => NextResponse.json({ ok: false, message: FREE_REPORT_STRINGS.alreadyUsed(PRICING.salvageAssessment.price) });
+
+// Email the ready link too, so a person who leaves the page can get back to an unused report. Never blocks.
+async function sendReadyBestEffort(to, token) {
+  try {
+    await sendFreeReportReadyEmail(to, token, baseUrl());
+  } catch (err) {
+    console.error('[FREE REPORT] ready email send failed:', err.message);
+  }
+}
 
 export async function POST(request) {
   let body;
@@ -93,38 +95,56 @@ export async function POST(request) {
     return NextResponse.json({ ok: true, message: FREE_REPORT_STRINGS.globalCap });
   }
 
-  // Already issued for this email (batch 224). Used → neutral, no send, no request recorded. Unused → record
-  // the request (so the caps above count it) and email their EXISTING token again. Same outward response either
-  // way (no oracle); the rate limits above already ran, so a resend is capped like any other request.
+  // Already issued for this email (batch 224). Used → the alreadyUsed line, no send, no request recorded. Unused →
+  // record the request (so the caps above count it), email their EXISTING token again and hand back its link. The
+  // rate limits above already ran, so a resend is capped like any other request.
   const { data: existing } = await supabase.from('free_report_tokens')
     .select('token, consumed_at').eq('email_normalised', normalised).maybeSingle();
   if (existing) {
     if (existing.consumed_at) {
-      await recordAttribution(supabase, utm, 'used'); // batch 230 — counted; still neutral, no send
-      return neutral();
+      await recordAttribution(supabase, utm, 'used'); // batch 230 — counted; no send
+      return alreadyUsed();
     }
     await supabase.from('free_report_requests').insert({ ip });
     await recordAttribution(supabase, utm, 'resent');
-    try {
-      await sendFreeReportReadyEmail(normalised, existing.token, baseUrl());
-    } catch (err) {
-      console.error('[FREE REPORT] ready email send failed:', err.message);
-    }
-    return neutral();
+    await sendReadyBestEffort(normalised, existing.token);
+    return ready(existing.token);
   }
 
-  // Record the request (rate-limit accounting) then send the signed link. No token row until verify.
+  // batch 236 — record the request (rate-limit accounting) and issue the token here, with the fields verify/route.js
+  // writes, plus the UTM values when the visitor arrived tagged.
   await supabase.from('free_report_requests').insert({ ip });
   await recordAttribution(supabase, utm, 'requested');
 
-  const expMs = nowMs + FREE_REPORT_LINK_TTL_HOURS * 3600 * 1000;
-  const sig = signLink({ email: normalised, optIn: !!marketingOptIn, expMs, utm });
-  const verifyUrl = `${baseUrl()}/api/salvage/free-report/verify?sig=${encodeURIComponent(sig)}`;
-  try {
-    await sendVerificationEmail(normalised, verifyUrl);
-  } catch (err) {
-    // Never leak provider state to the caller; the request is recorded, the user can retry.
-    console.error('[FREE REPORT] verification email send failed:', err.message);
+  const token = randomUUID(); // app-generated, matching promo/redeem
+  const { error } = await supabase.from('free_report_tokens').insert({
+    email_normalised: normalised,
+    token,
+    issued_at: new Date().toISOString(),
+    marketing_opt_in: !!marketingOptIn,
+    issue_ip: ip,
+    ...(hasUtm(utm) ? utm : {}),
+  });
+
+  // UNIQUE(email_normalised) is the one-per-email gate. 23505 = issued by a concurrent request for the same address:
+  // hand back that token if it is unused, else the alreadyUsed line. No second token is ever created.
+  if (error) {
+    if (error.code === '23505') {
+      const { data: raced } = await supabase.from('free_report_tokens')
+        .select('token, consumed_at').eq('email_normalised', normalised).maybeSingle();
+      if (raced && !raced.consumed_at) return ready(raced.token);
+      return alreadyUsed();
+    }
+    console.error('[FREE REPORT] token insert failed:', JSON.stringify(error));
+    return NextResponse.json({ error: 'Something went wrong — please try again.' }, { status: 500 });
   }
-  return neutral();
+
+  // Marketing mirror — opt-in only, best-effort; token issuance already succeeded and never blocks.
+  if (await syncBrevoContact(normalised, !!marketingOptIn, FREE_REPORT_BREVO_LIST_ID)) {
+    await supabase.from('free_report_tokens')
+      .update({ brevo_synced_at: new Date().toISOString() }).eq('token', token);
+  }
+
+  await sendReadyBestEffort(normalised, token);
+  return ready(token);
 }

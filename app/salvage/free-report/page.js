@@ -73,7 +73,13 @@ export default function FreeReportPage() {
         body: JSON.stringify({ email, marketingOptIn: optIn, ...utm }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
+      // batch 236 — no confirm email: a readyUrl goes straight into the free report; ok:false (already used) is shown.
+      if (res.ok && data.readyUrl) {
+        window.location.assign(data.readyUrl);
+      } else if (res.ok && data.ok === false) {
+        setStatus('error');
+        setMessage(data.message || 'Something went wrong — please try again.');
+      } else if (res.ok) {
         setStatus('done');
         setMessage(data.message || FREE_REPORT_STRINGS.neutral);
       } else {
@@ -131,7 +137,7 @@ export default function FreeReportPage() {
               style={{ width: '100%', padding: '13px 16px', fontSize: 15, fontWeight: 700,
                 borderRadius: 10, border: 'none', cursor: 'pointer',
                 background: 'var(--orange, #f05a1a)', color: '#fff', opacity: status === 'sending' ? 0.6 : 1 }}>
-              {status === 'sending' ? 'Sending…' : 'Send my verification link'}
+              {status === 'sending' ? 'Sending…' : FREE_REPORT_STRINGS.readyButton}
             </button>
           </form>
         )}

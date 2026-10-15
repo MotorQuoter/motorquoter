@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { isSalePassed } from '@/lib/saleTiming.mjs';
 import { SALE_PASSED_REJECT_PROMO, SALE_PASSED_REJECT_FREE } from '@/config/booking.mjs';
+import { FREE_REPORT_RUN_LIMIT_PER_DAY, FREE_REPORT_STRINGS } from '@/config/freeReport.mjs';
+import { sendFreeReportAlert } from '@/lib/freeReportAlert.mjs';
 
 function getSupabase() {
   return createClient(
@@ -48,16 +50,30 @@ export async function POST(request) {
     // vehicleDetails. null saleDate (absent/unparseable) never fires. Free path rejects before the
     // atomic consume; promo path before the increment (skipped for bypass codes). "Passed" = after the
     // END OF THE SALE DAY in the sale's own time zone (lib/saleTiming.mjs), not after the lane start.
-    const _saleDate = normaliseLot(vehicleDetails || {}).saleDate;
+    const _lot = normaliseLot(vehicleDetails || {});
+    const _saleDate = _lot.saleDate;
     const _salePassed = isSalePassed(_saleDate);
 
     const supabase = getSupabase();
     let payment_kind;
+    let freeRunsToday = 0, freeTokenRow = null; // batch 236 — for the used-report alert
 
     if (free_report_token) {
       if (_salePassed) {
         return NextResponse.json({ error: SALE_PASSED_REJECT_FREE }, { status: 409 });
       }
+      // batch 236 — cost guard: free reports RUN in a rolling 24h. Checked before the consume, so a capped visitor
+      // keeps an unused token for tomorrow. A failed count is logged and does not block (fail open).
+      const { count: runCount, error: runCountError } = await supabase
+        .from('free_report_tokens')
+        .select('*', { count: 'exact', head: true })
+        .gt('consumed_at', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+      if (runCountError) console.error('[FREE REPORT][RUN CAP] count failed:', runCountError.code || '', runCountError.message || '');
+      if ((runCount ?? 0) >= FREE_REPORT_RUN_LIMIT_PER_DAY) {
+        console.log(`[FREE REPORT][RUN CAP] suppressed — used=${runCount} cap=${FREE_REPORT_RUN_LIMIT_PER_DAY} window=24h`);
+        return NextResponse.json({ error: FREE_REPORT_STRINGS.runCap }, { status: 429 });
+      }
+      freeRunsToday = (runCount ?? 0) + 1;
       // Free-report credential (Commit 3). Atomic consume is the race-safe gate: the single-use
       // token + `consumed_at IS NULL` filter means a concurrent second consume matches 0 rows and
       // is rejected — same discipline as the promo_codes uses_so_far claim. Consume WITHOUT
@@ -67,11 +83,12 @@ export async function POST(request) {
         .update({ consumed_at: new Date().toISOString() })
         .eq('token', free_report_token)
         .is('consumed_at', null)
-        .select('id')
+        .select('id, utm_source, utm_medium, utm_campaign')
         .maybeSingle();
       if (!consumed) {
         return NextResponse.json({ error: 'This free report has already been used.' }, { status: 403 });
       }
+      freeTokenRow = consumed;
       payment_kind = 'free_report';
     } else {
       const code = promoCode.trim().toUpperCase();
@@ -154,6 +171,11 @@ export async function POST(request) {
     // Link the free-report token to its session (the FK target now exists).
     if (free_report_token) {
       await supabase.from('free_report_tokens').update({ session_id: session.id }).eq('token', free_report_token);
+      // batch 236 — tell Vincent. Awaited (Vercel may drop post-response work), time-boxed, never throws.
+      await sendFreeReportAlert({
+        usedToday: freeRunsToday, at: new Date(), utm: freeTokenRow,
+        vrm: _lot.vrm, lotNumber: _lot.lotNumber,
+      });
     }
 
     return NextResponse.json({ salvage_id: session.id, promoToken });

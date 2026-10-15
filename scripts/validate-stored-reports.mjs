@@ -190,7 +190,10 @@ console.log('\n10. lib/email.mjs — one Brevo sender, report email fully guarde
   assertTrue('a Brevo failure is caught, not propagated', em.includes('report still delivered on-screen'));
   assertTrue('jsPDF is imported lazily so the plain sender stays light', em.includes("await import('@/app/api/generate-pdf/route')"));
   const freeReq = readFileSync(join(ROOT, 'app/api/salvage/free-report/request/route.js'), 'utf8');
-  assertTrue('the free-report route now uses the shared sender (no second Brevo copy)', freeReq.includes("from '@/lib/email.mjs'") && !freeReq.includes('api.brevo.com'));
+  // batch 236 — the confirm email is gone; the request route sends only the ready email, through readyEmail.mjs (the shared sender).
+  const readyMod = readFileSync(join(ROOT, 'app/api/salvage/free-report/readyEmail.mjs'), 'utf8');
+  assertTrue('the free-report route now uses the shared sender (no second Brevo copy)', freeReq.includes("from '../readyEmail.mjs'")
+    && readyMod.includes("from '@/lib/email.mjs'") && !freeReq.includes('api.brevo.com'));
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────────

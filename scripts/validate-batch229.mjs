@@ -87,6 +87,10 @@ const META = { utm_source: 'meta', utm_medium: 'paid', utm_campaign: 'salvage_sh
 const NONE = { utm_source: null, utm_medium: null, utm_campaign: null };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isNeutral = (r) => r.body?.ok === true && r.body.message === FREE_REPORT_STRINGS.neutral && !r.init?.status;
+// batch 236 — no confirm email: new / unused addresses get their link back; a used one gets the alreadyUsed line.
+const isReady = (r, tok) => !!tok && r.body?.ok === true && r.body.readyUrl === `https://app.test/salvage?free_report_token=${tok}` && !r.init?.status;
+const { PRICING } = await import('../config/pricing.js');
+const isUsed = (r) => r.body?.ok === false && r.body.message === FREE_REPORT_STRINGS.alreadyUsed(PRICING.salvageAssessment.price);
 
 // ── 1. clean / trim / cap / null ─────────────────────────────────────────────────────────────────────
 console.log('── clean: trim, cap, null ──');
@@ -150,29 +154,26 @@ const exp = () => Date.now() + 3600e3;
 
 // ── 4. request route: one attribution row per accepted request ───────────────────────────────────────
 console.log('\n── request route: attribution rows ──');
-const sigFromEmail = () => {
-  const html = smtpSends().at(-1)?.body.htmlContent || '';
-  const m = html.match(/verify\?sig=([^"]+)"/);
-  return m ? decodeURIComponent(m[1]) : null;
-};
 {
   reset();
   const r = await requestPOST(req({ email: 'new@b.co', ...META }));
   check('requested: one row, outcome requested, the three values', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'requested' }));
   check('requested: no email, no IP in the row', !JSON.stringify(db.attr[0]).includes('new@b.co') && !JSON.stringify(db.attr[0]).includes('1.2.3.4'));
-  check('requested: response unchanged (neutral)', isNeutral(r));
-  const v = verifyLink(sigFromEmail(), Date.now());
-  check('requested: the emailed link carries the values', v.ok && same(v.utm, META));
+  const tok = db.tokens[0] || {};
+  check('requested (batch 236): readyUrl for the new token', isReady(r, tok.token));
+  check('requested (batch 236): the token row, issued here, carries the values', tok.utm_source === 'meta' && tok.utm_medium === 'paid' && tok.utm_campaign === 'salvage_short_test');
 }
 {
   reset();
   await requestPOST(req({ email: 'new@b.co' }));
   check('untagged request: row still written, all null (organic count)', db.attr.length === 1 && same(db.attr[0], { ...NONE, outcome: 'requested' }));
+  const insert = calls.find(c => c.path.endsWith('/free_report_tokens') && c.method === 'POST');
+  check('untagged request (batch 236): token insert has no utm keys', !!insert && !UTM_COLS.some(k => k in insert.body));
 }
 {
   reset({ tokens: [{ email_normalised: 'old@b.co', token: 'tok-old', consumed_at: null }] });
   const r = await requestPOST(req({ email: 'old@b.co', ...META }));
-  check('resent: one row, outcome resent', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'resent' }) && isNeutral(r));
+  check('resent: one row, outcome resent', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'resent' }) && isReady(r, 'tok-old'));
 }
 {
   reset({ requests: Array.from({ length: FREE_REPORT_IP_LIMIT_PER_DAY }, () => ({ ip: '1.2.3.4' })) });
@@ -189,8 +190,8 @@ const sigFromEmail = () => {
 {
   reset({ tokens: [{ email_normalised: 'used@b.co', token: 'tok-used', consumed_at: '2026-10-01T00:00:00Z' }] });
   const r = await requestPOST(req({ email: 'used@b.co', ...META }));
-  check('already used (batch 230): one row, outcome used, neutral, no send', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'used' })
-    && isNeutral(r) && smtpSends().length === 0);
+  check('already used (batch 230): one row, outcome used, alreadyUsed line (batch 236), no send', db.attr.length === 1 && same(db.attr[0], { ...META, outcome: 'used' })
+    && isUsed(r) && smtpSends().length === 0);
 }
 {
   reset();
@@ -201,14 +202,14 @@ const sigFromEmail = () => {
 {
   reset();
   const r = await requestPOST(req({ email: 'new@b.co', utm_source: 12, utm_medium: { a: 1 }, utm_campaign: 'y'.repeat(500) }));
-  check('bad UTM values never fail the request: neutral + row with nulls / capped',
-    isNeutral(r) && same(db.attr[0], { utm_source: null, utm_medium: null, utm_campaign: 'y'.repeat(100), outcome: 'requested' }));
-  check('bad UTM values: the verification email is still sent', smtpSends().length === 1);
+  check('bad UTM values never fail the request: readyUrl + row with nulls / capped',
+    isReady(r, db.tokens[0]?.token) && same(db.attr[0], { utm_source: null, utm_medium: null, utm_campaign: 'y'.repeat(100), outcome: 'requested' }));
+  check('bad UTM values: the ready email is still sent', smtpSends().length === 1);
 }
 {
   reset({ missing: true }); errs.length = 0;
   const r = await requestPOST(req({ email: 'new@b.co', ...META }));
-  check('table missing (migration not applied): response unchanged, email still sent', isNeutral(r) && smtpSends().length === 1);
+  check('table missing (migration not applied): readyUrl, ready email still sent', isReady(r, db.tokens[0]?.token) && smtpSends().length === 1);
   check('table missing: logged', errs.some(e => e.startsWith('[FREE REPORT] attribution insert failed:')));
 }
 
@@ -216,11 +217,11 @@ const sigFromEmail = () => {
 console.log('\n── verify: token row ──');
 const vreq = (s) => new Request(`https://app.test/api/salvage/free-report/verify?sig=${encodeURIComponent(s)}`);
 {
+  // batch 236 — no confirm email is sent any more; verify still serves tagged links already sent.
   reset();
-  await requestPOST(req({ email: 'new@b.co', ...META }));
-  const res = await verifyGET(vreq(sigFromEmail()));
+  const res = await verifyGET(vreq(signLink({ email: 'new@b.co', optIn: false, expMs: exp(), utm: META })));
   const row = db.tokens[0] || {};
-  check('verify (via the emailed link): token row carries the three values',
+  check('verify (link sent before batch 236): token row carries the three values',
     row.utm_source === 'meta' && row.utm_medium === 'paid' && row.utm_campaign === 'salvage_short_test');
   check('verify: redirect unchanged', res.redirect === `https://app.test/salvage?free_report_token=${row.token}`);
   const insert = calls.find(c => c.path.endsWith('/free_report_tokens') && c.method === 'POST');
