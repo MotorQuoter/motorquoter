@@ -17,6 +17,9 @@ console.log('── normaliseEmail ──');
 check("gmail plus-tag stripped + lowercased + trimmed", normaliseEmail(' Vincent+salvage@Gmail.com ') === 'vincent@gmail.com');
 check("plain address passes through", normaliseEmail('buyer@outlook.com') === 'buyer@outlook.com');
 check("no plus untouched", normaliseEmail('a.b@domain.co.uk') === 'a.b@domain.co.uk');
+check("batch 240: gmail dots dropped, googlemail → gmail.com", normaliseEmail('Vin.Dabish+x@GoogleMail.com') === 'vindabish@gmail.com');
+check("batch 240: gmail dotted == undotted", normaliseEmail('vin.dabish@gmail.com') === normaliseEmail('vindabish@gmail.com'));
+check("batch 240: non-gmail dots kept", normaliseEmail('vin.dabish@outlook.com') === 'vin.dabish@outlook.com');
 check("emailDomain lowercased", emailDomain('X@Sub.Example.COM') === 'sub.example.com');
 
 console.log('\n── isValidEmail ──');

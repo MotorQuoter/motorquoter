@@ -39,7 +39,7 @@ check('a cleared token (batch 225 used/unknown) → shown again', shown('', fals
 
 console.log('\n── earlier validators ──');
 const run = (f, loader) => spawnSync(process.execPath, [...(loader ? ['--loader', './scripts/lib/alias-loader.mjs'] : []), f], { encoding: 'utf8' }).stdout;
-for (const [f, loader, want] of [['scripts/validate-batch224.mjs', true, '33'], ['scripts/validate-batch225.mjs', true, '43'], ['scripts/validate-free-report.mjs', true, '59'] /* batch 240 */]) {
+for (const [f, loader, want] of [['scripts/validate-batch224.mjs', true, '33'], ['scripts/validate-batch225.mjs', true, '43'], ['scripts/validate-free-report.mjs', true, '62'] /* batch 240 */]) {
   const m = run(f, loader).match(/Result: (\d+) passed, (\d+) failed/);
   check(`${f.replace('scripts/', '')} ${want}/0 (got ${m?.[1]}/${m?.[2]})`, m?.[1] === want && m?.[2] === '0');
 }
