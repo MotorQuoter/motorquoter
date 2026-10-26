@@ -679,7 +679,7 @@ export default function SalvagePage() {
 
           {/* Photos — ZIP drop zone */}
           <div>
-            <div className="field-label">Photos <span>(drop the auction zip — no extraction needed)</span></div>
+            <div className="field-label">Photos <span>(the auction&apos;s photo zip, or the photos themselves)</span></div>
             <div
               className={`upload-zone ${zipDragging ? 'dragging' : ''}`}
               onDrop={e => { e.preventDefault(); setZipDragging(false); const files = e.dataTransfer.files; if (!files.length) return; files[0].name.toLowerCase().endsWith('.zip') ? handleZipFile(files[0]) : handleFiles(files); }}
@@ -691,8 +691,8 @@ export default function SalvagePage() {
               {zipStatus === '' && (
                 <>
                   <div className="upload-icon">🗜</div>
-                  <div className="upload-title">Drop auction zip here or tap</div>
-                  <div className="upload-sub">Drag the downloaded zip directly — no need to extract</div>
+                  <div className="upload-title">Tap to add the photo zip</div>
+                  <div className="upload-sub">Or drag it here - no need to unzip it first</div>
                 </>
               )}
               {zipStatus === 'extracting' && (
@@ -737,8 +737,8 @@ export default function SalvagePage() {
             >
               <span style={{ fontSize: 20, lineHeight: 1 }}>📸</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>Upload individual photos</div>
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>Click to pick files, or drag images onto the zone above</div>
+                <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>No zip? Tap to add photos</div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>From your phone&apos;s photos or your computer - up to {MAX_PHOTOS}</div>
               </div>
               {images.length > 0 && (
                 <span style={{ fontSize: 12, color: 'var(--orange)', whiteSpace: 'nowrap' }}>{images.length} selected</span>
