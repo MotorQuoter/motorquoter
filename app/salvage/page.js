@@ -612,10 +612,13 @@ export default function SalvagePage() {
           <p className="hero-sub">Upload auction listing photos. Our AI reads the damage, estimates repair costs, and calculates your margin — before you bid.</p>
           {/* batch 227 — the free-report link sits centred under the price badge; hidden while a free report is held or on a re-run. */}
           <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div className="price-badge">
-              <span className="price-badge-amount">{displaySymbol}{displayAmount.toFixed(2)}</span>
-              <span className="price-badge-label">per assessment · no subscription</span>
-            </div>
+            {/* batch 240 — no price while a free report is held */}
+            {!freeReportToken && (
+              <div className="price-badge">
+                <span className="price-badge-amount">{displaySymbol}{displayAmount.toFixed(2)}</span>
+                <span className="price-badge-label">per assessment · no subscription</span>
+              </div>
+            )}
             {!freeReportToken && !isRerun && (
               <a href="/salvage/free-report" style={{ marginTop: 8, fontSize: 13, fontWeight: 700, color: 'var(--orange)', textAlign: 'center' }}>
                 {FREE_REPORT_STRINGS.freeLinkOnSalvage}
@@ -627,6 +630,15 @@ export default function SalvagePage() {
         <div className="form">
           {cancelled && (
             <div className="cancel-box">Payment cancelled — your photos are still saved. You can try again below.</div>
+          )}
+
+          {/* batch 240 — a free report says what to do, in two steps, above the paste box. */}
+          {freeReportToken && (
+            <div data-free-steps style={{ background: 'var(--bg2)', border: '1.5px solid var(--orange)', borderRadius: 10, padding: '14px 18px', fontSize: 14, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>{FREE_REPORT_STRINGS.freeStepsHeading}</div>
+              {FREE_REPORT_STRINGS.freeSteps.map((l) => <div key={l}>{l}</div>)}
+              <div style={{ marginTop: 6, color: 'var(--text-dim)' }}>{FREE_REPORT_STRINGS.freeStepsThen}</div>
+            </div>
           )}
 
           {/* Auction Listing paste box — label + guidance adapt to the selected auction source */}
@@ -885,8 +897,8 @@ export default function SalvagePage() {
             <div className="feature-item"><span className="feature-dot">▸</span>Downloadable PDF report</div>
           </div>
 
-          {/* Promo code */}
-          {!isRerun && (
+          {/* Promo code — batch 240: hidden while a free report is held */}
+          {!isRerun && !freeReportToken && (
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Have a promo code?</div>
               {appliedPromo ? (

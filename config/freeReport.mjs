@@ -21,7 +21,20 @@ export const FREE_REPORT_BREVO_LIST_ID = null;
 // The disposable string is CC-picked (ruling delegated) and open to your reword — non-blocking.
 export const FREE_REPORT_STRINGS = {
   marking:      'Free sample report — your complimentary MotorQuoter assessment.',
-  requestForm:  'Get your first assessment free. Enter your email and start straight away - one free report per buyer, no card needed.',
+  // batch 240 — /salvage/free-report, top to bottom: intro line, form, "How it works", the example label.
+  introLine:    'Enter your email here to try it free. No card needed - one free report per buyer.',
+  howHeading:   'How it works',
+  howSteps: [
+    'Enter your email and tap Start.',
+    "Paste the Copart lot page and add the lot's photos (the zip Copart lets you download).",
+    "Get the repair cost, what it's worth fixed, the auction fees and the most you can bid to break even.",
+  ],
+  howDevice:    "Photos are easiest from a computer - we email you the link so you can finish there.",
+  exampleLabel: "Here's a real report:",
+  // batch 240 — /salvage while a free-report token is held: the box at the top of the form.
+  freeStepsHeading: 'Your free report - two steps',
+  freeSteps: ['1. Paste the whole Copart lot page.', '2. Add the photos zip.'],
+  freeStepsThen: 'Then tap Get my free assessment.',
   consent:      'Send me occasional salvage buying tips and MotorQuoter updates. You can unsubscribe at any time.',
   // legacy - confirm step dropped batch 236 (verify/route.js still serves links already sent)
   emailSubject: 'Your free MotorQuoter report — confirm your email',

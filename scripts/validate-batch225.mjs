@@ -158,9 +158,9 @@ check('bad JSON → keep', JSON.stringify(await checkFreeReportToken(T_USED, fak
 console.log('\n── earlier validators ──');
 const run = (f, loader) => spawnSync(process.execPath, [...(loader ? ['--loader', './scripts/lib/alias-loader.mjs'] : []), f], { encoding: 'utf8' }).stdout;
 const r224 = run('scripts/validate-batch224.mjs', true).match(/Result: (\d+) passed, (\d+) failed/);
-const rfr = run('scripts/validate-free-report.mjs', true) /* batch 236: needs the loader, 48 checks */.match(/Result: (\d+) passed, (\d+) failed/);
+const rfr = run('scripts/validate-free-report.mjs', true) /* batch 236: needs the loader; batch 240: 59 checks */.match(/Result: (\d+) passed, (\d+) failed/);
 check(`validate-batch224 33/0 (got ${r224?.[1]}/${r224?.[2]})`, r224?.[1] === '33' && r224?.[2] === '0');
-check(`validate-free-report 48/0 (got ${rfr?.[1]}/${rfr?.[2]})`, rfr?.[1] === '48' && rfr?.[2] === '0');
+check(`validate-free-report 59/0 (got ${rfr?.[1]}/${rfr?.[2]})`, rfr?.[1] === '59' && rfr?.[2] === '0');
 
 console.error = origErr;
 console.log(`\n── Result: ${pass} passed, ${fail} failed ──`);

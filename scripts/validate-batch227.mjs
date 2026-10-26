@@ -24,8 +24,8 @@ check('orange, like the page\'s other links', /<a href="\/salvage\/free-report" 
   const linkAt = ps.indexOf('{FREE_REPORT_STRINGS.freeLinkOnSalvage}');
   const between = ps.slice(badgeEnd, linkAt);
   check('directly under the price badge (only the badge\'s closing tag between them)', badgeEnd > 0 && linkAt > badgeEnd
-    && /^<span className="price-badge-label">[^<]*<\/span>\s*<\/div>\s*\{!freeReportToken && !isRerun && \(\s*<a [^>]*>\s*$/.test(between));
-  check('badge + link share a centred column wrapper', /<div style=\{\{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' \}\}>\s*<div className="price-badge">/.test(ps));
+    && /^<span className="price-badge-label">[^<]*<\/span>\s*<\/div>\s*\)\}\s*\{!freeReportToken && !isRerun && \(\s*<a [^>]*>\s*$/.test(between)); // batch 240: badge sits in {!freeReportToken && (...)}
+  check('badge + link share a centred column wrapper', /<div style=\{\{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' \}\}>\s*\{\/\*[^*]*\*\/\}\s*\{!freeReportToken && \(\s*<div className="price-badge">/.test(ps));
 }
 
 console.log('\n── the gate, evaluated ──');
@@ -39,7 +39,7 @@ check('a cleared token (batch 225 used/unknown) → shown again', shown('', fals
 
 console.log('\n── earlier validators ──');
 const run = (f, loader) => spawnSync(process.execPath, [...(loader ? ['--loader', './scripts/lib/alias-loader.mjs'] : []), f], { encoding: 'utf8' }).stdout;
-for (const [f, loader, want] of [['scripts/validate-batch224.mjs', true, '33'], ['scripts/validate-batch225.mjs', true, '43'], ['scripts/validate-free-report.mjs', true, '48'] /* batch 236 */]) {
+for (const [f, loader, want] of [['scripts/validate-batch224.mjs', true, '33'], ['scripts/validate-batch225.mjs', true, '43'], ['scripts/validate-free-report.mjs', true, '59'] /* batch 240 */]) {
   const m = run(f, loader).match(/Result: (\d+) passed, (\d+) failed/);
   check(`${f.replace('scripts/', '')} ${want}/0 (got ${m?.[1]}/${m?.[2]})`, m?.[1] === want && m?.[2] === '0');
 }

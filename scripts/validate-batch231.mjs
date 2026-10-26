@@ -101,8 +101,8 @@ check('card rendered once', uses.length === 1);
 check('estimate note in the constant', EX.note === "The report's estimate from the auction photos. You can strike or add any line, or amend any figure.");
 check('note rendered once, directly under the vehicle line', (page.match(/\{EX\.note\}/g) || []).length === 1
   && page.indexOf('{EX.note}') > page.indexOf('{EX.damage}') && page.indexOf('{EX.note}') < page.indexOf('{rows.map('));
-check('card sits after the intro sentence', page.indexOf('<ExampleReport />') > page.indexOf('{FREE_REPORT_STRINGS.requestForm}'));
-check('card sits above the form', page.indexOf('<ExampleReport />') < page.indexOf('<form onSubmit={submit}>'));
+check('card sits after the intro sentence', page.indexOf('<ExampleReport />') > page.indexOf('{FREE_REPORT_STRINGS.introLine}')); // batch 240: requestForm → introLine
+check('card sits below the form (batch 240: email box first)', page.indexOf('<ExampleReport />') > page.indexOf('<form onSubmit={submit}>'));
 check('no literal £ price in the page', !/£\s?\d/.test(page));
 check('paid price still from PRICING', page.includes('PRICING.salvageAssessment.price'));
 check('no verdict words in card', !/good buy|recommend|bargain|profit/i.test(page + JSON.stringify(EX)));

@@ -156,7 +156,36 @@ console.log('\n── batch 236: request — no confirm step ──');
   check('page: ok:false → shows message', /data\.ok === false[\s\S]{0,80}setMessage\(data\.message/.test(page));
   check('page: idle button label is readyButton; sending label unchanged', page.includes("{status === 'sending' ? 'Sending…' : FREE_REPORT_STRINGS.readyButton}")
     && FREE_REPORT_STRINGS.readyButton === 'Start my free report');
-  check('copy: requestForm is the batch 236 line', FREE_REPORT_STRINGS.requestForm === 'Get your first assessment free. Enter your email and start straight away - one free report per buyer, no card needed.');
+}
+
+console.log('\n── batch 240: say what to do, email box first; free route hides the price ──');
+{
+  const S = FREE_REPORT_STRINGS;
+  check('copy: introLine verbatim', S.introLine === 'Enter your email here to try it free. No card needed - one free report per buyer.');
+  check('copy: How it works heading + 3 steps verbatim', S.howHeading === 'How it works' && S.howSteps.length === 3
+    && S.howSteps[0] === 'Enter your email and tap Start.'
+    && S.howSteps[1] === "Paste the Copart lot page and add the lot's photos (the zip Copart lets you download)."
+    && S.howSteps[2] === "Get the repair cost, what it's worth fixed, the auction fees and the most you can bid to break even.");
+  check('copy: device line + example label verbatim', S.howDevice === 'Photos are easiest from a computer - we email you the link so you can finish there.'
+    && S.exampleLabel === "Here's a real report:");
+  check('copy: /salvage free steps verbatim', S.freeStepsHeading === 'Your free report - two steps'
+    && S.freeSteps.join('|') === '1. Paste the whole Copart lot page.|2. Add the photos zip.' && S.freeStepsThen === 'Then tap Get my free assessment.');
+  check('copy: requestForm removed (no caller left)', !('requestForm' in S));
+  const page = readFileSync('app/salvage/free-report/page.js', 'utf8');
+  const at = (t) => page.indexOf(t);
+  const order = ['<h1', '{FREE_REPORT_STRINGS.introLine}', '{freeError}', '<form onSubmit={submit}>', '{FREE_REPORT_STRINGS.howHeading}',
+    '{FREE_REPORT_STRINGS.howDevice}', '{FREE_REPORT_STRINGS.exampleLabel}', '<ExampleReport />'];
+  check('page order: headline → intro → error → form → How it works → device line → label → example card',
+    order.every((t, i) => at(t) > 0 && (i === 0 || at(t) > at(order[i - 1]))));
+  check('page: headline unchanged', page.includes("See what you&apos;re bidding on. Your first report&apos;s free.</h1>"));
+  check('page: no requestForm, no literal £ price', !page.includes('requestForm') && !/£\s?\d/.test(page));
+  const ps = readFileSync('app/salvage/page.js', 'utf8');
+  check('/salvage: price badge only without a free token', /\{!freeReportToken && \(\s*<div className="price-badge">/.test(ps));
+  check('/salvage: promo box only on a non-rerun without a free token', ps.includes('{!isRerun && !freeReportToken && (') && ps.indexOf('Have a promo code?') > ps.indexOf('{!isRerun && !freeReportToken && ('));
+  const box = ps.indexOf('{FREE_REPORT_STRINGS.freeStepsHeading}');
+  check('/salvage: two-steps box only with a free token, above the listing paste box',
+    /\{freeReportToken && \(\s*<div data-free-steps/.test(ps) && box > 0 && box < ps.indexOf('listingCopy(auctionSource).label'));
+  check('/salvage: button + readyOnPage unchanged', ps.includes("? '✓ Get my free assessment'") && /\{freeReportToken && \(\s*<div[^>]*>\s*\{FREE_REPORT_STRINGS\.readyOnPage\}/.test(ps));
 }
 
 console.log('\n── batch 236: run cap + alert (promo-checkout) ──');

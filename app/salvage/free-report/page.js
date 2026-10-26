@@ -97,11 +97,11 @@ export default function FreeReportPage() {
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ width: '100%', maxWidth: 480 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 10 }}>See what you&apos;re bidding on. Your first report&apos;s free.</h1>
-        <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-dim, #a8a29e)', marginBottom: 20 }}>
-          {FREE_REPORT_STRINGS.requestForm}
+        {/* batch 240 — say what to do, then the email box straight away (first screen on a phone); how it works and the
+            example card follow. The form does not headline the price. */}
+        <p style={{ fontSize: 15, lineHeight: 1.5, marginBottom: 16 }}>
+          {FREE_REPORT_STRINGS.introLine}
         </p>
-
-        <ExampleReport />
 
         {freeError && status !== 'done' && (
           <div style={{ padding: '12px 14px', borderRadius: 10, marginBottom: 16, fontSize: 14, lineHeight: 1.5,
@@ -120,7 +120,7 @@ export default function FreeReportPage() {
             <input
               type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com" autoComplete="email"
-              style={{ width: '100%', padding: '12px 14px', fontSize: 15, borderRadius: 10,
+              style={{ width: '100%', padding: '12px 14px', fontSize: 16, borderRadius: 10,
                 background: 'var(--bg2, #1a1a1d)', color: 'var(--text, #f0ebe6)',
                 border: '1.5px solid var(--border, #2a2a2e)', marginBottom: 14 }}
             />
@@ -141,6 +141,17 @@ export default function FreeReportPage() {
             </button>
           </form>
         )}
+
+        <div data-how-it-works style={{ marginTop: 24, marginBottom: 24, fontSize: 14, lineHeight: 1.5 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>{FREE_REPORT_STRINGS.howHeading}</h2>
+          <ol style={{ margin: 0, paddingLeft: 20, listStyle: 'decimal' }}>
+            {FREE_REPORT_STRINGS.howSteps.map((s) => <li key={s} style={{ marginBottom: 4 }}>{s}</li>)}
+          </ol>
+          <p style={{ marginTop: 8, fontSize: 13, color: 'var(--text-dim, #a8a29e)' }}>{FREE_REPORT_STRINGS.howDevice}</p>
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-dim, #a8a29e)', marginBottom: 8 }}>{FREE_REPORT_STRINGS.exampleLabel}</div>
+        <ExampleReport />
       </div>
     </main>
   );
