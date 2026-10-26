@@ -26,14 +26,14 @@ export const FREE_REPORT_STRINGS = {
   howHeading:   'How it works',
   howSteps: [
     'Enter your email and tap Start.',
-    "Paste the Copart lot page and add the lot's photos (the zip Copart lets you download).",
+    "Paste the auction's description page (Copart, IAA, BCA, Manheim - any auction site) and add the lot's photos.",
     "Get the repair cost, what it's worth fixed, the auction fees and the most you can bid to break even.",
   ],
   howDevice:    "Photos are easiest from a computer - we email you the link so you can finish there.",
   exampleLabel: "Here's a real report:",
   // batch 240 — /salvage while a free-report token is held: the box at the top of the form.
   freeStepsHeading: 'Your free report - two steps',
-  freeSteps: ['1. Paste the whole Copart lot page.', '2. Add the photos zip.'],
+  freeSteps: ['1. Paste the whole auction listing page.', "2. Add the lot's photos."], // batch 241 — any auction site
   freeStepsThen: 'Then tap Get my free assessment.',
   consent:      'Send me occasional salvage buying tips and MotorQuoter updates. You can unsubscribe at any time.',
   // legacy - confirm step dropped batch 236 (verify/route.js still serves links already sent)

@@ -167,12 +167,12 @@ console.log('\n── batch 240: say what to do, email box first; free route hid
   check('copy: introLine verbatim', S.introLine === 'Enter your email here to try it free. No card needed - one free report per buyer.');
   check('copy: How it works heading + 3 steps verbatim', S.howHeading === 'How it works' && S.howSteps.length === 3
     && S.howSteps[0] === 'Enter your email and tap Start.'
-    && S.howSteps[1] === "Paste the Copart lot page and add the lot's photos (the zip Copart lets you download)."
+    && S.howSteps[1] === "Paste the auction's description page (Copart, IAA, BCA, Manheim - any auction site) and add the lot's photos."
     && S.howSteps[2] === "Get the repair cost, what it's worth fixed, the auction fees and the most you can bid to break even.");
   check('copy: device line + example label verbatim', S.howDevice === 'Photos are easiest from a computer - we email you the link so you can finish there.'
     && S.exampleLabel === "Here's a real report:");
   check('copy: /salvage free steps verbatim', S.freeStepsHeading === 'Your free report - two steps'
-    && S.freeSteps.join('|') === '1. Paste the whole Copart lot page.|2. Add the photos zip.' && S.freeStepsThen === 'Then tap Get my free assessment.');
+    && S.freeSteps.join('|') === "1. Paste the whole auction listing page.|2. Add the lot's photos." && S.freeStepsThen === 'Then tap Get my free assessment.');
   check('copy: requestForm removed (no caller left)', !('requestForm' in S));
   const page = readFileSync('app/salvage/free-report/page.js', 'utf8');
   const at = (t) => page.indexOf(t);
