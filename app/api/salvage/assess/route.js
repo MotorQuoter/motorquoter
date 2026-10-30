@@ -38,6 +38,7 @@ import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
 import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
+import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS } from '@/lib/notesConfirm.mjs';   // batch 242 C
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -3755,6 +3756,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // else, fired here so it runs alongside the per-view reads. It never throws: any failure reads every line as a
     // concern with no panels. Awaited at the notes stamp. No notes → no call.
     const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, { retry: with529Retry });
+    // batch 242 C (ruling 3) — the COUNT questions (multi-instance panels the reader named) always run, so they start as
+    // soon as the reader returns, alongside the per-view reads. The yes/no questions wait for the ledger (ruling 5).
+    const notesCountAskPromise = notesReadPromise.then(read =>
+      askPanels(images, notesPanels(read).filter(isCountPanel), { retry: with529Retry }));
 
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
@@ -5330,6 +5335,25 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       console.log(`[G INJECT] ${e.panelId} stripped-model-rows=${strippedCount} action=${action} used=£${tableEntry.used} oem=£${tableEntry.oem} band=${bandKey}`);
     }
 
+    // ── batch 242 C — a panel the notes name, confirmed by the photos (rulings 1-5, Vincent 30 Oct) ──────────────────
+    // The narrow question saw the photos and a code-owned question — never the note. A confirmed panel is FINAL: it is
+    // added here, after G INJECT, and skips the vote, G split, paired-flank logic, the attribution probe, R1/R2, the
+    // model-row gate and sticky. It still passes stripBodyIneligible, applyGradeOwnsAction, labour and every surface.
+    // Ruling 5: a single-instance panel already charged is not asked (the line says "costed" directly). Ruling 4: cost
+    // the difference between the confirmed count and the rows already charged. lib/notesConfirm.mjs owns the rules.
+    {
+      const _nRead = await notesReadPromise;
+      const _countAnswers = await notesCountAskPromise;
+      const _chargedNow = (id) => gatedParts.some(r => r?.panelId === id && isChargedRow(r));
+      const _singles = notesPanels(_nRead).filter(id => !isCountPanel(id));
+      const _skipped = _singles.filter(_chargedNow);
+      for (const id of _skipped) console.log(`[NOTES CONFIRM] ${id} already charged — question skipped (ruling 5)`);
+      const _yesNoAnswers = await askPanels(images, _singles.filter(id => !_chargedNow(id)), { retry: with529Retry });
+      const _answers = [..._countAnswers, ..._yesNoAnswers];
+      const _added = applyConfirmations({ gatedParts, answers: _answers, bandKey, priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow });
+      assessment._notesConfirm = { answers: _answers, skipped: _skipped, added: _added.map(r => r.panelId) };
+    }
+
     // ── batch 177 M1 — MEASUREMENT SWITCH, OFF BY DEFAULT (Vincent rules on turning it on) ──────────
     // Question: cost a disputed panel (batch 156 flags it, uncosted) when at least one damaged vote is MODERATE or worse.
     // On: price it from the grid by grade (MODERATE → repair: panel work carries it, via applyGradeOwnsAction below;
@@ -6757,7 +6781,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // prompt, the notes reader's (never a photo or assessment prompt). Two code-owned lines (pyro fuses,
     // stolen-recovered) and every line the reader calls a concern go into Red Flags + the checklist.
     {
-      // batch 242 B: the reader's concern lines go in with the code lines. chargedCounts uses isChargedRow (rule 7) on the
+      // batch 242 B: the reader's concern lines go in with the code lines. chargedCounts uses the one charged check (rule 7) on the
       // final ledger, so a line names a panel as costed only when it is charged.
       const _notesRead = await notesReadPromise;
       assessment._notesRead = _notesRead;
@@ -6766,7 +6790,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         if (r?.panelId && isChargedRow(r)) _chargedCounts.set(r.panelId, (_chargedCounts.get(r.panelId) || 0) + 1);
       }
       const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null,
-        notesRead: _notesRead, chargedCounts: _chargedCounts });
+        notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS });
       console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} concernLines=${_notes.concernLines.length}${_notesRead.fallback ? ' (reader fallback)' : ''} — notes only in the reader's prompt; mechanical never costed`);
     }
 

@@ -397,7 +397,9 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
   // panel is in the repair total, so "not in the repair total" would be false for it).
   ok('route: a repaired panel counts as costed for the bonnet tell, the §4 bumper-off note, the X2 structure floor, the wheel checklist line and the prose-damage uncosted list',
      // count USES, not `isChargedRow(` — two pass it by reference, `.filter(isChargedRow)`
-     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 5
+     // batch 242 added THREE, all through the one check: the notes stamp's charged counts, "already charged" for
+     // the notes question (ruling 5), and applyConfirmations' isCharged (ruling 4).
+     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 8
      && /import \{ rowKeyFor, isChargedRow \} from '@\/lib\/ledgerEdits\.mjs';/.test(route)
      && !/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/.test(route));
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
