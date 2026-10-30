@@ -148,12 +148,15 @@ test('wording owners', () => {
   assert.equal(NOTES_NOT_COSTED, 'These notes are not costed unless they appear in the repair breakdown.');
 });
 
-test('source pins: the route only stamps (no prompt, no ledger); both surfaces read the stamp; a stored row without it shows nothing', () => {
+test('source pins: the route reads the notes once for the reader and stamps once (batch 242); both surfaces read the stamp; a stored row without it shows nothing', () => {
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
   const uses = route.split('\n').filter(l => /copartNotes|CopartNotes/.test(l) && !l.trim().startsWith('//'));
-  assert.equal(uses.length, 2, uses.join('\n'));
-  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes } from '@/lib/copartNotes.mjs';"), uses[0]);
-  assert.ok(uses[1].trim().startsWith('const _notes = stampCopartNotes(assessment, enrichedVd, '), uses[1]);
+  assert.equal(uses.length, 3, uses.join('\n'));
+  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';"), uses[0]);
+  // batch 242 (R2): the notes lines go to ONE place before the stamp — the notes reader. validate-notes-reader D1
+  // proves they reach no other prompt.
+  assert.ok(uses[1].trim().startsWith('const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, '), uses[1]);
+  assert.ok(uses[2].trim().startsWith('const _notes = stampCopartNotes(assessment, enrichedVd, '), uses[2]);
   const ctx = route.slice(route.indexOf('const contextLines = ['), route.indexOf('const contextLines = [') + 6000);
   assert.ok(!/copartNotes|_copartNotes/.test(ctx), 'notes never in the prompt context');
   const pdf = readFileSync(new URL('../app/api/salvage/pdf/route.js', import.meta.url), 'utf8');
