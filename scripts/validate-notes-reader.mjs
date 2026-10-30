@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { installCassette } from './lib/modelCassette.mjs';
 import { readNotes, parseReaderOutput, fallbackRead, buildReaderBody, NOTES_READER_SYSTEM, READER_PANELS } from '../lib/notesReader.mjs';
 import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels } from '../lib/notesConfirm.mjs';
-import { stampCopartNotes, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING } from '../lib/copartNotes.mjs';
+import { stampCopartNotes, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
 import { PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
@@ -63,7 +63,7 @@ test('A: strict parse — off-enum panels dropped, spec lines carry no panels, a
   assert.equal(parseReaderOutput('{"lines": 3}', ['A']), null);
 });
 
-test('D4: reader failure (HTTP error, throw, timeout, refusal, unparseable, 529) → every line a concern, no panels, logged', async () => {
+test('D4: reader failure (HTTP error, throw, timeout, refusal, unparseable, 529) → fallback read (no panels), logged', async () => {
   const fails = {
     http: async () => new Response('x', { status: 500 }),
     throw: async () => { throw new Error('network down'); },
@@ -113,13 +113,13 @@ test('B: every concern line promoted word for word with the fixed wording, by so
   assert.deepEqual(p.concernLines, ['Copart\'s notes say: "ENGINE WILL NOT START - REASON UNKNOWN". Not costed. Auction notes can understate the problem — check before bidding.']);
 });
 
-test('B: a costed panel ends the line with the photos sentence; multi-instance states the count, never a side', () => {
+test('B (Part 3): a costed panel ends with Costed in the repair breakdown: <label> × <n>.; count only on multi-instance; never a side', () => {
   const a = {};
   const r = stampCopartNotes(a, { copartNotes: [...LOT_LINES, ...EXTRA].join('\n') }, { notesRead: READ,
     chargedCounts: new Map([['SIDE_GLASS', 2], ['FRONT_DOOR', 1], ['BONNET', 1]]), countPanels: COUNT_PANELS });
-  assert.equal(r.concernLines[0], 'The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. The photos show 1 front door damage — costed in the repair breakdown.');
-  assert.equal(r.concernLines[1], 'The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. The photos show 2 side glass damage — costed in the repair breakdown.');
-  assert.equal(r.concernLines[2], 'The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. The photos show bonnet damage — costed in the repair breakdown.');
+  assert.equal(r.concernLines[0], 'The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front door × 1.');
+  assert.equal(r.concernLines[1], 'The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: side glass × 2.');
+  assert.equal(r.concernLines[2], 'The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: bonnet.');
   assert.ok(!/\b(NS|OS|nearside|offside|left|right)\b/i.test(r.concernLines.map(l => l.split('". ')[1]).join(' ')), 'no side in our words');
 });
 
@@ -133,8 +133,9 @@ test('B: pyro + stolen code lines unchanged and still first; Cat A/B stop line s
   assert.equal(rf[0], '- STOP LINE');
   assert.equal(rf[1], `- ${CODE_LINE_WORDING.PYRO.neutral}`);
   assert.equal(rf[2], `- ${CODE_LINE_WORDING.STOLEN.neutral}`);
-  assert.match(rf[3], /^- The auction notes say: "PYRO FUSES/);
-  assert.equal(rf[5], '- model');
+  assert.equal(rf[3], `- ${NOTES_FALLBACK_LINE}`, 'reader fallback → one line, not each note');
+  assert.equal(rf[4], '- model');
+  assert.equal(rf.length, 5);
   // with no reader result, exactly the batch 202 behaviour
   const b = { 'Red Flags': '- model' };
   const r = stampCopartNotes(b, { copartNotes: lines.join('\n') });
@@ -302,9 +303,9 @@ test('D8 end to end: 2 × SIDE_GLASS replace at the band survive to the final le
   assert.equal(strip(full.assessment), strip(base.assessment));
   assert.deepEqual([...full.assessment._notesConfirm.added].sort(), ['FRONT_DOOR', 'SIDE_GLASS', 'SIDE_GLASS']);
   const rf = full.assessment['Red Flags'];
-  assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. The photos show 2 side glass damage — costed in the repair breakdown.'));
-  assert.ok(rf.includes('The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. The photos show 1 front door damage — costed in the repair breakdown.'));
-  assert.ok(rf.includes('The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. The photos show bonnet damage — costed in the repair breakdown.'));
+  assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: side glass × 2.'));
+  assert.ok(rf.includes('The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front door × 1.'));
+  assert.ok(rf.includes('The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: bonnet.'));
 });
 
 test('D5: mechanical concerns are promoted with no figure, no panel, no ledger row', () => {
@@ -326,14 +327,18 @@ test('D5: mechanical concerns are promoted with no figure, no panel, no ledger r
     });
 });
 
-test('D4 end to end: reader fails → all 8 lines promoted, nothing asked, nothing costed', async () => {
+test('D4 end to end (Part 3): reader fails → ONE fallback line in Red Flags + checklist, no note line promoted, nothing asked, nothing costed', async () => {
   const run = await runLot({ notes: ALL_NOTES, readerReply: 'fail' });
   assert.ok(run.logs.some(l => l.startsWith('[NOTES READER] fallback')));
   assert.equal(run.bodies.filter(b => b.kind === 'confirm').length, 0);
   assert.equal(ledger(run.assessment), ledger(base.assessment));
-  const promoted = run.assessment['Red Flags'].split('\n').filter(l => l.startsWith('- The auction notes say:'));
-  assert.equal(promoted.length, 8);
-  assert.ok(promoted.every(l => l.includes('Not costed.')));
+  const rf = run.assessment['Red Flags'].split('\n');
+  assert.equal(rf.filter(l => l.startsWith('- The auction notes say:')).length, 0, 'no note line promoted');
+  assert.equal(rf.filter(l => l === `- ${NOTES_FALLBACK_LINE}`).length, 1);
+  const ck = run.assessment['WhatsApp Inspection Checklist'];
+  assert.equal(ck.split(NOTES_FALLBACK_LINE).length - 1, 1, 'once in the checklist');
+  assert.ok(!/The auction notes say:/.test(ck));
+  assert.deepEqual(run.assessment._copartNotes.lines, [...LOT_LINES, ...EXTRA], 'notes still shown as written');
   assert.equal(run.assessment._notesRead.fallback, true);
 });
 
