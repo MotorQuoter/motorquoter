@@ -156,9 +156,21 @@ test('D3: spec lines ("NUMBER OF KEYS 1", a trim line) are not promoted; keys pa
 
 // ── Unit: the narrow question (C) ────────────────────────────────────────────────────────────────────────────────
 test('C: code-owned questions — count form for multi-instance, yes/no otherwise; no note text', () => {
-  assert.equal(confirmQuestion('SIDE_GLASS').split('\n')[0], 'How many side glass panels (door or side windows) are damaged in these photos? Answer only from what you can see. Reply 0 if none.');
-  assert.equal(confirmQuestion('FRONT_DOOR').split('\n')[0], 'How many front doors are damaged in these photos? Answer only from what you can see. Reply 0 if none.');
-  assert.equal(confirmQuestion('BONNET').split('\n')[0], 'Is the bonnet damaged in any of these photos? Answer only from what you can see in the photos.');
+  // batch 242 Part 4: question strings pinned word for word.
+  assert.equal(confirmQuestion('SIDE_GLASS').split('\n')[0], 'How many door or side windows are broken, shattered or missing in these photos? Count a window as broken if its frame is empty or glass fragments are visible inside the car. Answer only from what you can see in the photos. Reply 0 if none.');
+  assert.equal(confirmQuestion('FRONT_DOOR').split('\n')[0], 'How many front doors are damaged or missing in these photos? Answer only from what you can see. Reply 0 if none.');
+  assert.equal(confirmQuestion('BONNET').split('\n')[0], 'Is the bonnet damaged or missing in any of these photos? Answer only from what you can see in the photos.');
+  for (const [id, label] of [['WINDSCREEN', 'windscreen'], ['REAR_GLASS', 'rear glass'], ['CREW_WINDOW', 'crew window'], ['BODY_SIDE_GLAZING', 'body-side glazing'], ['CAB_REAR_GLASS', 'cab rear glass']]) {
+    assert.equal(confirmQuestion(id).split('\n')[0], `Is the ${label} broken, shattered or missing in any of these photos? Count it as broken if the frame is empty or glass fragments are visible. Answer only from what you can see in the photos.`, id);
+  }
+  // Code-owned plurals: every counted panel (bar SIDE_GLASS's fixed question) has one; no generated "+s" anywhere.
+  const PLURALS = { FRONT_DOOR: 'front doors', REAR_DOOR: 'rear doors', FRONT_WING: 'front wings', REAR_QUARTER: 'rear quarter panels',
+    SILL: 'sills', SIDE_SKIRT: 'side skirts', DOOR_MIRROR: 'door mirrors', HEADLAMP: 'headlamps', REAR_LAMP: 'rear lamps', FOG_LAMP: 'fog lamps' };
+  assert.deepEqual([...COUNT_PANELS].filter(id => id !== 'SIDE_GLASS').sort(), Object.keys(PLURALS).sort());
+  for (const [id, pl] of Object.entries(PLURALS)) {
+    assert.equal(confirmQuestion(id).split('\n')[0], `How many ${pl} are damaged or missing in these photos? Answer only from what you can see. Reply 0 if none.`, id);
+  }
+  for (const id of Object.keys(CONFIRM_ACTION)) assert.doesNotMatch(confirmQuestion(id), /glasss|ss are|\bdamaged in\b/, id);
   assert.deepEqual(parseConfirmOutput('{"count":2,"photos":[5,9]}', 'SIDE_GLASS'), { panelId: 'SIDE_GLASS', count: 2, verdict: 'count', photos: [4, 8] });
   assert.equal(parseConfirmOutput('{"count":9,"photos":[]}', 'FRONT_DOOR').count, 2, 'capped at 2 doors');
   assert.equal(parseConfirmOutput('{"count":"cannot-tell","photos":[]}', 'SIDE_GLASS').count, 0);
