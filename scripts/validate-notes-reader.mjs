@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { installCassette } from './lib/modelCassette.mjs';
 import { readNotes, parseReaderOutput, fallbackRead, buildReaderBody, NOTES_READER_SYSTEM, READER_PANELS } from '../lib/notesReader.mjs';
 import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels,
-  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS } from '../lib/notesConfirm.mjs';
-import { stampCopartNotes, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
+  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS, cornerMinimums } from '../lib/notesConfirm.mjs';
+import { stampCopartNotes, notesConcernLines, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
 import { PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
@@ -274,6 +274,68 @@ test('Part 9: noteMinimum rules, the additions, single-instance unchanged, logge
   assert.deepEqual(logs, ['[NOTES CONFIRM] SIDE_GLASS photos=1 noteMin=2 → costed count 2']);
 });
 
+// ── Part 10 (Vincent, 3 Nov): "ALL WINDOWS" adds side glass; Copart corner codes count doors and wings ──────────────
+test('Part 10 cases 10-18: corner codes count, ALL WINDOWS adds side glass, codes only raise', () => {
+  const c10 = costNote('NSF AND OSF DOORS DAMAGED', ['FRONT_DOOR'], { FRONT_DOOR: 1 });
+  assert.equal(c10.n('FRONT_DOOR'), 2, 'case 10'); assert.equal(c10.n('REAR_DOOR'), 0, 'case 10: no rear code → no rear door');
+  assert.equal(c10.read.lines[0].codePanels, undefined, 'case 10: no rear code → nothing added');
+  const c11 = costNote('OSF OSR DOORS WONT OPEN', ['FRONT_DOOR', 'REAR_DOOR'], { FRONT_DOOR: 1, REAR_DOOR: 1 });
+  assert.deepEqual([c11.n('FRONT_DOOR'), c11.n('REAR_DOOR')], [1, 1], 'case 11');
+  const c12 = costNote('NSF NSR OSF OSR DOORS DAMAGED', ['FRONT_DOOR', 'REAR_DOOR'], { FRONT_DOOR: 1, REAR_DOOR: 1 });
+  assert.deepEqual([c12.n('FRONT_DOOR'), c12.n('REAR_DOOR')], [2, 2], 'case 12');
+  assert.equal(costNote('N/S/F AND O/S/F WINGS DAMAGED', ['FRONT_WING'], { FRONT_WING: 1 }).n('FRONT_WING'), 2, 'case 13');
+  const c14 = costNote('NSR AND OSR WINGS DAMAGED', [], { REAR_QUARTER: 1 });
+  assert.deepEqual(c14.read.lines[0].codePanels, ['REAR_QUARTER'], 'case 14: added by code');
+  assert.equal(c14.n('REAR_QUARTER'), 2, 'case 14'); assert.equal(c14.n('FRONT_WING'), 0);
+  const c15 = costNote('NSF AND OSF DOORS DAMAGED', ['FRONT_DOOR'], { FRONT_DOOR: 0 });
+  assert.equal(c15.n('FRONT_DOOR'), 0, 'case 15: flag stays'); assert.equal(c15.final[0].noteMin, 2);
+  const c16 = costNote('ALL WINDOWS SMASHED', ['WINDSCREEN'], { SIDE_GLASS: 1 }, { yesNo: { WINDSCREEN: true, REAR_GLASS: true } });
+  assert.deepEqual(c16.read.lines[0].codePanels, ['SIDE_GLASS', 'REAR_GLASS'], 'case 16: side glass added by code');
+  assert.deepEqual([c16.n('SIDE_GLASS'), c16.n('WINDSCREEN'), c16.n('REAR_GLASS')], [4, 1, 1], 'case 16');
+  assert.equal(costNote('NSF AND WINDOWS SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 }).n('SIDE_GLASS'), 2, 'case 17');
+  // case 18: the costed COUNT is 1 (codes ignored for a headlamp). ⚠️ No ledger row: HEADLAMP has no PANEL_PRICE_TABLE
+  // entry (headlamps are priced by lamp type elsewhere), so applyConfirmations leaves the flag — pre-existing since
+  // Part 2, flagged to Vincent in the Part 10 report, not changed here.
+  const c18 = costNote('NSF HEADLAMP SMASHED', ['HEADLAMP'], { HEADLAMP: 1 });
+  assert.deepEqual([c18.final[0].count, c18.final[0].noteMin], [1, 1], 'case 18');
+  assert.equal(PANEL_PRICE_TABLE.HEADLAMP, undefined); assert.equal(c18.n('HEADLAMP'), 0);
+  // code forms + raise-only
+  assert.deepEqual([...cornerMinimums('N S F AND O / S / F DOORS')], [['FRONT_DOOR', 2]]);
+  assert.deepEqual([...cornerMinimums('NSF NSF DOORS')], [['FRONT_DOOR', 1]], 'distinct codes only');
+  assert.deepEqual([...cornerMinimums('NSF HEADLAMP')], [], 'other panel words: codes ignored');
+  assert.deepEqual([...cornerMinimums('DOORS DAMAGED')], [], 'no code → nothing');
+  assert.equal(noteMinimum('NSF AND 3 WINDOWS SMASHED', 'SIDE_GLASS'), 3, 'codes never lower a stated number');
+  assert.equal(noteMinimum('NSF NSR OSF WINDOWS', 'SIDE_GLASS'), 3, 'WINDOWS = total distinct codes');
+  assert.equal(noteMinimum('NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE', 'FRONT_DOOR'), 1, 'case 6 unchanged');
+});
+
+// No code-written buyer string carries a side: concern-line endings (the quoted note removed), ledger row names, the
+// checklist lines code writes.
+const SIDE_WORDS = /\b(NSF|OSF|NSR|OSR|N\/S|O\/S|nearside|near side|offside|off side|left|right)\b/i;
+const codeWritten = (l) => l.replace(/"[^"]*"/, '""');
+test('Part 10 guard: no side in any code-written buyer string (corner codes count only)', () => {
+  const cases = [
+    ['NSF AND OSF DOORS DAMAGED', ['FRONT_DOOR'], { FRONT_DOOR: 1 }], ['OSF OSR DOORS WONT OPEN', ['FRONT_DOOR', 'REAR_DOOR'], { FRONT_DOOR: 1, REAR_DOOR: 1 }],
+    ['NSF NSR OSF OSR DOORS DAMAGED', ['FRONT_DOOR', 'REAR_DOOR'], { FRONT_DOOR: 1, REAR_DOOR: 1 }], ['N/S/F AND O/S/F WINGS DAMAGED', ['FRONT_WING'], { FRONT_WING: 1 }],
+    ['NSR AND OSR WINGS DAMAGED', [], { REAR_QUARTER: 1 }], ['ALL WINDOWS SMASHED', ['WINDSCREEN'], { SIDE_GLASS: 1 }],
+    ['NSF AND WINDOWS SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 }], ['NSF HEADLAMP SMASHED', ['HEADLAMP'], { HEADLAMP: 1 }],
+  ];
+  let checked = 0;
+  for (const [line, panels, photo] of cases) {
+    const c = costNote(line, panels, photo, { yesNo: { WINDSCREEN: true, REAR_GLASS: true } });
+    for (const r of c.parts) { assert.doesNotMatch(r.name, SIDE_WORDS, `row name ${r.name}`); checked++; }
+    const charged = new Map(); for (const r of c.parts) charged.set(r.panelId, (charged.get(r.panelId) || 0) + 1);
+    for (const src of ['box', 'paste']) {
+      const a = { 'Red Flags': '', 'WhatsApp Inspection Checklist': '' };
+      stampCopartNotes(a, src === 'box' ? { copartNotes: line } : { rawCopartPaste: `Notes\n${line}` }, { notesRead: c.read, chargedCounts: charged, countPanels: COUNT_PANELS });
+      for (const l of [...notesConcernLines(c.read, src, charged, COUNT_PANELS), ...a['Red Flags'].split('\n'), ...a['WhatsApp Inspection Checklist'].split('\n')].filter(Boolean)) {
+        assert.doesNotMatch(codeWritten(l), SIDE_WORDS, `${src}: ${l}`); checked++;
+      }
+    }
+  }
+  console.log(`Part 10 guard: ${checked} code-written strings checked, none carries a side`);
+});
+
 // ── End to end: runAssessment on AMZ3790, cassette for the recorded calls, stubs for the two new calls ──────────
 for (const line of readFileSync(resolve(ROOT, '.env.local'), 'utf8').split('\n')) {
   if (!line.includes('=') || line.trim().startsWith('#')) continue;
@@ -411,6 +473,14 @@ test('Part 9 end to end (577ecf56 answers): a second side glass replace at the b
   const rf = run577.assessment['Red Flags'];
   console.log(`Part 9 e2e: glass line → ${rf.split('\n').find(l => l.includes('WINDOWS SMASHED'))}`);
   assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front wing × 1, side glass × 2.'));
+  // Part 10: unchanged — doors 1 + 1, wing 1; no side in a code-written line or a notes-confirmed row
+  assert.ok(rf.includes('The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front door × 1, rear door × 1.'));
+  const fin = Object.fromEntries(run577.assessment._notesConfirm.answers.map(x => [x.panelId, x.count]));
+  assert.deepEqual(fin, { FRONT_DOOR: 1, REAR_DOOR: 1, FRONT_WING: 1, SIDE_GLASS: 2 });
+  const codeLines = [...rf.split('\n'), ...run577.assessment['WhatsApp Inspection Checklist'].split('\n')].filter(l => l.includes('The auction notes say:'));
+  assert.ok(codeLines.length >= 4);
+  for (const l of codeLines) assert.doesNotMatch(codeWritten(l), SIDE_WORDS, l);
+  for (const r of run577.assessment._reconciledParts.filter(r => r._notesConfirmed)) assert.doesNotMatch(r.name, SIDE_WORDS, r.name);
 });
 
 test('D5: mechanical concerns are promoted with no figure, no panel, no ledger row', () => {
