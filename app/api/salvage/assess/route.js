@@ -38,7 +38,7 @@ import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
 import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
-import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS } from '@/lib/notesConfirm.mjs';   // batch 242 C
+import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -3755,7 +3755,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // batch 242 A (R2, Vincent 30 Oct) — the notes reader. ONE small Haiku call that sees the notes lines and nothing
     // else, fired here so it runs alongside the per-view reads. It never throws: any failure reads every line as a
     // concern with no panels. Awaited at the notes stamp. No notes → no call.
-    const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, { retry: with529Retry });
+    // Part 9: an "ALL WINDOWS" line also names the windscreen + rear glass (code, lib/notesConfirm.mjs withNoteAdditions).
+    const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, { retry: with529Retry }).then(withNoteAdditions);
     // batch 242 C (ruling 3) — the COUNT questions (multi-instance panels the reader named) always run, so they start as
     // soon as the reader returns, alongside the per-view reads. The yes/no questions wait for the ledger (ruling 5).
     const notesCountAskPromise = notesReadPromise.then(read =>
@@ -5349,7 +5350,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _skipped = _singles.filter(_chargedNow);
       for (const id of _skipped) console.log(`[NOTES CONFIRM] ${id} already charged — question skipped (ruling 5)`);
       const _yesNoAnswers = await askPanels(images, _singles.filter(id => !_chargedNow(id)), { retry: with529Retry });
-      const _answers = [..._countAnswers, ..._yesNoAnswers];
+      // Part 9 (Vincent, 3 Nov): photos confirm WHETHER; the note sets the minimum count (code-read, never a model).
+      const _answers = applyNoteMinimum([..._countAnswers, ..._yesNoAnswers], _nRead);
       const _added = applyConfirmations({ gatedParts, answers: _answers, bandKey, priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow });
       assessment._notesConfirm = { answers: _answers, skipped: _skipped, added: _added.map(r => r.panelId) };
     }

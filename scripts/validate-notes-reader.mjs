@@ -10,7 +10,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installCassette } from './lib/modelCassette.mjs';
 import { readNotes, parseReaderOutput, fallbackRead, buildReaderBody, NOTES_READER_SYSTEM, READER_PANELS } from '../lib/notesReader.mjs';
-import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels } from '../lib/notesConfirm.mjs';
+import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels,
+  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS } from '../lib/notesConfirm.mjs';
 import { stampCopartNotes, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
@@ -213,6 +214,66 @@ test('D8: SIDE_GLASS count 2 → 0 charged adds 2 × replace at the band; 1 char
   assert.equal(p.length, 0);
 });
 
+// ── Part 9 (Vincent, 3 Nov: "notes"): the note sets the minimum count, the photos confirm ─────────────────────────
+// Runs one note line through code end to end at the band: reader read → code additions → note minimum → ledger add.
+function costNote(line, panels, photo, { yesNo = {} } = {}) {
+  const read = withNoteAdditions({ fallback: false, lines: [{ line, kind: 'concern', panels }] });
+  const asked = read.lines[0].panels;
+  const answers = asked.map(id => COUNT_PANELS.has(id)
+    ? { panelId: id, count: photo[id] ?? 0, verdict: 'count', photos: [] }
+    : { panelId: id, count: yesNo[id] ? 1 : 0, verdict: yesNo[id] ? 'yes' : 'no', photos: [] });
+  const final = applyNoteMinimum(answers, read, { log: () => {} });
+  const parts = [];
+  applyConfirmations({ gatedParts: parts, answers: final, bandKey: 'Upper-exec', priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow, log: () => {} });
+  const n = (id) => parts.filter(r => r.panelId === id).length;
+  return { read, final, parts, n };
+}
+test('Part 9 cases 1-9: note minimum × photo count → costed count', () => {
+  const W = 'NSF AND WINDOWS SMASHED';
+  assert.equal(costNote(W, ['SIDE_GLASS'], { SIDE_GLASS: 1 }).n('SIDE_GLASS'), 2, 'case 1');
+  const c2 = costNote(W, ['SIDE_GLASS'], { SIDE_GLASS: 0 });
+  assert.equal(c2.n('SIDE_GLASS'), 0, 'case 2'); assert.equal(c2.final[0].noteMin, 2); assert.equal(c2.final[0].count, 0);
+  assert.equal(costNote(W, ['SIDE_GLASS'], { SIDE_GLASS: 3 }).n('SIDE_GLASS'), 3, 'case 3');
+  assert.equal(costNote('WINDOW SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 }).n('SIDE_GLASS'), 1, 'case 4');
+  for (const l of ['3 WINDOWS SMASHED', 'THREE WINDOWS SMASHED']) assert.equal(costNote(l, ['SIDE_GLASS'], { SIDE_GLASS: 1 }).n('SIDE_GLASS'), 3, `case 5 ${l}`);
+  const c6 = costNote('NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE', ['FRONT_DOOR', 'REAR_DOOR'], { FRONT_DOOR: 1, REAR_DOOR: 1 });
+  assert.deepEqual([c6.n('FRONT_DOOR'), c6.n('REAR_DOOR')], [1, 1], 'case 6: "DOORS" is shared, not a plural of either');
+  const c7 = costNote(W, ['FRONT_WING', 'SIDE_GLASS'], { FRONT_WING: 1, SIDE_GLASS: 1 });
+  assert.equal(c7.n('FRONT_WING'), 1, 'case 7: WINDOWS is not the wing keyword'); assert.equal(c7.n('SIDE_GLASS'), 2);
+  const c8 = costNote('5 WINDOWS SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 });
+  assert.equal(c8.n('SIDE_GLASS'), 4, 'case 8: cap'); assert.equal(c8.final[0].noteMin, 5);
+  const c9 = costNote('ALL WINDOWS SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 }, { yesNo: { WINDSCREEN: true, REAR_GLASS: false } });
+  assert.deepEqual(c9.read.lines[0].panels, ['SIDE_GLASS', 'WINDSCREEN', 'REAR_GLASS'], 'case 9: code adds the screens');
+  assert.deepEqual(c9.read.lines[0].codePanels, ['WINDSCREEN', 'REAR_GLASS']);
+  assert.deepEqual([c9.n('SIDE_GLASS'), c9.n('WINDSCREEN'), c9.n('REAR_GLASS')], [4, 1, 0], 'case 9');
+  for (const r of c9.parts) assert.equal(r.action, 'replace');
+});
+test('Part 9: noteMinimum rules, the additions, single-instance unchanged, logged', () => {
+  assert.equal(noteMinimum('NSF AND WINDOWS SMASHED', 'FRONT_WING'), 1);
+  assert.equal(noteMinimum('NSF AND OSF WINGS DAMAGED', 'FRONT_WING'), 2);
+  assert.equal(noteMinimum('2 FRONT DOORS DAMAGED', 'FRONT_DOOR'), 2);
+  assert.equal(noteMinimum('BOTH REAR DOORS DAMAGED', 'REAR_DOOR'), 2);
+  assert.equal(noteMinimum('NSF AND NSR DOORS WONT OPEN', 'REAR_DOOR'), 1);
+  assert.equal(noteMinimum('TWO SIDE WINDOWS BROKEN', 'SIDE_GLASS'), 2);
+  assert.equal(noteMinimum('ALL WINDOWS SMASHED', 'SIDE_GLASS'), 4);
+  assert.equal(noteMinimum('WINDSCREEN CRACKED', 'SIDE_GLASS'), 1, 'WINDSCREEN is not WINDOW');
+  assert.equal(noteMinimum('ANYTHING', 'BONNET'), 1, 'no keyword table → 1');
+  assert.deepEqual(Object.keys(NOTE_KEYWORDS).sort(), [...COUNT_PANELS].sort(), 'one keyword row per counted panel');
+  // no additions without "ALL WINDOWS", on spec lines, or on a fallback read
+  assert.equal(withNoteAdditions({ fallback: false, lines: [{ line: 'WINDOWS SMASHED', kind: 'concern', panels: ['SIDE_GLASS'] }] }).lines[0].codePanels, undefined);
+  assert.equal(withNoteAdditions({ fallback: false, lines: [{ line: 'ALL WINDOWS TINTED', kind: 'spec', panels: [] }] }).lines[0].panels.length, 0);
+  const fb = fallbackRead(['ALL WINDOWS SMASHED'], 'x');
+  assert.deepEqual(withNoteAdditions(fb), fb);
+  // already named by the reader → not added twice
+  assert.deepEqual(withNoteAdditions({ fallback: false, lines: [{ line: 'ALL WINDOWS SMASHED', kind: 'concern', panels: ['SIDE_GLASS', 'WINDSCREEN'] }] }).lines[0].codePanels, ['REAR_GLASS']);
+  const logs = [];
+  const out = applyNoteMinimum([{ panelId: 'SIDE_GLASS', count: 1, photos: [8] }, { panelId: 'BONNET', count: 1, verdict: 'yes', photos: [] }],
+    { lines: [{ line: 'NSF AND WINDOWS SMASHED', kind: 'concern', panels: ['SIDE_GLASS'] }] }, { log: (m) => logs.push(m) });
+  assert.deepEqual(out[0], { panelId: 'SIDE_GLASS', count: 2, photos: [8], photoCount: 1, noteMin: 2 });
+  assert.deepEqual(out[1], { panelId: 'BONNET', count: 1, verdict: 'yes', photos: [] }, 'single-instance unchanged');
+  assert.deepEqual(logs, ['[NOTES CONFIRM] SIDE_GLASS photos=1 noteMin=2 → costed count 2']);
+});
+
 // ── End to end: runAssessment on AMZ3790, cassette for the recorded calls, stubs for the two new calls ──────────
 for (const line of readFileSync(resolve(ROOT, '.env.local'), 'utf8').split('\n')) {
   if (!line.includes('=') || line.trim().startsWith('#')) continue;
@@ -318,6 +379,38 @@ test('D8 end to end: 2 × SIDE_GLASS replace at the band survive to the final le
   assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: side glass × 2.'));
   assert.ok(rf.includes('The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front door × 1.'));
   assert.ok(rf.includes('The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: bonnet.'));
+});
+
+// Part 9 end to end on the stored 577ecf56 answers (SIDE_GLASS 1, FRONT_WING 1, FRONT_DOOR 1, REAR_DOOR 1). The
+// reference run is identical except its glass line says "WINDOW" (note minimum 1), so the only difference is the note.
+const READ_577 = { lines: [
+  { n: 1, kind: 'spec', panels: [] }, { n: 2, kind: 'spec', panels: [] }, { n: 3, kind: 'spec', panels: [] },
+  { n: 4, kind: 'concern', panels: ['FRONT_DOOR', 'REAR_DOOR'] }, { n: 5, kind: 'concern', panels: ['FRONT_WING', 'SIDE_GLASS'] },
+] };
+const ANS_577 = { SIDE_GLASS: { count: 1, photos: [9] }, FRONT_WING: { count: 1, photos: [1, 10] }, FRONT_DOOR: { count: 1, photos: [1, 9] },
+  REAR_DOOR: { count: 1, photos: [1, 4, 9] } };
+const run577 = await runLot({ notes: LOT_LINES.join('\n'), readerReply: READ_577, confirm: ANS_577 });
+const ref577 = await runLot({ notes: [...LOT_LINES.slice(0, 4), 'NSF AND WINDOW SMASHED'].join('\n'), readerReply: READ_577, confirm: ANS_577 });
+test('Part 9 end to end (577ecf56 answers): a second side glass replace at the band; the glass line says × 2; nothing else moves', () => {
+  for (const r of [run577, ref577]) assert.equal(r.stats.missed, 0);
+  const band = run577.assessment._priceBandKey;
+  const e = PANEL_PRICE_TABLE.SIDE_GLASS[band];
+  const glass = (a) => a._reconciledParts.filter(r => r.panelId === 'SIDE_GLASS');
+  console.log(`Part 9 e2e: band=${band} SIDE_GLASS rows ref=${JSON.stringify(glass(ref577.assessment).map(r => [r.action, r.used, r.oem]))} run=${JSON.stringify(glass(run577.assessment).map(r => [r.action, r.used, r.oem]))}`);
+  assert.equal(glass(ref577.assessment).length, 1);
+  assert.equal(glass(run577.assessment).length, 2);
+  for (const r of glass(run577.assessment)) { assert.deepEqual([r.action, r.used, r.oem], ['replace', e.used, e.oem]); assert.ok(isChargedRow(r)); }
+  const others = (a) => JSON.stringify(a._reconciledParts.filter(r => r.panelId && r.panelId !== 'SIDE_GLASS'));
+  assert.equal(others(run577.assessment), others(ref577.assessment), 'no other panel row moves');
+  const labourRow = (x) => JSON.stringify(x._reconciledParts.filter(r => !r.panelId));
+  console.log(`Part 9 e2e: labour/no-panel rows ref=${labourRow(ref577.assessment)} run=${labourRow(run577.assessment)} parts_sum ref=${ref577.assessment.parts_sum} run=${run577.assessment.parts_sum}`);
+  assert.equal(labourRow(run577.assessment), labourRow(ref577.assessment), 'labour row unchanged');
+  const sg = run577.assessment._notesConfirm.answers.find(a => a.panelId === 'SIDE_GLASS');
+  assert.deepEqual([sg.photoCount, sg.noteMin, sg.count], [1, 2, 2]);
+  assert.ok(run577.logs.includes('[NOTES CONFIRM] SIDE_GLASS photos=1 noteMin=2 → costed count 2'));
+  const rf = run577.assessment['Red Flags'];
+  console.log(`Part 9 e2e: glass line → ${rf.split('\n').find(l => l.includes('WINDOWS SMASHED'))}`);
+  assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front wing × 1, side glass × 2.'));
 });
 
 test('D5: mechanical concerns are promoted with no figure, no panel, no ledger row', () => {
