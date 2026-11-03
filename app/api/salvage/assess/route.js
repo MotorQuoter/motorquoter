@@ -38,7 +38,7 @@ import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
 import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
-import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
+import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -6800,10 +6800,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // final ledger, so a line names a panel as costed only when it is charged.
       const _notesRead = await notesReadPromise;
       assessment._notesRead = _notesRead;
-      const _chargedCounts = new Map();
-      for (const r of assessment._reconciledParts || []) {
-        if (r?.panelId && isChargedRow(r)) _chargedCounts.set(r.panelId, (_chargedCounts.get(r.panelId) || 0) + 1);
-      }
+      // Part 12: counted by lib/notesConfirm.mjs chargedCounts — the confirm step's own rule, so a headlamp the engine
+      // inserted (no panelId) is counted on the line as it is in the money.
+      const _chargedCounts = chargedCounts(assessment._reconciledParts, isChargedRow);
       const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null,
         notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS });
       console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} concernLines=${_notes.concernLines.length}${_notesRead.fallback ? ' (reader fallback)' : ''} — notes only in the reader's prompt; mechanical never costed`);

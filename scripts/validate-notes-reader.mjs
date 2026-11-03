@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { installCassette } from './lib/modelCassette.mjs';
 import { readNotes, parseReaderOutput, fallbackRead, buildReaderBody, NOTES_READER_SYSTEM, READER_PANELS } from '../lib/notesReader.mjs';
 import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels,
-  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS, cornerMinimums } from '../lib/notesConfirm.mjs';
+  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS, cornerMinimums, chargedCounts, countedPanelOf } from '../lib/notesConfirm.mjs';
 import { stampCopartNotes, notesConcernLines, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
@@ -344,18 +344,25 @@ for (const line of readFileSync(resolve(ROOT, '.env.local'), 'utf8').split('\n')
 delete process.env.SUPABASE_SERVICE_ROLE_KEY; delete process.env.NEXT_PUBLIC_SUPABASE_URL;   // nothing reaches the DB
 const { runAssessment } = await import('@/app/api/salvage/assess/route.js');
 const { __setOneAutoReplayProvider } = await import('@/lib/oneautoCache.js');
-const DIR = resolve(ROOT, 'fixtures', 'AMZ3790');
-const FIX = JSON.parse(readFileSync(resolve(DIR, 'fixture.json'), 'utf8'));
-const IMAGES = readdirSync(resolve(DIR, 'images')).filter(f => /\.(jpe?g|png)$/i.test(f)).sort()
-  .map(f => `data:image/jpeg;base64,${readFileSync(resolve(DIR, 'images', f)).toString('base64')}`);
-const paid = FIX.paidFixtures || {};
-const map = { BREGO_GB: paid.bregoValuation, BREGO_ROI: paid.bregoValuation, CAZANA_GB: paid.cazanaValuation ?? null,
-  SALVAGEGUIDE: paid.salvageGuide, SALVAGEHISTORY: paid.salvageHistory };
-__setOneAutoReplayProvider((t) => map[t] ?? null);
+// A fixture lot: cassette, images, vehicle details and the paid-stack fixture seam (Part 12: any lot, default AMZ3790).
+function loadLot(code) {
+  const dir = resolve(ROOT, 'fixtures', code);
+  const fix = JSON.parse(readFileSync(resolve(dir, 'fixture.json'), 'utf8'));
+  const images = readdirSync(resolve(dir, 'images')).filter(f => /\.(jpe?g|png)$/i.test(f)).sort()
+    .map(f => `data:image/jpeg;base64,${readFileSync(resolve(dir, 'images', f)).toString('base64')}`);
+  const paid = fix.paidFixtures || {};
+  const map = { BREGO_GB: paid.bregoValuation, BREGO_ROI: paid.bregoValuation, CAZANA_GB: paid.cazanaValuation ?? null,
+    SALVAGEGUIDE: paid.salvageGuide, SALVAGEHISTORY: paid.salvageHistory };
+  return { dir, fix, images, map };
+}
+const LOTS = { AMZ3790: loadLot('AMZ3790') };
+const { dir: DIR, fix: FIX, images: IMAGES } = LOTS.AMZ3790;
 
 // readerReply: object (JSON answer) | 'fail' (HTTP 500). confirmCounts: panelId → answer object.
-async function runLot({ notes, readerReply, confirm = {} }) {
-  const cassette = installCassette({ mode: 'replay', cassettePath: resolve(DIR, 'model-cassette.json'), log: () => {} });
+async function runLot({ notes, readerReply, confirm = {}, lot = 'AMZ3790' }) {
+  const L = LOTS[lot] || (LOTS[lot] = loadLot(lot));
+  __setOneAutoReplayProvider((t) => L.map[t] ?? null);
+  const cassette = installCassette({ mode: 'replay', cassettePath: resolve(L.dir, 'model-cassette.json'), log: () => {} });
   const viaCassette = globalThis.fetch;
   const bodies = [];
   globalThis.fetch = async (input, init = {}) => {
@@ -379,8 +386,8 @@ async function runLot({ notes, readerReply, confirm = {} }) {
   console.log = (...a) => logs.push(a.join(' ')); console.warn = (...a) => logs.push(a.join(' '));
   let assessment;
   try {
-    ({ assessment } = await runAssessment({ images: IMAGES, vd: { ...FIX.vehicleDetails, copartNotes: notes },
-      market: FIX.market || 'GB', roiTier: FIX.vehicleDetails?.roiTier || 'roi_free' }));
+    ({ assessment } = await runAssessment({ images: L.images, vd: { ...L.fix.vehicleDetails, copartNotes: notes },
+      market: L.fix.market || 'GB', roiTier: L.fix.vehicleDetails?.roiTier || 'roi_free' }));
   } finally {
     console.log = origLog; console.warn = origWarn;
     globalThis.fetch = viaCassette;
@@ -542,6 +549,57 @@ test('Part 11 end to end: the route prices a confirmed headlamp at this lot\'s l
   if (added.some(r => r._orphanAssumedDisclosure)) assert.match(disclosed, /Lamp type could not be confirmed/);
   console.log(`Part 11 e2e: engine lamp panelIds=${JSON.stringify(engine.map(r => r.panelId ?? null))} line → ${(a['Red Flags'] || '').split('\n').find(l => l.includes('HEADLAMPS SMASHED'))}`);
   assert.ok((a['Red Flags'] || '').includes('The auction notes say: "BOTH HEADLAMPS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: headlamp × 2.'));
+});
+
+// Part 12 (Vincent, 3 Nov): the concern line counts headlamps as the money does. The required case, built from the
+// engine's own pieces: a tier-2 engine-INSERTED headlamp (reconcileParts, no model lamp line → no panelId) + the note
+// "BOTH HEADLAMPS SMASHED" with photos 2 → applyConfirmations adds one, and the stamp — fed by chargedCounts, exactly
+// as route.js builds `_chargedCounts` — says × 2. (No fixture lot at HEAD ends with an inserted lamp lacking a panelId:
+// HV25ODX, SD75YGC, AMZ3790 all carry panelId HEADLAMP on their final lamp rows — see the report.)
+test('Part 12: engine-INSERTED headlamp (no panelId) + 1 confirmed → the concern line says headlamp × 2', () => {
+  const inserted = engineLamp(HEADLAMP_BANDS.led);
+  assert.equal(inserted.panelId, undefined); assert.equal(inserted._inserted, true);
+  const line = 'BOTH HEADLAMPS SMASHED';
+  const read = withNoteAdditions({ fallback: false, lines: [{ line, kind: 'concern', panels: ['HEADLAMP'] }] });
+  const answers = applyNoteMinimum([{ panelId: 'HEADLAMP', count: 2, verdict: 'count', photos: [0] }], read, { log: () => {} });
+  const ledger = [{ ...inserted }];
+  const added = applyConfirmations({ gatedParts: ledger, answers, bandKey: 'Upper-exec', priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow,
+    lamp: { type: 'led', band: HEADLAMP_BANDS.led, assumed: false, tier2: true }, log: () => {} });
+  assert.equal(added.length, 1, 'one row added (2 − 1 already charged)');
+  const counts = chargedCounts(ledger, isChargedRow);
+  assert.equal(counts.get('HEADLAMP'), 2);
+  const a = { 'Red Flags': '- model line', 'WhatsApp Inspection Checklist': '1. model item' };
+  stampCopartNotes(a, { copartNotes: line }, { notesRead: read, chargedCounts: counts, countPanels: COUNT_PANELS });
+  const want = 'The auction notes say: "BOTH HEADLAMPS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: headlamp × 2.';
+  console.log(`Part 12: line → ${a['Red Flags'].split('\n')[0]}`);
+  assert.ok(a['Red Flags'].includes(want)); assert.ok(a['WhatsApp Inspection Checklist'].includes(want));
+  // what the stamp said before Part 12 (panelId-only count) — the defect this fixes
+  const old = new Map(); for (const r of ledger) if (r?.panelId && isChargedRow(r)) old.set(r.panelId, (old.get(r.panelId) || 0) + 1);
+  const before = { 'Red Flags': '' };
+  stampCopartNotes(before, { copartNotes: line }, { notesRead: read, chargedCounts: old, countPanels: COUNT_PANELS });
+  console.log(`Part 12: before the fix the line said → ${before['Red Flags']}`);
+  assert.ok(before['Red Flags'].includes('Costed in the repair breakdown: headlamp × 1.'));
+  // one owner: an inserted lamp counts as HEADLAMP, a panelId row by its panelId, each row once
+  assert.equal(countedPanelOf({ name: 'Headlamp', _lampMandated: true }), 'HEADLAMP');
+  assert.equal(countedPanelOf({ panelId: 'FOG_LAMP', name: 'Fog lamp' }), 'FOG_LAMP');
+  assert.equal(countedPanelOf({ name: 'Labour & paint' }), null);
+});
+
+// …and end to end on a real tier-2 lot through runAssessment (EA17HDN, cassette, £0). At HEAD its engine headlamp is
+// A1-shelved (iv≠true → £0 inspection allowance), so the confirmed note adds BOTH and the line says × 2.
+const insRun = await runLot({ lot: 'EA17HDN', notes: ['NUMBER OF KEYS 1', 'BOTH HEADLAMPS SMASHED'].join('\n'),
+  readerReply: { lines: [{ n: 1, kind: 'spec', panels: [] }, { n: 2, kind: 'concern', panels: ['HEADLAMP'] }] },
+  confirm: { HEADLAMP: { count: 2, photos: [1] } } });
+test('Part 12 end to end (EA17HDN): the stamp counts what the money counts — headlamp × 2', () => {
+  assert.equal(insRun.stats.missed, 0, 'EA17HDN replays at £0');
+  const a = insRun.assessment;
+  const lamps = a._reconciledParts.filter(r => r._lampMandated && isChargedRow(r));
+  console.log(`Part 12 e2e (EA17HDN): lamps in money=${JSON.stringify(lamps.map(r => ({ panelId: r.panelId ?? null, notes: !!r._notesConfirmed, used: r.used })))}`);
+  console.log(`Part 12 e2e (EA17HDN): line → ${(a['Red Flags'] || '').split('\n').find(l => l.includes('HEADLAMPS SMASHED'))}`);
+  assert.equal(lamps.length, 2);
+  assert.equal(chargedCounts(a._reconciledParts, isChargedRow).get('HEADLAMP'), lamps.length);
+  assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
+  assert.ok(insRun.logs.some(l => l.startsWith('[LAMP] tier-2 assumed-type disclosure flag emitted')), 'Part 11: the assumed-type disclosure follows the added lamp');
 });
 
 // Part 9 end to end on the stored 577ecf56 answers (SIDE_GLASS 1, FRONT_WING 1, FRONT_DOOR 1, REAR_DOOR 1). The
