@@ -5207,7 +5207,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // so the orphan band now follows the same ruled precedence as the tier-2 band: photograph, then spec, then
     // the LED default. Single owner of the resolution: resolveLampBand (shared with computeLampResult).
     const _specLampType = deriveLampType(enrichedVd);
-    const { bandValue: specLampBand, lampTypeAssumed: specLampAssumed, lampTypeSource: _orphanTypeSource } = resolveLampBand(_specLampType, photoType);
+    const { resolvedType: _specLampResolvedType, bandValue: specLampBand, lampTypeAssumed: specLampAssumed, lampTypeSource: _orphanTypeSource } = resolveLampBand(_specLampType, photoType);
     console.log(`[LAMP][SPEC-BAND] type=${_specLampType || 'indeterminate'} photo=${photoType ?? 'none'} → source=${_orphanTypeSource} band=£${specLampBand} assumed=${specLampAssumed}`);
 
     const { parts: reconciledParts, allowanceParts } = reconcileParts(rawParts, lampResult, coreObs.costedParts, grilleAllowance, bandKey, specLampBand, specLampAssumed, HEADLAMP_BANDS[HEADLAMP_BAND_DEFAULT]);
@@ -5225,27 +5225,32 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // follows the assumption, so emit the assumed-LED inspection flag here wherever such a row survives
     // the gate. computeLampResult carries the same disclosure as prose on the tier-2 assumed path; the
     // orphan has no prose surface, so it gets the flag instead. Single-owner wording: LAMP_ASSUMED_DISCLOSURE.
-    for (const gp of gatedParts) {
-      if (!gp._orphanAssumedDisclosure) continue;
-      if (coreObs.flaggedParts.some(f => normName(f.partName) === normName(gp.name) && f._orphanLampDisclosure)) continue;
-      coreObs.flaggedParts.push({
-        partName: gp.name, zone: 'front', weight: 'medium',
-        reason: LAMP_ASSUMED_DISCLOSURE, _orphanLampDisclosure: true, _gateGenerated: true,
-      });
-      console.log(`[LAMP ORPHAN] "${gp.name}" assumed-LED disclosure flag emitted`);
-    }
+    // batch 242 Part 11: a function so the notes-confirm step (below) runs the SAME disclosure for a headlamp it adds.
+    const _emitOrphanLampDisclosure = () => {
+      for (const gp of gatedParts) {
+        if (!gp._orphanAssumedDisclosure) continue;
+        if (coreObs.flaggedParts.some(f => normName(f.partName) === normName(gp.name) && f._orphanLampDisclosure)) continue;
+        coreObs.flaggedParts.push({
+          partName: gp.name, zone: 'front', weight: 'medium',
+          reason: LAMP_ASSUMED_DISCLOSURE, _orphanLampDisclosure: true, _gateGenerated: true,
+        });
+        console.log(`[LAMP ORPHAN] "${gp.name}" assumed-LED disclosure flag emitted`);
+      }
+    };
+    _emitOrphanLampDisclosure();
     // batch 112 task 2 (Vincent, 11 Sep) — the SAME disclosure on the tier-2 path. On a tier-2 lot with an
     // indeterminate spec the buyer is charged the higher LED band (2 × on a pair), and since 0724bfd (2 Jun)
     // the only sentence saying the type was ASSUMED lived in _lampResult.verdictLine, which no surface reads.
     // Follows the orphan mechanism above rather than reviving the dead verdictLine → page/PDF chain; one
     // flag per lot, raised only when a lamp is actually in the money. Single owner: LAMP_ASSUMED_DISCLOSURE.
-    {
+    const _emitTier2LampDisclosure = () => {
       const _t2Disclosure = tier2LampDisclosureFlag(lampResult, gatedParts, coreObs.flaggedParts, LAMP_ASSUMED_DISCLOSURE);
       if (_t2Disclosure) {
         coreObs.flaggedParts.push(_t2Disclosure);
         console.log(`[LAMP] tier-2 assumed-type disclosure flag emitted (type=${lampResult.lampType}, band £${lampResult.lampAllowance})`);
       }
-    }
+    };
+    _emitTier2LampDisclosure();
     // batch 114 task 2 — the struck-side headlamp ask goes back into the WhatsApp checklist. batch 115: on TIER 2
     // ALONE — costed or shelved (A1), the lamp gets the ask. lib/parts.mjs owns the rule.
     {
@@ -5352,7 +5357,15 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _yesNoAnswers = await askPanels(images, _singles.filter(id => !_chargedNow(id)), { retry: with529Retry });
       // Part 9 (Vincent, 3 Nov): photos confirm WHETHER; the note sets the minimum count (code-read, never a model).
       const _answers = applyNoteMinimum([..._countAnswers, ..._yesNoAnswers], _nRead);
-      const _added = applyConfirmations({ gatedParts, answers: _answers, bandKey, priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow });
+      // Part 11: a confirmed headlamp is priced from the lamp band THIS lot's engine headlamp rows use — the tier-2 result
+      // when the lamp machinery fired (reconcileParts prices those rows from it), else the request-scope spec band (the
+      // orphan path). Already resolved above; not re-resolved here. The figures live in lib/lampBands.mjs.
+      const _lamp = (lampResult?.tier2Fired && lampResult.lampAllowance)
+        ? { type: lampResult.lampType, band: lampResult.lampAllowance, assumed: lampResult.lampTypeAssumed === true, tier2: true }
+        : { type: _specLampResolvedType, band: specLampBand, assumed: specLampAssumed === true, tier2: false };
+      const _added = applyConfirmations({ gatedParts, answers: _answers, bandKey, priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow, lamp: _lamp });
+      // …and the same "type assumed" disclosure an engine headlamp gets (both steps are idempotent).
+      if (_added.some(r => r._lampMandated)) { _emitOrphanLampDisclosure(); _emitTier2LampDisclosure(); }
       assessment._notesConfirm = { answers: _answers, skipped: _skipped, added: _added.map(r => r.panelId) };
     }
 

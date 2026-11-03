@@ -293,9 +293,8 @@ test('Part 10 cases 10-18: corner codes count, ALL WINDOWS adds side glass, code
   assert.deepEqual(c16.read.lines[0].codePanels, ['SIDE_GLASS', 'REAR_GLASS'], 'case 16: side glass added by code');
   assert.deepEqual([c16.n('SIDE_GLASS'), c16.n('WINDSCREEN'), c16.n('REAR_GLASS')], [4, 1, 1], 'case 16');
   assert.equal(costNote('NSF AND WINDOWS SMASHED', ['SIDE_GLASS'], { SIDE_GLASS: 1 }).n('SIDE_GLASS'), 2, 'case 17');
-  // case 18: the costed COUNT is 1 (codes ignored for a headlamp). ⚠️ No ledger row: HEADLAMP has no PANEL_PRICE_TABLE
-  // entry (headlamps are priced by lamp type elsewhere), so applyConfirmations leaves the flag — pre-existing since
-  // Part 2, flagged to Vincent in the Part 10 report, not changed here.
+  // case 18: the costed COUNT is 1 (codes ignored for a headlamp). The money is Part 11's: a headlamp is priced from the
+  // lot's resolved lamp band (`lamp`), which this helper does not pass — so no row here; see Part 11 cases 19-23.
   const c18 = costNote('NSF HEADLAMP SMASHED', ['HEADLAMP'], { HEADLAMP: 1 });
   assert.deepEqual([c18.final[0].count, c18.final[0].noteMin], [1, 1], 'case 18');
   assert.equal(PANEL_PRICE_TABLE.HEADLAMP, undefined); assert.equal(c18.n('HEADLAMP'), 0);
@@ -441,6 +440,108 @@ test('D8 end to end: 2 × SIDE_GLASS replace at the band survive to the final le
   assert.ok(rf.includes('The auction notes say: "NSF AND WINDOWS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: side glass × 2.'));
   assert.ok(rf.includes('The auction notes say: "NSF AND NSR DOORS WONT OPEN DUE TO DAMAGE". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: front door × 1.'));
   assert.ok(rf.includes('The auction notes say: "BONNET DAMAGED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: bonnet.'));
+});
+
+// ── Part 11 (Vincent, 3 Nov: "fix first"): a confirmed headlamp is costed through the lot's lamp band ─────────────
+const { resolveLampBand } = await import('@/app/api/salvage/assess/route.js');
+const { reconcileParts } = await import('@/lib/parts.mjs');
+const { HEADLAMP_BANDS } = await import('@/lib/lampBands.mjs');
+const { applyEdits, ledgerHash } = await import('@/lib/ledgerEdits.mjs');
+// The lamp the route passes in: the request-scope resolution (orphan path), exactly as route.js builds it.
+const lampFrom = (spec, photo) => { const r = resolveLampBand(spec, photo); return { type: r.resolvedType, band: r.bandValue, assumed: r.lampTypeAssumed, tier2: false }; };
+function confirmLamp(line, photoCount, lamp, engineRows = []) {
+  const read = withNoteAdditions({ fallback: false, lines: [{ line, kind: 'concern', panels: ['HEADLAMP'] }] });
+  const final = applyNoteMinimum([{ panelId: 'HEADLAMP', count: photoCount, verdict: 'count', photos: [] }], read, { log: () => {} });
+  const parts = engineRows.map(r => ({ ...r }));
+  const logs = [];
+  const added = applyConfirmations({ gatedParts: parts, answers: final, bandKey: 'Upper-exec', priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow, lamp, log: (m) => logs.push(m) });
+  return { final, parts, added, logs };
+}
+// An engine-made headlamp row, from reconcileParts itself (tier-2 insert) — the shape the confirmed row must match.
+const engineLamp = (band) => reconcileParts([], { tier2Fired: true, lampAllowance: band, lampCount: 1 }, [], 0, null).parts.find(r => r._lampMandated);
+const SHAPE = ['name', 'action', 'oem', 'used', '_inserted', '_lampMandated', '_band', '_modelLampCost'];
+const shapeOf = (r) => Object.fromEntries(SHAPE.map(k => [k, r[k]]));
+
+test('Part 11 cases 19-23: a confirmed headlamp is costed at the lot\'s lamp band, engine-row shape, repriced by the buyer\'s lamp edit', () => {
+  // 19 — photo resolves halogen, nothing charged, photos yes → 1 row at the halogen band, same shape as an engine row
+  const halo = lampFrom(null, 'halogen');
+  assert.deepEqual([halo.type, halo.band, halo.assumed], ['halogen', HEADLAMP_BANDS.halogen, false]);
+  const c19 = confirmLamp('NSF HEADLAMP SMASHED', 1, halo);
+  assert.equal(c19.added.length, 1, 'case 19');
+  const eng = engineLamp(HEADLAMP_BANDS.halogen);
+  assert.ok(eng, 'reconcileParts made an engine headlamp row');
+  assert.deepEqual(shapeOf(c19.added[0]), shapeOf(eng), 'case 19: same shape as an engine headlamp row');
+  assert.equal(c19.added[0].panelId, 'HEADLAMP'); assert.equal(c19.added[0]._notesConfirmed, true);
+  assert.equal(c19.added[0]._orphanAssumedDisclosure, undefined, 'type not assumed');
+  assert.ok(isChargedRow(c19.added[0]));
+  console.log(`Part 11 c19: row=${JSON.stringify(c19.added[0])} engine=${JSON.stringify(eng)}`);
+
+  // 20 — unresolved → LED default, assumed; plural note → noteMin 2 → 2 rows, assumed marker as on an engine orphan row
+  const unres = lampFrom(null, null);
+  assert.deepEqual([unres.type, unres.band, unres.assumed], ['led', HEADLAMP_BANDS.led, true]);
+  const c20 = confirmLamp('HEADLAMPS SMASHED', 1, unres);
+  assert.equal(c20.added.length, 2, 'case 20'); assert.equal(c20.final[0].noteMin, 2);
+  const orphan = reconcileParts([{ name: 'Headlamp', action: 'replace', used: 999 }], null, [], 0, null, unres.band, true, HEADLAMP_BANDS.led).parts.find(r => r._lampMandated);
+  for (const r of c20.added) {
+    assert.deepEqual([r.used, r._band, r._lampMandated], [HEADLAMP_BANDS.led, HEADLAMP_BANDS.led, true]);
+    assert.equal(r._orphanAssumedDisclosure, true, 'case 20: the same "type assumed" marker the engine orphan row carries');
+  }
+  assert.equal(orphan._orphanAssumedDisclosure, true, 'engine orphan row carries it too');
+  // on tier 2 the engine discloses from lampResult, not the row — the confirmed row follows the same split
+  assert.equal(confirmLamp('HEADLAMP SMASHED', 1, { ...unres, tier2: true }).added[0]._orphanAssumedDisclosure, undefined);
+
+  // 21 — hid, one engine headlamp already charged (an inserted row, no panelId), photos 1, plural note → noteMin 2 → add 1
+  const hid = lampFrom(null, 'hid');
+  const c21 = confirmLamp('NSF AND OSF HEADLAMPS SMASHED', 1, hid, [engineLamp(HEADLAMP_BANDS.hid)]);
+  assert.equal(c21.final[0].noteMin, 2); assert.equal(c21.final[0].count, 2);
+  assert.equal(c21.added.length, 1, 'case 21: cost the difference (2 − 1)');
+  assert.equal(c21.added[0].used, HEADLAMP_BANDS.hid);
+  assert.equal(c21.parts.filter(r => r._lampMandated).length, 2);
+  // the engine row has no panelId — a panelId-only count would have added 2 (double charge)
+  assert.equal(engineLamp(HEADLAMP_BANDS.hid).panelId, undefined);
+
+  // 22 — photos say no → nothing, flag stays
+  const c22 = confirmLamp('HEADLAMP SMASHED', 0, halo);
+  assert.equal(c22.added.length, 0, 'case 22'); assert.equal(c22.parts.length, 0);
+
+  // 23 — case 19's ledger, then the buyer corrects the lamp type to LED → the confirmed row reprices like an engine row
+  const ledger = [...c19.parts, eng];
+  const sum = ledger.reduce((t, r) => t + (r.used ?? r.oem ?? 0), 0);
+  const ed = applyEdits({ _reconciledParts: ledger, _partsReconciliation: { parts_sum: sum } },
+    { stamp: ledgerHash(ledger), strikes: [], adds: [], lampType: 'led' });
+  assert.equal(ed.stampMismatch, false);
+  const notesRow = ed.rows.find(r => r._notesConfirmed);
+  const engRow = ed.rows.find(r => r._lampMandated && !r._notesConfirmed);
+  assert.equal(notesRow.used, HEADLAMP_BANDS.led, 'case 23: repriced to the led band');
+  assert.deepEqual(notesRow._lampTypeCorrected, engRow._lampTypeCorrected, 'case 23: exactly as the engine row');
+  assert.deepEqual(notesRow._lampTypeCorrected, { from: HEADLAMP_BANDS.halogen, to: HEADLAMP_BANDS.led });
+  assert.equal(ed.lampTypeCorrection.rowsRepriced, 2);
+  // no band at all → nothing costed, logged
+  const nob = confirmLamp('HEADLAMP SMASHED', 1, null);
+  assert.equal(nob.added.length, 0); assert.ok(nob.logs.some(l => l.includes('HEADLAMP confirmed 1 but NOT costed — no resolved lamp band')));
+});
+
+// Part 11 end to end: the route hands the confirm step the lamp THIS lot's engine rows use. Two headlamps confirmed by
+// the photos (count 2) on AMZ3790: whatever the engine already charged, the added rows sit at the engine's own lamp band.
+const lampRun = await runLot({ notes: ['NUMBER OF KEYS 1', 'BOTH HEADLAMPS SMASHED'].join('\n'),
+  readerReply: { lines: [{ n: 1, kind: 'spec', panels: [] }, { n: 2, kind: 'concern', panels: ['HEADLAMP'] }] },
+  confirm: { HEADLAMP: { count: 2, photos: [1] } } });
+test('Part 11 end to end: the route prices a confirmed headlamp at this lot\'s lamp band; total headlamps = 2; disclosure follows the engine', () => {
+  assert.equal(lampRun.stats.missed, 0);
+  const a = lampRun.assessment;
+  const lamps = a._reconciledParts.filter(r => r._lampMandated && isChargedRow(r));
+  const added = a._reconciledParts.filter(r => r._notesConfirmed && r._lampMandated);
+  const engine = lamps.filter(r => !r._notesConfirmed);
+  console.log(`Part 11 e2e: engine lamp rows=${JSON.stringify(engine.map(r => r.used))} added=${JSON.stringify(added.map(r => r.used))} log=${lampRun.logs.find(l => l.startsWith('[NOTES CONFIRM] HEADLAMP confirmed'))}`);
+  assert.equal(lamps.length, 2, 'two headlamps in the money');
+  const bands = new Set(lamps.map(r => r._band));
+  assert.equal(bands.size, 1, 'one lamp band for every headlamp on the lot');
+  assert.ok(Object.values(HEADLAMP_BANDS).includes([...bands][0]), 'the band is a lib/lampBands.mjs figure');
+  const disclosed = (a['Inspection Flags'] || '') + JSON.stringify(a._buyerFlags || '') + (a['Red Flags'] || '');
+  console.log(`Part 11 e2e: assumed-type disclosure present=${/Lamp type could not be confirmed/.test(disclosed)} (added row marker=${added.some(r => r._orphanAssumedDisclosure)})`);
+  if (added.some(r => r._orphanAssumedDisclosure)) assert.match(disclosed, /Lamp type could not be confirmed/);
+  console.log(`Part 11 e2e: engine lamp panelIds=${JSON.stringify(engine.map(r => r.panelId ?? null))} line → ${(a['Red Flags'] || '').split('\n').find(l => l.includes('HEADLAMPS SMASHED'))}`);
+  assert.ok((a['Red Flags'] || '').includes('The auction notes say: "BOTH HEADLAMPS SMASHED". Auction notes can understate the problem — check before bidding. Costed in the repair breakdown: headlamp × 2.'));
 });
 
 // Part 9 end to end on the stored 577ecf56 answers (SIDE_GLASS 1, FRONT_WING 1, FRONT_DOOR 1, REAR_DOOR 1). The
