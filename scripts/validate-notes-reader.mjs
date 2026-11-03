@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { installCassette } from './lib/modelCassette.mjs';
 import { readNotes, parseReaderOutput, fallbackRead, buildReaderBody, NOTES_READER_SYSTEM, READER_PANELS } from '../lib/notesReader.mjs';
 import { CONFIRM_SYSTEM, CONFIRM_ACTION, COUNT_PANELS, confirmQuestion, parseConfirmOutput, applyConfirmations, notesPanels,
-  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS, cornerMinimums, chargedCounts, countedPanelOf } from '../lib/notesConfirm.mjs';
+  noteMinimum, applyNoteMinimum, withNoteAdditions, NOTE_KEYWORDS, cornerMinimums, chargedCounts, countedPanelOf, settleLampAllowance } from '../lib/notesConfirm.mjs';
 import { stampCopartNotes, notesConcernLines, keysFromNotes, copartNotesCodeLines, CODE_LINE_WORDING, NOTES_FALLBACK_LINE } from '../lib/copartNotes.mjs';
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
@@ -451,7 +451,7 @@ test('D8 end to end: 2 × SIDE_GLASS replace at the band survive to the final le
 
 // ── Part 11 (Vincent, 3 Nov: "fix first"): a confirmed headlamp is costed through the lot's lamp band ─────────────
 const { resolveLampBand } = await import('@/app/api/salvage/assess/route.js');
-const { reconcileParts } = await import('@/lib/parts.mjs');
+const { reconcileParts, classifyLampMoneyRows, finalizeLampInstrumentation, LAMP_ALLOWANCE_FLAG_LEAD } = await import('@/lib/parts.mjs');
 const { HEADLAMP_BANDS } = await import('@/lib/lampBands.mjs');
 const { applyEdits, ledgerHash } = await import('@/lib/ledgerEdits.mjs');
 // The lamp the route passes in: the request-scope resolution (orphan path), exactly as route.js builds it.
@@ -600,6 +600,53 @@ test('Part 12 end to end (EA17HDN): the stamp counts what the money counts — h
   assert.equal(chargedCounts(a._reconciledParts, isChargedRow).get('HEADLAMP'), lamps.length);
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
   assert.ok(insRun.logs.some(l => l.startsWith('[LAMP] tier-2 assumed-type disclosure flag emitted')), 'Part 11: the assumed-type disclosure follows the added lamp');
+});
+
+// ── Part 13 (Vincent, 3 Nov): a confirmed headlamp settles the engine's set-aside lamp; the self-check knows notes rows ─
+// insRun (Part 12) is EA17HDN + "BOTH HEADLAMPS SMASHED", photos 2. Its engine headlamp is A1-shelved to a £0 allowance.
+const noNotesEA = await runLot({ lot: 'EA17HDN', notes: '', readerReply: { lines: [] } });
+test('Part 13 EA17HDN: 2 headlamps costed, the set-aside allowance + its flag gone, no INVARIANT BROKEN, disclosure kept, × 2', () => {
+  const a = insRun.assessment;
+  const lamps = a._reconciledParts.filter(r => r._lampMandated && isChargedRow(r));
+  assert.equal(lamps.length, 2, '2 headlamps costed');
+  assert.deepEqual((a._allowanceParts || []).filter(r => /head ?lamp|headlight/i.test(r.name)), [], 'no headlamp allowance row');
+  const flagText = JSON.stringify(a._flaggedParts || []) + (a['Inspection Flags'] || '') + (a['WhatsApp Inspection Checklist'] || '') + (a['Red Flags'] || '');
+  assert.ok(!flagText.includes(LAMP_ALLOWANCE_FLAG_LEAD), 'no "lamp pricing not independently confirmed … inspection allowance" line on any surface');
+  assert.ok(!/inspection allowance/i.test(JSON.stringify(a._damageCards || [])), 'no allowance damage card');
+  assert.ok(!insRun.logs.some(l => /INVARIANT BROKEN/.test(l)), 'no INVARIANT BROKEN log');
+  assert.ok(JSON.stringify(a._flaggedParts || []).includes('Lamp type could not be confirmed'), 'tier-2 "type assumed" disclosure still present');
+  assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
+  assert.deepEqual(a._notesConfirm.settledLamp, { allowanceRows: 1, flags: 1 });
+  assert.ok(insRun.logs.includes('[NOTES CONFIRM] HEADLAMP settled by the notes + photos — removed 1 headlamp inspection-allowance row(s) and 1 allowance flag(s)'));
+});
+test('Part 13 EA17HDN with no notes: the engine\'s set-aside lamp is untouched (allowance row + flag, as before)', () => {
+  assert.equal(noNotesEA.stats.missed, 0);
+  const a = noNotesEA.assessment;
+  assert.equal((a._allowanceParts || []).filter(r => r.name === 'Headlamp' && r._allowance).length, 1, 'allowance row present, as now');
+  assert.ok(JSON.stringify(a._flaggedParts || []).includes(LAMP_ALLOWANCE_FLAG_LEAD), 'its flag present, as now');
+  assert.equal(a._notesConfirm?.settledLamp, undefined);
+  assert.equal(a._reconciledParts.filter(r => r._lampMandated && isChargedRow(r)).length, 0);
+});
+test('Part 13 self-check: notes rows are sanctioned; a real engine anomaly still breaks the invariant', () => {
+  const lr = { tier2Fired: true, lampCount: 1 };
+  const eng = { name: 'Headlamp', action: 'replace', used: 350, _lampMandated: true, _band: 350 };
+  const notes = { ...eng, panelId: 'HEADLAMP', _notesConfirmed: true };
+  const anomaly = classifyLampMoneyRows([{ ...eng }, { ...eng }], lr, 'single_corner');
+  assert.equal(anomaly.level, 'warn'); assert.match(anomaly.line, /INVARIANT BROKEN: 2 mandated lamp rows on a lampCount=1 path/);
+  assert.equal(classifyLampMoneyRows([{ ...eng }, notes], lr, 'single_corner'), null, '1 engine + 1 notes row → sanctioned');
+  assert.equal(classifyLampMoneyRows([notes, { ...notes }], lr, 'single_corner'), null, '2 notes rows → sanctioned');
+  // an engine anomaly is still caught when a notes row is present too
+  assert.match(classifyLampMoneyRows([{ ...eng }, { ...eng }, notes], lr, 'single_corner').line, /INVARIANT BROKEN: 2 mandated/);
+  // non-tier-2 orphan-collapse: engine rows only, both in the line and the stored field
+  assert.match(classifyLampMoneyRows([{ ...eng }, { ...eng }], null, 'x').line, /orphan-collapse/);
+  assert.equal(classifyLampMoneyRows([{ ...eng }, notes], null, 'x'), null);
+  assert.equal(finalizeLampInstrumentation([{ ...eng }, notes], null).orphan_collapse, false);
+  assert.equal(finalizeLampInstrumentation([{ ...eng }, { ...eng }], null).orphan_collapse, true);
+  // settleLampAllowance does nothing unless a HEADLAMP was added
+  const allow = [{ name: 'Headlamp', action: 'replace', used: 350, _allowance: true }];
+  const flags = [{ partName: 'Headlamp', _gateGenerated: true, reason: `${LAMP_ALLOWANCE_FLAG_LEAD} — precautionary £350 (LED) …` }];
+  assert.deepEqual(settleLampAllowance({ added: [{ panelId: 'SIDE_GLASS' }], allowanceParts: allow, flaggedParts: flags, log: () => {} }), { allowance: [], flags: [] });
+  assert.equal(allow.length, 1); assert.equal(flags.length, 1);
 });
 
 // Part 9 end to end on the stored 577ecf56 answers (SIDE_GLASS 1, FRONT_WING 1, FRONT_DOOR 1, REAR_DOOR 1). The

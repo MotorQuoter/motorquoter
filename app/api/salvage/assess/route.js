@@ -38,7 +38,7 @@ import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
 import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
-import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
+import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts, settleLampAllowance } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
@@ -5366,7 +5366,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _added = applyConfirmations({ gatedParts, answers: _answers, bandKey, priceTable: PANEL_PRICE_TABLE, isCharged: isChargedRow, lamp: _lamp });
       // …and the same "type assumed" disclosure an engine headlamp gets (both steps are idempotent).
       if (_added.some(r => r._lampMandated)) { _emitOrphanLampDisclosure(); _emitTier2LampDisclosure(); }
-      assessment._notesConfirm = { answers: _answers, skipped: _skipped, added: _added.map(r => r.panelId) };
+      // Part 13: the notes + photos settle the engine's set-aside headlamp — its £0 allowance row and A1 flag go.
+      const _settled = settleLampAllowance({ added: _added, allowanceParts, flaggedParts: coreObs.flaggedParts });
+      assessment._notesConfirm = { answers: _answers, skipped: _skipped, added: _added.map(r => r.panelId),
+        ...(_settled.allowance.length || _settled.flags.length ? { settledLamp: { allowanceRows: _settled.allowance.length, flags: _settled.flags.length } } : {}) };
     }
 
     // ── batch 177 M1 — MEASUREMENT SWITCH, OFF BY DEFAULT (Vincent rules on turning it on) ──────────
