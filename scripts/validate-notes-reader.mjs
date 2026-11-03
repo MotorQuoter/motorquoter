@@ -466,7 +466,8 @@ function confirmLamp(line, photoCount, lamp, engineRows = []) {
 }
 // An engine-made headlamp row, from reconcileParts itself (tier-2 insert) — the shape the confirmed row must match.
 const engineLamp = (band) => reconcileParts([], { tier2Fired: true, lampAllowance: band, lampCount: 1 }, [], 0, null).parts.find(r => r._lampMandated);
-const SHAPE = ['name', 'action', 'oem', 'used', '_inserted', '_lampMandated', '_band', '_modelLampCost'];
+// `_inserted` is deliberately NOT copied (Part 13): it means "absent from the photos" and drives the card's wording.
+const SHAPE = ['name', 'action', 'oem', 'used', '_lampMandated', '_band', '_modelLampCost'];
 const shapeOf = (r) => Object.fromEntries(SHAPE.map(k => [k, r[k]]));
 
 test('Part 11 cases 19-23: a confirmed headlamp is costed at the lot\'s lamp band, engine-row shape, repriced by the buyer\'s lamp edit', () => {
@@ -479,6 +480,7 @@ test('Part 11 cases 19-23: a confirmed headlamp is costed at the lot\'s lamp ban
   assert.ok(eng, 'reconcileParts made an engine headlamp row');
   assert.deepEqual(shapeOf(c19.added[0]), shapeOf(eng), 'case 19: same shape as an engine headlamp row');
   assert.equal(c19.added[0].panelId, 'HEADLAMP'); assert.equal(c19.added[0]._notesConfirmed, true);
+  assert.equal(c19.added[0]._inserted, undefined, 'not marked absent-from-photos (Part 13)');
   assert.equal(c19.added[0]._orphanAssumedDisclosure, undefined, 'type not assumed');
   assert.ok(isChargedRow(c19.added[0]));
   console.log(`Part 11 c19: row=${JSON.stringify(c19.added[0])} engine=${JSON.stringify(eng)}`);
@@ -617,6 +619,11 @@ test('Part 13 EA17HDN: 2 headlamps costed, the set-aside allowance + its flag go
   assert.ok(JSON.stringify(a._flaggedParts || []).includes('Lamp type could not be confirmed'), 'tier-2 "type assumed" disclosure still present');
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
   assert.deepEqual(a._notesConfirm.settledLamp, { allowanceRows: 1, flags: 1 });
+  // the confirmed lamp's damage card makes no false claim about the photos (Part 13: no `_inserted` on the row)
+  const lampCards = (a._damageCards || []).filter(c => c.panelId === 'HEADLAMP');
+  console.log(`Part 13 EA17HDN cards: ${JSON.stringify(lampCards.map(c => [c.origin, c.cost, c.note]))}`);
+  assert.equal(lampCards.length, 2);
+  for (const c of lampCards) assert.equal(c.note, null, 'reads like a photo-confirmed costed headlamp (no absent / precautionary note)');
   assert.ok(insRun.logs.includes('[NOTES CONFIRM] HEADLAMP settled by the notes + photos — removed 1 headlamp inspection-allowance row(s) and 1 allowance flag(s)'));
 });
 test('Part 13 EA17HDN with no notes: the engine\'s set-aside lamp is untouched (allowance row + flag, as before)', () => {
