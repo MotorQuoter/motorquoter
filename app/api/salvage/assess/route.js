@@ -6,6 +6,7 @@ import { formatOdometerCompact } from '@/lib/odometerDisplay';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
 import { MODELS, outputBudgetFor, toolChoiceFor, supportsForcedToolChoice } from '@/config/models';   // batch 246: one owner of request shape
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
+import { beginRun, checkServedModel } from '@/lib/servedModel.mjs';   // batch 246: [MODEL MISMATCH]
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
 import { feeRowsAtPredictedBids } from '@/lib/predictedBidFees.mjs';   // batch 138 item 1
@@ -1022,6 +1023,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
     if (!res?.ok) { console.warn('[LAMP DETECT] API error:', res?.status); return null; }
     const data = await res.json();
     console.log('[TOKEN LOG] lamp-detect Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    await checkServedModel('lamp-detect', data);   // batch 246: fail loud on the wrong model
     if (data.stop_reason === 'max_tokens') { console.warn('[LAMP DETECT] max_tokens — response truncated; lamp path returning null'); return null; }
     if (data.stop_reason === 'refusal')   { console.warn('[LAMP DETECT] refusal — content policy; lamp path returning null'); return null; }
     const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -1153,6 +1155,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
     if (!res?.ok) { console.warn('[DASH READ] API error:', res?.status); return FLOOR; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] dash-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    await checkServedModel('dash-read', apiData);   // batch 246: fail loud on the wrong model
     if (apiData.stop_reason === 'max_tokens') { console.warn('[DASH READ] max_tokens — truncated; defaulting floor'); return FLOOR; }
     if (apiData.stop_reason === 'refusal')   { console.warn('[DASH READ] refusal — content policy; defaulting floor'); return FLOOR; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -1395,6 +1398,7 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
     if (!res?.ok) { console.warn('[STICKER RETRY] API error:', res?.status); return ''; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] sticker-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
+    await checkServedModel('sticker-read', apiData);   // batch 246: fail loud on the wrong model
     if (apiData.stop_reason === 'max_tokens') { console.warn('[STICKER RETRY] max_tokens — truncated; no sticker read'); return ''; }   // batch 246
     if (apiData.stop_reason === 'refusal')   { console.warn('[STICKER RETRY] refusal — content policy; no sticker read'); return ''; }   // batch 246
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -1640,6 +1644,7 @@ Return a raw JSON object only, no other text:
     if (!res?.ok) { console.warn('[ATTRIB PROBE] API error:', res?.status); return null; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] attribution-probe Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| CacheWrite:', apiData.usage?.cache_creation_input_tokens ?? 0, '| CacheRead:', apiData.usage?.cache_read_input_tokens ?? 0, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+    await checkServedModel('attribution-probe', apiData);   // batch 246: fail loud on the wrong model
     if (apiData.stop_reason === 'max_tokens') { console.warn('[ATTRIB PROBE] max_tokens — truncated; infra-failure (keep)'); return null; }
     if (apiData.stop_reason === 'refusal')   { console.warn('[ATTRIB PROBE] refusal — content policy; infra-failure (keep)'); return null; }
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -1787,6 +1792,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
   if (!corrRes?.ok)  { console.warn('[CORR] API error:', corrRes?.status, '— flooring all flank panels'); return floorAll(); }
   const corrApiData = await corrRes.json();
   console.log('[TOKEN LOG] correspondence Input:', corrApiData.usage?.input_tokens, '| Output:', corrApiData.usage?.output_tokens, '| Stop:', corrApiData.stop_reason, '| Model:', corrApiData.model || 'unknown');
+  await checkServedModel('correspondence', corrApiData);   // batch 246: fail loud on the wrong model
   if (corrApiData.stop_reason === 'max_tokens') { console.warn('[CORR] max_tokens — flooring all flank panels');  return floorAll(); }
   if (corrApiData.stop_reason === 'refusal')   { console.warn('[CORR] refusal — flooring all flank panels');      return floorAll(); }
   // 6. Parse JSON from the text block
@@ -1868,6 +1874,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     if (!res?.ok) { console.warn('[SILL ROCKER] API error:', res?.status); return null; }
     const data = await res.json();
     console.log('[TOKEN LOG] sill-rocker Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    await checkServedModel('sill-rocker', data);   // batch 246: fail loud on the wrong model
     if (data.stop_reason === 'max_tokens') { console.warn('[SILL ROCKER] max_tokens — returning null'); return null; }
     if (data.stop_reason === 'refusal')   { console.warn('[SILL ROCKER] refusal — content policy; returning null'); return null; }   // batch 246
     const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -1925,6 +1932,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     if (!res?.ok) { console.warn('[BONNET_READ] API error:', res?.status); return null; }
     const data = await res.json();
     console.log('[TOKEN LOG] bonnet-skin Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
+    await checkServedModel('bonnet-skin', data);   // batch 246: fail loud on the wrong model
     if (data.stop_reason === 'max_tokens') { console.warn('[BONNET_READ] max_tokens — returning null'); return null; }
     if (data.stop_reason === 'refusal')   { console.warn('[BONNET_READ] refusal — content policy; returning null'); return null; }   // batch 246
     const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -2252,6 +2260,7 @@ async function runPerViewAssess(image, idx, onExhaust) {
     const apiData = await res.json();
     const _u = apiData.usage || {};
     console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${_u.input_tokens} Output:${_u.output_tokens} CacheWrite:${_u.cache_creation_input_tokens ?? 0} CacheRead:${_u.cache_read_input_tokens ?? 0} Stop:${apiData.stop_reason}`);
+    await checkServedModel(`per-view-${idx}`, apiData);   // batch 246: fail loud on the wrong model
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
     if (apiData.stop_reason === 'refusal')   { console.warn(`[PER-VIEW][${idx}] refusal — content policy; this photo contributes NO verdicts (not a clean read)`); return { costedParts: [], idx, hvLabelSeen: false, refused: true }; }   // batch 246
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
@@ -3731,6 +3740,8 @@ export async function GET(request) {
 // AssessmentOverloadedError is caught by the route for the 529 refund/503 path. (Cowork §7/§8.)
 // ============================================================================================
 export async function runAssessment({ images, vd, market, roiTier }) {
+  beginRun();   // batch 246: one [MODEL MISMATCH] ops alert per run
+  const _runT0 = Date.now();   // batch 246: [RUN TIME] at the end of the run
 
     // Per-view assess calls fire here in parallel with the main call.
     // Grouping + amalgamate run inline after parseParts so the main-call part names
@@ -4363,6 +4374,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (call1Exhausted) break; // _exhaustedCalls.add('call1') already done inside callClaude
       if (!apiRes) throw new Error(`Claude API network error (call1 iter=${iter})`);
       console.log(`[TOKEN LOG] iter=${iter} Input:`, apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Stop:', apiData.stop_reason, '| Model:', apiData.model || 'unknown');
+      await checkServedModel(`call1-iter${iter}`, apiData);   // batch 246: fail loud on the wrong model
       console.log(`[CACHE] iter=${iter} write=` + (apiData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (apiData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (apiData.usage?.input_tokens ?? 0));
       if (!apiRes.ok) throw new Error(apiData.error?.message || `Claude API error (iter ${iter})`);
 
@@ -4412,6 +4424,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (!finalExhausted) {
         if (!finalRes) throw new Error('Claude API network error (call1-final)');
         console.log('[TOKEN LOG] iter=final Input:', finalData.usage?.input_tokens, '| Output:', finalData.usage?.output_tokens, '| Stop:', finalData.stop_reason, '| Model:', finalData.model || 'unknown');
+        await checkServedModel('call1-final', finalData);   // batch 246: fail loud on the wrong model
         console.log('[CACHE] iter=final write=' + (finalData.usage?.cache_creation_input_tokens ?? 0) + ' read=' + (finalData.usage?.cache_read_input_tokens ?? 0) + ' input=' + (finalData.usage?.input_tokens ?? 0));
         if (!finalRes.ok) throw new Error(finalData.error?.message || 'Claude API error (final)');
         if (finalData.stop_reason === 'max_tokens') throw new Error('[MAX_TOKENS] main assess call truncated (final) — response ceiling hit');
@@ -4593,6 +4606,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       } else {
         const backstopData = await backstopRes.json();
         console.log(`[LAMP] Layer 2: stop=${backstopData.stop_reason} input=${backstopData.usage?.input_tokens} output=${backstopData.usage?.output_tokens}`);
+        await checkServedModel('backstop', backstopData);   // batch 246: fail loud on the wrong model
         const backstopBlock = (backstopData.content || []).find(b => b.type === 'tool_use' && b.name === 'recordImpactObservation');
         if (backstopBlock?.input) {
           const _side = normaliseImpactField(backstopBlock.input?.struckSide, STRUCK_SIDE_ENUM, 'central');
@@ -6845,5 +6859,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Pure pipeline complete. The route envelope stamps assessment._payment_kind (needs the
     // session), persists { status:'assessed', assessment, vehicle_details: enrichedVd }, and returns.
+    console.log(`[RUN TIME] ms=${Date.now() - _runT0} photos=${images.length} model=${MODELS.assessPrimary}`);   // batch 246: the real margin under maxDuration
     return { assessment, enrichedVd };
 }
