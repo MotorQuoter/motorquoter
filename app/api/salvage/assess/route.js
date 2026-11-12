@@ -4514,6 +4514,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     if (call2Data?.stop_reason === 'max_tokens') {
       console.error('[CALL2][TRUNCATED] stop_reason=max_tokens — extraction JSON cut mid-structure; perZone array may be incomplete or absent');
     }
+    if (call2Data?.stop_reason === 'refusal') {   // batch 246: named before the existing no-tool-block floor below
+      console.error('[CALL2][REFUSAL] stop_reason=refusal — content policy; no extraction, coreObs floor default applies');
+    }
 
     const call2ToolBlock = (call2Data?.content || []).find(b => b.type === 'tool_use' && b.name === 'recordCoreObservations');
     if (call2ToolBlock?.input) {
