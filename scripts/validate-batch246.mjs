@@ -115,6 +115,19 @@ if (!existsSync(LEDGER)) {
   }
 }
 
+// ── 4b. B2: a 400 that can never succeed pages; a bad-image 400 still does not ───────────────────
+console.log('\n4b. isInfraFailure — B2 pins');
+const { isInfraFailure } = await import('@/lib/opsAlert.mjs');
+const e400 = (message) => ({ type: 'error', error: { type: 'invalid_request_error', message } });
+check('400 data-retention refusal → infra (pages)', isInfraFailure(400, e400('This model requires 30-day data retention for your organization.')) === true);
+check('400 "not supported for this model" (forced tool_choice) → infra (pages)', isInfraFailure(400, e400('tool_choice: type "tool" and "any" are not supported for this model.')) === true);
+check('400 "is not supported" (a rejected parameter) → infra (pages)', isInfraFailure(400, e400('thinking.type.disabled is not supported for this model. Use thinking.type.adaptive and output_config.effort')) === true);
+check('400 bad image → NOT infra (does not page)', isInfraFailure(400, e400('Could not process image')) === false);
+check('400 image too large → NOT infra (does not page)', isInfraFailure(400, e400('messages.0.content.1.image.source.base64: image exceeds 5 MB maximum: 6123456 bytes > 5242880 bytes')) === false);
+check('422 no plate → NOT infra; 404 / 500 / auth still infra (unchanged)', isInfraFailure(422, {}) === false && isInfraFailure(404, {}) === true
+  && isInfraFailure(500, {}) === true && isInfraFailure(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } }) === true);
+check('a 400 with no message → NOT infra', isInfraFailure(400, {}) === false && isInfraFailure(400, null) === false);
+
 // ── 5. canary ────────────────────────────────────────────────────────────────────────────────────
 console.log('\n5. Canary (/api/health/models) — fetch stubbed');
 const seen = [];
