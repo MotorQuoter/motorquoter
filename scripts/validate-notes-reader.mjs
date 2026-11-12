@@ -16,6 +16,7 @@ import { stampCopartNotes, notesConcernLines, keysFromNotes, copartNotesCodeLine
 import { applyGradeOwnsAction } from '../lib/labour.mjs';
 import { isChargedRow } from '../lib/ledgerEdits.mjs';
 import { PANEL_PRICE_TABLE } from '../lib/priceBand.mjs';
+import { MODELS } from '../config/models.js';   // batch 246: the confirm call runs on whatever assessPrimary is configured
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (p) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -423,7 +424,7 @@ test('C + rulings 1/4/5 end to end: count questions for SIDE_GLASS/FRONT_DOOR/RE
   assert.deepEqual(asked, ['FRONT_DOOR', 'REAR_DOOR', 'SIDE_GLASS']);
   assert.ok(full.logs.includes('[NOTES CONFIRM] BONNET already charged — question skipped (ruling 5)'));
   const confirmBody = JSON.parse(full.bodies.find(b => b.kind === 'confirm').body);
-  assert.equal(confirmBody.model, 'claude-opus-4-8');
+  assert.equal(confirmBody.model, MODELS.assessPrimary);   // batch 246: was pinned to 'claude-opus-4-8'
   assert.equal(confirmBody.messages[0].content.filter(c => c.type === 'image').length, IMAGES.length);
 });
 
@@ -601,7 +602,10 @@ test('Part 12 end to end (EA17HDN): the stamp counts what the money counts — h
   assert.equal(lamps.length, 2);
   assert.equal(chargedCounts(a._reconciledParts, isChargedRow).get('HEADLAMP'), lamps.length);
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
-  assert.ok(insRun.logs.some(l => l.startsWith('[LAMP] tier-2 assumed-type disclosure flag emitted')), 'Part 11: the assumed-type disclosure follows the added lamp');
+  // batch 246: the disclosure follows the ENGINE's own assumed flag. On the Opus 4.8 recording the lamp type was assumed (no
+  // photo type); on the Fable 5.2 recording the photo names it (assumed=false), so no "type assumed" line is the right outcome.
+  const _assumed = insRun.logs.some(l => /^[LAMP] final: .*assumed=true/.test(l));
+  assert.equal(insRun.logs.some(l => l.startsWith('[LAMP] tier-2 assumed-type disclosure flag emitted')), _assumed, 'Part 11: the assumed-type disclosure follows the engine (present iff assumed=true)');
 });
 
 // ── Part 13 (Vincent, 3 Nov): a confirmed headlamp settles the engine's set-aside lamp; the self-check knows notes rows ─
@@ -616,7 +620,8 @@ test('Part 13 EA17HDN: 2 headlamps costed, the set-aside allowance + its flag go
   assert.ok(!flagText.includes(LAMP_ALLOWANCE_FLAG_LEAD), 'no "lamp pricing not independently confirmed … inspection allowance" line on any surface');
   assert.ok(!/inspection allowance/i.test(JSON.stringify(a._damageCards || [])), 'no allowance damage card');
   assert.ok(!insRun.logs.some(l => /INVARIANT BROKEN/.test(l)), 'no INVARIANT BROKEN log');
-  assert.ok(JSON.stringify(a._flaggedParts || []).includes('Lamp type could not be confirmed'), 'tier-2 "type assumed" disclosure still present');
+  const _assumed13 = insRun.logs.some(l => /^[LAMP] final: .*assumed=true/.test(l));   // batch 246: see Part 12 — follows the engine
+  assert.equal(JSON.stringify(a._flaggedParts || []).includes('Lamp type could not be confirmed'), _assumed13, 'tier-2 "type assumed" disclosure present iff the engine assumed the type');
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
   assert.deepEqual(a._notesConfirm.settledLamp, { allowanceRows: 1, flags: 1 });
   // the confirmed lamp's damage card makes no false claim about the photos (Part 13: no `_inserted` on the row)
