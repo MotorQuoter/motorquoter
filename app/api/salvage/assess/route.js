@@ -1391,6 +1391,8 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
     if (!res?.ok) { console.warn('[STICKER RETRY] API error:', res?.status); return ''; }
     const apiData = await res.json();
     console.log('[TOKEN LOG] sticker-read Input:', apiData.usage?.input_tokens, '| Output:', apiData.usage?.output_tokens, '| Model:', apiData.model || 'unknown');
+    if (apiData.stop_reason === 'max_tokens') { console.warn('[STICKER RETRY] max_tokens — truncated; no sticker read'); return ''; }   // batch 246
+    if (apiData.stop_reason === 'refusal')   { console.warn('[STICKER RETRY] refusal — content policy; no sticker read'); return ''; }   // batch 246
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) { console.warn('[STICKER RETRY] no JSON object in response'); return ''; }
@@ -1863,6 +1865,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     const data = await res.json();
     console.log('[TOKEN LOG] sill-rocker Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
     if (data.stop_reason === 'max_tokens') { console.warn('[SILL ROCKER] max_tokens — returning null'); return null; }
+    if (data.stop_reason === 'refusal')   { console.warn('[SILL ROCKER] refusal — content policy; returning null'); return null; }   // batch 246
     const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[SILL ROCKER] no JSON in response:', raw.slice(0, 200)); return null; }
@@ -1919,6 +1922,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     const data = await res.json();
     console.log('[TOKEN LOG] bonnet-skin Input:', data.usage?.input_tokens, '| Output:', data.usage?.output_tokens, '| Stop:', data.stop_reason, '| Model:', data.model || 'unknown');
     if (data.stop_reason === 'max_tokens') { console.warn('[BONNET_READ] max_tokens — returning null'); return null; }
+    if (data.stop_reason === 'refusal')   { console.warn('[BONNET_READ] refusal — content policy; returning null'); return null; }   // batch 246
     const raw = ((data.content || []).find(b => b.type === 'text')?.text || '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('[BONNET_READ] no JSON in response:', raw.slice(0, 200)); return null; }
@@ -2245,6 +2249,7 @@ async function runPerViewAssess(image, idx, onExhaust) {
     const _u = apiData.usage || {};
     console.log(`[TOKEN LOG][PER-VIEW][${idx}] Input:${_u.input_tokens} Output:${_u.output_tokens} CacheWrite:${_u.cache_creation_input_tokens ?? 0} CacheRead:${_u.cache_read_input_tokens ?? 0} Stop:${apiData.stop_reason}`);
     if (apiData.stop_reason === 'max_tokens') { console.warn(`[PER-VIEW][${idx}] max_tokens — truncated; treating as empty`); return { costedParts: [], idx, hvLabelSeen: false }; }
+    if (apiData.stop_reason === 'refusal')   { console.warn(`[PER-VIEW][${idx}] refusal — content policy; this photo contributes NO verdicts (not a clean read)`); return { costedParts: [], idx, hvLabelSeen: false, refused: true }; }   // batch 246
     const raw = ((apiData.content || []).find(b => b.type === 'text')?.text || '').trim();
     // batch 108 A2 — the raw per-view text, verbatim, behind an env var. Until now this string was
     // read by the two parsers on the next two lines and then garbage-collected: never logged, never
@@ -4276,6 +4281,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const viewsFired  = images.length;
     const viewsLanded = perViewResults.filter(r => r.costedParts.length > 0 || r.hvLabelSeen).length;
     console.log(`[PER-VIEW] fired=${viewsFired} landed≈${viewsLanded}`);
+    const viewsRefused = perViewResults.filter(r => r.refused === true).length;   // batch 246: refused views cast no vote — counted, never silent
+    if (viewsRefused) console.warn(`[PER-VIEW] refused=${viewsRefused} — those photos cast NO damage vote and NO clean vote (an empty view adds nothing to viewPanelSets, so silence-as-clean cannot count it); Call 1 still sees every photo`);
 
     const hvLabelSeen    = perViewResults.some(r => r.hvLabelSeen === true);
     console.log(`[HV] hvLabelSeen=${hvLabelSeen}`);
