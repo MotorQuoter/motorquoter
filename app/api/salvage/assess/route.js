@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createCanvas, loadImage } from 'canvas';
 import { formatOdometerCompact } from '@/lib/odometerDisplay';
 import { ASSESSMENT_ENGINE_PROMPT } from '@/config/assessmentEngine';
-import { MODELS } from '@/config/models';
+import { MODELS, outputBudgetFor, toolChoiceFor, supportsForcedToolChoice } from '@/config/models';   // batch 246: one owner of request shape
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 import { feeStack as copartFeeStack } from '@/lib/copartFees';
 import { feeStack as iaaFeeStack } from '@/lib/iaaFees';
@@ -1013,7 +1013,7 @@ Respond with a JSON array only — no markdown, no explanation, nothing else:
       },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 1024,
+        ...outputBudgetFor(MODELS.assessPrimary, 1024),
         system: 'You are a vehicle damage assessor. Respond ONLY with a valid JSON array. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: userText }] }],
       }),
@@ -1144,7 +1144,7 @@ Return a raw JSON object only — no markdown, no explanation, no surrounding te
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 512,
+        ...outputBudgetFor(MODELS.assessPrimary, 512),
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: DASH_PROMPT }] }],
       }),
@@ -1382,7 +1382,7 @@ Return a raw JSON object only, no other text: { "sticker": "<letter, UNREADABLE,
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 64,
+        ...outputBudgetFor(MODELS.assessPrimary, 64),
         system: 'You are a vehicle assessor. Respond ONLY with a raw JSON object. No markdown, no explanation.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
       }),
@@ -1625,7 +1625,7 @@ Return a raw JSON object only, no other text:
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 256,
+        ...outputBudgetFor(MODELS.assessPrimary, 256),
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
       }),
@@ -1772,7 +1772,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: MODELS.assessPrimary,
-      max_tokens: 1024,
+      ...outputBudgetFor(MODELS.assessPrimary, 1024),
       system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
       messages: [{ role: 'user', content: [...corrImageBlocks, { type: 'text', text: corrQuestion }] }],
     }),
@@ -1853,7 +1853,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
       },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 256,
+        ...outputBudgetFor(MODELS.assessPrimary, 256),
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
       }),
@@ -1909,7 +1909,7 @@ Respond with ONLY a raw JSON object — no markdown, no explanation, no surround
       },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 256,
+        ...outputBudgetFor(MODELS.assessPrimary, 256),
         system: 'You are a vehicle damage assessor. Respond ONLY with a raw JSON object. No markdown, no explanation, no surrounding text.',
         messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: question }] }],
       }),
@@ -2232,7 +2232,7 @@ async function runPerViewAssess(image, idx, onExhaust) {
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 2048,
+        ...outputBudgetFor(MODELS.assessPrimary, 2048),
         system: [{ type: 'text', text: PER_VIEW_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
@@ -4313,12 +4313,12 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const callClaude = async (withTools, forced = false) => {
       const body = JSON.stringify({
         model: MODELS.assessPrimary,
-        max_tokens: 16000,
+        ...outputBudgetFor(MODELS.assessPrimary, 16000),
         system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
         messages,
         ...(withTools && claudeTools.length > 0 ? {
           tools: claudeTools,
-          ...(forced ? { tool_choice: { type: 'any' } } : {}),
+          ...(forced ? { tool_choice: toolChoiceFor(MODELS.assessPrimary, { type: 'any' }) } : {}),
         } : {}),
       });
       const { res, exhausted } = await with529Retry('call1', () => fetch('https://api.anthropic.com/v1/messages', {
@@ -4343,7 +4343,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // then a final no-tools call forces the prose (mirrors the existing lamp two-call shape,
     // generalised so either/both forced tools can fire in one round or across several).
     // iter=0 on EVERY lot (batch 89): forced=true so the model MUST call
-    // recordImpactObservation (tool_choice:{type:'any'}). iter>=1: forced=false — continuation
+    // recordImpactObservation (tool_choice via toolChoiceFor: {type:'any'} where the model accepts forcing, else auto —
+    // batch 246; on auto a missed tool call leaves lampObs null and the Layer 2 backstop runs). iter>=1: forced=false — continuation
     // rounds have tool_result context and must be free to end_turn into prose naturally.
     const MAX_TOOL_ROUNDS = 4;
     for (let iter = 0; iter < MAX_TOOL_ROUNDS; iter++) {
@@ -4476,7 +4477,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         model: MODELS.assessLight,
         max_tokens: 1024,
         tools: [CORE_EXTRACTION_TOOL],
-        tool_choice: { type: 'tool', name: 'recordCoreObservations' },
+        tool_choice: toolChoiceFor(MODELS.assessLight, { type: 'tool', name: 'recordCoreObservations' }),   // batch 246: Haiku accepts forcing → this exact object
         messages: [{
           role: 'user',
           content: `Extract provenance verdicts and per-zone damage classification from this vehicle assessment. Report only what the text explicitly states — do not interpret, infer, or add anything beyond what is written.\nFor provenanceConcernFlagged: set true ONLY if the text explicitly raises a concern about why the vehicle is in salvage or its vendor entry channel; false otherwise.\nFor salvageSelfReferenceConfirmed: set true ONLY if the text explicitly concludes the single salvage record is this lot's own current first write-off entry; false otherwise.\nFor perZone: one entry per damage zone mentioned in the prose; zone must be one of: front, rear, flank-damaged-side, roof, underside, interior; heightBand must be null for non-impact eventTypes.\nFor namedAsIntact: list ONLY panels the text affirmatively describes as undamaged/intact/undisturbed/sound/clean, using the fixed tokens. Do NOT list a panel just because it is unmentioned — silence is not intactness. Empty array if the prose makes no soundness statement.\n\n${rawText}`,
@@ -4521,7 +4522,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       };
       console.log(`[CALL2] extracted provenanceConcernFlagged=${coreObs.proseFlags.provenanceConcernFlagged} provenanceConcernReason=${coreObs.proseFlags.provenanceConcernReason ? JSON.stringify(coreObs.proseFlags.provenanceConcernReason.slice(0, 100)) : 'none'} salvageSelfReferenceConfirmed=${coreObs.proseFlags.salvageSelfReferenceConfirmed} perZone=${coreObs.perZone.length} namedAsIntact=${coreObs.namedAsIntact.length}`);
     } else {
-      console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned despite forced tool_choice. stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
+      console.error(`[CALL2] EXTRACTION FAILURE — no tool block returned (tool_choice ${supportsForcedToolChoice(MODELS.assessLight) ? 'forced' : 'auto'}). stop_reason=${call2Data?.stop_reason ?? 'exhausted/error'} latency=${call2Latency}ms`);
       // coreObs floor default fires below
     }
 
@@ -4560,7 +4561,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({
           model: MODELS.assessPrimary,
-          max_tokens: 512,
+          ...outputBudgetFor(MODELS.assessPrimary, 512),
           system: [{ type: 'text', text: ASSESSMENT_ENGINE_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } }],
           messages: [
             ...messages,
@@ -4568,7 +4569,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
             { role: 'user', content: 'You identified impact damage in your assessment above. Call recordImpactObservation now, based on the photos and your assessment: record struckSide and damageSpan; set apertureExposed if the FRONT bumper is displaced or removed exposing the wing-to-bumper or lamp seam; and set rearApertureExposed if the REAR bumper is torn or displaced exposing the rear-quarter seam. Assess the front and rear apertures independently — do not assume the rear bumper is intact because the main impact is at the front.' },
           ],
           tools: [LAMP_OBS_TOOL],
-          tool_choice: { type: 'any' },
+          tool_choice: toolChoiceFor(MODELS.assessPrimary, { type: 'any' }),   // batch 246: auto for a model that rejects forcing → no tool block → the tier-1 floor below
         }),
       }));
       if (backstopExhausted || !backstopRes?.ok) {
