@@ -874,7 +874,11 @@ const cassetteLampDetect = v => {
 const fixtureVd = v => normaliseLot(JSON.parse(readFileSync(`${FIX}/${v}/fixture.json`, 'utf8')).vehicleDetails || {});
 const struckOf = corners => selectStruckCornerVerdict(corners);   // the real engine function
 
-const MOVERS_113 = { SF69YBB: { before: 150, after: 350 } };   // the ONLY lot whose band moves
+// batch 246 C2 (Cowork ruling, 12 Nov): these corpus tests assert the RULE against whatever read the cassette
+// holds, never a particular model's read. The MOVERS_113 constant pinned what Opus 4.8's photo read said on
+// SF69YBB (LED, so £150 → £350); the Fable 5.2 re-record (batch 246 C) reads halogen there, which equals the
+// spec. No lamp-type ground truth is set for SF69YBB or EA17HDN (Vincent cannot tell from the photos), so the
+// expected band is the precedence rule applied to the recorded read: photograph, then spec, then LED.
 for (const v of lots()) {
   const corners = cassetteLampDetect(v);
   if (!corners) {
@@ -888,9 +892,13 @@ for (const v of lots()) {
     const photo = photoLampType(corners, struckOf(corners));
     const beforeType = BAND[spec] ? spec : 'led';        // pre-113: concrete spec wins; else LED (detection could never exceed LED)
     const after = resolveLampBand(spec, photo);
-    const expect = MOVERS_113[v] ?? { before: BAND[beforeType], after: BAND[beforeType] };
-    assert.equal(BAND[beforeType], expect.before, 'pre-113 band');
-    assert.equal(after.bandValue, expect.after, 'post-113 band');
+    const want = BAND[photo] ? photo : BAND[spec] ? spec : 'led';   // the rule, written out independently
+    assert.equal(after.resolvedType, want, `${v}: photograph (${photo}), then spec (${spec}), then LED`);
+    assert.equal(after.bandValue, BAND[want], 'post-113 band');
+    if (after.bandValue !== BAND[beforeType]) {
+      assert.ok(BAND[photo] && photo !== beforeType,
+        `${v}: the band may move off the pre-113 band (£${BAND[beforeType]}) only where the photograph named a different type`);
+    }
     // batch 157: the source is 'photo' only where the photograph actually NAMED a type. CK75ONW is the
     // corpus's first lot where it did not: both corners read lamp_type "indeterminate" (the intact corner's
     // own evidence says "only the DRL strip is clearly legible so the main-beam type cannot be confirmed"),
@@ -903,21 +911,42 @@ for (const v of lots()) {
   });
 }
 
-test('113 CORPUS: every concrete type the photograph read on the corpus is LED — it has never been shown a halogen or HID lamp', () => {
-  const seen = new Set();
-  for (const v of lots()) for (const c of (cassetteLampDetect(v) || [])) if (BAND[c.lamp_type]) seen.add(c.lamp_type);
-  assert.deepEqual([...seen], ['led']);
+// batch 246 C2: was "every concrete type ... is LED". On the cassettes at 03bddcf (Fable 5.2, batch 246 C) the
+// photograph names led on most lots, hid on EA17HDN and SO17NNT, halogen on SF69YBB — recorded here, not
+// asserted. The rule: anything the photograph names that is not "could not tell" must be a type with a band.
+test('113 CORPUS: every concrete type the photograph read on the corpus is a known band type', () => {
+  let concrete = 0;
+  for (const v of lots()) for (const c of (cassetteLampDetect(v) || [])) {
+    const t = String(c.lamp_type || '').trim().toLowerCase();
+    if (!t || t === 'indeterminate') continue;
+    concrete++;
+    assert.ok(BAND[t], `${v} ${c.corner_descriptor || ''}: the photograph read "${c.lamp_type}", which has no band`);
+  }
+  assert.ok(concrete > 0, 'guard: the corpus holds at least one concrete read (non-vacuous)');
 });
 
-test('113 CORPUS: SF69YBB (Civic, spec halogen, photo LED on both corners) moves by +£200 per lamp; as a pair, +£400', () => {
+// batch 246 C2: was "SF69YBB ... photo LED on both corners ... +£400", Opus 4.8's read. Now computed from the
+// recorded read: where the photograph names a type that differs from the spec, the photograph's band wins and
+// the pair moves by 2 × (BAND[photo] − BAND[spec]); where it names the spec's own type, the band is unchanged
+// (delta 0) and the source is still 'photo'. At 03bddcf the read is halogen = spec, so this is the delta-0 case.
+test('113 CORPUS: SF69YBB (Civic, spec halogen) — the photograph\'s band wins where it names a type; the pair moves by 2 × (photo band − spec band)', () => {
   const L0 = load('SF69YBB')._lampResult;
-  const r = computeLampResult('central', true, deriveLampType(fixtureVd('SF69YBB')), 'present', photoLampType(cassetteLampDetect('SF69YBB'), null), 'full_width', false);
-  assert.equal(L0.lampAllowance, 150, 'guard: stored pre-113 band');
-  assert.equal(r.lampAllowance, 350);
-  assert.equal(r.lampTypeSource, 'photo');
+  const spec = deriveLampType(fixtureVd('SF69YBB'));
+  const photo = photoLampType(cassetteLampDetect('SF69YBB'), null);
+  const r = computeLampResult('central', true, spec, 'present', photo, 'full_width', false);
+  assert.equal(spec, 'halogen', 'guard: the Civic\'s spec data says halogen');
+  assert.equal(L0.lampAllowance, BAND[spec], 'guard: stored pre-113 band is the spec band');
   const before = runChain([modelLamp(180), modelLamp(180), LABOUR], L0).sum;
   const after = runChain([modelLamp(180), modelLamp(180), LABOUR], r).sum;
-  assert.equal(after - before, 400);
+  if (BAND[photo]) {
+    assert.equal(r.lampTypeSource, 'photo', 'the photograph named a type, so it sets the source');
+    assert.equal(r.lampAllowance, BAND[photo], 'the photograph\'s band wins');
+    assert.equal(after - before, 2 * (BAND[photo] - BAND[spec]), `pair delta for photo=${photo} vs spec=${spec}`);
+  } else {
+    assert.equal(r.lampTypeSource, 'spec', 'the photograph named no type — the spec sets the band');
+    assert.equal(r.lampAllowance, BAND[spec]);
+    assert.equal(after - before, 0);
+  }
 });
 
 test('113 CORPUS: AMZ3790 + YH23NVW — struck lamp missing, type read from the intact corner → photo-sourced LED, NOT assumed', () => {
@@ -993,15 +1022,22 @@ test('114 CHECKLIST: route.js appends it post-gate through the helpers; only ONE
   }
 });
 
-test('114 CORPUS: the stored lots that gain the item are exactly the tier-2 lots with a lamp in the money', () => {
+// batch 246 C2: the batch 157 derivation below used the 114 rule (tier 2 AND lamp money > 0). Batch 115
+// replaced that rule with "tier 2 alone — costed or shelved" (pinned at '115 CHECKLIST' above), and the
+// stored baselines for SY68FLD and WM75FTK are tier 2 with no lamp row, so they correctly gain the item and
+// the 114 set no longer matches. Expected is now derived from the 115 rule. This reads the stored
+// baseline-assessment.json, not a cassette — the failure was there on main before the Fable swap.
+test('114/115 CORPUS: the stored lots that gain the item are exactly the tier-2 lots (costed or shelved)', () => {
   // batch 157: the expected set is DERIVED from the rule this test is named after, not pinned as a list.
   // The old list was the 14-lot corpus; batch 154 added CK75ONW and HV25ODX, both tier 2 with £700 of lamp
   // money, and both correctly gain the item. A hard-coded list made a correct engine look broken, and would
   // again on the next lot. Checked on all 16: gain ⇔ (tier 2 AND lamp money > 0), no exceptions.
   const lampMoney = (v) => lampRows(load(v)._reconciledParts).reduce((n, p) => n + (p.used ?? p.oem ?? 0), 0);
   const gain     = lots().filter(v => lampChecklistItem(load(v)._lampResult) != null);
-  const expected = lots().filter(v => load(v)._lampResult?.tier === 2 && lampMoney(v) > 0);
+  const expected = lots().filter(v => load(v)._lampResult?.tier === 2);
   assert.deepEqual(gain, expected);
+  assert.ok(lots().some(v => load(v)._lampResult?.tier === 1), 'guard: the corpus holds tier-1 lots, and none of them gain the item');
+  assert.ok(gain.some(v => lampMoney(v) > 0), 'guard: a costed tier-2 lot gains the item');
   assert.ok(gain.includes('CK75ONW') && gain.includes('HV25ODX'), 'the batch 154 lots are in the corpus');
   assert.ok(gain.length >= 12, `expected the tier-2 majority to gain the item, got ${gain.length}`);
 });
