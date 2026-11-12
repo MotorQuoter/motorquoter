@@ -1314,8 +1314,12 @@ export async function readPhotoOdometer(images, enrichedVd) {
       await alert(haikuRes ? 'API error' : 'request failed (network)', haikuRes?.status, errBody?.error);
     } else {
       const haikuData = await haikuRes.json();
-      raw = ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();
-      const nums = (raw.replace(/,/g, '').match(/\d+/g) || [])
+      // batch 246: a truncated or refused reply is not a reading — log it by name and keep the existing floor (no photo
+      // odometer; the listing mileage stands). raw stays null, so nothing is parsed or stamped from a partial reply.
+      const _odoBadStop = haikuData.stop_reason === 'max_tokens' || haikuData.stop_reason === 'refusal';
+      if (_odoBadStop) console.warn(`[HAIKU ODO] stop ${haikuData.stop_reason} — no photo odometer read; listing mileage stands`);
+      raw = _odoBadStop ? null : ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();
+      const nums = ((raw || '').replace(/,/g, '').match(/\d+/g) || [])
         .map(n => parseInt(n, 10))
         .filter(n => n >= 1 && n <= 999999);
       const uniq = [...new Set(nums)];
