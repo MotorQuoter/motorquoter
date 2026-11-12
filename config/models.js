@@ -56,3 +56,25 @@ export function outputBudgetFor(model, answerTokens) {
 export function toolChoiceFor(model, forcedShape) {
   return supportsForcedToolChoice(model) ? forcedShape : { type: 'auto' };
 }
+
+// ── batch 246 — THE ONE PRICE TABLE ($ per MTok), by model id: input / output / cache write 5m / cache write 1h /
+// cache read. Carried from c1c3b6e's MODEL_PRICES (Anthropic list, read 25 Sep 2026) plus Fable 5.2 from the BATCH 246
+// brief (Cowork, 12 Nov, platform.claude.com): $8 in / $40 out, 5m write 1.25×, 1h write 2×, cache read 0.025× ($0.20).
+// output_tokens include thinking tokens. A model not in the table is priced at the DEAREST row (never under-counts a cap).
+// Dev tooling only (scripts/lib/modelCassette.mjs) — nothing on the production path prices a call.
+export const MODEL_PRICES = Object.freeze({
+  'claude-opus-4-8':  Object.freeze([5, 25, 6.25, 10, 0.50]),
+  'claude-opus-5-5':  Object.freeze([4, 20, 5, 8, 0.20]),
+  'claude-fable-5-1': Object.freeze([10, 50, 12.5, 20, 0.25]),
+  'claude-fable-5-2': Object.freeze([8, 40, 10, 16, 0.20]),
+  'claude-sonnet-5':  Object.freeze([2, 10, 2.5, 4, 0.20]),
+  'claude-haiku-4-5': Object.freeze([1, 5, 1.25, 2, 0.10]),   // also prices the dated id claude-haiku-4-5-20251001
+});
+const DEAREST_PRICE = Object.values(MODEL_PRICES).reduce((m, p) => (p[1] > m[1] ? p : m));
+// Exact id, or the id's dated snapshot ("<id>-YYYYMMDD"). Longest key first, so no id is priced by a shorter cousin.
+export function priceOfModel(model) {
+  const id = String(model || '');
+  const key = Object.keys(MODEL_PRICES).sort((x, y) => y.length - x.length)
+    .find((k) => id === k || (id.startsWith(`${k}-`) && /^\d{8}$/.test(id.slice(k.length + 1))));
+  return key ? { price: MODEL_PRICES[key], key } : { price: DEAREST_PRICE, key: null };
+}

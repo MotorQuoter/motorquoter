@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
+import { priceOfModel } from '../../config/models.js';   // batch 246: the one price table
 
 const ANTHROPIC_RE = /api\.anthropic\.com\/v1\/messages/;
 
@@ -31,18 +32,19 @@ function keyOf(bodyStr) {
 }
 
 // ── batch 120 — cost of one recorded response, from its OWN usage block ───────────────────────────
-// $/MTok at list: Opus $5 in / $25 out, Haiku $1 / $5. Cache read 0.1×, 5-minute write 1.25×, 1-hour
-// write 2× (the per-view system prompt is cached with ttl:'1h'). Re-derive, never quote a table.
-const PRICE = (model) => (/haiku/.test(model || '') ? [1, 5] : /sonnet/.test(model || '') ? [3, 15] : [5, 25]);
+// batch 246: priced BY MODEL ID from the one table (config/models.js MODEL_PRICES / priceOfModel). The old rule priced every
+// non-Haiku, non-Sonnet model at Opus 4.8's $5/$25 with cache reads at 0.1x - it under-counted Fable 5.2 ($8/$40), so a
+// --fill-misses cap on Fable would have let more spend through than it said. An id not in the table is priced at the
+// dearest row and returned with `unpriced: true`. Output tokens include thinking. Re-derive from usage; never quote a total.
 export function costOfResponse(responseText) {
   let j; try { j = JSON.parse(responseText); } catch { return { usd: 0, model: '?', usage: {} }; }
-  const u = j.usage || {}; const [pi, po] = PRICE(j.model);
+  const u = j.usage || {}; const { price: [pi, po, pw5, pw1, pr], key } = priceOfModel(j.model);
   const cw5 = u.cache_creation?.ephemeral_5m_input_tokens ?? 0;
   const cw1 = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
-  const cwOther = Math.max(0, (u.cache_creation_input_tokens || 0) - cw5 - cw1);
-  const usd = ((u.input_tokens || 0) * pi + (cw5 + cwOther) * pi * 1.25 + cw1 * pi * 2
-    + (u.cache_read_input_tokens || 0) * pi * 0.1 + (u.output_tokens || 0) * po) / 1e6;
-  return { usd, model: j.model || '?', usage: u };
+  const cwOther = Math.max(0, (u.cache_creation_input_tokens || 0) - cw5 - cw1);   // untyped cache write -> the 5m rate
+  const usd = ((u.input_tokens || 0) * pi + (cw5 + cwOther) * pw5 + cw1 * pw1
+    + (u.cache_read_input_tokens || 0) * pr + (u.output_tokens || 0) * po) / 1e6;
+  return { usd, model: j.model || '?', usage: u, ...(key ? {} : { unpriced: true }) };
 }
 // A short, human label for a request body — what the fill fired, in the log. Never the images.
 export function labelOfRequest(bodyStr) {
