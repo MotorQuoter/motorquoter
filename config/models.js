@@ -5,7 +5,7 @@
 // a model, swap the value here (one place) and the canary + every call site follow.
 export const MODELS = {
   plateScan:        'claude-sonnet-5',             // platescan/route.js — number-plate OCR
-  assessPrimary:    'claude-opus-4-8',             // salvage/assess/route.js — 11 Opus call sites
+  assessPrimary:    'claude-fable-5-2',            // salvage/assess/route.js (10) + lib/notesConfirm.mjs (1) — batch 246 swap from claude-opus-4-8
   assessLight:      'claude-haiku-4-5',            // salvage/assess/route.js — lighter Haiku vision reads
   assessLightDated: 'claude-haiku-4-5-20251001',   // salvage/assess/route.js readPhotoOdometer — Haiku dated snapshot pin
 };
