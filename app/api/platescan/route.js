@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { MODELS } from '@/config/models';
+import { MODELS, outputBudgetFor } from '@/config/models';
 import { isInfraFailure, sendOpsAlert } from '@/lib/opsAlert.mjs';
 
 export async function POST(request) {
@@ -22,7 +22,7 @@ export async function POST(request) {
       body: JSON.stringify({
         model: MODELS.plateScan,
 
-        max_tokens: 100,
+        ...outputBudgetFor(MODELS.plateScan, 100),   // batch 246 B2: Sonnet 5 thinks by default → 100 + 16000 thinking room, so a text block always fits
         messages: [{
           role: 'user',
           content: [

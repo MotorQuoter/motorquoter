@@ -51,6 +51,10 @@ check('notesConfirm.mjs: the assessPrimary body is sized by outputBudgetFor', /m
 check('no effort / output_config / thinking field is sent anywhere (route, notesConfirm, notesReader, platescan)',
   ![route, nc, readFileSync(`${ROOT}/lib/notesReader.mjs`, 'utf8'), readFileSync(`${ROOT}/app/api/platescan/route.js`, 'utf8')]
     .some((s) => /output_config|\beffort:|thinking:\s*\{/.test(s)));
+const plate = readFileSync(`${ROOT}/app/api/platescan/route.js`, 'utf8');
+check(`B2 platescan: sized by outputBudgetFor(MODELS.plateScan, 100) → ${MODELS.plateScan} max_tokens ${outputBudgetFor(MODELS.plateScan, 100).max_tokens} (expect 16100: Sonnet 5 thinks)`,
+  /model: MODELS\.plateScan,\s*\n\s*\.\.\.outputBudgetFor\(MODELS\.plateScan, 100\)/.test(plate) && !/max_tokens: 100/.test(plate)
+  && outputBudgetFor(MODELS.plateScan, 100).max_tokens === 16100);
 check('no forced tool_choice literal survives in route.js (all 3 go through toolChoiceFor)',
   !/tool_choice: \{ type: '(any|tool)'/.test(route) && (route.match(/toolChoiceFor\(MODELS\./g) || []).length === 3);
 
