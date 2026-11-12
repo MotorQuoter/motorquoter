@@ -113,7 +113,7 @@ console.log('\n-- P5: odometer read stored; wording for a car with no MOT yet --
   ok('older car → today\'s wording', /only mileage source available/.test(older.detail));
   // batch 222: the read moved into readPhotoOdometer, which returns raw (the TEXT block); the caller stamps it unchanged.
   ok('route: the photo read is stamped every time, null included', route.includes('assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };')
-    && route.includes('const _photoOdoRaw = _odoRead.raw;') && route.includes("raw = ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();"));
+    && route.includes('const _photoOdoRaw = _odoRead.raw;') && route.includes("raw = _odoBadStop ? null : ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();"));   // batch 246: the TEXT block, unless truncated/refused (then null → the existing floor)
   ok('route: agreement is exact; under 3 = no DVSA mileage and < 3 years by registration year (lib helper; the route stays clock-free)',
     route.includes('enrichedVd._photoOdometerAgrees = photoOdometer != null && photoOdometer === _listedNum;')
     && route.includes('enrichedVd._noMotUnder3 = noMotUnderThree(enrichedVd.year, _dvsaMileagePresent);')
