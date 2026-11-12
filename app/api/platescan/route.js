@@ -53,7 +53,9 @@ export async function POST(request) {
       return NextResponse.json({ error: data.error?.message || 'API error' }, { status: 500 });
     }
 
-    const reg = data.content?.[0]?.text?.trim().toUpperCase().replace(/\s/g, '');
+    // batch 246: read the TEXT block by type, not content[0] — Sonnet 5 runs adaptive thinking when no `thinking` field is
+    // sent, and a thinking block first would make content[0].text undefined (a silent failed scan). Request bytes unchanged.
+    const reg = (data.content || []).find(b => b.type === 'text')?.text?.trim().toUpperCase().replace(/\s/g, '');
 
     if (!reg || reg === 'NONE' || reg.length < 2) {
       return NextResponse.json({ error: 'No registration plate found' }, { status: 422 });
