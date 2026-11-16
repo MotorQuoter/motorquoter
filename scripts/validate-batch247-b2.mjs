@@ -82,3 +82,13 @@ test('B2(i): the engine prompt never mentions a salvage category or a Cat letter
   const hits = ASSESSMENT_ENGINE_PROMPT.split('\n').map((l, i) => [i + 2, l]).filter(([, l]) => mentionsCategory(l));
   assert.deepEqual(hits.map(([n, l]) => `${n}: ${l.slice(0, 90)}`), []);
 });
+
+test('a sentence that only points back at a dropped category sentence goes with it (URZ7545, HV25ODX, DMZ4614)', () => {
+  for (const lot of ['URZ7545', 'HV25ODX', 'DMZ4614']) {
+    const r = run(lots[lot]['Red Flags']);
+    assert.ok(r.dropped.some((d) => d.orphan), `${lot}: orphan recorded`);
+    assert.ok(!/\b(?:Confirm|Establish) it\b/.test(r.text), `${lot}: no "Confirm it" left pointing at nothing`);
+  }
+  // a following sentence that does NOT point back is kept
+  assert.equal(run('- The salvage category is not stated. The bonnet is creased.').text, '- The bonnet is creased.');
+});

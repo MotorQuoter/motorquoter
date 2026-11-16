@@ -6725,7 +6725,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           const { text, dropped } = dropCategorySentences(was, { protect: _catProtect });
           if (!dropped.length) continue;
           assessment[field] = text;
-          for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: 'category', reason: 'the model is never shown the salvage category; code is the only voice on it (batch 247 B2)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
+          for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.orphan ? 'category-orphan' : 'category', reason: d.orphan ? 'points back at a dropped category sentence (batch 247 B2)' : 'the model is never shown the salvage category; code is the only voice on it (batch 247 B2)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
           if (field === 'Confidence Level' && assessment._investmentBlock && assessment._investmentBlock.confidence === was) assessment._investmentBlock.confidence = text || null;
           console.log(`[CATEGORY PROSE] ${field}: ${dropped.length} sentence(s) ${dropped.map(d => d.keptAs ? 'cut' : 'dropped').join(', ')}${text ? '' : ' — field now empty'}`);
         }
