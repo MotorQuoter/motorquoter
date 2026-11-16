@@ -75,3 +75,10 @@ test('opus-style assumptions are caught too ("Cat band", "Cat-status", "structur
   assert.equal(run('On balance the desirability supports a mid position within the Cat band.').text, '');
   assert.equal(run('…the biggest unseeable cost risk on this Cat-status front hit.').text, '');
 });
+
+// ── (i) the instructions ──────────────────────────────────────────────────────────────────────────────
+test('B2(i): the engine prompt never mentions a salvage category or a Cat letter (no line implies one is supplied or defaults one)', async () => {
+  const { ASSESSMENT_ENGINE_PROMPT } = await import('@/config/assessmentEngine.js');
+  const hits = ASSESSMENT_ENGINE_PROMPT.split('\n').map((l, i) => [i + 2, l]).filter(([, l]) => mentionsCategory(l));
+  assert.deepEqual(hits.map(([n, l]) => `${n}: ${l.slice(0, 90)}`), []);
+});
