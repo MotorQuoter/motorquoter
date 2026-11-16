@@ -603,7 +603,7 @@ export default function SalvageSuccessPage() {
             <div className="spinner" />
             <div className="loading-title">Running Assessment</div>
             <div className="loading-msg">{LOADING_MESSAGES[msgIdx]}</div>
-            <div className="loading-sub">This takes 20–60 seconds.<br />Please keep this page open.</div>
+            <div className="loading-sub">This usually takes 2 to 4 minutes, longer for lots with a lot of photos.<br />Please keep this page open.</div>
           </div>
         )}
 
