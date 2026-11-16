@@ -53,6 +53,17 @@ test('not promoted: no charged neighbour · non-body panel · instance key · no
   assert.deepEqual(out.skipped.map((s) => s.panelId).sort(), ['BONNET', 'FRONT_DOOR#1', 'GRILLE']);
 });
 
+test('a panel the notes-confirm question answered "not there" (count 0 / no) is not costed (batch 242 ruling 1 stands)', async () => {
+  const { notesNotConfirmed } = await import('@/lib/disputedNeighbour.mjs');
+  const nc = notesNotConfirmed({ answers: [{ panelId: 'REAR_DOOR', count: 0 }, { panelId: 'BONNET', verdict: 'no' }, { panelId: 'SIDE_GLASS', count: 2 }] });
+  assert.deepEqual([...nc].sort(), ['BONNET', 'REAR_DOOR']);
+  const g = [row('FRONT_DOOR'), row('FRONT_BUMPER')];
+  const out = costDisputedNeighbours({ gatedParts: g, pvVotes: { REAR_DOOR: dis(1, 1), BONNET: dis(1, 1) }, flagLists: [[flag('REAR_DOOR'), flag('BONNET')]],
+    display: PANEL_DISPLAY, priceEntry: price('Mid-range'), notConfirmed: nc });
+  assert.equal(out.promoted.length, 0);
+  assert.deepEqual(out.skipped.map((s) => s.panelId).sort(), ['BONNET', 'REAR_DOOR']);
+});
+
 test('neighbours are read BEFORE promotion — one promoted panel never promotes the next one along', () => {
   const g = [row('FRONT_BUMPER')];
   const out = costDisputedNeighbours({ gatedParts: g, pvVotes: { BONNET: dis(1, 1), FRONT_WING: dis(1, 1) },
