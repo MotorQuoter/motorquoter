@@ -47,6 +47,7 @@ import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 import { costDisputedNeighbours, notesNotConfirmed } from '@/lib/disputedNeighbour.mjs';   // batch 247 B4
+import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
@@ -6710,6 +6711,25 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         .filter(p => p.name);
       const _proseDamage = [];
       assessment._narrativeBindings = [];   // stamp always: [] = binder ran, dropped nothing (≠ never-ran)
+      // batch 247 B2(ii) (Vincent, 16 Nov) — code is the only voice on the salvage category. Every model sentence about a
+      // category goes from every buyer-facing prose field, Confidence Level and Exit Band Position included. Runs before the
+      // binder (which then checks what is left) and before the provenance line (route below), so a dropped model line can
+      // never feed the provenance dedup. Code lines are not read: the exit line, the notes lines, the Cat A/B stop text.
+      // _investmentBlock.confidence is a copy of Confidence Level taken earlier; it is kept in step. One owner: lib/categoryProse.mjs.
+      {
+        const _catProtect = assessment._catABHardStop ? [CAT_AB_STOP[String(assessment._catABHardStop).toLowerCase()]] : [];
+        for (const field of ['Key Cost Drivers', 'Red Flags', 'Alternative Damage Scenario', 'Bidder Note', 'Visible Damage Summary',
+          'Realistic Exit Value', 'Margin Calculation', 'Recommended Action', 'Confidence Level', 'Exit Band Position']) {
+          if (!assessment[field]) continue;
+          const was = assessment[field];
+          const { text, dropped } = dropCategorySentences(was, { protect: _catProtect });
+          if (!dropped.length) continue;
+          assessment[field] = text;
+          for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: 'category', reason: 'the model is never shown the salvage category; code is the only voice on it (batch 247 B2)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
+          if (field === 'Confidence Level' && assessment._investmentBlock && assessment._investmentBlock.confidence === was) assessment._investmentBlock.confidence = text || null;
+          console.log(`[CATEGORY PROSE] ${field}: ${dropped.length} sentence(s) ${dropped.map(d => d.keptAs ? 'cut' : 'dropped').join(', ')}${text ? '' : ' — field now empty'}`);
+        }
+      }
       assessment._costClaimUncharged = [];   // batch 183 P3: stamp always; [] = no sentence claimed an uncharged line
       assessment._driverSentence = null;     // batch 184 P2: { surface, before, after, rows } when the Margin driver sentence was replaced
       for (const [field, mode] of [
