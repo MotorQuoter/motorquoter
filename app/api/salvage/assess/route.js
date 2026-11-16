@@ -6304,7 +6304,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // is not mutated between here and `assessment._reconciledParts = gatedParts` below — every splice/push
     // on gatedParts in this route happens ABOVE this line. Keep it that way, or move this assembly after
     // the last mutation (validate-headlamp-pair pins that the keys match the stored ledger).
-    assessment._vdsParts = assembleVdsParts(coreObs.costedParts, gatedParts);
+    assessment._vdsParts = assembleVdsParts(coreObs.costedParts, gatedParts, assessment._pvVotes);   // batch 247 B3: votes pick the missing wording
     console.log(`[VDS ASSEMBLE] ${assessment._vdsParts.length} code-assembled costed block(s)`);
 
     // Code-assembled Key Cost Drivers (4d). The ledger IS the driver list — biggest-ticket repair
@@ -6352,6 +6352,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         // batch 107: the §4 limit note is pushed onto assessment._flaggedParts (a copy taken earlier),
         // so the limit lookup reads the authoritative list; card composition is unchanged.
         limitFlags:     assessment._flaggedParts,
+        pvVotes:        assessment._pvVotes,   // batch 247 B3: votes pick the missing wording
       });
       if (_cards.length > 0) {
         assessment._damageCards = _cards;
