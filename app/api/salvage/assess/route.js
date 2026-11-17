@@ -48,6 +48,7 @@ import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
 import { categoryMarkerLine } from '@/lib/categoryMarker.mjs';     // batch 247 B2 ruling 2
+import { dropV5Sentences } from '@/lib/v5Prose.mjs';                // batch 247 B3 ruling 1
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
@@ -6705,12 +6706,19 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           'Realistic Exit Value', 'Margin Calculation', 'Recommended Action', 'Confidence Level', 'Exit Band Position']) {
           if (!assessment[field]) continue;
           const was = assessment[field];
-          const { text, dropped } = dropCategorySentences(was, { protect: _catProtect });
-          if (!dropped.length) continue;
+          // batch 247 B3 ruling 1: code is the only voice on the V5 too (lib/v5Prose.mjs, same engine). The marker line
+          // that says it is added later (route below), so neither filter ever reads it.
+          const cat = dropCategorySentences(was, { protect: _catProtect });
+          const v5 = dropV5Sentences(cat.text, { protect: _catProtect });
+          if (!cat.dropped.length && !v5.dropped.length) continue;
+          const text = v5.text;
           assessment[field] = text;
-          for (const d of dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.orphan ? 'category-orphan' : 'category', reason: d.orphan ? 'points back at a dropped category sentence (batch 247 B2)' : 'the model is never shown the salvage category; code is the only voice on it (batch 247 B2)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
+          for (const d of cat.dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.orphan ? 'category-orphan' : 'category', reason: d.orphan ? 'points back at a dropped category sentence (batch 247 B2)' : 'the model is never shown the salvage category; code is the only voice on it (batch 247 B2)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
+          for (const d of v5.dropped) assessment._narrativeBindings.push({ surface: field, droppedSentence: d.sentence, claimClass: d.orphan ? 'v5-orphan' : 'v5', reason: d.orphan ? 'points back at a dropped V5 sentence (batch 247 B3)' : 'code owns the V5 line (lib/categoryMarker.mjs); the model does not speak on it (batch 247 B3)', ...(d.keptAs ? { keptAs: d.keptAs } : {}) });
           if (field === 'Confidence Level' && assessment._investmentBlock && assessment._investmentBlock.confidence === was) assessment._investmentBlock.confidence = text || null;
-          console.log(`[CATEGORY PROSE] ${field}: ${dropped.length} sentence(s) ${dropped.map(d => d.keptAs ? 'cut' : 'dropped').join(', ')}${text ? '' : ' — field now empty'}`);
+          const _sum = (ds) => ds.map(d => d.keptAs ? 'cut' : 'dropped').join(', ');
+          if (cat.dropped.length) console.log(`[CATEGORY PROSE] ${field}: ${cat.dropped.length} sentence(s) ${_sum(cat.dropped)}${text ? '' : ' — field now empty'}`);
+          if (v5.dropped.length) console.log(`[V5 PROSE] ${field}: ${v5.dropped.length} sentence(s) ${_sum(v5.dropped)}${text ? '' : ' — field now empty'}`);
         }
       }
       assessment._costClaimUncharged = [];   // batch 183 P3: stamp always; [] = no sentence claimed an uncharged line
@@ -6845,8 +6853,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     }
 
     // ── batch 247 B2 ruling 2 (Vincent, 17 Nov): the code-owned V5 / category marker line ──
-    // From the RECORDED category (catLetter) and the listing's V5 field only, never the model. Cat S/N only; one owner,
-    // lib/categoryMarker.mjs. Added AFTER the category filter (so it is never read by it) and AFTER the provenance dedup
+    // From the RECORDED category (catLetter) and the listing's V5 field only, never the model. One owner,
+    // lib/categoryMarker.mjs (its header has the matrix; batch 247 B3 added the no-V5 line on a non-S/N lot and the
+    // category half for a partial / blank V5). Added AFTER the category filter (so it is never read by it) and AFTER the provenance dedup
     // above (so it can neither feed nor suppress it). Appended to Red Flags, which the page and the PDF both print.
     {
       const _markerLine = categoryMarkerLine(catLetter(enrichedVd.category), enrichedVd.v5Status);
