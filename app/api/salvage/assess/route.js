@@ -46,7 +46,7 @@ import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_C
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
-import { costDisputedNeighbours, notesNotConfirmed } from '@/lib/disputedNeighbour.mjs';   // batch 247 B4
+import { costDisputedNeighbours } from '@/lib/disputedNeighbour.mjs';   // batch 247 B4
 import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -6195,7 +6195,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           gatedParts, pvVotes: assessment._pvVotes, flagLists: [coreObs.flaggedParts, assessment._flaggedParts],
           zoneByPanel, sevByPanel, display: PANEL_DISPLAY,
           priceEntry: (pid) => (bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] ?? null : null),
-          notConfirmed: notesNotConfirmed(assessment._notesConfirm),
         });
         assessment._disputedNeighbour = _dn.promoted;
         for (const p of _dn.promoted) console.log(`[DISPUTED NEIGHBOUR] ${p.panelId} (d${p.votes.damaged}/c${p.votes.clean}) next to charged ${p.neighbour} via ${p.path} (zones ${p.zone}/${p.neighbourZone}) → repair, grade ${p.grade}, flag kept (batch 247 B4)`);
