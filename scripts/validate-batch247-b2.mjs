@@ -5,13 +5,20 @@
 //   node --loader ./scripts/lib/alias-loader.mjs scripts/validate-batch247-b2.mjs
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dropCategorySentences, mentionsCategory } from '@/lib/categoryProse.mjs';
 
-const { lots } = JSON.parse(readFileSync('fixtures/b247/category-fields.json', 'utf8'));
+// The fixture holds data read from production rows, so it lives in the gitignored fixtures/ tree (batch 247 B2 ruling 4).
+// On a fresh clone it is absent: the fixture tests skip with this message; the synthetic tests and the prompt pin still run.
+const FIX_PATH = 'fixtures/b247/category-fields.json';
+const FIX = existsSync(FIX_PATH) ? JSON.parse(readFileSync(FIX_PATH, 'utf8')) : null;
+const SKIP = FIX ? false : `${FIX_PATH} is not on disk (production-row data, kept out of git) — fixture tests skipped`;
+if (SKIP) console.log(`SKIP: ${SKIP}`);
+const lots = FIX?.lots ?? {};
+const expect = FIX?.expect ?? {};
 const run = (t, o) => dropCategorySentences(t, o);
 
-test('every field on every fixture lot: no model category sentence survives (code exit line excepted)', () => {
+test('every field on every fixture lot: no model category sentence survives (code exit line excepted)', { skip: SKIP }, () => {
   for (const [lot, fields] of Object.entries(lots)) for (const [k, v] of Object.entries(fields)) {
     if (!v) continue;
     const out = run(v).text;
@@ -22,27 +29,27 @@ test('every field on every fixture lot: no model category sentence survives (cod
   }
 });
 
-test('RV26YLN Red Flags: the Category bullet goes whole; the V5 bullet and every other bullet are untouched', () => {
+test('RV26YLN Red Flags: the Category bullet goes whole; the V5 bullet and every other bullet are untouched', { skip: SKIP }, () => {
   const rf = lots.RV26YLN['Red Flags'];
   const r = run(rf);
   assert.equal(r.dropped.length, 2);
   assert.ok(!/Category/.test(r.text));
-  assert.ok(r.text.includes('- V5: not present, so a replacement application is needed.'));
+  assert.ok(r.text.includes(expect.RV26YLN.v5Bullet));
   assert.equal(r.text.split('\n').length, rf.split('\n').length - 1, 'exactly one line removed');
 });
 
-test('RV26YLN Confidence Level: the category item is cut, the level and the rest are kept', () => {
+test('RV26YLN Confidence Level: the category item is cut, the level and the rest are kept', { skip: SKIP }, () => {
   const r = run(lots.RV26YLN['Confidence Level']);
-  assert.equal(r.text, 'Medium — photo coverage is good and the mileage is dash-confirmed, but the HV system status, the pillar and sill structure and the full restraint deployment count are unresolved.');
+  assert.equal(r.text, expect.RV26YLN.confidenceAfter);
 });
 
-test('KT73YAJ Paperwork bullet keeps its V5 sentence (the binder would have dropped the whole bullet)', () => {
+test('KT73YAJ Paperwork bullet keeps its V5 sentence (the binder would have dropped the whole bullet)', { skip: SKIP }, () => {
   const r = run(lots.KT73YAJ['Red Flags']);
   assert.ok(r.text.includes('- Paperwork. No V5 is present, so the buyer will need to apply to DVLA for a registration document.'));
   assert.ok(!/salvage category/.test(r.text));
 });
 
-test('list cuts read as English (URZ7545, SA26KVT, HV25ODX, SF69YBB, FE68AOP, EN23NJX)', () => {
+test('list cuts read as English (URZ7545, SA26KVT, HV25ODX, SF69YBB, FE68AOP, EN23NJX)', { skip: SKIP }, () => {
   assert.match(run(lots.URZ7545['Confidence Level']).text, /the vehicle does not run, and no photo shows the front structure\.$/);
   assert.match(run(lots.SA26KVT['Confidence Level']).text, /extent are not visible\.$/);
   assert.match(run(lots.HV25ODX['Confidence Level']).text, /the cause of the non-start, and the full restraint deployment are not established\./);
@@ -51,7 +58,7 @@ test('list cuts read as English (URZ7545, SA26KVT, HV25ODX, SF69YBB, FE68AOP, EN
   assert.match(run(lots.EN23NJX['Exit Band Position']).text, /held below upper by the unresolved rear quarter and bumper\.$/);
 });
 
-test('code lines are never read: the exit line, the notes lines, the Cat A/B stop text', () => {
+test('code lines are never read: the exit line, the notes lines, the Cat A/B stop text', { skip: SKIP }, () => {
   const exit = lots.EN23NJX['Realistic Exit Value'];
   assert.ok(run(exit).text.endsWith('Exit: £10,075 — mid-high position, 77.5% of trade-low £13,000 (Cat S band)'));
   const notes = '- Copart\'s notes say: "HPI CHECK ON 21/7/2026 SHOWS CATEGORY S".\n- The auction notes say: "CAT S".';
@@ -60,7 +67,7 @@ test('code lines are never read: the exit line, the notes lines, the Cat A/B sto
   assert.equal(run(`- ${stop}\n- Other.`, { protect: [stop] }).text, `- ${stop}\n- Other.`);
 });
 
-test('a field with no category mention comes back byte-identical (AMZ3790 controls)', () => {
+test('a field with no category mention comes back byte-identical (AMZ3790 controls)', { skip: SKIP }, () => {
   for (const v of Object.values(lots.AMZ3790)) if (v && !/Exit: £/.test(v)) assert.equal(run(v).text, v);
   const rf = lots.AMZ3790['Red Flags'];
   assert.equal(run(rf).text, rf);
@@ -83,7 +90,7 @@ test('B2(i): the engine prompt never mentions a salvage category or a Cat letter
   assert.deepEqual(hits.map(([n, l]) => `${n}: ${l.slice(0, 90)}`), []);
 });
 
-test('a sentence that only points back at a dropped category sentence goes with it (URZ7545, HV25ODX, DMZ4614)', () => {
+test('a sentence that only points back at a dropped category sentence goes with it (URZ7545, HV25ODX, DMZ4614)', { skip: SKIP }, () => {
   for (const lot of ['URZ7545', 'HV25ODX', 'DMZ4614']) {
     const r = run(lots[lot]['Red Flags']);
     assert.ok(r.dropped.some((d) => d.orphan), `${lot}: orphan recorded`);
