@@ -604,7 +604,9 @@ test('Part 12 end to end (EA17HDN): the stamp counts what the money counts — h
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
   // batch 246: the disclosure follows the ENGINE's own assumed flag. On the Opus 4.8 recording the lamp type was assumed (no
   // photo type); on the Fable 5.2 recording the photo names it (assumed=false), so no "type assumed" line is the right outcome.
-  const _assumed = insRun.logs.some(l => /^[LAMP] final: .*assumed=true/.test(l));
+  // batch 247 C: the brackets are escaped. `[LAMP]` unescaped is a character class, so the old pattern never matched and
+  // _assumed was always false; it passed only while the recording happened to have assumed=false.
+  const _assumed = insRun.logs.some(l => /^\[LAMP\] final: .*assumed=true/.test(l));
   assert.equal(insRun.logs.some(l => l.startsWith('[LAMP] tier-2 assumed-type disclosure flag emitted')), _assumed, 'Part 11: the assumed-type disclosure follows the engine (present iff assumed=true)');
 });
 
@@ -620,7 +622,7 @@ test('Part 13 EA17HDN: 2 headlamps costed, the set-aside allowance + its flag go
   assert.ok(!flagText.includes(LAMP_ALLOWANCE_FLAG_LEAD), 'no "lamp pricing not independently confirmed … inspection allowance" line on any surface');
   assert.ok(!/inspection allowance/i.test(JSON.stringify(a._damageCards || [])), 'no allowance damage card');
   assert.ok(!insRun.logs.some(l => /INVARIANT BROKEN/.test(l)), 'no INVARIANT BROKEN log');
-  const _assumed13 = insRun.logs.some(l => /^[LAMP] final: .*assumed=true/.test(l));   // batch 246: see Part 12 — follows the engine
+  const _assumed13 = insRun.logs.some(l => /^\[LAMP\] final: .*assumed=true/.test(l));   // batch 246: see Part 12 — follows the engine
   assert.equal(JSON.stringify(a._flaggedParts || []).includes('Lamp type could not be confirmed'), _assumed13, 'tier-2 "type assumed" disclosure present iff the engine assumed the type');
   assert.ok((a['Red Flags'] || '').includes('Costed in the repair breakdown: headlamp × 2.'));
   assert.deepEqual(a._notesConfirm.settledLamp, { allowanceRows: 1, flags: 1 });
