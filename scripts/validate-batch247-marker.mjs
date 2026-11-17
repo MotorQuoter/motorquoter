@@ -25,13 +25,39 @@ test('the V5 field values seen in the corpus (Copart + IAA normaliser)', () => {
   for (const v of ['Partial V5 Available', '', null, undefined, 'Applied for']) assert.equal(v5State(v), null, String(v));
 });
 
-test('no line: any other category, no category, or a V5 state that is not plain', () => {
-  for (const c of ['a', 'b', 'c', 'd', 'u', null, undefined, '']) {
-    assert.equal(categoryMarkerLine(c, 'No'), null, `cat ${c}`);
-    assert.equal(categoryMarkerLine(c, 'Physical V5 Available'), null, `cat ${c}`);
+// batch 247 B3: the full matrix — S/N × {absent, present, partial, blank} and other/none × the same four.
+const NO_V5 = 'No V5 is present, so the buyer must apply to DVLA for one.';
+const HALF = (c) => `This car is recorded as Category ${c}. That marker is permanent and shows on future history checks.`;
+const V5_CASES = { absent: 'No', present: 'Physical V5 Available', partial: 'Partial V5 Available', blank: '' };
+test('the full matrix: S/N × {absent, present, partial, blank}', () => {
+  for (const c of ['S', 'N']) {
+    const want = {
+      absent: `${NO_V5} This car is recorded as Category ${c}, and the new V5 will carry that marker permanently; it also shows on future history checks.`,
+      present: `This car is recorded as Category ${c}. The V5 carries that marker permanently and it shows on future history checks.`,
+      partial: HALF(c),
+      blank: HALF(c),
+    };
+    for (const [k, v5] of Object.entries(V5_CASES)) assert.equal(categoryMarkerLine(c.toLowerCase(), v5), want[k], `${c} × ${k}`);
+    assert.equal(categoryMarkerLine(c.toLowerCase(), null), HALF(c), `${c} × null`);
+    assert.equal(categoryMarkerLine(c.toLowerCase(), 'Applied for'), HALF(c), `${c} × unrecognised`);
   }
-  assert.equal(categoryMarkerLine('s', 'Partial V5 Available'), null);
-  assert.equal(categoryMarkerLine('s', null), null);
+});
+
+test('the full matrix: other / no category × {absent, present, partial, blank}', () => {
+  for (const c of ['a', 'b', 'c', 'd', 'u', null, undefined, '']) {
+    assert.equal(categoryMarkerLine(c, V5_CASES.absent), NO_V5, `cat ${c} × absent`);
+    assert.equal(categoryMarkerLine(c, V5_CASES.present), null, `cat ${c} × present`);
+    assert.equal(categoryMarkerLine(c, V5_CASES.partial), null, `cat ${c} × partial`);
+    assert.equal(categoryMarkerLine(c, V5_CASES.blank), null, `cat ${c} × blank`);
+    assert.equal(categoryMarkerLine(c, null), null, `cat ${c} × null`);
+  }
+});
+
+test('a partial V5 never claims the V5 is there or not, on any category', () => {
+  for (const c of ['s', 'n', 'u', null]) {
+    const line = categoryMarkerLine(c, 'Partial V5 Available') || '';
+    assert.ok(!/No V5 is present|The V5 carries|new V5/.test(line), `${c}: ${line}`);
+  }
 });
 
 test('route order: the line is added after the category filter and after the provenance dedup, from catLetter + v5Status', () => {
