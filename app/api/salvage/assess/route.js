@@ -47,6 +47,7 @@ import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
 import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
+import { categoryMarkerLine } from '@/lib/categoryMarker.mjs';     // batch 247 B2 ruling 2
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
@@ -6841,6 +6842,20 @@ export async function runAssessment({ images, vd, market, roiTier }) {
           console.log(`[PROVENANCE INJECT] red-flag line injected (code-owned concern, tier=${_provTier})`);
         }
       }
+    }
+
+    // ── batch 247 B2 ruling 2 (Vincent, 17 Nov): the code-owned V5 / category marker line ──
+    // From the RECORDED category (catLetter) and the listing's V5 field only, never the model. Cat S/N only; one owner,
+    // lib/categoryMarker.mjs. Added AFTER the category filter (so it is never read by it) and AFTER the provenance dedup
+    // above (so it can neither feed nor suppress it). Appended to Red Flags, which the page and the PDF both print.
+    {
+      const _markerLine = categoryMarkerLine(catLetter(enrichedVd.category), enrichedVd.v5Status);
+      assessment._categoryMarkerLine = _markerLine;
+      if (_markerLine) {
+        const _rfM = (assessment['Red Flags'] || '').trim();
+        assessment['Red Flags'] = _rfM ? `${_rfM}\n- ${_markerLine}` : `- ${_markerLine}`;
+      }
+      console.log(`[CATEGORY MARKER] cat=${catLetter(enrichedVd.category) ?? 'none'} v5=${JSON.stringify(enrichedVd.v5Status ?? null)} → ${_markerLine ? 'line added' : 'no line'}`);
     }
 
     // ── batch 202: the auction's notes, shown AS WRITTEN (Vincent, 1 Oct) ──
