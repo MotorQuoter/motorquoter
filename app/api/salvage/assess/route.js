@@ -46,7 +46,6 @@ import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_C
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
-import { costDisputedNeighbours } from '@/lib/disputedNeighbour.mjs';   // batch 247 B4
 import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
 
 // ── Body-class resolution ──────────────────────────────────────────────────────
@@ -6186,21 +6185,6 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (_q4?.row) console.log(`[Q4 PROMOTE] flagged REAR_QUARTER → costed band-default, grade ${sevByPanel.get(PANEL.REAR_QUARTER)} (was ${_q4.gradeWas ?? 'ungraded'}) oem £${_q4.row.oem} used £${_q4.row.used}; flag retained`);
       else if (_q4?.declined) console.log(`[Q4 DECLINED] flagged REAR_QUARTER NOT costed — losing vote (damaged < clean) ${JSON.stringify(_q4.declined)}; flag retained, £0 (batch 130)`);
 
-      // batch 247 B4 (Vincent, 16 Nov: option (b)) — a disputed BODY panel next to a CHARGED panel is costed as a repair the
-      // buyer can strike, and stays flagged. Batch 156 is superseded for this case only. Runs after Q4 (so the quarter keeps its
-      // own rule) and before applyGradeOwnsAction (which makes it "repair, £0 part, cost in panel work") and labour. Below the
-      // body-class strip, so it only sees flags and rows the body can carry. One owner: lib/disputedNeighbour.mjs.
-      {
-        const _dn = costDisputedNeighbours({
-          gatedParts, pvVotes: assessment._pvVotes, flagLists: [coreObs.flaggedParts, assessment._flaggedParts],
-          zoneByPanel, sevByPanel, display: PANEL_DISPLAY,
-          priceEntry: (pid) => (bandKey ? PANEL_PRICE_TABLE[pid]?.[bandKey] ?? null : null),
-        });
-        assessment._disputedNeighbour = _dn.promoted;
-        for (const p of _dn.promoted) console.log(`[DISPUTED NEIGHBOUR] ${p.panelId} (d${p.votes.damaged}/c${p.votes.clean}) next to charged ${p.neighbour} via ${p.path} (zones ${p.zone}/${p.neighbourZone}) → repair, grade ${p.grade}, flag kept (batch 247 B4)`);
-        for (const s of _dn.skipped) console.log(`[DISPUTED NEIGHBOUR] ${s.panelId} not costed — ${s.why}${s.neighbours ? ` (charged neighbours ${s.neighbours.join(',')})` : ''}`);
-      }
-
       // batch 116 (Vincent, 11 Sep: "Fix this duplication of parts and repair") — the GRADE owns repair vs
       // replace on a bolt-on body panel, and a MINOR/MODERATE repair carries NO part cost (spec §1: MODERATE is
       // £700 all-in; "PART cost separate" is on SEVERE only). batch 127 (14 Sep): the welded three follow the same
@@ -6249,8 +6233,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
       // The four NAMED structural tells (spec §9), genuine firings only; chassis-leg limb NOT shipped.
       // batch 116: a repaired panel (_repairNoPart, £0 part, cost in panel work) is still a costed, damaged panel.
-      // batch 247 B4: a disputed panel costed for its neighbour is not a confirmed tell (the allowance is withdrawn — no money moves today).
-      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && isChargedRow(p) && !p._disputedNeighbour).map(p => p.panelId));   // batch 163 T2 — one owner
+      const costedNow = new Set(gatedParts.filter(p => !isLabour(p.name) && isChargedRow(p)).map(p => p.panelId));   // batch 163 T2 — one owner
       const flagObs = (pid) => (coreObs.flaggedParts || []).some(f => f.panelId === pid && !/not visible in any photo/i.test(f.reason || ''));
       // Bonnet tell = the bonnet displaced OR costed-with-damage — matches the Q2 measurement grid Vincent
       // ruled ≥2 against (a crumpled bonnet on a frontal is the "not lining up" sign; a costed bonnet counts).
