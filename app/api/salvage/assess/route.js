@@ -2951,6 +2951,21 @@ export function damagedHeadlampsSeen(perViewResults, { countMissing = false } = 
   return most;
 }
 
+// batch 248 C3 (Vincent, 18 Nov) — of the headlamps counted for the pair cap, how many were SEEN damaged and how many were
+// counted as MISSING (gone from the mounting). Read from the ONE view that showed the most (damaged + missing) — the view
+// the pair count came from — ties to the view with more seen damaged. lib/parts.mjs lampPairMissingReason words it.
+export function headlampPairSplit(perViewResults) {
+  let best = { damaged: 0, missing: 0 };
+  for (const r of perViewResults || []) {
+    const rows = (r?.instanceParts && r.instanceParts.length ? r.instanceParts : r?.costedParts) || [];
+    const lamps = rows.filter((cp) => cp?.panelId === PANEL.HEADLAMP);
+    const s = { damaged: lamps.filter(cp => cp.independentlyVisible === true).length, missing: lamps.filter(cp => cp.independentlyVisible === 'missing').length };
+    const t = s.damaged + s.missing, bt = best.damaged + best.missing;
+    if (t > bt || (t === bt && s.damaged > best.damaged)) best = s;
+  }
+  return best;
+}
+
 export function computeLampResult(struckSide, apertureExposed, lampType, detectionVerdict = null, detectionLampType = null, damageSpan = 'full_width', spanDefaulted = false, damagedLampsSeen = null) {
   // struckSide kept as internal field for logging only — never interpolated into rendered strings
   const side = (struckSide === 'offside' || struckSide === 'nearside') ? struckSide : 'central';
@@ -4677,7 +4692,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         lampObs._spanDefaulted    === true,
         _pairLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen; batch 248 B4: a missing lamp counts
       );
-      console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
+      lampResult.pairSplit = headlampPairSplit(perViewResults);   // batch 248 C3 — read only by the pair wording (lampPairMissingReason)
+      console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} pairSplit=${JSON.stringify(lampResult.pairSplit)} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
     }
 
     // Item 15 — enforce prose-ban on absolute side labels before any buyer-facing field is parsed.

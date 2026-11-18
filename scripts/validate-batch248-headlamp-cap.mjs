@@ -1,13 +1,20 @@
 // batch 248 B4 (Vincent, 18 Nov) — a missing headlamp counts as a damaged lamp for the pair cap; the surplus-lamp line
-// never says "single front corner" on a full-width span. £0, synthetic shapes + the LC72NZV stored row (production data,
+// never says "single front corner" on a full-width span. batch 248 C3: a costed pair with a lamp counted missing keeps a
+// strike option on its rows (lampPairMissingReason). £0, synthetic shapes + the LC72NZV stored row (production data,
 // gitignored fixtures/b248/ — skips cleanly without it).
 //   node --loader ./scripts/lib/alias-loader.mjs scripts/validate-batch248-headlamp-cap.mjs
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { reconcileParts, applyVisibilityGate, lampSurplusReason, LAMP_SURPLUS_LIMIT_REASON, LAMP_SURPLUS_CAP_REASON,
-  LAMP_PAIR_LIMIT_REASON } from '@/lib/parts.mjs';
-import { computeLampResult, damagedHeadlampsSeen } from '../app/api/salvage/assess/route.js';
+  LAMP_PAIR_LIMIT_REASON, lampPairMissingReason } from '@/lib/parts.mjs';
+import { computeLampResult, damagedHeadlampsSeen, headlampPairSplit } from '../app/api/salvage/assess/route.js';
+import { buildDamageCards } from '@/lib/damageCards.mjs';
+const ONE_MISSING = 'Both headlamps are costed at £350 each. One could not be seen in its mounting in these photographs. Strike its line if the inspection shows it sound.';
+const BOTH_MISSING = 'Neither headlamp could be seen in its mounting in these photographs. Both are costed at £350 each. Strike a line if the inspection shows that lamp sound.';
+const PAIR_LINE = 'Full-width frontal impact — both headlamps are costed at £350 each and included in the repair total; confirm serviceability on inspection.';
+const pairLr = (views) => { const lr = computeLampResult('offside', true, null, null, null, 'full_width', false, damagedHeadlampsSeen(views, { countMissing: true })); lr.pairSplit = headlampPairSplit(views); return lr; };
+const cardNotes = (c) => buildDamageCards({ gatedParts: c.rows, flaggedParts: c.flags }).filter(k => /headlamp/i.test(k.part || '')).map(k => k.note);
 
 const lamp = (iv, inst) => ({ panelId: 'HEADLAMP', partName: 'Headlamp', independentlyVisible: iv, zone: 'front', inst });
 const view = (...rows) => ({ instanceParts: rows });
@@ -61,6 +68,31 @@ test('the surplus line: "single front corner" only on a span that is not full-wi
   assert.equal(chain(corner).flags.find(f => f._lampSurplusLimit).reason, LAMP_SURPLUS_LIMIT_REASON);
 });
 
+test('C3: the split comes from the view with the most lamps counted; the ruled wording verbatim; both seen damaged → the existing pair line', () => {
+  assert.deepEqual(headlampPairSplit([view(lamp(true, 1), lamp('missing', 2))]), { damaged: 1, missing: 1 });
+  assert.deepEqual(headlampPairSplit([view(lamp(true, 1)), view(lamp(true, 1), lamp('missing', 2))]), { damaged: 1, missing: 1 });
+  assert.deepEqual(headlampPairSplit([view(lamp('missing', 1), lamp('missing', 2)), view(lamp(true, 1), lamp(true, 2))]), { damaged: 2, missing: 0 }, 'tie → more seen damaged');
+  assert.equal(lampPairMissingReason({ lampCount: 2, lampAllowance: 350, pairSplit: { damaged: 1, missing: 1 } }), ONE_MISSING);
+  assert.equal(lampPairMissingReason({ lampCount: 2, lampAllowance: 350, pairSplit: { damaged: 0, missing: 2 } }), BOTH_MISSING);
+  assert.equal(lampPairMissingReason({ lampCount: 2, lampAllowance: 350, pairSplit: { damaged: 2, missing: 0 } }), null);
+  assert.equal(lampPairMissingReason({ lampCount: 1, lampAllowance: 350, pairSplit: { damaged: 1, missing: 1 } }), null, 'not a pair');
+  assert.equal(lampPairMissingReason({ lampCount: 2, lampAllowance: 350 }), null, 'stored rows without the split');
+  // through the money chain and the cards: the limit sits on BOTH pair rows; money = 2 × band either way
+  const one = chain(pairLr([view(lamp(true, 1), lamp('missing', 2))]), true);
+  assert.equal(one.rows.length, 2); assert.ok(one.rows.every(r => r.used === 350 && r._lampPair && r._lampPairMissing));
+  assert.equal(one.flags.filter(f => f._lampPairMissingLimit).length, 1); assert.equal(one.flags.find(f => f._lampPairMissingLimit).reason, ONE_MISSING);
+  assert.deepEqual(cardNotes(one), [ONE_MISSING, ONE_MISSING]);
+  const dmg = chain(pairLr([view(lamp(true, 1), lamp(true, 2))]), true);
+  assert.ok(dmg.rows.every(r => r.used === 350 && !r._lampPairMissing)); assert.equal(dmg.flags.length, 0);
+  assert.deepEqual(cardNotes(dmg), [PAIR_LINE, PAIR_LINE], 'both seen damaged: the existing pair line');
+  // pooled verdict not iv:true (batch 111 unconfirmed branch): the pair limit flag carries the C3 wording when a lamp was missing
+  const unc = chain(pairLr([view(lamp('missing', 1), lamp('missing', 2))]), 'missing');
+  assert.equal(unc.flags.find(f => f._lampPairLimit).reason, BOTH_MISSING);
+  assert.deepEqual(cardNotes(unc), [BOTH_MISSING, BOTH_MISSING]);
+  const src = readFileSync('app/api/salvage/assess/route.js', 'utf8');
+  assert.ok(src.includes('lampResult.pairSplit = headlampPairSplit(perViewResults);'));
+});
+
 // ── LC72NZV stored row ──
 const FIX_PATH = 'fixtures/b248/lc72nzv-row.json';
 const ROW = existsSync(FIX_PATH) ? JSON.parse(readFileSync(FIX_PATH, 'utf8')) : null;
@@ -88,5 +120,14 @@ test('LC72NZV: stored lamp observation + the view-6 missing pair → two lamps a
     assert.ok(c.flags.every(f => !/single front corner/.test(f.reason || '')));
     if (iv === 'missing') assert.ok(c.flags.some(f => f.reason === LAMP_PAIR_LIMIT_REASON), 'pair wording');
     else assert.equal(c.flags.filter(f => f._lampSurplusLimit).length, 0);
+  }
+  // batch 248 C3: with the split (view 6: both missing) the rows carry "Neither headlamp could be seen in its mounting…"
+  lr.pairSplit = headlampPairSplit([view(lamp('missing', 1), lamp('missing', 2))]);
+  assert.equal(lr.lampAllowance, 350);
+  for (const iv of [true, 'missing']) {
+    const c = chain(lr, iv);
+    assert.ok(c.rows.every(r => r.used === 350), 'money unchanged');
+    assert.deepEqual(cardNotes(c), [BOTH_MISSING, BOTH_MISSING], `iv=${iv}`);
+    assert.ok(c.flags.some(f => f.reason === BOTH_MISSING));
   }
 });
