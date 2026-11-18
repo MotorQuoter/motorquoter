@@ -37,7 +37,7 @@ import {
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
-import { stampCopartNotes, copartNotes, openedInPhotos } from '@/lib/copartNotes.mjs';   // batch 202 (+ 248 B1)
+import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
 import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts, settleLampAllowance } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
@@ -1208,8 +1208,6 @@ const STICKER_LEGIBLE = STICKER_ENUM.filter(s => s !== '' && s !== 'UNREADABLE')
 // "this is the side of the car" without being forced to guess nearside/offside (side is the read's
 // weakest call). It never names a side, so the struck-side probe (P2) deliberately does not match it.
 const FRAME_ZONE_ENUM = ['front', 'rear', 'nearside', 'offside', 'flank', 'roof', 'interior', 'detail'];
-// batch 248 B1: the panels the frame-zone read may report standing open in a photo. lib/copartNotes.mjs reads the result.
-export const FRAME_OPENED_ENUM = ['bonnet', 'boot'];
 
 // batch 222 — the frame-zone and photo-odometer Haiku reads failed SILENTLY (a log line, no alert, no abort), so a retired
 // or broken model would hide until the daily canary. Each failure path now sends an ops alert through the existing
@@ -1278,13 +1276,10 @@ Return a raw JSON object only, no other text:
           if (!ok && z) console.warn(`[FRAME ZONE] dropped unknown zone "${z}" (frame ${i})`);
           return ok;
         }))];
-      // batch 248 B1 (Vincent, 18 Nov): the panels standing open in this photo — bonnet / boot only, anything else dropped.
-      const opened = [...new Set((Array.isArray(f.opened) ? f.opened : [])
-        .map(z => (typeof z === 'string' ? z.trim().toLowerCase() : '')).filter(z => FRAME_OPENED_ENUM.includes(z)))];
-      frames.push({ i, zones, windscreenLabel: f.windscreenLabel === true, opened });
+      frames.push({ i, zones, windscreenLabel: f.windscreenLabel === true });
     }
     const zc = FRAME_ZONE_ENUM.reduce((a, z) => { a[z] = frames.filter(fr => fr.zones.includes(z)).length; return a; }, {});
-    console.log(`[FRAME ZONE] ok=true frames=${frames.length}/${n} windscreenLabel=${frames.filter(fr => fr.windscreenLabel).length} zones=${JSON.stringify(zc)} opened=${JSON.stringify(frames.filter(fr => fr.opened.length).map(fr => `${fr.i}:${fr.opened.join('+')}`))}`);
+    console.log(`[FRAME ZONE] ok=true frames=${frames.length}/${n} windscreenLabel=${frames.filter(fr => fr.windscreenLabel).length} zones=${JSON.stringify(zc)}`);
     return { ok: true, frames };
   } catch (err) {
     console.warn('[FRAME ZONE] error:', err.message);
@@ -6906,8 +6901,10 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _chargedCounts = chargedCounts(assessment._reconciledParts, isChargedRow);
       const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null,
         notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS,
-        notesMileage: enrichedVd._notesMileage || [],   // batch 248 B2
-        openedPanels: openedInPhotos(assessment._frameZones) });   // batch 248 B1: bonnet / boot standing open in a listing photo
+        notesMileage: enrichedVd._notesMileage || [] });   // batch 248 B2
+      // batch 248 C2: no `openedPanels` — the photo-side check (its own Haiku call, option (c)) is HELD: on the two recorded
+      // lots it called a shut boot and a shut bonnet open (_cc/scratch/b248/c2-held-opened-check.patch). Until it is ruled,
+      // an "unable to open" note always reads "Not costed"; the frame-zone read carries no `opened` field (option (b) discarded).
       console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} concernLines=${_notes.concernLines.length}${_notesRead.fallback ? ' (reader fallback)' : ''} — notes only in the reader's prompt; mechanical never costed`);
     }
 
