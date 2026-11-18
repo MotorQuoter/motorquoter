@@ -2936,11 +2936,16 @@ function tier1FloorLampObs() {
 // batch 171 P3 — how many damaged headlamps the per-view reads resolved: in any ONE view, the distinct HEADLAMP
 // instance records graded iv:true (a zone-demoted vote is already na); the most any single view showed. Two lamps
 // seen in two different views cannot be told apart from one lamp seen twice, so it is the per-view maximum.
-export function damagedHeadlampsSeen(perViewResults) {
+// batch 248 B4 (Vincent, 18 Nov): for the PAIR CAP, a lamp voted iv:missing (gone from its mounting) counts too
+// ({ countMissing: true }) — LC72NZV, full-width with both lamps missing, was capped to one lamp and its second lamp worded
+// as "a single front corner". The default (damaged only) is unchanged: the batch 177 P3 fog one-corner test reads it, and
+// counting missing lamps there moved fog money on GY75CJU (+£80) and YH23NVW (+£65), which the ruling did not cover.
+export function damagedHeadlampsSeen(perViewResults, { countMissing = false } = {}) {
   let most = 0;
   for (const r of perViewResults || []) {
     const rows = (r?.instanceParts && r.instanceParts.length ? r.instanceParts : r?.costedParts) || [];
-    const n = new Set(rows.filter((cp) => cp?.panelId === PANEL.HEADLAMP && cp.independentlyVisible === true)).size;
+    const n = new Set(rows.filter((cp) => cp?.panelId === PANEL.HEADLAMP
+      && (cp.independentlyVisible === true || (countMissing && cp.independentlyVisible === 'missing')))).size;
     if (n > most) most = n;
   }
   return most;
@@ -4660,7 +4665,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // bumper-off rule (C3), targeted to that panel's frames; no early full-set single call.
 
     let lampResult = null;
-    const _damagedLampsSeen = damagedHeadlampsSeen(perViewResults);   // batch 171 P3 count — batch 177 P3 reads it too
+    const _damagedLampsSeen = damagedHeadlampsSeen(perViewResults);   // batch 171 P3 count — batch 177 P3 (fog one-corner) reads it
+    const _pairLampsSeen = damagedHeadlampsSeen(perViewResults, { countMissing: true });   // batch 248 B4 — the pair cap: damaged OR missing
     if (lampObs) {
       const derivedLampType = deriveLampType(enrichedVd);
       lampResult = computeLampResult(
@@ -4669,7 +4675,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         photoType,
         lampObs.damageSpan        || 'full_width',
         lampObs._spanDefaulted    === true,
-        _damagedLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen
+        _pairLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen; batch 248 B4: a missing lamp counts
       );
       console.log(`[LAMP] final: tier=${lampResult.tier} effectiveVerdict=${lampResult.effectiveVerdict} band=£${lampResult.lampAllowance} type=${lampResult.lampType} source=${lampResult.lampTypeSource} (photo=${photoType ?? 'none'} spec=${derivedLampType}) assumed=${lampResult.lampTypeAssumed}`);
     }
@@ -4686,6 +4692,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     if (lampResult) assessment._lampResult = lampResult;
     assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };   // batch 177 P5 — stored every time, null included
     assessment._damagedHeadlampsSeen = _damagedLampsSeen;   // batch 177 P3 — stamped so the one-corner test is auditable
+    assessment._pairHeadlampsSeen = _pairLampsSeen;         // batch 248 B4 — the pair-cap count (damaged or missing), auditable
     assessment._lampObs = lampObs ? {
       struckSide:          lampObs.struckSide ?? 'central',
       apertureExposed:     lampObs.apertureExposed === true,

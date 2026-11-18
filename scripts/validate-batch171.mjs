@@ -74,7 +74,7 @@ console.log('\n-- P3: a headlamp pair needs two damaged headlamps seen --');
   ok('the cap never raises: tier 1 (aperture not exposed) stays 1', single.lampCount === 1);
   ok('a zone-demoted (na) vote does not count', damagedHeadlampsSeen([{ idx: 3, costedParts: [], instanceParts: [h(null, 1), h(true, 2)] }]) === 1);
   // batch 177 P3: the count is computed once (the fog rule reads it too) and passed by name — same count, same call.
-  ok('route passes the per-view count into computeLampResult', route.includes('const _damagedLampsSeen = damagedHeadlampsSeen(perViewResults);') && route.includes('_damagedLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen'));
+  ok('route passes the per-view count into computeLampResult', route.includes('const _damagedLampsSeen = damagedHeadlampsSeen(perViewResults);') && route.includes('_pairLampsSeen   // batch 171 P3 — the pair needs two damaged headlamps seen') && route.includes('const _pairLampsSeen = damagedHeadlampsSeen(perViewResults, { countMissing: true });'));
 }
 
 // ── P4 ─────────────────────────────────────────────────────────────────────────────────────────────
