@@ -152,11 +152,15 @@ test('source pins: the route reads the notes once for the reader and stamps once
   const route = readFileSync(new URL('../app/api/salvage/assess/route.js', import.meta.url), 'utf8');
   const uses = route.split('\n').filter(l => /copartNotes|CopartNotes/.test(l) && !l.trim().startsWith('//'));
   // batch 248 B2: one more read, CODE only — the notes-mileage figure (lib/mileageCheck.mjs notesMileageCheck), never a prompt.
-  assert.equal(uses.length, 4, uses.join('\n'));
+  // batch 250: one more read, CODE only — openNoteTarget on each line picks the "opened" questions; the note text never
+  // reaches that prompt (validate-batch250-opened proves it).
+  assert.equal(uses.length, 5, uses.join('\n'));
+  assert.ok(uses[2].trim().startsWith('[...new Set(copartNotes(enrichedVd).lines.map(openNoteTarget).filter(Boolean))]'), uses[2]);
+  uses.splice(2, 1);
   assert.equal(uses[2].trim(), 'const _cn = copartNotes(enrichedVd);');
   assert.ok(/const _cn = copartNotes\(enrichedVd\);\s*\n\s*enrichedVd\._notesMileage = notesMileageCheck\(_cn\.lines, /.test(route), 'the 248 B2 read feeds the code check only');
   uses.splice(2, 1);
-  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';"), uses[0]);
+  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes, copartNotes, openNoteTarget } from '@/lib/copartNotes.mjs';"), uses[0]);
   // batch 242 (R2): the notes lines go to ONE place before the stamp — the notes reader. validate-notes-reader D1
   // proves they reach no other prompt.
   assert.ok(uses[1].trim().startsWith('const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, '), uses[1]);

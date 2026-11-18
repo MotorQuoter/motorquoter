@@ -37,8 +37,9 @@ import {
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
 import { rowKeyFor, isChargedRow } from '@/lib/ledgerEdits.mjs';   // batch 163 T2 — the one "is this panel charged?" check
-import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';   // batch 202
+import { stampCopartNotes, copartNotes, openNoteTarget } from '@/lib/copartNotes.mjs';   // batch 202 (+ 249 C)
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
+import { askOpened } from '@/lib/notesConfirm.mjs';   // batch 249 C
 import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts, settleLampAllowance } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
@@ -3775,6 +3776,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // soon as the reader returns, alongside the per-view reads. The yes/no questions wait for the ledger (ruling 5).
     const notesCountAskPromise = notesReadPromise.then(read =>
       askPanels(images, notesPanels(read).filter(isCountPanel), { retry: with529Retry }));
+    // batch 249 C — 'unable to open bonnet / boot' in the notes: one more narrow notes-confirm question per such panel (Fable,
+    // the same cached photo prefix — fired after the count questions so it reads their cache). Fires ONLY on such a note; the
+    // answer reaches only that note's wording. Never throws; any failure = not shown open.
+    const notesOpenedPromise = notesCountAskPromise.then(() => Promise.all(
+      [...new Set(copartNotes(enrichedVd).lines.map(openNoteTarget).filter(Boolean))].map(t => askOpened(images, t, { retry: with529Retry }))));
 
     // Fetch ROI vehicle data for paid tiers
     let roiData = null;
@@ -6894,10 +6900,11 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _chargedCounts = chargedCounts(assessment._reconciledParts, isChargedRow);
       const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null,
         notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS,
-        notesMileage: enrichedVd._notesMileage || [] });   // batch 248 B2
-      // batch 248 C2: no `openedPanels` — the photo-side check (its own Haiku call, option (c)) is HELD: on the two recorded
-      // lots it called a shut boot and a shut bonnet open (_cc/scratch/b248/c2-held-opened-check.patch). Until it is ruled,
-      // an "unable to open" note always reads "Not costed"; the frame-zone read carries no `opened` field (option (b) discarded).
+        notesMileage: enrichedVd._notesMileage || [],   // batch 248 B2
+        openedPanels: new Set((await notesOpenedPromise).filter(o => o.open).map(o => o.target)) });   // batch 249 C
+      // batch 250 (ruling 2): openedPanels comes from the Fable notes-confirm "opened" question (lib/notesConfirm.mjs askOpened,
+      // fired above only on an "unable to open bonnet/boot" note, fail closed). The Haiku check (248 C2) and the frame-zone
+      // `opened` field (248 B1b) are not used.
       console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} concernLines=${_notes.concernLines.length}${_notesRead.fallback ? ' (reader fallback)' : ''} — notes only in the reader's prompt; mechanical never costed`);
     }
 

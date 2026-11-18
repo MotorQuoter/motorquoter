@@ -66,9 +66,10 @@ test('3. code matches the note to bonnet / boot from its text; Vincent\'s wordin
   assert.equal(notesOpenedText('UNABLE TO OPEN BONNET', 'box', 'bonnet'), BONNET_LINE);
 });
 
-test('the route passes no opened set (the photo-side check is held) and the frame-zone read stores no opened field', () => {
+test('the route takes the opened set from the batch 250 Fable question (not the 248 Haiku check); the frame-zone read stores no opened field', () => {
   const src = readFileSync('app/api/salvage/assess/route.js', 'utf8');
-  assert.ok(!/openedPanels:/.test(src) && !/runOpenedCheck|notesOpened/.test(src));
+  assert.ok(src.includes('openedPanels: new Set((await notesOpenedPromise).filter(o => o.open).map(o => o.target)) });'));
+  assert.ok(!/runOpenedCheck|lib\/notesOpened/.test(src));
   assert.ok(src.includes('frames.push({ i, zones, windscreenLabel: f.windscreenLabel === true });'));
 });
 
