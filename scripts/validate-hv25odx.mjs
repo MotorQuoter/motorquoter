@@ -29,17 +29,17 @@ console.log('\nA. batch 136 task A — the probe never chooses photos by left/ri
   // The real selector on the real stored frame tags. The wing's pooled zone on this run was flank-damaged-side (that is
   // the only zone under which the old P2 fired, and the log proves it fired).
   const wing = { panelId: 'FRONT_WING', zone: 'flank-damaged-side' };
+  // batch 250 (option 2b): no zone-chosen set at all — the wing and every neighbour read ALL photos (indices null → the
+  // first 35 in upload order), so no side read and no zone tag can pick its frames.
   const got = selectProbeFramesForPanel(wing, fz, lampObs.apertureExposed === true);
-  eq('NOW: the wing is probed on the SAME frames as its front neighbours', got.indices, frontNeighbour.frames);
-  ok('NOW: the source says front-flank, not struck-side', got.source.startsWith('front-flank:') && !got.source.includes('struck-side'));
-  ok('NOW: never frame 2 (rear three-quarter) or frame 10 (spare wheel)', !got.indices.includes(2) && !got.indices.includes(10));
+  ok('NOW (batch 250): the wing reads all photos, never a side- or zone-chosen set', got.indices === null && got.source === 'all-photos');
   const door = selectProbeFramesForPanel({ panelId: 'FRONT_DOOR', zone: 'flank-damaged-side' }, fz, true);
-  eq('a front door on the same impact gets the same front set', door.indices, frontNeighbour.frames);
+  ok('a front door on the same impact: all photos too', door.indices === null && door.source === 'all-photos');
   ok('the selector cannot take a side: arity 3, and the route passes no struckSide', selectProbeFramesForPanel.length === 3
      && route.includes('selectProbeFramesForPanel(cp, _frameZones, lampObs?.apertureExposed === true)')
      && !/struck-side:\$\{struckSide\}/.test(route));
   const notFront = selectProbeFramesForPanel(wing, fz, false);
-  ok('not a front impact → the unchanged zone map (both sides + flank, never one side)', notFront.source.startsWith('frame-zone:') && notFront.indices.includes(2) && notFront.indices.includes(3));
+  ok('not a front impact → all photos as well (batch 250)', notFront.indices === null && notFront.source === 'all-photos');
 }
 
 console.log('\nB. batch 136 task B — "cannot determine" never deletes money (permanent ruling, 1 Sep)');

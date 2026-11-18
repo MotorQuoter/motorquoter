@@ -1450,15 +1450,6 @@ export function attribFlagWording(partName, grade, isMissing, verdict = null) {
   return `${lead} ${partName} was recorded during assessment but could not be photographically confirmed — inspect this panel before bidding.`;
 }
 
-// Panel zone → frame-zone aspect words. underside / anything unmapped → null → full set.
-// batch 118 task 2: a close-up now carries its aspect (["detail","front"] …), so it already matches the
-// words below through zones.some(). The one addition is 'flank' — a side close-up whose side the frame
-// read could not tell — which belongs with the flank panels. A bare ["detail"] still matches nothing:
-// the frame read could not say what it shows, so it is not offered to any panel's probe.
-const PROBE_ZONE_MAP = {
-  front: ['front'], rear: ['rear'], 'flank-damaged-side': ['nearside', 'offside', 'flank'],
-  roof: ['roof'], interior: ['interior'],
-};
 // ── batch 119 — TWO READS THAT DISAGREE ARE NOT BOTH TRUSTED (Vincent, 11 Sep: "E it is.") ─────────
 // The frame-zone pass (its own Haiku call) and the per-view read (Opus) look at the same photo. On
 // AMZ3790 frame 20 the frame-zone read said ["detail","front"] while the per-view read named
@@ -1539,40 +1530,20 @@ export function demoteContradictedVotes(perViewResults, frameZones) {
   return demotions;
 }
 
-// Frame selection from the always-run frame-zone pass. Every fallback names itself in `source`
-// (silence is a defect). null indices → the probe reads the full set.
-function selectProbeFrames(frameZones, panelZone) {
-  if (!frameZones.ok) return { indices: null, source: 'full-set:frame-zone-failed' };
-  const want = PROBE_ZONE_MAP[panelZone];
-  if (!want) return { indices: null, source: `full-set:no-zone-map(${panelZone})` };
-  const idx = frameZones.frames.filter(f => f.zones.some(z => want.includes(z))).map(f => f.i).slice(0, 35);
-  if (idx.length === 0) return { indices: null, source: `full-set:no-matched-frames(${panelZone})` };
-  return { indices: idx, source: `frame-zone:[${idx.join(',')}]` };
-}
-
-// Attribution-probe frame targeting (C2). Precedence — each branch names itself in `source`
-// (silence is a defect). Flank panels only; all other panels fall through to selectProbeFrames
-// UNCHANGED, so front/rear/roof/interior targeting is byte-identical to before C2:
-//   1. correspondence-split flank instance (_gOwned) → its OWN member frames — kills the flank
-//      both-sides blindness (E3) with no side inference.
-//   2. pooled front-flank panel (front wing / front door) on a FRONT impact → the FRONT-TAGGED frames, the same
-//      set its front neighbours are probed on. ⛔ batch 136 task A (the side ban, permanent): this branch used to
-//      pick the frames tagged with the model's `struckSide` — a LEFT/RIGHT read, banned from deciding anything. On
-//      HV25ODX it sent a 4-of-4-damaged front wing to a rear three-quarter and a spare wheel (frames [2,10]) while
-//      every front neighbour was probed on [0,1,8,12]. It is never selected by side again; struckSide is not an input.
-//   3. everything else → zone-map → full-set fallback (selectProbeFrames), UNCHANGED.
-const P2_FRONT_FLANK = new Set([PANEL.FRONT_WING, PANEL.FRONT_DOOR]);
-export function selectProbeFramesForPanel(cp, frameZones, frontImpact) {
+// Attribution-probe photo set. batch 250 (Vincent, 18 Nov — option 2b): the frame-zone read NO LONGER chooses probe photos.
+// 249 measured it: the same photos tagged twice gave different probe sets on 12 of 16 lots and moved money (GY75CJU slam panel
+// £90 phantom). Every probe now reads ALL the lot's photos — runAttributionProbe takes the first 35 in UPLOAD order
+// (images.slice(0, 35)) when indices is null — and the first probe writes the image cache that the rest read.
+// One branch is kept, and it reads no zone tag: a correspondence-split instance (_gOwned) is probed on its OWN member
+// frames — on all photos the probe could not tell the two instances apart (the E3 both-sides blindness).
+// Arity stays 3 (cp, frameZones, frontImpact) and takes no side input (batch 136 A); frameZones and frontImpact are unused.
+export function selectProbeFramesForPanel(cp, _frameZones, _frontImpact) {
   if (cp._gOwned === true && Array.isArray(cp._probeViews) && cp._probeViews.length) {
     const idx = cp._probeViews.slice(0, 35);
     if (idx.length <= 2) console.log(`[ATTRIB PROBE] ${cp.panelId} thin instance set (${idx.length} frames)`);
     return { indices: idx, source: `corr-instance:[${idx.join(',')}]` };
   }
-  if (frontImpact && P2_FRONT_FLANK.has(cp.panelId) && cp.zone === 'flank-damaged-side' && frameZones.ok) {
-    const front = selectProbeFrames(frameZones, 'front');
-    if (front.indices) return { indices: front.indices, source: `front-flank:${front.source}` };
-  }
-  return selectProbeFrames(frameZones, cp.zone);
+  return { indices: null, source: 'all-photos' };
 }
 
 const PROBE_VERDICT_ENUM = ['no-damage-visible', 'minor-cosmetic', 'consistent-with-claim', 'cannot-determine'];
@@ -5166,7 +5137,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     assessment._attributionProbe = { ok: true, panels: [] };
     {
       const _probeSurvivors = coreObs.costedParts.filter(cp => cp.independentlyVisible === true);
-      const _probeResults = await Promise.all(_probeSurvivors.map(async (cp) => {
+      const _probeOne = async (cp) => {
         const _missing = cp._amalgMissing === true;
         const _graded = PROBE_SEVERITY_WORDING[cp._ledgerSeverity] ? cp._ledgerSeverity : null;
         if (!_graded) console.log(`[ATTRIB PROBE] ${cp.panelId} no ledger grade → MODERATE wording (guard)`);
@@ -5179,7 +5150,13 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         const { indices, source } = selectProbeFramesForPanel(cp, _frameZones, lampObs?.apertureExposed === true);   // batch 136 A: no side input
         const r = await runAttributionProbe(images, indices, PANEL_DISPLAY[cp.panelId], claimWording, _missing, () => _exhaustedCalls.add('attribution-probe'));
         return { cp, grade, missing: _missing, frames: indices ? indices : 'full-set', frameSource: source, r };
-      }));
+      };
+      // batch 250: the first all-photos probe runs ALONE and writes the image cache; the rest run in parallel and read it
+      // (in parallel they would each pay the full image write). Results keep the survivors' order.
+      const _firstAll = _probeSurvivors.findIndex(cp => cp.panelId !== PANEL.HEADLAMP
+        && selectProbeFramesForPanel(cp, _frameZones, lampObs?.apertureExposed === true).indices === null);
+      const _firstResult = _firstAll >= 0 ? await _probeOne(_probeSurvivors[_firstAll]) : null;
+      const _probeResults = await Promise.all(_probeSurvivors.map((cp, i) => (i === _firstAll ? _firstResult : _probeOne(cp))));
       const _attribFloored = [];
       for (const { cp, grade, missing, frames, frameSource, r, exempt } of _probeResults) {
         const claim = missing
