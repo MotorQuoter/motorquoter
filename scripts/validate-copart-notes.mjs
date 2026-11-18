@@ -156,7 +156,7 @@ test('source pins: the route reads the notes once for the reader and stamps once
   assert.equal(uses[2].trim(), 'const _cn = copartNotes(enrichedVd);');
   assert.ok(/const _cn = copartNotes\(enrichedVd\);\s*\n\s*enrichedVd\._notesMileage = notesMileageCheck\(_cn\.lines, /.test(route), 'the 248 B2 read feeds the code check only');
   uses.splice(2, 1);
-  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes, copartNotes } from '@/lib/copartNotes.mjs';"), uses[0]);
+  assert.ok(uses[0].trim().startsWith("import { stampCopartNotes, copartNotes, openedInPhotos } from '@/lib/copartNotes.mjs';"), uses[0]);
   // batch 242 (R2): the notes lines go to ONE place before the stamp — the notes reader. validate-notes-reader D1
   // proves they reach no other prompt.
   assert.ok(uses[1].trim().startsWith('const notesReadPromise = readNotes(copartNotes(enrichedVd).lines, '), uses[1]);
