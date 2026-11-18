@@ -20,7 +20,7 @@ import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
-import { resolvePhotoOdometerReading } from '@/lib/mileageCheck.mjs';
+import { resolvePhotoOdometerReading, DASH_LISTING_DIVERGENCE_MILES, notesMileageCheck } from '@/lib/mileageCheck.mjs';
 import { buildMileageCorroborationSlot, countIndependentMileageSources, noMotUnderThree } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
@@ -3870,7 +3870,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
         : NaN;
       if (!isNaN(listedMileage) && listedMileage >= 1) {
         const diff = Math.abs(photoOdometer - listedMileage);
-        if (diff > 3000) {
+        if (diff > DASH_LISTING_DIVERGENCE_MILES) {   // batch 248 B2: one constant, shared with the notes-mileage check
           enrichedVd.photoMileageFlag = `Photo odometer reads ${photoOdometer.toLocaleString()} miles; listing shows ${listedMileage.toLocaleString()} miles — discrepancy of ${diff.toLocaleString()} miles. Verify before bidding.`;
         }
       }
@@ -3930,6 +3930,16 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       photoOdometerPresent: photoOdometer != null,
       dvsaMileagePresent: _dvsaMileagePresent,
     });
+    // batch 248 B2 (Vincent, 18 Nov): a mileage figure in the auction notes is compared with the listing (else the dash
+    // read) — AFTER the source count above and never passed to it or to getMileageForValuation: the notes figure is not a
+    // mileage source. A disagreement stamps the entries; the Mileage slot reads them (unconfirmed) and stampCopartNotes
+    // puts the code-owned line in Red Flags + the checklist. lib/mileageCheck.mjs notesMileageCheck owns the rule.
+    {
+      const _cn = copartNotes(enrichedVd);
+      enrichedVd._notesMileage = notesMileageCheck(_cn.lines, {
+        listing: enrichedVd.copartListedMileage ?? enrichedVd.odometer ?? null, dash: photoOdometer, source: _cn.source });
+      if (enrichedVd._notesMileage.length) console.log(`[NOTES MILEAGE] ${enrichedVd._notesMileage.map(e => `"${e.line}" = ${e.miles} vs ${e.against}`).join('; ')} → line + slot unconfirmed`);
+    }
 
     // Fetch salvage history + Brego valuation in parallel (GB/NI only)
     let bregoData = null;
@@ -6881,7 +6891,8 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       // inserted (no panelId) is counted on the line as it is in the money.
       const _chargedCounts = chargedCounts(assessment._reconciledParts, isChargedRow);
       const _notes = stampCopartNotes(assessment, enrichedVd, { catABStopLine: _catAB ? CAT_AB_STOP[_catAB] : null,
-        notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS });
+        notesRead: _notesRead, chargedCounts: _chargedCounts, countPanels: COUNT_PANELS,
+        notesMileage: enrichedVd._notesMileage || [] });   // batch 248 B2
       console.log(`[COPART NOTES] source=${_notes.source} lines=${_notes.lines.length} codeLines=${_notes.codeLines.length} concernLines=${_notes.concernLines.length}${_notesRead.fallback ? ' (reader fallback)' : ''} — notes only in the reader's prompt; mechanical never costed`);
     }
 
