@@ -6525,7 +6525,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       if (buyerFlags.length > 0) {
         const checklistText = (assessment['WhatsApp Inspection Checklist'] || '').trim();
         if (checklistText) {
-          assessment['WhatsApp Inspection Checklist'] = seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired });
+          // batch 248 B5: the charged panels, by the one charged check (rule 7), so a dedup flag on a charged panel seeds nothing.
+          const chargedPanelIds = new Set((assessment._reconciledParts || []).filter(isChargedRow).map(r => r.panelId).filter(Boolean));
+          assessment['WhatsApp Inspection Checklist'] = seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired, chargedPanelIds });
         } else {
           console.warn('[SEED] checklist empty — flag items not seeded');
         }

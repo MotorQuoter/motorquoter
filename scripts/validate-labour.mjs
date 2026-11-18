@@ -399,7 +399,8 @@ ok('sanity envelope present', SANITY_ENVELOPE.small_medium.new === 2000 && SANIT
      // count USES, not `isChargedRow(` — two pass it by reference, `.filter(isChargedRow)`
      // batch 242 added THREE, all through the one check: the notes stamp's charged counts, "already charged" for
      // the notes question (ruling 5), and applyConfirmations' isCharged (ruling 4).
-     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 8
+     // batch 248 B5 added a NINTH: the charged-panel set the checklist seed reads (a dedup flag on a charged panel seeds nothing).
+     route.split('\n').filter((l) => /isChargedRow/.test(l) && !l.trim().startsWith('import ')).length === 9
      && /import \{ rowKeyFor, isChargedRow \} from '@\/lib\/ledgerEdits\.mjs';/.test(route)
      && !/\(p\.used \?\? p\.oem \?\? 0\) > 0 \|\| p\._repairNoPart/.test(route));
   // batch 117 changed the call's shape (the ledger row keys are attached by a .map() before this filter); the
@@ -603,7 +604,7 @@ console.log('\n14. batch 131 task 2 — the airbag checklist line (Vincent 15 Se
   // batch 152 X1: the generic line now serves structure panels and non-flag-class high flags; non-structure
   // flag-class items get "inspection item" (pinned in validate-flag-class-floor). The string itself is unchanged.
   ok('seed: the generic high-weight line is UNCHANGED (structure panels + non-flag-class high flags)', seedSrc.includes(GENERIC));
-  ok('route: seeds through the one owner and keeps no inline copy', route.includes('seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired })') && !route.includes('seedItem ='));
+  ok('route: seeds through the one owner and keeps no inline copy', route.includes('seedChecklistFromFlags(checklistText, buyerFlags, { lampTier2Fired: !!lampResult?.tier2Fired, chargedPanelIds })') && !route.includes('seedItem ='));
   ok('route: the SRS flag carries the marker the branch keys on', route.includes('reason: srsDeploymentNote(),') && /reason: srsDeploymentNote\(\),\s*_srsExtentFloor: true,/.test(route));
   const rendered = 'Show SRS airbag (deployed) close-up — the number and location of the bags must be checked before bidding.';
   ok('rendered for the airbag part, verbatim as Vincent chose', SRS_LINE.replace('${show}', 'Show SRS airbag (deployed) close-up').includes(rendered)   /* batch 172 P4: lead built once */);
