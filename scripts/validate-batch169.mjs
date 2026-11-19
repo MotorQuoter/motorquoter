@@ -42,7 +42,7 @@ console.log('\n-- demoted as before (batch 119 stands) --');
   ok('two other-end panels in a frame NOT end-only ([front, nearside]) → rule not engaged, nothing demoted', run(7, [d, e], ['front', 'nearside']).length === 0 && d.independentlyVisible === true);
 }
 console.log('\n-- one named set, log text --');
-ok('the rule reads END_SPECIFIC_PANELS (front 8 + rear 7) — no second list', END_SPECIFIC_PANELS.front.size === 8 && END_SPECIFIC_PANELS.rear.size === 7
+ok('the rule reads END_SPECIFIC_PANELS (front 11 + rear 7; batch 253 B1 +3 front) — no second list', END_SPECIFIC_PANELS.front.size === 11 && END_SPECIFIC_PANELS.rear.size === 7
   && route.includes('END_SPECIFIC_PANELS.front.has(pid) || END_SPECIFIC_PANELS.rear.has(pid)'));
 ok('the kept case is logged', route.includes('the frame-zone tag ${JSON.stringify(tags)} is wrong for this photo, not the read (batch 169)'));
 ok('the split no longer calls an excluded view "opposite-side"', !route.includes('(opposite-side — not part of damaged instance)')

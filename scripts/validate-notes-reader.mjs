@@ -186,7 +186,7 @@ test('ruling 2: the action table — glass/lamps/mirror replace, body panels rep
   const repair = Object.keys(CONFIRM_ACTION).filter(k => CONFIRM_ACTION[k] === 'repair').sort();
   console.log('ACTION TABLE replace:', replace.join(', '));
   console.log('ACTION TABLE repair :', repair.join(', '));
-  assert.deepEqual(replace, ['BODY_SIDE_GLAZING', 'CAB_REAR_GLASS', 'CREW_WINDOW', 'DOOR_MIRROR', 'FOG_LAMP', 'HEADLAMP', 'REAR_GLASS', 'REAR_LAMP', 'SIDE_GLASS', 'WINDSCREEN']);
+  assert.deepEqual(replace, ['BODY_SIDE_GLAZING', 'CAB_REAR_GLASS', 'CREW_WINDOW', 'DOOR_MIRROR', 'FOG_LAMP', 'FRONT_BUMPER_REINFORCEMENT', 'HEADLAMP', 'REAR_GLASS', 'REAR_LAMP', 'SIDE_GLASS', 'UNDERTRAY', 'WINDSCREEN']);   // batch 253 B1: + the two named parts (replaced)
   assert.deepEqual(repair, ['BED_SIDE_L', 'BED_SIDE_R', 'BONNET', 'BOOT_LID', 'DROP_TAILGATE', 'FRONT_BUMPER', 'FRONT_DOOR', 'FRONT_WING', 'REAR_BUMPER', 'REAR_DOOR', 'REAR_QUARTER', 'ROOF', 'SIDE_SKIRT', 'SILL']);
   for (const k of ['WHEEL', 'TYRE', 'AIRBAG', 'FRONT_STRUCTURE', 'OTHER', 'RADIATOR_PACK']) assert.equal(CONFIRM_ACTION[k], undefined, k);
   // a confirmed replace row is never downgraded by applyGradeOwnsAction, even on a body panel with a MINOR grade

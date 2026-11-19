@@ -45,10 +45,11 @@ console.log('\n2. CONSTRAINT 2 — exclusive tags only, read strictly');
 console.log('\n3. CONSTRAINT 3 — end-specific panels only, exactly the ruled list');
 {
   const want = {
-    front: ['FRONT_BUMPER', 'GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'RADIATOR_PACK', 'FRONT_STRUCTURE'],
+    front: ['FRONT_BUMPER', 'GRILLE', 'BONNET', 'SLAM_PANEL', 'FRONT_WING', 'HEADLAMP', 'RADIATOR_PACK', 'FRONT_STRUCTURE',
+      'FRONT_BUMPER_REINFORCEMENT', 'UNDERTRAY', 'FRONT_SENSORS'],   // batch 253 B1: the three named front parts
     rear: ['REAR_BUMPER', 'REAR_QUARTER', 'REAR_LAMP', 'BOOT_LID', 'REAR_PANEL', 'REAR_GLASS', 'REAR_STRUCTURE'],
   };
-  ok('FRONT set is exactly the ruled eight', JSON.stringify([...END_SPECIFIC_PANELS.front].sort()) === JSON.stringify([...want.front].sort()));
+  ok('FRONT set is exactly the ruled eight + the three batch 253 front parts', JSON.stringify([...END_SPECIFIC_PANELS.front].sort()) === JSON.stringify([...want.front].sort()));
   ok('REAR set is exactly the ruled seven', JSON.stringify([...END_SPECIFIC_PANELS.rear].sort()) === JSON.stringify([...want.rear].sort()));
   const flank = ['FRONT_DOOR', 'REAR_DOOR', 'SILL', 'SIDE_SKIRT', 'DOOR_MIRROR', 'SIDE_GLASS', 'WHEEL', 'TYRE', 'ROOF', 'FOG_LAMP', 'WINDSCREEN', 'CAB_REAR_PANEL', 'CAB_REAR_GLASS', 'AIRBAG', 'OTHER'];
   const rowsF = flank.map((p) => vote(p, true, 'SEVERE')), rowsR = flank.map((p) => vote(p, true, 'SEVERE'));

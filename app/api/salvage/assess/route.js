@@ -33,6 +33,7 @@ import {
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, codeOwnDriverSentence, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
   reconcileFlagMoneyWording, rewordDisputedFlags, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
+  FRONT_SENSORS_REASON,   // batch 253 B1
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -43,7 +44,7 @@ import { askOpened } from '@/lib/notesConfirm.mjs';   // batch 249 C
 import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts, settleLampAllowance } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
-import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot } from '@/lib/panelEnum.mjs';
+import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot, resolvePanelToken } from '@/lib/panelEnum.mjs';
 import { derivePriceBand, PANEL_PRICE_TABLE } from '@/lib/priceBand.mjs';
 import { computeLabour, isBodyPanel, applyGradeOwnsAction, promoteFlaggedQuarter, srsDeploymentNote, SRS_FLOOR_GBP, STRUCT_FLOOR_GBP, STRUCT_FLOOR_NOTE, SEVERE_OVERRIDE_THRESHOLD, LABOUR_BASIS_CURRENT } from '@/lib/labour.mjs';
 import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from '@/lib/partsCompleteness.mjs';
@@ -128,6 +129,8 @@ const _ELIGIBLE_UNIVERSAL = [
   // no recorded reason: the allow-set (26 Jun) simply predates the panel. Every body class has wheel arches
   // and a rear closure, so all three trim items belong in the universal set, not in a per-class list.
   PANEL.WHEEL_ARCH_MOULDING, PANEL.WHEEL_ARCH_LINER, PANEL.REAR_LIGHT_STRIP,
+  // batch 253 B1: the three named parts that used to be OTHER — every body class has a front end.
+  PANEL.FRONT_BUMPER_REINFORCEMENT, PANEL.UNDERTRAY, PANEL.FRONT_SENSORS,
 ];
 export const ELIGIBLE_PANELS = Object.freeze({   // batch 153: exported (read-only) for the labelling sheet — no behaviour change
   car: new Set([
@@ -1492,7 +1495,8 @@ export function attribFlagWording(partName, grade, isMissing, verdict = null) {
 // Re-exported here so existing importers of this route keep working.
 
 export const END_SPECIFIC_PANELS = {
-  front: new Set([PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING, PANEL.HEADLAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_STRUCTURE]),
+  front: new Set([PANEL.FRONT_BUMPER_REINFORCEMENT, PANEL.UNDERTRAY, PANEL.FRONT_SENSORS,   // batch 253 B1
+    PANEL.FRONT_BUMPER, PANEL.GRILLE, PANEL.BONNET, PANEL.SLAM_PANEL, PANEL.FRONT_WING, PANEL.HEADLAMP, PANEL.RADIATOR_PACK, PANEL.FRONT_STRUCTURE]),
   rear:  new Set([PANEL.REAR_BUMPER, PANEL.REAR_QUARTER, PANEL.REAR_LAMP, PANEL.BOOT_LID, PANEL.REAR_PANEL, PANEL.REAR_GLASS, PANEL.REAR_STRUCTURE]),
 };
 // 'front' | 'rear' when the frame shows that end ONLY (ignoring the "detail" marker), else null.
@@ -2075,6 +2079,8 @@ COST panels — carry a repair price when damaged:
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER) — only its own metal above the bumper line; bumper torn off or displaced and that metal not clearly deformed → iv:na
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
   WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
+  FRONT_BUMPER_REINFORCEMENT  front bumper reinforcement / crash beam / impact bar / bumper beam, with its foam absorber and the bumper carrier (the bolt-on bar BEHIND the bumper cover — NOT the bumper cover, and NOT the crush cans or chassis legs it bolts to: those are FRONT_STRUCTURE)
+  UNDERTRAY         engine undertray / splash shield / lower lip-spoiler strip under the front bumper (the plastic or fibre tray or strip — NOT the bumper cover itself)
   REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
                        TRIM BEFORE PANEL (all three trim items above): when the damage you can see at a wheel arch or across a tailgate is
                        confined to the TRIM ITSELF — a scuffed, cracked, split, hanging or missing moulding, liner or light strip on an
@@ -2109,12 +2115,13 @@ Pickup-only panels:
   CAB_REAR_GLASS   pickup double-cab rear cab window / rear cab glass behind the seats (bonded fixed glazing; NOT a door glass — use SIDE_GLASS for door glass; NOT the cab rear metal wall — use CAB_REAR_PANEL for that; NOT the load-bed)
 
 STRUCTURAL FLAG — never costed; always flagged for inspection:
-  FRONT_STRUCTURE   chassis leg / inner wing / subframe / front upper structure / engine bay metal
+  FRONT_STRUCTURE   chassis leg / crush cans / inner wing / subframe / front upper structure / engine bay metal (the crush cans and chassis legs behind the bumper beam are FRONT_STRUCTURE, never FRONT_BUMPER_REINFORCEMENT)
   REAR_STRUCTURE    rear chassis leg / boot floor structure / rear longitudinal
   SIDE_STRUCTURE    A-pillar / B-pillar / C-pillar / inner sill reinforcement
 
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
+  FRONT_SENSORS     front radar unit / parking sensors / front sensor harness visibly broken, hanging or missing — flag only, never priced
   AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover) — DEPLOYED bag only, NOT an intact airbag or a dash warning light. Genuine non-airbag interior damage still uses OTHER.
                     AIRBAG follows the instance rule above: ONE LINE PER DEPLOYED BAG, and each line names the bag's position.
                     Before writing any AIRBAG line, look over the WHOLE cabin in this photograph and count the deployed
@@ -2142,7 +2149,7 @@ PRESENCE CHECK:
   PARCEL_SHELF      parcel shelf / rear load cover
 
 ESCAPE:
-  OTHER             any damage-relevant part not listed above
+  OTHER(<one or two words>)  any damage-relevant part not listed above — write OTHER followed by one or two words naming the part in brackets, e.g. OTHER(door handle) or OTHER(seat trim). Use OTHER only for a part that is damaged or missing: never write an OTHER line with iv:false or iv:na.
 
 EV-CONDITIONAL — use only on electric or plug-in hybrid vehicles:
   EV_BATTERY_ZONE      underfloor battery zone / battery pack area
@@ -2268,6 +2275,17 @@ async function runPerViewAssess(image, idx, onExhaust) {
       .map(cp => {
         const rawId = cp.panelId;
         if (!rawId || rawId.toLowerCase() === 'none') return null; // legacy sentinel — discard silently
+        // batch 253 B1: OTHER(<words>) / OTHER (<words>) is the flag-only OTHER with the model's own name for the part.
+        const _tok = resolvePanelToken(rawId);
+        if (_tok.panelId === PANEL.OTHER) {
+          // OTHER is an escape hatch for a DAMAGED or MISSING part — a clean or unreadable OTHER read names nothing and is
+          // never pooled into a "photos disagree" verdict (unrelated parts in one bucket). Dropped, logged.
+          if (cp.independentlyVisible !== true && cp.independentlyVisible !== 'missing') {
+            console.log(`[PER-VIEW][${idx}] OTHER${_tok.freeName ? `(${_tok.freeName})` : ''} iv=${cp.independentlyVisible} — not a damaged part, dropped (batch 253 B1)`);
+            return null;
+          }
+          return { ...cp, panelId: PANEL.OTHER, partName: PANEL_DISPLAY[PANEL.OTHER], ...(_tok.freeName ? { _freeName: _tok.freeName } : {}) };
+        }
         if (knownIds.has(rawId)) {
           return { ...cp, panelId: rawId, partName: PANEL_DISPLAY[rawId] };
         }
@@ -2486,7 +2504,8 @@ export function amalgamate(groups, viewPanelSets) {   // batch 171: exported (re
                     || effClass === PANEL_CLASS.OTHER;
     // batch 150 Z1: the structural wording belongs to STRUCTURAL_FLAG panels only; the rest get the plain reason.
     // _flagClassRead marks a POSITIVE flag-class read (missing / damaged) — the only read zero-rule A may floor.
-    const flagClassReason = effClass === PANEL_CLASS.STRUCTURAL_FLAG ? AMALG_REASON_FLAG_CLASS : AMALG_REASON_INSPECT_CLASS;
+    const flagClassReason = panelId === PANEL.FRONT_SENSORS ? FRONT_SENSORS_REASON   // batch 253 B1: Vincent's line, code-owned
+      : effClass === PANEL_CLASS.STRUCTURAL_FLAG ? AMALG_REASON_FLAG_CLASS : AMALG_REASON_INSPECT_CLASS;
     const verdicts  = members.map(line => {
       const m = line.match(/\|\s*iv:(true|false|na|missing)\s*\|/i);
       return m ? m[1].toLowerCase() : 'na';
@@ -3042,7 +3061,7 @@ function parsePrice(s) {
   return m ? Math.round(parseFloat(m[0])) : null;
 }
 
-function parseParts(text, sideScrubOut = null) {
+export function parseParts(text, sideScrubOut = null) {
   if (!text) return [];
   const result = [];
   for (const line of text.split('\n')) {
@@ -3052,7 +3071,10 @@ function parseParts(text, sideScrubOut = null) {
     if (!m) continue;
     const [, name, action, col3, col4] = m;
     const rawName      = name.trim();
-    const panelId      = PANEL[rawName];
+    // batch 253 B1 (A5): resolve the leading IDENTIFIER, not the whole cell — "OTHER (front bumper reinforcement beam)" is the
+    // flag-only OTHER (the gate's OTHER branch), never a panelId-less row that passes the gate unchecked and is charged.
+    const _tok         = resolvePanelToken(rawName);
+    const panelId      = _tok.panelId ?? undefined;
     let   resolvedName = PANEL_DISPLAY[panelId] ?? rawName;
     // Side-word scrub (lib/sideScrub.mjs) — residual tokens (left/right/n/s/o/s), removal
     // semantics, FALLBACK LEG ONLY. PANEL_DISPLAY names are neutral by construction; do not
@@ -3069,7 +3091,7 @@ function parseParts(text, sideScrubOut = null) {
         resolvedName = scrub.name;
       }
     }
-    result.push({ panelId, name: resolvedName, action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4) });
+    result.push({ panelId, name: resolvedName, action: action.trim(), oem: parsePrice(col3), used: parsePrice(col4), ...(_tok.freeName ? { _freeName: _tok.freeName } : {}) });
   }
   return result;
 }

@@ -40,10 +40,10 @@ const costIds    = COST_PANEL_IDS;
 // The original brief said "30 base" — that was a miscount (OTHER was dropped from the tally).
 // Every entry earns its place; the module is authoritative.
 
-assert('total panel IDs = 51 (49 base + 2 EV-conditional)', allIds.length, 51);
-assert('base panel IDs (non-EV) = 49',                      baseIds.length, 49);
+assert('total panel IDs = 54 (52 base + 2 EV-conditional) — batch 253 B1 +3', allIds.length, 54);
+assert('base panel IDs (non-EV) = 52',                      baseIds.length, 52);
 assert('EV-conditional IDs = 2',                            evIds.length, 2);
-assert('COST panel IDs = 41',                               costIds.length, 41);
+assert('COST panel IDs = 43 (batch 253 B1: + FRONT_BUMPER_REINFORCEMENT, UNDERTRAY)', costIds.length, 43);
 
 // ── 2. Behaviour-class lookup — one sampled entry per class ──────────────────────────────
 console.log('\n── 2. Behaviour-class lookup ──');

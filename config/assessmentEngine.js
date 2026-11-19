@@ -69,6 +69,8 @@ COST panels — carry a repair price when damaged:
   REAR_QUARTER      rear quarter panel / rear quarter / rear haunch (do not invent FRONT_QUARTER)
   WHEEL_ARCH_MOULDING  wheel arch moulding / wheel arch trim / arch moulding / arch trim / arch surround (the plastic trim strip around a wheel arch — NOT the metal quarter/wing panel behind it)
   WHEEL_ARCH_LINER     wheel arch liner / arch liner / inner arch liner / splash liner / wheel-well liner (the plastic or fibre liner INSIDE the wheel arch — NOT the wing or quarter panel it sits behind)
+  FRONT_BUMPER_REINFORCEMENT  front bumper reinforcement / crash beam / impact bar / bumper beam, with its foam absorber and the bumper carrier (the bolt-on bar BEHIND the bumper cover — NOT the bumper cover, and NOT the crush cans or chassis legs it bolts to: those are FRONT_STRUCTURE)
+  UNDERTRAY         engine undertray / splash shield / lower lip-spoiler strip under the front bumper (the plastic or fibre tray or strip — NOT the bumper cover itself)
   REAR_LIGHT_STRIP     rear light strip / tailgate garnish / boot garnish / light bar / reflector strip (the trim or lamp strip across the tailgate/boot lid between the rear lamps — NOT the boot lid or tailgate itself, and NOT a REAR_LAMP cluster)
                        TRIM BEFORE PANEL (all three trim items above): when the damage you can see at a wheel arch or across a tailgate is
                        confined to the TRIM ITSELF — a scuffed, cracked, split, hanging or missing moulding, liner or light strip on an
@@ -85,12 +87,13 @@ COST panels — carry a repair price when damaged:
   TYRE              tyre / tire — any corner; do not add a position qualifier
 
 STRUCTURAL FLAG — never costed; always flagged for inspection:
-  FRONT_STRUCTURE   chassis leg / inner wing / subframe / front upper structure / engine bay metal
+  FRONT_STRUCTURE   chassis leg / crush cans / inner wing / subframe / front upper structure / engine bay metal (the crush cans and chassis legs behind the bumper beam are FRONT_STRUCTURE, never FRONT_BUMPER_REINFORCEMENT)
   REAR_STRUCTURE    rear chassis leg / boot floor structure / rear longitudinal
   SIDE_STRUCTURE    A-pillar / B-pillar / C-pillar / inner sill reinforcement
 
 VISIBLE FLAG — geometric evidence only:
   DISPLACED_WHEEL   wheel visibly out of position (wrong angle or pushed out of arch)
+  FRONT_SENSORS     front radar unit / parking sensors / front sensor harness visibly broken, hanging or missing — flag only, never priced
   AIRBAG            deployed airbag / SRS restraint visibly deployed in the cabin (deflated or hanging bag at the steering wheel, dashboard, roof rail / A-pillar, or seat; burst SRS module cover). DEPLOYED bag only — NOT an intact airbag, NOT a dashboard warning light. Genuine non-airbag interior damage (torn seat, cracked screen, dash panel) still uses OTHER. Cost is owned by the engine, not this line — report it; do not put a price on it.
 
 PRESENCE CHECK:
@@ -98,7 +101,7 @@ PRESENCE CHECK:
   PARCEL_SHELF      parcel shelf / rear load cover
 
 ESCAPE:
-  OTHER             any damage-relevant part not listed above
+  OTHER(<one or two words>)  any damage-relevant part not listed above — write OTHER followed by one or two words naming the part in brackets, e.g. OTHER(door handle) or OTHER(seat trim). Use OTHER only for a part that is damaged or missing: never write an OTHER line with iv:false or iv:na.
 
 EV-CONDITIONAL — use only on electric or plug-in hybrid vehicles:
   EV_BATTERY_ZONE      underfloor battery zone / battery pack area
