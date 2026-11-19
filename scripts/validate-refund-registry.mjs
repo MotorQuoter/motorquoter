@@ -190,7 +190,7 @@ console.log('\n8. Salvage: a paid report that fails to save is refunded automati
   const iSettle = assess.indexOf('await settleFailedSave({', iLoud);
   const iGeneric = assess.indexOf("if (outcome.generic) throw new Error('Assessment failed');", iSettle);
   const iPaid500 = assess.indexOf('return NextResponse.json({ error: outcome.message, refundStatus: outcome.refundStatus }, { status: 500 });', iGeneric);
-  const iReport = assess.indexOf('return NextResponse.json({ assessment, vehicleDetails: enrichedVd,', iPaid500);
+  const iReport = assess.indexOf('return NextResponse.json({ assessment: forBuyer(assessment), vehicleDetails: enrichedVd,'   /* batch 252 A2: _runFacts stripped */, iPaid500);
   ok('assess route: a failed save goes through settleFailedSave', iLoud > 0 && iSettle > iLoud);
   ok('assess route: promo / free → generic throw; paid → 500 with the refund message — both before the report is returned', iGeneric > iSettle && iPaid500 > iGeneric && iReport > iPaid500);
   ok('assess route: the paid status reset matches the catch (failed, only while processing)', /resetStatus: \(\) => supabase\.from\('salvage_sessions'\)\.update\(\{ status: 'failed' \}\)\.eq\('id', salvageId\)\.eq\('status', 'processing'\)/.test(assess));
@@ -249,8 +249,8 @@ console.log('\n9. Salvage: once refunded (failed save OR 529), the session is re
   const iCheck = assess.indexOf('const refundCheck = await chargeRefunded(new Stripe(process.env.STRIPE_SECRET_KEY), paymentIntentId, chargeAmount);', iGuard);
   const iRefuse = assess.indexOf('return NextResponse.json({ refunded: true, error: REFUNDED_SESSION_MESSAGE }, { status: 409 });', iCheck);
   const iFetch = assess.indexOf("const { data: session, error: fetchError } = await supabase", iRefuse);
-  const iClaim = assess.indexOf("const sessionUpdate = { status: 'processing' };", iFetch);
-  const iRun = assess.indexOf('await runAssessment({ images, vd, market, roiTier })', iClaim);
+  const iClaim = assess.indexOf("const sessionUpdate = { status: 'processing', vehicle_details: session.vehicle_details };"   /* batch 252 A3: start stamp in the claim */, iFetch);
+  const iRun = assess.indexOf('await runAssessment({ images, vd, market, roiTier, facts: _facts })'   /* batch 252 A2 */, iClaim);
   ok('assess route: refused server-side — after a stored report is returned, before image fetch, processing claim and the model run',
     iStored > 0 && iGuard > iStored && iCheck > iGuard && iRefuse > iCheck && iFetch > iRefuse && iClaim > iFetch && iRun > iClaim);
   ok('assess route: a failed check allows the run and logs [REFUND CHECK FAILED]', assess.includes('[REFUND CHECK FAILED]') && assess.includes('— run allowed'));

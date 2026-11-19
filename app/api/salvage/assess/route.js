@@ -50,7 +50,8 @@ import { applyFogBumperRule, completenessFlagsFor, frontImpactIsOneCorner } from
 import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 B2(ii)
 import { categoryMarkerLine } from '@/lib/categoryMarker.mjs';     // batch 247 B2 ruling 2
 import { dropV5Sentences } from '@/lib/v5Prose.mjs';                // batch 247 B3 ruling 1
-
+import { isRunDead, settleDeadRun, runStartStamp } from '@/lib/runLifecycle.mjs';   // batch 252 A1/A3/B
+import { newRunFacts, runWithFacts, markPhase, recordCall, summariseRunFacts } from '@/lib/runFacts.mjs';   // batch 252 A2
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
 // M1/M2 → top-level class from typeApproval alone.
@@ -150,7 +151,9 @@ export const ELIGIBLE_PANELS = Object.freeze({   // batch 153: exported (read-on
   ]),
 });
 
-export const maxDuration = 300;
+// batch 252 A1 (Vincent, 19 Nov): 800 s — the Pro + fluid maximum. lib/runLifecycle.mjs RUN_MAX_SECS must equal it (the
+// dead-run window is RUN_MAX_SECS + 100 s from the run's start stamp); validate-batch252-run pins both.
+export const maxDuration = 800;
 export { STRUCT_FLOOR_ZONE, structureFloorApplies, isStructureFloorPanel };   // batch 149 Y3 — re-exported; the owner is lib/structureFloor.mjs
 
 // batch 151 V3 — the §4 bumper limit note says only what the engine read. 'absent' = the presence read says
@@ -963,18 +966,22 @@ const MAX_RETRIES = 3;
 async function with529Retry(name, fetchThunk) {
   let attempt = 0;
   let lastRequestId = null;
+  const _t = Date.now();   // batch 252 A2: call latency for _runFacts
   while (true) {
     let res;
     try { res = await fetchThunk(); } catch (_) {
+      await recordCall(name, null, Date.now() - _t);
       return { res: null, exhausted: false, lastRequestId };
     }
     lastRequestId = res.headers?.get('request-id') || res.headers?.get('x-request-id') || null;
     if (res.status !== 529 && res.status !== 503) {
       if (attempt > 0) console.log(`[529 RECOVERED] call=${name} after=${attempt}`);
+      await recordCall(name, res, Date.now() - _t);   // batch 252 A2: reads a clone — the caller's body is untouched
       return { res, exhausted: false, lastRequestId };
     }
     if (attempt >= MAX_RETRIES) {
       console.error(`[529 EXHAUSTED] call=${name} request_id=${lastRequestId}`);
+      await recordCall(name, res, Date.now() - _t, { exhausted: true });
       return { res, exhausted: true, lastRequestId };
     }
     const backoff = 1000 * Math.pow(2, attempt) + Math.floor(Math.random() * 1000);
@@ -3404,7 +3411,15 @@ class AssessmentOverloadedError extends Error {
   constructor(reason) { super(`assessment overloaded: ${reason}`); this.name = 'AssessmentOverloadedError'; this.reason = reason; }
 }
 
+// batch 252 A2: _runFacts (run telemetry: sha, timings, spend) is stored on the row but never sent to the buyer's browser.
+export function forBuyer(assessment) {
+  if (!assessment || typeof assessment !== 'object') return assessment;
+  const { _runFacts, ...rest } = assessment;
+  return rest;
+}
+
 export async function GET(request) {
+  const _routeT0 = Date.now();   // batch 252 A2: _runFacts.routeMs (Stripe check + image fetch + pipeline)
   console.log(`[DEPLOY] sha=${process.env.VERCEL_GIT_COMMIT_SHA || 'n/a'} dep=${process.env.VERCEL_DEPLOYMENT_ID || 'n/a'} url=${process.env.VERCEL_URL || 'n/a'} env=${process.env.VERCEL_ENV || 'n/a'}`);
   const { searchParams } = new URL(request.url);
   const stripeSessionId = searchParams.get('session_id');
@@ -3423,12 +3438,27 @@ export async function GET(request) {
   const supabase = getSupabase();
 
   try {
-    // CB4: staleness threshold — created_at used as proxy for processing-started-at.
-    // updated_at not verified to auto-update (no trigger confirmed in this codebase).
-    // 600s = 300s maxDuration + ~300s checkout flow headroom. Long-term recommendation:
-    // add a Supabase `updated_at` trigger for a tighter (≈360s) threshold.
-    // Hoisted here so both the promo guard and the main guard can reference it.
-    const STALE_PROCESSING_SECS = 600;
+    // CB4 / batch 252 A1+B: whether a 'processing' row is a dead run is decided by lib/runLifecycle.mjs isRunDead — the
+    // run's own start stamp (vehicle_details._runProgress.startedAt) + 900 s (maxDuration 800 + margin), or created_at +
+    // 1800 s for a row without a stamp. A dead run is settled once by settleDeadRun: paid → refunded (idempotent helper),
+    // promo/free → reset to promo_redeemed so the same session runs again. Both guards below use it.
+    const _sha = process.env.VERCEL_GIT_COMMIT_SHA || 'n/a';
+    const _settleDead = (row, promo) => settleDeadRun({
+      row, promo, salvageId, paymentIntentId, chargeAmount,
+      stripe: promo ? null : new Stripe(process.env.STRIPE_SECRET_KEY),
+      claimDead: async (next) => {
+        const { data } = await supabase.from('salvage_sessions').update({ status: next })
+          .eq('id', salvageId).eq('status', 'processing').is('assessment', null).select('id');
+        return Array.isArray(data) && data.length > 0;
+      },
+      markRow: async (fields) => {
+        const { error } = await supabase.from('salvage_sessions')
+          .update({ vehicle_details: { ...(row.vehicle_details || {}), ...fields } }).eq('id', salvageId);
+        if (error) throw new Error(JSON.stringify(error));
+      },
+      reread: async () => (await supabase.from('salvage_sessions').select('status, assessment, vehicle_details').eq('id', salvageId).single()).data,
+      alert: sendOpsAlert,
+    });
 
     if (promoToken) {
       const { data: tokenCheck } = await supabase
@@ -3468,31 +3498,24 @@ export async function GET(request) {
       if (!claimed?.length) {
         const { data: current } = await supabase
           .from('salvage_sessions')
-          .select('status, assessment, vehicle_details, market, rerun_count, created_at')
+          .select('status, assessment, vehicle_details, market, rerun_count, created_at, prior_assessment')
           .eq('id', salvageId)
           .single();
         if (current?.assessment) {
           const vd = current.vehicle_details || {};
           return NextResponse.json({
-            assessment: current.assessment,
+            assessment: forBuyer(current.assessment),
             vehicleDetails: vd,
             market: current.market,
             rerunCount: current.rerun_count ?? 0,
             bregoData: vd.bregoValuation ?? null,
           });
         }
-        // CB4: stale-lock recovery for promo path
-        if (current?.status === 'processing') {
-          const ageSec = current.created_at
-            ? (Date.now() - new Date(current.created_at).getTime()) / 1000
-            : Infinity;
-          if (ageSec > STALE_PROCESSING_SECS) {
-            // CE: promo-aware reset — token must remain retryable; promo claim accepts
-            // 'promo_redeemed', not 'failed'. Mirrors what the catch block already does.
-            console.error(`[STALE LOCK] promo salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to promo_redeemed`);
-            await supabase.from('salvage_sessions').update({ status: 'promo_redeemed' }).eq('id', salvageId).eq('status', 'processing');
-            return NextResponse.json({ error: 'Assessment timed out — please try again' }, { status: 500 });
-          }
+        // CB4: stale-lock recovery for promo path. CE: promo-aware reset — the token stays retryable (the claim accepts
+        // 'promo_redeemed'). batch 252 B1: settleDeadRun resets it and the buyer is told the free report was not used.
+        if (isRunDead(current)) {
+          const settled = await _settleDead(current, true);
+          return NextResponse.json(settled.body, { status: settled.http });
         }
         return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
       }
@@ -3503,7 +3526,7 @@ export async function GET(request) {
     // on the initial assess run and read back verbatim.
     const { data: check } = await supabase
       .from('salvage_sessions')
-      .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id, created_at')
+      .select('status, vehicle_details, market, assessment, rerun_count, stripe_session_id, created_at, prior_assessment')
       .eq('id', salvageId)
       .single();
 
@@ -3519,7 +3542,7 @@ export async function GET(request) {
       }
       const vd = check.vehicle_details || {};
       return NextResponse.json({
-        assessment: check.assessment,
+        assessment: forBuyer(check.assessment),
         vehicleDetails: vd,
         market: check.market,
         rerunCount: check.rerun_count ?? 0,
@@ -3527,7 +3550,7 @@ export async function GET(request) {
       });
     }
 
-    // CB4: stale-lock recovery — hard Vercel kills (maxDuration=300s) bypass catch,
+    // CB4: stale-lock recovery — hard Vercel kills (maxDuration, 800 s since batch 252) bypass catch,
     // leaving status='processing' permanently. Caught exceptions use the catch block
     // to reset to 'failed'; this handles the uncaught hard-kill case only.
     // CE: promo sessions are identified from the row (vehicle_details.promoToken)
@@ -3540,17 +3563,12 @@ export async function GET(request) {
     // this path is non-promo only. The inner promo guard is promo-scope by
     // definition (it sits inside the if (promoToken) verification block).
     if (check?.status === 'processing' && !check?.assessment && !check.vehicle_details?.promoToken) {
-      const ageSec = check.created_at
-        ? (Date.now() - new Date(check.created_at).getTime()) / 1000
-        : Infinity;
-      if (ageSec > STALE_PROCESSING_SECS) {
-        console.error(`[STALE LOCK] salvageId=${salvageId} processing for ${Math.round(ageSec)}s — resetting to failed`);
-        await supabase
-          .from('salvage_sessions')
-          .update({ status: 'failed' })
-          .eq('id', salvageId)
-          .eq('status', 'processing');
-        return NextResponse.json({ error: 'Assessment timed out — please try again' }, { status: 500 });
+      // batch 252 B1: a paid run found dead is refunded once (settleDeadRun → refundSalvageCharge), the row is marked
+      // (_refunded: reason 'run died' + the _runProgress phase), and the buyer is told. A free re-run of a delivered
+      // report is not refunded. After a refund the batch 140 block below refuses any further run (a new purchase).
+      if (isRunDead(check)) {
+        const settled = await _settleDead(check, false);
+        return NextResponse.json(settled.body, { status: settled.http });
       }
       // Live processing session (within window) — return 409
       return NextResponse.json({ error: 'Assessment already in progress' }, { status: 409 });
@@ -3593,8 +3611,17 @@ export async function GET(request) {
       );
     }
 
+    // batch 252 A3: the run-start stamp. Paid: written in the SAME update that claims 'processing', so a paid processing row
+    // always carries its start (the dead-run window counts from it). Promo: the claim happened above, so the stamp is a
+    // separate write; if it fails the row falls back to created_at (wider window). A stamp write never fails the run.
+    session.vehicle_details = { ...(session.vehicle_details || {}), _runProgress: runStartStamp(_sha) };
+    if (promoToken) {
+      const { error: stampErr } = await supabase.from('salvage_sessions').update({ vehicle_details: session.vehicle_details })
+        .eq('id', salvageId).eq('status', 'processing');
+      if (stampErr) console.error(`[RUN PROGRESS] start stamp write failed salvageId=${salvageId} error=${JSON.stringify(stampErr)} — dead-run window falls back to created_at`);
+    }
     if (!promoToken) {
-      const sessionUpdate = { status: 'processing' };
+      const sessionUpdate = { status: 'processing', vehicle_details: session.vehicle_details };
       if (stripeSessionId) sessionUpdate.stripe_session_id = stripeSessionId;
       const { error: sessionWriteError } = await supabase.from('salvage_sessions').update(sessionUpdate).eq('id', salvageId);
       if (sessionWriteError) {
@@ -3633,9 +3660,25 @@ export async function GET(request) {
     // (images + vehicle_details + market) with no DB writes, no Stripe, and no One-Auto billing of
     // its own (One Auto flows through withOneAutoCache, which the harness overrides). The body below
     // is unchanged — only wrapped — so the prod path stays byte-identical. ===
+    // batch 252 A3: _runProgress at phase boundaries (lib/runFacts.mjs markPhase {stamp:true} → onPhase). Writes are chained
+    // (never out of order), filtered on status 'processing' (a late write can never touch a saved row), drained before the
+    // final save, and a failed write is logged — never thrown. `assessment` stays null until the final save.
+    const _baseVd = session.vehicle_details;
+    let _progressChain = Promise.resolve();
+    const _writeProgress = (phase, ms) => {
+      const stamp = { ...(_baseVd._runProgress || {}), phase, ms };
+      _progressChain = _progressChain.then(async () => {
+        try {
+          const { error } = await supabase.from('salvage_sessions').update({ vehicle_details: { ..._baseVd, _runProgress: stamp } })
+            .eq('id', salvageId).eq('status', 'processing');
+          if (error) console.error(`[RUN PROGRESS] write failed phase=${phase} error=${JSON.stringify(error)}`);
+        } catch (err) { console.error(`[RUN PROGRESS] write threw phase=${phase}: ${err?.message || err}`); }
+      });
+    };
+    const _facts = newRunFacts({ sha: _sha, onPhase: _writeProgress });   // batch 252 A2
     let assessment, enrichedVd;
     try {
-      ({ assessment, enrichedVd } = await runAssessment({ images, vd, market, roiTier }));
+      ({ assessment, enrichedVd } = await runAssessment({ images, vd, market, roiTier, facts: _facts }));
     } catch (pipelineErr) {
       if (!(pipelineErr instanceof AssessmentOverloadedError)) throw pipelineErr;
       // 529 overloaded — reset session status (as the generic catch would), refund, return 503.
@@ -3686,6 +3729,10 @@ export async function GET(request) {
     // returned the report, so the buyer saw a report that was never stored (and a re-run or reload would find none).
     // A failed save is loud and throws into the catch below: status reset (promo → promo_redeemed, else failed) and a
     // 500 — the report is NOT returned.
+    // batch 252 A2/A3: drain the progress writes, then stamp _runFacts (stored, never shown) and the final _runProgress.
+    await _progressChain;
+    assessment._runFacts = summariseRunFacts(_facts, { photos: images.length, routeMs: Date.now() - _routeT0 });
+    enrichedVd._runProgress = { ...(_baseVd._runProgress || {}), phase: 'saved', ms: assessment._runFacts.runMs ?? null };
     const saved = await saveAssessedSession(supabase, salvageId, { status: 'assessed', assessment, vehicle_details: enrichedVd });
     if (!saved.ok) {
       console.error(`[ASSESSMENT SAVE FAILED] salvageId=${salvageId} rows=${saved.rows} error=${JSON.stringify(saved.error)} — the report was NOT stored and is NOT returned to the buyer`);
@@ -3702,7 +3749,7 @@ export async function GET(request) {
       return NextResponse.json({ error: outcome.message, refundStatus: outcome.refundStatus }, { status: 500 });
     }
 
-    return NextResponse.json({ assessment, vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
+    return NextResponse.json({ assessment: forBuyer(assessment), vehicleDetails: enrichedVd, market, rerunCount: 0, bregoData: enrichedVd.bregoValuation ?? null });
 
   } catch (err) {
     console.error('Salvage assess error:', err);
@@ -3734,7 +3781,14 @@ export async function GET(request) {
 // { assessment, enrichedVd }. Interior throws propagate to the route's catch (status reset);
 // AssessmentOverloadedError is caught by the route for the 529 refund/503 path. (Cowork §7/§8.)
 // ============================================================================================
-export async function runAssessment({ images, vd, market, roiTier }) {
+// batch 252 A2: the route passes `facts` (lib/runFacts.mjs newRunFacts) and the body runs inside it, so every model call
+// (with529Retry) and every phase boundary (markPhase) is recorded for `_runFacts`. Without `facts` (the replay harness,
+// validators) nothing is recorded and nothing changes.
+export async function runAssessment(args) {
+  return args?.facts ? runWithFacts(args.facts, () => _runAssessmentBody(args)) : _runAssessmentBody(args);
+}
+
+async function _runAssessmentBody({ images, vd, market, roiTier }) {
   beginRun();   // batch 246: one [MODEL MISMATCH] ops alert per run
   const _runT0 = Date.now();   // batch 246: [RUN TIME] at the end of the run
 
@@ -3845,6 +3899,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Pre-extraction pass (#62): Haiku reads dashboard odometer before Brego valuation
     // batch 222: the read moved, unchanged, into readPhotoOdometer (module scope) so a validator can drive its failure paths.
     const _odoRead = await readPhotoOdometer(images, enrichedVd);
+    markPhase('odometer');   // batch 252 A2
     let photoOdometer = _odoRead.photoOdometer;
     const _photoOdoRaw = _odoRead.raw;   // batch 177 P5 — the Haiku reply, verbatim, stamped on the assessment every time
 
@@ -4300,7 +4355,9 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     const dashReadPromise = runDashClusterRead(images, () => _exhaustedCalls.add('dash-read'), enrichedVd.bregoValuation?.vehicle_desc || null);
 
     // raw per-view ledger assembled pre-main-call (Step 4a) — finalisation (aperture/bumper-off) still applies post-call
+    markPhase('one-auto');   // batch 252 A2: One Auto + lamp/dash dispatch (the per-view chain runs alongside from t0)
     const perViewResults = await perViewResultsPromise;
+    markPhase('per-view', { stamp: true });
 
     // Survivor-count diagnostic — coarse health signal (not the billing gate)
     const viewsFired  = images.length;
@@ -4325,6 +4382,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     console.log(`[ZONE DEMOTE] ${_zoneDemotions.length} vote(s) demoted${_frameZones.ok ? '' : ' — frame-zone pass failed, rule not applied (fail open)'}`);
 
     const correspondenceMap = await runCorrespondencePass(perViewResults, images, () => _exhaustedCalls.add('correspondence'));
+    markPhase('correspondence');   // batch 252 A2 (includes the frame-zone await just above)
     console.log(`[G] correspondenceMap size=${correspondenceMap.size} panels=${[...correspondenceMap.keys()].join(',') || 'none'}`);
     const rawGroups         = groupByPanelId(perViewResults);
     const groups            = splitGroupsByInstance(rawGroups, correspondenceMap);
@@ -4503,6 +4561,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       },
     };
 
+    markPhase('call1', { stamp: true });   // batch 252 A2
     const call2Start = Date.now();
     const { res: call2Res, exhausted: call2Exhausted } = await with529Retry('call2', () => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -4578,6 +4637,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     }
 
     // Join lamp detection (ran in parallel with Claude calls)
+    markPhase('call2', { stamp: true });   // batch 252 A2
     const lampDetectionRaw = await lampDetectionPromise;
     const detectedCorner   = lampDetectionRaw ? selectStruckCornerVerdict(lampDetectionRaw) : null;
     // batch 113 — the photograph's lamp TYPE: the struck corner's if it resolves one, else the other corner's.
@@ -4784,7 +4844,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Hard-fail if the per-view pipeline produced nothing while costed parts exist.
     // A bare return here would bypass the catch block and strand the session in
-    // 'processing' until the 600s stale-lock. Throwing routes through catch (2239–2258)
+    // 'processing' until the dead-run window (lib/runLifecycle.mjs). Throwing routes through catch (2239–2258)
     // which resets promo→promo_redeemed (immediately retryable) and non-promo→failed
     // (retry via same stripe session_id passes payment_status=paid at no re-charge).
     if (pvResult.costedParts.length === 0 && rawParts.length > 0) {
@@ -5396,6 +5456,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
     // Ruling 5: a single-instance panel already charged is not asked (the line says "costed" directly). Ruling 4: cost
     // the difference between the confirmed count and the rows already charged. lib/notesConfirm.mjs owns the rules.
     {
+      markPhase('ledger-probes', { stamp: true });   // batch 252 A2: ledger build, bonnet/sill reads, attribution probes
       const _nRead = await notesReadPromise;
       const _countAnswers = await notesCountAskPromise;
       const _chargedNow = (id) => gatedParts.some(r => r?.panelId === id && isChargedRow(r));
@@ -5403,6 +5464,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
       const _skipped = _singles.filter(_chargedNow);
       for (const id of _skipped) console.log(`[NOTES CONFIRM] ${id} already charged — question skipped (ruling 5)`);
       const _yesNoAnswers = await askPanels(images, _singles.filter(id => !_chargedNow(id)), { retry: with529Retry });
+      markPhase('notes-questions');   // batch 252 A2
       // Part 9 (Vincent, 3 Nov): photos confirm WHETHER; the note sets the minimum count (code-read, never a model).
       const _answers = applyNoteMinimum([..._countAnswers, ..._yesNoAnswers], _nRead);
       // Part 11: a confirmed headlamp is priced from the lamp band THIS lot's engine headlamp rows use — the tier-2 result
@@ -6927,6 +6989,7 @@ export async function runAssessment({ images, vd, market, roiTier }) {
 
     // Pure pipeline complete. The route envelope stamps assessment._payment_kind (needs the
     // session), persists { status:'assessed', assessment, vehicle_details: enrichedVd }, and returns.
+    markPhase('finish', { stamp: true });   // batch 252 A2: everything after the notes questions (sticker retry, prose, gates)
     console.log(`[RUN TIME] ms=${Date.now() - _runT0} photos=${images.length} model=${MODELS.assessPrimary}`);   // batch 246: the real margin under maxDuration
     return { assessment, enrichedVd };
 }

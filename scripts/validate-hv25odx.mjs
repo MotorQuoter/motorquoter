@@ -261,7 +261,7 @@ console.log('\nE. batch 136 task E — the final assessment save and the re-run 
   const iSave = rt.indexOf('const saved = await saveAssessedSession(supabase, salvageId, {');
   const iLoud = rt.indexOf('[ASSESSMENT SAVE FAILED]', iSave);
   const iThrow = rt.indexOf("throw new Error('Assessment failed');", iSave);
-  const iReturn = rt.indexOf('return NextResponse.json({ assessment, vehicleDetails: enrichedVd,', iSave);
+  const iReturn = rt.indexOf('return NextResponse.json({ assessment: forBuyer(assessment), vehicleDetails: enrichedVd,'   /* batch 252 A2: _runFacts stripped */, iSave);
   ok('assess: the final save goes through the checked helper', iSave > 0);
   ok('assess: a failed save logs [ASSESSMENT SAVE FAILED] and throws before the report is returned', iLoud > iSave && iThrow > iLoud && iReturn > iThrow);
   ok('assess: no unchecked `await supabase.from(\'salvage_sessions\').update({ status: \'assessed\'` remains', !/await supabase\s*\.from\('salvage_sessions'\)\s*\.update\(\{ status: 'assessed'/.test(rt));
