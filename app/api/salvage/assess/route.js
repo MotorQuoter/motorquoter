@@ -20,7 +20,7 @@ import { rebuildCeilingHammer } from '@/lib/bidCeiling.mjs';
 import { buildPartsSourcing } from '@/lib/partsSourcing.mjs';
 import { logEvent } from '@/lib/analytics';
 import { getMileageForValuation } from '@/lib/getMileageForValuation';
-import { resolvePhotoOdometerReading, DASH_LISTING_DIVERGENCE_MILES, notesMileageCheck } from '@/lib/mileageCheck.mjs';
+import { resolvePhotoOdometerReading, DASH_LISTING_DIVERGENCE_MILES, notesMileageCheck, odometerReplyNumbers, photoOdometerMisread, lastMotDateMs } from '@/lib/mileageCheck.mjs';
 import { buildMileageCorroborationSlot, countIndependentMileageSources, noMotUnderThree } from '@/lib/mileageCorroboration.mjs';
 import { withOneAutoCache } from '@/lib/oneautoCache';
 import {
@@ -1333,10 +1333,9 @@ export async function readPhotoOdometer(images, enrichedVd) {
       const _odoBadStop = haikuData.stop_reason === 'max_tokens' || haikuData.stop_reason === 'refusal';
       if (_odoBadStop) console.warn(`[HAIKU ODO] stop ${haikuData.stop_reason} — no photo odometer read; listing mileage stands`);
       raw = _odoBadStop ? null : ((haikuData.content || []).find(b => b.type === 'text')?.text || '').trim();
-      const nums = ((raw || '').replace(/,/g, '').match(/\d+/g) || [])
-        .map(n => parseInt(n, 10))
-        .filter(n => n >= 1 && n <= 999999);
-      const uniq = [...new Set(nums)];
+      // batch 252 C2: numbers come from the reply's LAST line only (lib/mileageCheck.mjs odometerReplyNumbers) — prose above
+      // it ("Looking at … the 10th image …") can no longer add a number.
+      const uniq = odometerReplyNumbers(raw);
       // batch 75 §2b — CROSS-CHECK, don't discard. A cluster shot routinely shows odometer AND trip
       // AND range; the old `uniq.length === 1 ? uniq[0] : NaN` threw a legible reading away whenever a
       // second number appeared, silently falling back to the listing. Per assessmentEngine.js:24 the
@@ -3913,6 +3912,22 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
         photoOdometer = null;
       }
       // If lastMot is missing/0/unparseable: no baseline — keep photoOdometer as-is
+    }
+
+    // batch 252 C1/C2 (Vincent, 19 Nov): a probable dash MISREAD is not a discrepancy. lib/mileageCheck.mjs
+    // photoOdometerMisread owns the rule (one digit added / dropped / adjacent swap / tenths appended, or the listing and
+    // the last MOT agree). The photo reading is then ABSENT — no photoMileageFlag, no slot discrepancy, nothing to Call
+    // 1/2 — and the code-owned line prints where the flag used to (web valuation box, PDF, Mileage slot detail).
+    if (photoOdometer !== null) {
+      const _mis = photoOdometerMisread({
+        dash: photoOdometer, listing: enrichedVd.copartListedMileage ?? enrichedVd.odometer ?? null,
+        lastMot: enrichedVd.lastMotMileage ?? null, lastMotMs: lastMotDateMs(enrichedVd.motHistory),
+      });
+      if (_mis) {
+        console.log(`[HAIKU ODO MISREAD] ${_mis.rule} ${_mis.reason}: photo ${_mis.dash} vs listing ${_mis.listing} — photo reading treated as absent`);
+        enrichedVd.photoOdometerMisread = _mis.text;
+        photoOdometer = null;
+      }
     }
 
     if (photoOdometer !== null) {

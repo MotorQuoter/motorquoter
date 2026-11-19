@@ -1474,6 +1474,12 @@ export default function SalvageSuccessPage() {
                             ⚠️ {vehicleDetails.photoMileageFlag}
                           </div>
                         )}
+                        {/* batch 252 C1/C2: a probable dash misread prints where the flag prints — never alongside it */}
+                        {!vehicleDetails?.photoMileageFlag && vehicleDetails?.photoOdometerMisread && (
+                          <div style={{ marginTop: 6, fontSize: 12, color: '#f5c842' }}>
+                            ⚠️ {vehicleDetails.photoOdometerMisread}
+                          </div>
+                        )}
                       </div>
                     );
                   }

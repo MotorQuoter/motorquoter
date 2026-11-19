@@ -531,10 +531,12 @@ export function buildAssessmentPdf(rawAssessment, vehicleDetails, market, identi
       const warnLines = doc.splitTextToSize(estimateWarning, CONTENT_W);
       doc.text(warnLines, MARGIN, y); y += warnLines.length * 4 + 4;
     }
-    if (vd.photoMileageFlag) {
+    // batch 252 C1/C2: a probable dash misread prints in the flag's place (never both — the misread nulls the photo read).
+    const odoNote = vd.photoMileageFlag || vd.photoOdometerMisread;
+    if (odoNote) {
       checkPage(10);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 100, 0);
-      const flagLines = doc.splitTextToSize(str(vd.photoMileageFlag), CONTENT_W);
+      const flagLines = doc.splitTextToSize(str(odoNote), CONTENT_W);
       doc.text(flagLines, MARGIN, y); y += flagLines.length * 4 + 3;
     }
     y += 2;
