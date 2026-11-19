@@ -42,6 +42,7 @@ import { stampCopartNotes, copartNotes, openNoteTarget } from '@/lib/copartNotes
 import { readNotes } from '@/lib/notesReader.mjs';   // batch 242 A
 import { askOpened } from '@/lib/notesConfirm.mjs';   // batch 249 C
 import { askPanels, applyConfirmations, notesPanels, isCountPanel, COUNT_PANELS, withNoteAdditions, applyNoteMinimum, chargedCounts, settleLampAllowance } from '@/lib/notesConfirm.mjs';   // batch 242 C + Part 9
+import { askOdometer, needsOdometerConfirm, odometerConfirmOutcome } from '@/lib/odometerConfirm.mjs';   // batch 254 item 3
 import { scrubSideWords } from '@/lib/sideScrub.mjs';
 import { normaliseLot } from '@/lib/normaliseLot';
 import { PANEL, PANEL_DISPLAY, PANEL_BEHAVIOUR, PANEL_CLASS, EV_PANEL_RESOLVED_CLASS, isBevLot, resolvePanelToken } from '@/lib/panelEnum.mjs';
@@ -3945,6 +3946,31 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
       }
     }
 
+    // batch 254 item 3 (Vincent R4, 19 Nov) — a Fable check before any dash-vs-listing discrepancy (lib/odometerConfirm.mjs owns
+    // the question, the parse and the outcome). Trigger: the Haiku figure still standing (or, on the multi-number divergence
+    // path, every Haiku number) is beyond DASH_LISTING_DIVERGENCE_MILES of the listing, after the sanity and misread rules.
+    // ONE question, the notes-confirm cached photo prefix. Runs before the valuation mileage and before Call 1 is built.
+    {
+      const _listedN = (() => { const m = String(enrichedVd.copartListedMileage ?? enrichedVd.odometer ?? '').replace(/,/g, '').match(/\d+/); return m ? parseInt(m[0], 10) : NaN; })();
+      const _haikuNums = photoOdometer !== null ? [photoOdometer]
+        : (enrichedVd.photoMileageFlag && !enrichedVd.photoOdometerMisread ? odometerReplyNumbers(_photoOdoRaw) : []);
+      if (needsOdometerConfirm(_haikuNums, _listedN)) {
+        const _fab = await askOdometer(images, { retry: with529Retry });
+        const _out = odometerConfirmOutcome({ fable: _fab.reading, haiku: _haikuNums, listing: _listedN });
+        enrichedVd._odometerConfirm = { haiku: _haikuNums, listing: _listedN, fable: _fab.reading, photo: _fab.photo, verdict: _fab.verdict, branch: _out.branch };
+        if (_out.branch === 'listing') {
+          photoOdometer = _out.value;
+          delete enrichedVd.photoMileageFlag;
+        } else if (_out.branch === 'unreadable' || _out.branch === 'neither') {
+          enrichedVd.photoOdometerMisread = _out.text;
+          photoOdometer = null;
+          delete enrichedVd.photoMileageFlag;
+        }   // 'haiku': unchanged — the discrepancy flag below (or the multi-number one already set) stands
+        console.log(`[ODO CONFIRM] haiku ${JSON.stringify(_haikuNums)} listing ${_listedN} fable ${_fab.reading ?? _fab.verdict} → ${_out.branch}`);
+        markPhase('odometer-confirm');
+      }
+    }
+
     if (photoOdometer !== null) {
       const listedRaw = enrichedVd.copartListedMileage ?? enrichedVd.odometer;
       const listedMileage = listedRaw != null
@@ -4773,7 +4799,7 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
     assessment._frameZones = _frameZones; // { ok, frames:[{i,zones,windscreenLabel}] } — always-run frame-zone pass
     assessment._zoneDemotions = _zoneDemotions; // batch 119 — every per-view vote the frame-zone read contradicted (→ na)
     if (lampResult) assessment._lampResult = lampResult;
-    assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw };   // batch 177 P5 — stored every time, null included
+    assessment._photoOdometer = { value: photoOdometer, raw: _photoOdoRaw, confirm: enrichedVd._odometerConfirm ?? null };   // batch 177 P5 — stored every time, null included; batch 254 3: the Fable check
     assessment._damagedHeadlampsSeen = _damagedLampsSeen;   // batch 177 P3 — stamped so the one-corner test is auditable
     assessment._pairHeadlampsSeen = _pairLampsSeen;         // batch 248 B4 — the pair-cap count (damaged or missing), auditable
     assessment._lampObs = lampObs ? {
