@@ -21,6 +21,7 @@ import { VENDOR_SUFFIX_MAP } from '@/lib/coreSlots';
 import { NOTES_HEADING, NOTES_SOURCE_LINE, NOTES_NOT_COSTED } from '@/lib/copartNotes.mjs';   // batch 202
 import { REPAIR_FIGURE_FOOTER } from '@/config/reportFooter.mjs';
 import { fmtCopartErv } from '@/lib/copartErv.mjs';
+import { nextPollAction, shouldPoll, POLL_INTERVAL_MS, MAX_POLLS } from '@/lib/assessPoll.mjs';   // batch 253 A2
 
 const LOADING_MESSAGES = [
   'Verifying payment...',
@@ -197,25 +198,8 @@ export default function SalvageSuccessPage() {
     return () => clearInterval(intervalRef.current);
   }, [status]);
 
-  const runAssessment = async () => {
-    try {
-      const url = promoTokenRef.current
-        ? `/api/salvage/assess?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
-        : `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
-      const res = await fetch(url);
-      const ct = res.headers.get('content-type') || '';
-      const data = ct.includes('application/json') ? await res.json() : null;
-      if (data?.aborted) {
-        setOverloadedMessage(data.message || '');
-        setRefunded(data.refundStatus === 'refunded');   // batch 140 W4
-        setStatus('overloaded');
-        return;
-      }
-      if (!res.ok) {
-        // batch 140 W4: refunded by this failure (failed save) or on an earlier attempt (server refusal) → no retry offered.
-        setRefunded(data?.refunded === true || data?.refundStatus === 'refunded');
-        throw new Error(data?.error || `Assessment failed (${res.status})`);
-      }
+  // batch 253 A2: the one place a delivered report is put on screen — the direct assess reply and the status poll both use it.
+  const showReport = (data) => {
       setAssessment(data.assessment);
       {
         const _bk = computeBookingLine(data.assessment);
@@ -229,10 +213,63 @@ export default function SalvageSuccessPage() {
       setBregoData(data.bregoData || null);
       setStatus('success');
       loadEditLayer(data.assessment);   // buyer ledger edits — off the critical render path
-    } catch (e) {
-      setErrorMsg(e.message);
-      setStatus('error');
+  };
+
+  const failWith = (data, fallback) => {
+    // batch 140 W4: refunded by this failure (failed save / dead run) or on an earlier attempt (server refusal) → no retry offered.
+    setRefunded(data?.refunded === true || data?.refundStatus === 'refunded');
+    setErrorMsg(data?.error || fallback);
+    setStatus('error');
+  };
+
+  // batch 253 A2: when the assess fetch drops (network error) or answers 409 "already in progress", the run carries on server-side.
+  // Poll the status route every 15 s (lib/assessPoll.mjs decides) until a report, a failure or a dead run; a dead run asks the
+  // assess GET once, which settles it (refund / free run) and answers as it always does.
+  const pollForResult = async (polls = 0) => {
+    if (polls >= MAX_POLLS) { failWith(null, 'Your assessment is taking longer than expected. Please reload this page in a few minutes.'); return; }
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    let reply = null;
+    try {
+      const url = promoTokenRef.current
+        ? `/api/salvage/status?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
+        : `/api/salvage/status?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      reply = (res.headers.get('content-type') || '').includes('application/json') ? await res.json() : null;
+      if (!res.ok && !reply?.status) { failWith(reply, `Assessment failed (${res.status})`); return; }
+    } catch {
+      return pollForResult(polls + 1);   // still offline — keep waiting
     }
+    const next = nextPollAction(reply);
+    if (next === 'show') return showReport(reply);
+    if (next === 'continue') return pollForResult(polls + 1);
+    if (next === 'reassess') return runAssessment({ fromPoll: true });
+    return failWith(reply, 'Your assessment did not complete. Please try again.');
+  };
+
+  const runAssessment = async ({ fromPoll = false } = {}) => {
+    let res, data;
+    try {
+      const url = promoTokenRef.current
+        ? `/api/salvage/assess?salvage_id=${salvageIdRef.current}&promo_token=${promoTokenRef.current}`
+        : `/api/salvage/assess?salvage_id=${salvageIdRef.current}&session_id=${sessionIdRef.current}`;
+      res = await fetch(url);
+      const ct = res.headers.get('content-type') || '';
+      data = ct.includes('application/json') ? await res.json() : null;
+    } catch {
+      // the connection dropped — the run may still be going server-side
+      if (shouldPoll({ networkError: true })) return pollForResult();
+      return;
+    }
+    if (data?.aborted) {
+      setOverloadedMessage(data.message || '');
+      setRefunded(data.refundStatus === 'refunded');   // batch 140 W4
+      setStatus('overloaded');
+      return;
+    }
+    // a 409 from the poll's own re-ask would loop; only the first fetch hands over to polling
+    if (!fromPoll && shouldPoll({ httpStatus: res.status })) return pollForResult();
+    if (!res.ok) return failWith(data, `Assessment failed (${res.status})`);
+    try { showReport(data); } catch (e) { failWith(null, e.message); }
   };
 
   // Fetch the stored edit layer for this ledger and seed the working set. Apply it ONLY when its

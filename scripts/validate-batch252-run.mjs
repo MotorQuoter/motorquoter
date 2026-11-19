@@ -97,7 +97,8 @@ ok('route: runAssessment runs its body inside the facts store only when the rout
 ok('route: with529Retry records every reply (ok, network failure, 529-exhausted)',
   /await recordCall\(name, res, Date\.now\(\) - _t\);/.test(route) && /await recordCall\(name, null, Date\.now\(\) - _t\);/.test(route) && /exhausted: true \}\);/.test(route));
 ok('route: _runFacts is stripped from every assessment sent to the browser (3 sites)',
-  (route.match(/assessment: forBuyer\(/g) || []).length === 3 && /const \{ _runFacts, \.\.\.rest \} = assessment;/.test(route));
+  (route.match(/assessment: forBuyer\(/g) || []).length === 3
+  && /const \{ _runFacts, \.\.\.rest \} = assessment;/.test(readFileSync(join(ROOT, 'lib/runFacts.mjs'), 'utf8')));   // batch 253 A2: forBuyer lives in lib/runFacts.mjs
 
 // ── B: the dead paid run ─────────────────────────────────────────────────────────────────────────────────────────────
 console.log('\nB. Dead runs: state transitions (synthetic rows, fake Stripe)');

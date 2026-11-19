@@ -51,7 +51,7 @@ import { dropCategorySentences } from '@/lib/categoryProse.mjs';   // batch 247 
 import { categoryMarkerLine } from '@/lib/categoryMarker.mjs';     // batch 247 B2 ruling 2
 import { dropV5Sentences } from '@/lib/v5Prose.mjs';                // batch 247 B3 ruling 1
 import { isRunDead, settleDeadRun, runStartStamp } from '@/lib/runLifecycle.mjs';   // batch 252 A1/A3/B
-import { newRunFacts, runWithFacts, markPhase, recordCall, summariseRunFacts } from '@/lib/runFacts.mjs';   // batch 252 A2
+import { newRunFacts, runWithFacts, markPhase, recordCall, summariseRunFacts, forBuyer } from '@/lib/runFacts.mjs';   // batch 252 A2
 // ── Body-class resolution ──────────────────────────────────────────────────────
 // Keyword set from 270-session string enumeration (25 Jun 2026).
 // M1/M2 → top-level class from typeApproval alone.
@@ -3408,13 +3408,6 @@ export function srsTierFromSignals(deploymentConfirmedByEnum, paste, srsPosition
 // refund, and return 503 — the old inline 529-abort path, now surfaced from the pure pipeline.
 class AssessmentOverloadedError extends Error {
   constructor(reason) { super(`assessment overloaded: ${reason}`); this.name = 'AssessmentOverloadedError'; this.reason = reason; }
-}
-
-// batch 252 A2: _runFacts (run telemetry: sha, timings, spend) is stored on the row but never sent to the buyer's browser.
-export function forBuyer(assessment) {
-  if (!assessment || typeof assessment !== 'object') return assessment;
-  const { _runFacts, ...rest } = assessment;
-  return rest;
 }
 
 export async function GET(request) {
