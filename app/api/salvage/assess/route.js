@@ -6451,6 +6451,7 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
         // so the limit lookup reads the authoritative list; card composition is unchanged.
         limitFlags:     assessment._flaggedParts,
         pvVotes:        assessment._pvVotes,   // batch 247 B3: votes pick the missing wording
+        preGateParts:   assessment._preGateParts,   // batch 253 A1: cards follow the Inspection Flags' 4f disagree filter
       });
       if (_cards.length > 0) {
         assessment._damageCards = _cards;
