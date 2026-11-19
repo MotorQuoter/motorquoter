@@ -31,7 +31,7 @@ import {
   normName, sumPartsRealistic, reconcileParts,
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
-  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, codeOwnDriverSentence, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
+  assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, codeOwnDriverSentence, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible, enforceBeamSeenOnly,
   reconcileFlagMoneyWording, rewordDisputedFlags, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
   FRONT_SENSORS_REASON,   // batch 253 B1
 } from '@/lib/parts.mjs';
@@ -6405,6 +6405,16 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
         _bumperOffLimit: true, _bumperOffWhy: _why,
       });
       console.log(`[BUMPER-OFF §4] ${end} bumper off (${_why}) + ${panelId} costed → stated the limit (panel kept costed)`);
+    }
+
+    // batch 254 item 1 (Vincent R2) — the bumper reinforcement is charged only when the front bumper is off / missing / torn
+    // open (lib/parts.mjs enforceBeamSeenOnly, one owner); a charged undertray carries its strike note. Reads the FINALISED
+    // ledger (post-labour: the beam has no labour row) and runs above the VDS / KCD / parts_sum / cards / buyer flags.
+    {
+      const _beam = enforceBeamSeenOnly({ gatedParts, flagLists: [assessment._flaggedParts, coreObs.flaggedParts], pvVotes: assessment._pvVotes });
+      if (_beam.uncosted.length) assessment._beamNotSeen = { uncosted: _beam.uncosted.map(r => ({ action: r.action, used: r.used, oem: r.oem })), why: _beam.why };
+      if (_beam.why) console.log(`[BEAM SEEN-ONLY] ${_beam.uncosted.length ? 'uncosted' : 'kept'} — ${_beam.why}`);
+      if (_beam.undertrayNoted) console.log('[UNDERTRAY] charged → strike note added');
     }
 
     // Code-assembled Visible Damage Summary (Step 4c). COSTED PANELS ONLY — one block per
