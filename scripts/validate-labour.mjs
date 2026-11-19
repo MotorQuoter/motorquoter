@@ -621,8 +621,9 @@ console.log('\n15. batch 132 — the quarter Q4 DECLINES reaches the buyer: flag
   const items = (t) => String(t || '').split('\n').map((l) => l.replace(/^\d+[.)]\s*/, '')).filter(Boolean);
   const decline = (flags, pvVotes, costed = []) => promoteFlaggedQuarter({ gatedParts: [], flaggedParts: flags, costedIds: new Set(costed), sevByPanel: new Map(), zoneByPanel: new Map(), entry: ENTRY, name: 'Rear quarter panel', pvVotes });
 
-  eq('checklist item, verbatim as Cowork wrote it', Q4_DECLINED_CHECKLIST_ITEM, 'Show rear quarter close-up — the photos disagree on this panel; it is not costed and must be checked before bidding.');
-  ok('flag reason says the photos disagree, it is not costed, and it must be checked', /photos disagree/.test(Q4_DECLINED_REASON) && /not costed/.test(Q4_DECLINED_REASON) && /must be checked/.test(Q4_DECLINED_REASON));
+  // batch 252 D1: the Q4-declined quarter reads the one disputed-panel sentence, on the flag and the checklist alike.
+  eq('checklist item = the flag sentence (batch 252 D1)', Q4_DECLINED_CHECKLIST_ITEM, 'Photos disagree on the rear quarter panel: some show damage, some do not. It is not in the repair total. Check it on inspection before bidding.');
+  ok('flag reason says the photos disagree, it is not in the repair total, and to check it', /^Photos disagree/.test(Q4_DECLINED_REASON) && /not in the repair total/.test(Q4_DECLINED_REASON) && /Check it on inspection before bidding/.test(Q4_DECLINED_REASON));
   ok('flag reason is Latin-1 with a hyphen (PDF flag reasons are printed without the dash mapping)', !/[^\x00-\xFF]/.test(Q4_DECLINED_REASON));
 
   // 🎯 HMZ8034 shape (live-only; its stored _pvVotes verbatim) — a synthetic lock, not a replay.
@@ -711,8 +712,9 @@ console.log('\n-- batch 145 V1: checklist seeds carry no internal language --');
     { panelId: 'REAR_QUARTER', partName: 'Rear quarter panel', zone: 'rear', weight: 'medium',
       reason: reasonOf('AMALG_REASON_DISAGREE'), _amalgDisagree: true },
   ], { lampTier2Fired: false });
-  ok('disagree seed uses the flag\'s words ("the listing photographs disagree on this part")',
-     /Show Rear quarter panel close-up — the listing photographs disagree on this part; condition unconfirmed\./.test(dis));
+  // batch 252 D1: the checklist line is the one disputed-panel sentence (the flag reads it too after the late pass).
+  ok('disagree seed uses the one disputed-panel sentence (batch 252 D1)',
+     dis.includes('Photos disagree on the rear quarter panel: some show damage, some do not. It is not in the repair total. Check it on inspection before bidding.'));
   ok('and the flag itself opens the same way', reasonOf('AMALG_REASON_DISAGREE').startsWith('the listing photographs disagree on this part'));
 
   // The airbag line (batch 131, Vincent's own words) is NOT touched by this pass.

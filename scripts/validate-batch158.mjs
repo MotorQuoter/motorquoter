@@ -21,8 +21,8 @@ console.log('\n-- A1: a split-vote panel that is not costed is still inspected -
 const VOTES = { BONNET: { views: 5, resolving: 3, damaged: 1, clean: 2, notVisible: 0, branch: 'disagree' } };
 ok('a split vote is at least one damaged AND at least one clean', isSplitVote({ damaged: 1, clean: 2 })
   && !isSplitVote({ damaged: 3, clean: 0 }) && !isSplitVote({ damaged: 0, clean: 3 }) && !isSplitVote(null));
-ok("the wording is Vincent's, code-owned", SPLIT_VOTE_REASON('Bonnet')
-  === 'Photographs disagree on the Bonnet — some show damage, some do not. Not included in the repair total; check it on inspection before bidding.');
+ok("the wording is Vincent's, code-owned (batch 252 D1: the one disputed-panel sentence)", SPLIT_VOTE_REASON('Bonnet')
+  === 'Photos disagree on the bonnet: some show damage, some do not. It is not in the repair total. Check it on inspection before bidding.');
 
 // CK75ONW verbatim: the bonnet-skin read cleared the disagree floor, leaving a low-weight breadcrumb that
 // asserted the panel was FINE ("hood skin intact … no separate panel cost"). The disclosure replaces it.

@@ -32,7 +32,7 @@ import {
   applyVisibilityGate, finalizeLampInstrumentation, classifyLampMoneyRows, tier2LampDisclosureFlag,
   lampChecklistItem, appendChecklistItem,
   assembleVdsParts, assembleKcdParts, bindClaimClasses, findProseDamageUncosted, addProseDamageInspection, unbindUnchargedCostClaims, codeOwnDriverSentence, buildBuyerFlags, seedChecklistFromFlags, stripBodyIneligible,
-  reconcileFlagMoneyWording, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
+  reconcileFlagMoneyWording, rewordDisputedFlags, dropNotVisibleForCharged, trimPanelOverlaps, discloseSplitVoteUncosted, nameOtherFlags,
 } from '@/lib/parts.mjs';
 import { sanitizeSideTerms } from '@/lib/sanitizeProse';
 import { HEADLAMP_BANDS, HEADLAMP_BAND_DEFAULT } from '@/lib/lampBands.mjs';
@@ -6432,6 +6432,8 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
       for (const d of dropNotVisibleForCharged([assessment._flaggedParts, coreObs.flaggedParts], gatedParts)) {
         console.log(`[FLAG NOT-VISIBLE] ${d.panelId} is charged — "not clear" floor flag dropped (batch 177 P2)`);
       }
+      // batch 252 D1: the raw disagree flags read the one sentence, written once here (after aperture + Q4, before the reads).
+      for (const d of rewordDisputedFlags([assessment._flaggedParts, coreObs.flaggedParts])) console.log(`[DISPUTED LINE] ${d.panelId} (${d.partName}) → the one disputed-panel sentence (batch 252 D1)`);
       const _z2 = reconcileFlagMoneyWording([...(assessment._flaggedParts || []), ...(coreObs.flaggedParts || [])], gatedParts);
       for (const r of _z2) console.log(`[FLAG MONEY WORDING] ${r.panelId} is costed — no-cost reason rewritten ("${r.from.slice(0, 50)}…")`);
       if (_z2.length === 0) console.log('[FLAG MONEY WORDING] no costed panel carried a no-cost reason');

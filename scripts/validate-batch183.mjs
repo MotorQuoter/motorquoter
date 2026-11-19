@@ -28,7 +28,7 @@ console.log('\n-- P2: the single-MINOR line ends "before bidding" again --');
   discloseSplitVoteUncosted({ pvVotes: { REAR_DOOR: { damaged: 1, clean: 1 } }, gatedParts: [], flags: single, display: { REAR_DOOR: 'Rear door' } });
   ok('(SF69YBB rear door, one MINOR vote) the flag carries the line', single[0].reason === L);
   ok('the checklist carries the same line', seedChecklistFromFlags('1. x', single).includes(`2. ${L}`));
-  ok('other split votes keep "Photographs disagree"', SPLIT_VOTE_REASON('Bonnet').startsWith('Photographs disagree on the Bonnet'));
+  ok('other split votes keep the disputed-panel sentence (batch 252 D1)', SPLIT_VOTE_REASON('Bonnet').startsWith('Photos disagree on the bonnet'));
 }
 
 console.log('\n-- P3: a prose sentence may not claim a ledger line that does not exist --');
