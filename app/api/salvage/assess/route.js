@@ -6433,11 +6433,11 @@ async function _runAssessmentBody({ images, vd, market, roiTier }) {
       console.log(`[BUMPER-OFF §4] ${end} bumper off (${_why}) + ${panelId} costed → stated the limit (panel kept costed)`);
     }
 
-    // batch 254 item 1 (Vincent R2) — the bumper reinforcement is charged only when the front bumper is off / missing / torn
-    // open (lib/parts.mjs enforceBeamSeenOnly, one owner); a charged undertray carries its strike note. Reads the FINALISED
+    // batch 254 item 1 / batch 255 R1 — the bumper reinforcement is charged only when the front bumper is a charged row AND the
+    // beam's own attribution probe (run above, assessment._attributionProbe) confirmed it (lib/parts.mjs enforceBeamSeenOnly); a charged undertray carries its strike note. Reads the FINALISED
     // ledger (post-labour: the beam has no labour row) and runs above the VDS / KCD / parts_sum / cards / buyer flags.
     {
-      const _beam = enforceBeamSeenOnly({ gatedParts, flagLists: [assessment._flaggedParts, coreObs.flaggedParts], pvVotes: assessment._pvVotes });
+      const _beam = enforceBeamSeenOnly({ gatedParts, flagLists: [assessment._flaggedParts, coreObs.flaggedParts], probePanels: assessment._attributionProbe?.panels ?? null });
       if (_beam.uncosted.length) assessment._beamNotSeen = { uncosted: _beam.uncosted.map(r => ({ action: r.action, used: r.used, oem: r.oem })), why: _beam.why };
       if (_beam.why) console.log(`[BEAM SEEN-ONLY] ${_beam.uncosted.length ? 'uncosted' : 'kept'} — ${_beam.why}`);
       if (_beam.undertrayNoted) console.log('[UNDERTRAY] charged → strike note added');
