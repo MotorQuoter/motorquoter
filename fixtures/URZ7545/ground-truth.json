@@ -136,6 +136,19 @@
     "REAR_GLASS": {
       "label": "clean",
       "source": "Vincent 2026-09-18 (labelling sheet)"
+    },
+    "FRONT_BUMPER_REINFORCEMENT": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to"
+    },
+    "UNDERTRAY": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to",
+      "note": "proposed: damaged (?) — 22 may be the lower grille/trim, not the tray"
+    },
+    "FRONT_SENSORS": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to"
     }
   }
 }

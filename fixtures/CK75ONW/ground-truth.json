@@ -139,6 +139,20 @@
     "REAR_GLASS": {
       "label": "clean",
       "source": "Vincent 2026-09-17 (labelling sheet)"
+    },
+    "FRONT_BUMPER_REINFORCEMENT": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to"
+    },
+    "UNDERTRAY": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to",
+      "note": "proposed: clean (?) — only the lower edge is seen"
+    },
+    "FRONT_SENSORS": {
+      "label": "cannot-tell",
+      "source": "CC proposal 19 Nov, B2 sheet; (?) rows ruled cannot-tell by Vincent 19 Nov 15:38; clear rows not objected to",
+      "note": "proposed: cannot-tell (leans clean)"
     }
   }
 }
